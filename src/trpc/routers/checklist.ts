@@ -1,0 +1,715 @@
+import { router, protectedProcedure, leadProcedure } from "@/trpc/init";
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { calculateWorkdayScore, getCutoffTimeInfo, DEFAULT_SCORING_CONFIG } from "@/lib/scoring-engine";
+import { detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
+
+function getTodayDateOnly(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
+function parseDateOnly(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function serializeBigInt<T>(obj: T): T {
+  return JSON.parse(
+    JSON.stringify(obj, (_, value) =>
+      typeof value === "bigint" ? Number(value) : value
+    )
+  );
+}
+
+export const checklistRouter = router({
+  // 1. Get or initialize today's checklist for current operator (or specified user for lead/admin)
+  getToday: protectedProcedure
+    .input(z.object({ userId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const targetUserId =
+        (ctx.session.user.role === "LEAD" || ctx.session.user.role === "ADMIN") && input?.userId
+          ? input.userId
+          : ctx.session.user.id;
+
+      const today = getTodayDateOnly();
+
+      let checklist = await ctx.prisma.dailyChecklist.findUnique({
+        where: {
+          userId_date: {
+            userId: targetUserId,
+            date: today,
+          },
+        },
+        include: {
+          items: {
+            include: {
+              account: {
+                select: {
+                  id: true,
+                  username: true,
+                  country: true,
+                  gpmProfileId: true,
+                  status: true,
+                  totalViews: true,
+                  totalRevenue: true,
+                  totalVideos: true,
+                  lastSyncedAt: true,
+                },
+              },
+            },
+            orderBy: { updatedAt: "asc" },
+          },
+        },
+      });
+
+      // If no checklist exists for today, automatically generate one based on assigned accounts
+      if (!checklist) {
+        const assignedAccounts = await ctx.prisma.tiktokAccount.findMany({
+          where: {
+            assignedUserId: targetUserId,
+            status: { in: ["ACTIVE", "WARMING"] },
+          },
+        });
+
+        checklist = await ctx.prisma.dailyChecklist.create({
+          data: {
+            userId: targetUserId,
+            date: today,
+            totalAssigned: assignedAccounts.length,
+            completedCount: 0,
+            completionRate: 0,
+            workdayScore: 0,
+            items: {
+              create: assignedAccounts.map((acc) => ({
+                accountId: acc.id,
+                isPosted: false,
+                isSynced: !!acc.lastSyncedAt,
+                isCompleted: false,
+              })),
+            },
+          },
+          include: {
+            items: {
+              include: {
+                account: {
+                  select: {
+                    id: true,
+                    username: true,
+                    country: true,
+                    gpmProfileId: true,
+                    status: true,
+                    totalViews: true,
+                    totalRevenue: true,
+                    totalVideos: true,
+                    lastSyncedAt: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      return serializeBigInt(checklist);
+    }),
+
+  // 2. Comprehensive Roll Call & Timesheet View (Single Date or Date Range for Staffs)
+  getByDate: protectedProcedure
+    .input(
+      z
+        .object({
+          date: z.string().optional(), // YYYY-MM-DD
+          startDate: z.string().optional(), // YYYY-MM-DD
+          endDate: z.string().optional(), // YYYY-MM-DD
+          userId: z.string().optional(), // "ALL" or specific user
+          search: z.string().optional(),
+          scoreFilter: z.enum(["ALL", "FULL", "HALF", "ZERO"]).optional(),
+        })
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const isRangeMode = !!(input?.startDate && input?.endDate);
+      const todayDateStr = new Date().toISOString().split("T")[0];
+      const targetDateStr = input?.date || todayDateStr;
+
+      // 1. Ensure checklists exist for all active staff for the requested dates
+      const activeUsers = await ctx.prisma.user.findMany({
+        where: { isActive: true, role: { in: ["STAFF", "LEAD", "ADMIN"] }, deletedAt: null },
+        include: { tiktokAccounts: { where: { status: { in: ["ACTIVE", "WARMING"] } } } },
+      });
+
+      if (!isRangeMode) {
+        const dateObj = parseDateOnly(targetDateStr);
+        for (const u of activeUsers) {
+          if (u.tiktokAccounts.length > 0) {
+            const existing = await ctx.prisma.dailyChecklist.findUnique({
+              where: { userId_date: { userId: u.id, date: dateObj } },
+            });
+
+            if (!existing) {
+              const newChecklist = await ctx.prisma.dailyChecklist.create({
+                data: {
+                  userId: u.id,
+                  date: dateObj,
+                  totalAssigned: u.tiktokAccounts.length,
+                  completedCount: 0,
+                  completionRate: 0,
+                  workdayScore: 0,
+                },
+              });
+
+              for (const acc of u.tiktokAccounts) {
+                await ctx.prisma.dailyChecklistItem.create({
+                  data: {
+                    checklistId: newChecklist.id,
+                    accountId: acc.id,
+                    isPosted: false,
+                    isSynced: !!acc.lastSyncedAt,
+                    isCompleted: false,
+                  },
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Build Prisma Where Clause
+      const whereClause: any = {};
+
+      if (isRangeMode) {
+        const startObj = parseDateOnly(input!.startDate!);
+        const endObj = parseDateOnly(input!.endDate!);
+        whereClause.date = { gte: startObj, lte: endObj };
+      } else {
+        whereClause.date = parseDateOnly(targetDateStr);
+      }
+
+      if (ctx.session.user.role === "STAFF") {
+        whereClause.userId = ctx.session.user.id;
+      } else if (input?.userId && input.userId !== "ALL") {
+        whereClause.userId = input.userId;
+      }
+
+      if (input?.scoreFilter && input.scoreFilter !== "ALL") {
+        if (input.scoreFilter === "FULL") whereClause.workdayScore = 1.0;
+        else if (input.scoreFilter === "HALF") whereClause.workdayScore = 0.5;
+        else if (input.scoreFilter === "ZERO") whereClause.workdayScore = 0.0;
+      }
+
+      // 3. Query Checklists
+      const checklists = await ctx.prisma.dailyChecklist.findMany({
+        where: whereClause,
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              name: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              role: true,
+              avatar: true,
+            },
+          },
+          items: {
+            include: {
+              account: {
+                select: {
+                  id: true,
+                  username: true,
+                  country: true,
+                  status: true,
+                  gpmProfileId: true,
+                  totalViews: true,
+                  totalRevenue: true,
+                  totalVideos: true,
+                  lastSyncedAt: true,
+                },
+              },
+            },
+            orderBy: { updatedAt: "asc" },
+          },
+        },
+        orderBy: isRangeMode ? [{ date: "desc" }, { createdAt: "asc" }] : [{ createdAt: "asc" }],
+      });
+
+      // Filter by search query if provided
+      let formattedChecklists = checklists.map((c) => {
+        const fullName =
+          [c.user.firstName, c.user.lastName].filter(Boolean).join(" ") ||
+          c.user.name ||
+          c.user.username ||
+          c.user.email;
+
+        return {
+          ...c,
+          user: {
+            ...c.user,
+            fullName,
+          },
+        };
+      });
+
+      if (input?.search) {
+        const s = input.search.toLowerCase().trim().replace(/^@/, "");
+        formattedChecklists = formattedChecklists.filter(
+          (c) =>
+            c.user.fullName.toLowerCase().includes(s) ||
+            (c.user.username && c.user.username.toLowerCase().includes(s)) ||
+            (c.user.email && c.user.email.toLowerCase().includes(s)) ||
+            c.items.some((item) => item.account.username.toLowerCase().includes(s))
+        );
+      }
+
+      // 4. Compute High-Level Organization KPIs for the filtered view
+      const totalStaff = new Set(formattedChecklists.map((c) => c.userId)).size;
+      const fullWorkdayCount = formattedChecklists.filter((c) => Number(c.workdayScore) >= 1.0).length;
+      const halfWorkdayCount = formattedChecklists.filter((c) => Number(c.workdayScore) === 0.5).length;
+      const zeroWorkdayCount = formattedChecklists.filter((c) => Number(c.workdayScore) === 0).length;
+
+      let totalAssignedAccounts = 0;
+      let totalVideosPosted = 0;
+      let totalSynced = 0;
+
+      for (const c of formattedChecklists) {
+        totalAssignedAccounts += c.items.length;
+        for (const item of c.items) {
+          if (item.isPosted) totalVideosPosted++;
+          if (item.isSynced) totalSynced++;
+        }
+      }
+
+      const totalPossibleCompletion = formattedChecklists.reduce(
+        (sum, c) => sum + Number(c.completionRate || 0),
+        0
+      );
+      const avgCompletionRate =
+        formattedChecklists.length > 0
+          ? Math.round((totalPossibleCompletion / formattedChecklists.length) * 10) / 10
+          : 0;
+
+      const cutoffInfo = getCutoffTimeInfo(DEFAULT_SCORING_CONFIG);
+
+      return serializeBigInt({
+        isRangeMode,
+        date: targetDateStr,
+        startDate: input?.startDate,
+        endDate: input?.endDate,
+        cutoffInfo,
+        summary: {
+          totalRecords: formattedChecklists.length,
+          totalStaff,
+          fullWorkdayCount,
+          halfWorkdayCount,
+          zeroWorkdayCount,
+          avgCompletionRate,
+          totalAssignedAccounts,
+          totalVideosPosted,
+          totalSynced,
+        },
+        checklists: formattedChecklists,
+      });
+    }),
+
+  // 3. Mass Complete All Items for a checklist (or all staff on a specific date)
+  massCompleteAll: protectedProcedure
+    .input(
+      z
+        .object({
+          checklistId: z.string().optional(),
+          date: z.string().optional(), // YYYY-MM-DD
+        })
+        .optional()
+    )
+    .mutation(async ({ ctx, input }) => {
+      const todayDateStr = new Date().toISOString().split("T")[0];
+      const targetDateObj = parseDateOnly(input?.date || todayDateStr);
+
+      if (input?.checklistId) {
+        await ctx.prisma.dailyChecklistItem.updateMany({
+          where: { checklistId: input.checklistId },
+          data: {
+            isPosted: true,
+            isSynced: true,
+            isCompleted: true,
+          },
+        });
+
+        const allItems = await ctx.prisma.dailyChecklistItem.findMany({
+          where: { checklistId: input.checklistId },
+        });
+
+        const totalAssigned = allItems.length;
+
+        return await ctx.prisma.dailyChecklist.update({
+          where: { id: input.checklistId },
+          data: {
+            totalAssigned,
+            completedCount: totalAssigned,
+            completionRate: 100,
+            workdayScore: 1.0,
+          },
+          include: {
+            items: {
+              include: { account: true },
+            },
+          },
+        });
+      }
+
+      // Mass complete all active checklists for the date
+      const whereClause: any = { date: targetDateObj };
+      if (ctx.session.user.role === "STAFF") {
+        whereClause.userId = ctx.session.user.id;
+      }
+
+      const allChecklists = await ctx.prisma.dailyChecklist.findMany({
+        where: whereClause,
+      });
+
+      for (const chk of allChecklists) {
+        await ctx.prisma.dailyChecklistItem.updateMany({
+          where: { checklistId: chk.id },
+          data: {
+            isPosted: true,
+            isSynced: true,
+            isCompleted: true,
+          },
+        });
+
+        const count = await ctx.prisma.dailyChecklistItem.count({
+          where: { checklistId: chk.id },
+        });
+
+        await ctx.prisma.dailyChecklist.update({
+          where: { id: chk.id },
+          data: {
+            totalAssigned: count,
+            completedCount: count,
+            completionRate: 100,
+            workdayScore: 1.0,
+          },
+        });
+      }
+
+      return { count: allChecklists.length };
+    }),
+
+  // 4. Toggle Item Status (posted / synced / completed) & Recalculate Score
+  toggleItem: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        field: z.enum(["isPosted", "isSynced", "isCompleted"]),
+        value: z.boolean(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.prisma.dailyChecklistItem.findUnique({
+        where: { id: input.itemId },
+        include: { checklist: true },
+      });
+
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Checklist item not found",
+        });
+      }
+
+      if (
+        ctx.session.user.role === "STAFF" &&
+        item.checklist.userId !== ctx.session.user.id
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not permitted to modify this checklist",
+        });
+      }
+
+      if (item.checklist.isLocked && ctx.session.user.role === "STAFF") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Checklist is locked for the day and cannot be changed.",
+        });
+      }
+
+      // Update the specific flag
+      const updatedFields: any = { [input.field]: input.value };
+      if (input.field === "isPosted" && input.value && item.isSynced) {
+        updatedFields.isCompleted = true;
+      } else if (input.field === "isSynced" && input.value && item.isPosted) {
+        updatedFields.isCompleted = true;
+      }
+
+      await ctx.prisma.dailyChecklistItem.update({
+        where: { id: input.itemId },
+        data: updatedFields,
+      });
+
+      // Recalculate checklist counts and workday score using rule engine (>=85% -> 1.0, >=50% -> 0.5, <50% -> 0.0)
+      const allItems = await ctx.prisma.dailyChecklistItem.findMany({
+        where: { checklistId: item.checklistId },
+      });
+
+      const totalAssigned = allItems.length;
+      const completedCount = allItems.filter((i) => i.isCompleted || (i.isPosted && i.isSynced)).length;
+      const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount);
+
+      const updatedChecklist = await ctx.prisma.dailyChecklist.update({
+        where: { id: item.checklistId },
+        data: {
+          totalAssigned,
+          completedCount,
+          completionRate,
+          workdayScore,
+        },
+        include: {
+          items: {
+            include: {
+              account: true,
+            },
+          },
+        },
+      });
+
+      return serializeBigInt(updatedChecklist);
+    }),
+
+  // 5. Update Notes / Video Details on Item
+  updateNotes: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        notes: z.string().optional().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.prisma.dailyChecklistItem.findUnique({
+        where: { id: input.itemId },
+        include: { checklist: true },
+      });
+
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Checklist item not found",
+        });
+      }
+
+      // Permission check: ADMIN, LEAD, or the owner of the checklist
+      const userRole = ctx.session.user.role;
+      const isOwner = item.checklist.userId === ctx.session.user.id;
+      const isAdminOrLead = userRole === "ADMIN" || userRole === "LEAD";
+
+      if (!isAdminOrLead && !isOwner) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn không có quyền chỉnh sửa ghi chú của nhân sự khác.",
+        });
+      }
+
+      const updated = await ctx.prisma.dailyChecklistItem.update({
+        where: { id: input.itemId },
+        data: { notes: input.notes },
+        include: { account: true },
+      });
+
+      return updated;
+    }),
+
+  // 6. Auto-Scan & Check Attendance across ALL Staffs / Accounts (or specific user)
+  autoScanAndCheck: protectedProcedure
+    .input(
+      z
+        .object({
+          date: z.string().optional(), // YYYY-MM-DD
+          userId: z.string().optional(), // "ALL" or specific user
+          checklistId: z.string().optional(),
+        })
+        .optional()
+    )
+    .mutation(async ({ ctx, input }) => {
+      const todayDateStr = new Date().toISOString().split("T")[0];
+      const targetDateObj = parseDateOnly(input?.date || todayDateStr);
+
+      const whereClause: any = { date: targetDateObj };
+      if (input?.checklistId) {
+        whereClause.id = input.checklistId;
+      } else if (ctx.session.user.role === "STAFF") {
+        whereClause.userId = ctx.session.user.id;
+      } else if (input?.userId && input.userId !== "ALL") {
+        whereClause.userId = input.userId;
+      }
+
+      const targetChecklists = await ctx.prisma.dailyChecklist.findMany({
+        where: whereClause,
+        include: {
+          user: { select: { id: true, username: true, name: true } },
+          items: {
+            include: { account: true },
+          },
+        },
+      });
+
+      if (targetChecklists.length === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No checklists found for the specified criteria",
+        });
+      }
+
+      const totalStaffScanned = targetChecklists.length;
+      let totalAccountsScanned = 0;
+      let scannedCount = 0;
+      let postedCount = 0;
+      let syncedCount = 0;
+
+      for (const checklist of targetChecklists) {
+        for (const item of checklist.items) {
+          totalAccountsScanned++;
+          if (!item.account.gpmProfileId) continue;
+
+          try {
+            const detected = await detectTikTokAccountFromGpm(item.account.gpmProfileId);
+            if (detected) {
+              scannedCount++;
+              const hasRecentVideo =
+                (detected.videosToday !== undefined && detected.videosToday > 0) ||
+                (detected.videos7d !== undefined && detected.videos7d > 0) ||
+                (detected.totalVideos !== undefined && detected.totalVideos > 0);
+
+              const isPosted = hasRecentVideo || item.isPosted;
+              const isSynced = true;
+              const isCompleted = isPosted && isSynced;
+
+              if (isPosted) postedCount++;
+              if (isSynced) syncedCount++;
+
+              // Format video details note if detected
+              let notes = item.notes;
+              if (hasRecentVideo && !notes) {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+                notes = `Đã phát hiện video mới lúc ${timeStr} • ${detected.videoCount || 1} video`;
+              }
+
+              // Update item
+              await ctx.prisma.dailyChecklistItem.update({
+                where: { id: item.id },
+                data: {
+                  isPosted,
+                  isSynced,
+                  isCompleted,
+                  notes,
+                },
+              });
+
+              // Update account stats
+              const updateData: any = { lastSyncedAt: new Date() };
+              if (detected.totalViews > 0) updateData.totalViews = BigInt(detected.totalViews);
+              if (detected.followersCount > 0) updateData.totalFollowers = detected.followersCount;
+              if ((detected.totalVideos || detected.videoCount) > 0) {
+                updateData.totalVideos = detected.totalVideos || detected.videoCount;
+              }
+              if (detected.totalRewardsUsd !== null && detected.totalRewardsUsd !== undefined) {
+                updateData.totalRevenue = detected.totalRewardsUsd;
+              }
+
+              await ctx.prisma.tiktokAccount.update({
+                where: { id: item.account.id },
+                data: updateData,
+              });
+
+              // Upsert DailyRevenue record for today
+              if (detected.totalViews > 0 || (detected.totalRewardsUsd !== null && detected.totalRewardsUsd !== undefined)) {
+                try {
+                  const now = new Date();
+                  const todayOnly = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+                  const revNum = detected.totalRewardsUsd || 0;
+                  const viewsNum = detected.viewsToday || detected.totalViews || 0;
+                  const rpmNum = detected.rpm || (viewsNum > 0 && revNum > 0 ? (revNum * 1000) / viewsNum : 0);
+
+                  await ctx.prisma.dailyRevenue.upsert({
+                    where: {
+                      accountId_date_sourceType: {
+                        accountId: item.account.id,
+                        date: todayOnly,
+                        sourceType: "CREATOR_REWARDS",
+                      },
+                    },
+                    create: {
+                      accountId: item.account.id,
+                      date: todayOnly,
+                      views: BigInt(viewsNum),
+                      revenue: revNum,
+                      rpm: rpmNum,
+                      sourceType: "CREATOR_REWARDS",
+                    },
+                    update: {
+                      views: BigInt(viewsNum),
+                      revenue: revNum,
+                      rpm: rpmNum,
+                    },
+                  });
+                } catch (revErr) {
+                  console.warn(`[autoScanAndCheck] Failed to upsert DailyRevenue for ${item.account.username}:`, revErr);
+                }
+              }
+            }
+          } catch (e: any) {
+            console.warn(`[autoScanAndCheck] Failed for ${item.account.username}:`, e.message);
+          }
+        }
+
+        // Recalculate total checklist score for this staff
+        const allItems = await ctx.prisma.dailyChecklistItem.findMany({
+          where: { checklistId: checklist.id },
+        });
+
+        const totalAssigned = allItems.length;
+        const completedCount = allItems.filter((i) => i.isCompleted || (i.isPosted && i.isSynced)).length;
+        const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount);
+
+        await ctx.prisma.dailyChecklist.update({
+          where: { id: checklist.id },
+          data: {
+            totalAssigned,
+            completedCount,
+            completionRate,
+            workdayScore,
+          },
+        });
+      }
+
+      return {
+        totalStaffScanned,
+        totalAccountsScanned,
+        scannedCount,
+        postedCount,
+        syncedCount,
+      };
+    }),
+
+  // 7. Lock Checklist (LEAD / ADMIN)
+  lockChecklist: leadProcedure
+    .input(
+      z.object({
+        checklistId: z.string(),
+        isLocked: z.boolean(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const locked = await ctx.prisma.dailyChecklist.update({
+        where: { id: input.checklistId },
+        data: {
+          isLocked: input.isLocked,
+          lockedAt: input.isLocked ? new Date() : null,
+        },
+      });
+      return locked;
+    }),
+});

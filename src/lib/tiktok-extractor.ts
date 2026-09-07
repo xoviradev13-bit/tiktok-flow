@@ -1,0 +1,1381 @@
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { chromium, type BrowserContext, type Page, type Response } from "playwright";
+import { gpmClient } from "./gpm-api";
+
+export interface ExtractedTikTokData {
+  username: string;
+  nickname?: string;
+  country?: string;
+  currency?: string;
+  followersCount: number;
+  followingCount: number;
+  totalLikes: number;
+  videoCount: number;
+  totalVideos?: number;
+  totalViews: number;
+  // Views breakdown
+  viewsToday?: number;
+  views7d?: number;
+  views14d?: number;
+  views30d?: number;
+  // Videos breakdown
+  videosToday?: number;
+  videos7d?: number;
+  videos14d?: number;
+  videos30d?: number;
+  // Monetization & RPM
+  totalRewardsUsd: number | null;
+  tiktokShopRewardsUsd: number | null;
+  rpm?: number | null;
+  isLoggedIn: boolean;
+}
+
+interface ScrapedTikTokData {
+  followers: number;
+  following: number;
+  likes: number;
+  nickname: string;
+  videoCount: number;
+  totalViews: number;
+}
+
+export interface CreatorRewardsData {
+  totalRewardsUsd: number | null;
+  tiktokShopRewardsUsd: number | null;
+  currency?: string;
+  // NOTE: rpm is intentionally NOT computed here. RPM requires a views
+  // figure, which this function has no access to on its own. Callers that
+  // have both a views number and this result should compute rpm themselves
+  // (see detectTikTokAccountFromGpm for the reference calculation).
+  rpm?: number | null;
+  isLoggedIn: boolean;
+}
+
+const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+
+const LAUNCH_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-blink-features=AutomationControlled",
+];
+
+/**
+ * Chromium profile subfolders that are pure cache/scratch data.
+ * Skipping these reduces snapshot time from minutes to seconds and saves gigabytes of disk I/O.
+ */
+const SKIP_DIR_NAMES = new Set([
+  "Cache",
+  "Code Cache",
+  "GPUCache",
+  "GrShaderCache",
+  "ShaderCache",
+  "DawnCache",
+  "DawnGraphiteCache",
+  "Service Worker",
+  "blob_storage",
+  "Crashpad",
+  "component_crx_cache",
+  "extensions_crx_cache",
+  "optimization_guide_hint_cache_store",
+  "GraphiteDawnCache",
+]);
+
+let hasWarnedNonWindows = false;
+function warnIfNonWindows() {
+  if (!hasWarnedNonWindows && os.platform() !== "win32") {
+    hasWarnedNonWindows = true;
+    console.warn(
+      `[TikTokExtractor] Running on platform "${os.platform()}", but GPMLogin profile ` +
+      `discovery assumes Windows paths (%APPDATA%, D:\\Tiktok automation, etc). ` +
+      `All profile/session lookups will report "not found" on this platform.`
+    );
+  }
+}
+
+/**
+ * Synchronous, safe helper to completely remove a temp snapshot directory.
+ */
+function cleanupTempDir(tempDir: string | null) {
+  if (!tempDir) return;
+  try {
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  } catch (err: any) {
+    console.warn(`[TikTokExtractor] Failed to clean temp dir ${tempDir}:`, err.message);
+  }
+}
+
+/**
+ * Locate GPMLogin's profile storage path on the local machine
+ */
+export function getGpmStoragePath(): string {
+  warnIfNonWindows();
+  try {
+    const appData = process.env.APPDATA || "";
+    const settingPath = path.join(appData, "GPMLoginGlobal", "setting.dat");
+    if (fs.existsSync(settingPath)) {
+      const content = fs.readFileSync(settingPath, "utf-8");
+      const parsed = JSON.parse(content);
+      if (parsed.local_storage_path && fs.existsSync(parsed.local_storage_path)) {
+        return parsed.local_storage_path;
+      }
+    }
+  } catch (err) {
+    console.warn("[TikTokExtractor] Could not parse GPMLogin setting.dat:", err);
+  }
+
+  // Common fallbacks
+  const fallbacks = [
+    "D:\\Tiktok automation",
+    path.join(process.env.LOCALAPPDATA || "", "GPMLoginGlobal", "Profiles"),
+    path.join(process.env.APPDATA || "", "GPMLoginGlobal", "Profiles"),
+  ];
+
+  for (const fb of fallbacks) {
+    if (fs.existsSync(fb)) return fb;
+  }
+
+  return "D:\\Tiktok automation";
+}
+
+/**
+ * Finds the Chrome binary installed by GPMLogin or system Chrome
+ */
+export function getChromeExecutablePath(): string | undefined {
+  warnIfNonWindows();
+  const appData = process.env.APPDATA || "";
+  const gpmChromePath = path.join(
+    appData,
+    "GPMLoginGlobal",
+    "Browsers",
+    "ChromiumCore_v151",
+    "chrome.exe"
+  );
+  if (fs.existsSync(gpmChromePath)) {
+    return gpmChromePath;
+  }
+
+  // System Chrome locations
+  const systemPaths = [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+  ];
+  for (const sp of systemPaths) {
+    if (fs.existsSync(sp)) return sp;
+  }
+
+  console.warn(
+    "[TikTokExtractor] No GPMLogin or system Chrome executable found - " +
+    "Playwright will fall back to its bundled Chromium, which may not match " +
+    "the fingerprint the profile's session was created under."
+  );
+  return undefined;
+}
+
+/**
+ * Inspects the GPM profile directory on disk (History, LevelDB)
+ * to find the real logged-in or active TikTok username.
+ */
+export function findTikTokHandleInProfile(profileId: string): string | null {
+  try {
+    const storagePath = getGpmStoragePath();
+    const profileDir = path.join(storagePath, profileId, "Default");
+    if (!fs.existsSync(profileDir)) {
+      console.warn(`[TikTokExtractor] Profile directory not found: ${profileDir}`);
+      return null;
+    }
+
+    // 1. Check Chrome History SQLite file
+    const historyPath = path.join(profileDir, "History");
+    if (fs.existsSync(historyPath)) {
+      try {
+        const histBuf = fs.readFileSync(historyPath);
+        const str = histBuf.toString("latin1");
+        const re = /https:\/\/www\.tiktok\.com\/@([a-zA-Z0-9_.-]+)/g;
+        let match;
+        while ((match = re.exec(str)) !== null) {
+          const raw = match[1].replace(/[^a-zA-Z0-9_.-]/g, "");
+          if (raw && !raw.includes("login") && !raw.includes("signup") && raw.length >= 3) {
+            console.log(`[TikTokExtractor] Detected handle from History: @${raw}`);
+            return raw;
+          }
+        }
+      } catch (e) {
+        // ignore parse errors on locked/binary history file
+      }
+    }
+
+    // 2. Check Local Storage LevelDB
+    const levelDbDir = path.join(profileDir, "Local Storage", "leveldb");
+    if (fs.existsSync(levelDbDir)) {
+      try {
+        const files = fs.readdirSync(levelDbDir);
+        for (const f of files) {
+          if (f.endsWith(".log") || f.endsWith(".ldb")) {
+            try {
+              const buf = fs.readFileSync(path.join(levelDbDir, f));
+              const str = buf.toString("latin1");
+              const re = /refer_title":"\/@([a-zA-Z0-9_.-]+)"/;
+              const m = str.match(re);
+              if (m && m[1]) {
+                console.log(`[TikTokExtractor] Detected handle from LevelDB refer_title: @${m[1]}`);
+                return m[1];
+              }
+            } catch (e) {
+              // ignore unreadable leveldb shard
+            }
+          }
+        }
+      } catch (e) {
+        // ignore readdir error
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[TikTokExtractor] Disk inspection error for ${profileId}:`, err.message);
+  }
+
+  return null;
+}
+
+/**
+ * Recursively copies a directory, safely skipping locks and caches.
+ */
+function copyDirRecursive(src: string, dest: string) {
+  fs.mkdirSync(dest, { recursive: true });
+  let entries: fs.Dirent[] = [];
+  try {
+    entries = fs.readdirSync(src, { withFileTypes: true });
+  } catch (e: any) {
+    console.warn(`[TikTokExtractor] Could not read directory ${src}, skipping:`, e.message);
+    return;
+  }
+
+  for (const entry of entries) {
+    if (
+      entry.name === "SingletonLock" ||
+      entry.name === "SingletonCookie" ||
+      entry.name === "SingletonSocket"
+    ) {
+      continue;
+    }
+    if (entry.isDirectory() && SKIP_DIR_NAMES.has(entry.name)) {
+      continue;
+    }
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    try {
+      if (entry.isDirectory()) {
+        copyDirRecursive(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    } catch (e) {
+      // ignore per-file lock copy errors
+    }
+  }
+}
+
+/**
+ * Snapshots a GPM profile directory into a fresh temp dir.
+ * Automatically cleans up if an exception occurs during copy.
+ */
+function snapshotProfileToTemp(profileId: string): string | null {
+  const storagePath = getGpmStoragePath();
+  const sourceDir = path.join(storagePath, profileId);
+  if (!fs.existsSync(sourceDir)) return null;
+
+  let tempDir: string | null = null;
+  try {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `gpm-snapshot-${profileId}-`));
+    copyDirRecursive(sourceDir, tempDir);
+    return tempDir;
+  } catch (err: any) {
+    console.warn(`[TikTokExtractor] Error snapshotting profile ${profileId}:`, err.message);
+    cleanupTempDir(tempDir);
+    return null;
+  }
+}
+
+/**
+ * Launches a persistent Chrome context against a SNAPSHOT COPY of the given
+ * GPM profile's user-data directory. Guarantees the temp dir is cleaned up on any failure path.
+ */
+async function launchPersistentContextForProfile(profileId: string): Promise<{
+  context: BrowserContext | undefined;
+  tempProfileDir: string | null;
+}> {
+  const chromePath = getChromeExecutablePath();
+  let tempProfileDir: string | null = null;
+
+  try {
+    tempProfileDir = snapshotProfileToTemp(profileId);
+    if (!tempProfileDir) {
+      console.warn(`[TikTokExtractor] No profile dir found to snapshot for ${profileId}`);
+      return { context: undefined, tempProfileDir: null };
+    }
+
+    const context = await chromium.launchPersistentContext(tempProfileDir, {
+      headless: true,
+      executablePath: chromePath,
+      args: LAUNCH_ARGS,
+      userAgent: USER_AGENT,
+      viewport: { width: 1280, height: 800 },
+    });
+    await context.addInitScript("globalThis.__name = globalThis.__name || ((fn, name) => fn);");
+    console.log(`[TikTokExtractor] Launched persistent context from snapshot of profile ${profileId}`);
+    return { context, tempProfileDir };
+  } catch (persistErr: any) {
+    console.warn(
+      `[TikTokExtractor] Failed to launch persistent context from snapshot for ${profileId}:`,
+      persistErr.message
+    );
+    cleanupTempDir(tempProfileDir);
+    return { context: undefined, tempProfileDir: null };
+  }
+}
+
+/**
+ * Runs `page.evaluate(fn)` safely handling context destruction during redirects.
+ */
+async function safeEvaluate<T>(
+  page: Page,
+  fn: () => T,
+  fallback: T
+): Promise<T> {
+  try {
+    await page.evaluate("globalThis.__name = globalThis.__name || ((fn, name) => fn);").catch(() => { });
+    return await page.evaluate(fn);
+  } catch (err: any) {
+    if (/execution context was destroyed/i.test(err?.message || "")) {
+      console.warn("[TikTokExtractor] Execution context destroyed mid-evaluate (navigation) - retrying once");
+      try {
+        await page.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => { });
+        await page.evaluate("globalThis.__name = globalThis.__name || ((fn, name) => fn);").catch(() => { });
+        return await page.evaluate(fn);
+      } catch (retryErr: any) {
+        console.warn("[TikTokExtractor] Retry after context destruction also failed:", retryErr.message);
+        return fallback;
+      }
+    }
+    throw err;
+  }
+}
+
+/**
+ * Helper to safely parse JSON from a Playwright response object.
+ */
+async function safeJsonFromResponse(response: Response): Promise<any | null> {
+  try {
+    const contentType = response.headers()["content-type"] || "";
+    if (contentType.includes("application/json") || response.url().includes("/api/")) {
+      const text = await response.text();
+      return JSON.parse(text);
+    }
+  } catch (e) {
+    // ignore non-json or aborted payloads
+  }
+  return null;
+}
+
+/**
+ * Helper to extract metric values from structured JSON response objects recursively.
+ */
+function searchJsonObjectForKeys(obj: any, keys: string[]): any | null {
+  if (!obj || typeof obj !== "object") return null;
+  for (const key of keys) {
+    if (key in obj && obj[key] !== null && obj[key] !== undefined) {
+      return obj[key];
+    }
+  }
+  for (const k of Object.keys(obj)) {
+    if (typeof obj[k] === "object") {
+      const found = searchJsonObjectForKeys(obj[k], keys);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Scrapes public profile metrics using Response Interception for TikTok's internal JSON APIs
+ * with automatic fallback to DOM analysis.
+ */
+export async function fetchLiveTikTokStatsWithContext(
+  username: string,
+  context: BrowserContext
+): Promise<Omit<ExtractedTikTokData, "totalRewardsUsd" | "tiktokShopRewardsUsd">> {
+  console.log(`🚀 [TikTokExtractor] Intercepting network responses for @${username}...`);
+
+  const page = await context.newPage();
+
+  let interceptedFollowers: number | null = null;
+  let interceptedFollowing: number | null = null;
+  let interceptedLikes: number | null = null;
+  let interceptedVideoCount: number | null = null;
+  let interceptedNickname: string | null = null;
+  let interceptedViewsSum: number = 0;
+  let hasInterceptedApi = false;
+
+  // 1. Attach Response Interceptor for user detail & item list API endpoints
+  const responseHandler = async (response: Response) => {
+    const url = response.url();
+    try {
+      if (
+        url.includes("/api/user/detail/") ||
+        url.includes("/node/share/user/@") ||
+        url.includes("/api/creator/profile") ||
+        url.includes("user/info")
+      ) {
+        const json = await safeJsonFromResponse(response);
+        if (json) {
+          const stats = json.userInfo?.stats || json.stats || json.data?.stats;
+          const user = json.userInfo?.user || json.user || json.data?.user;
+
+          if (stats) {
+            hasInterceptedApi = true;
+            if (typeof stats.followerCount === "number") interceptedFollowers = stats.followerCount;
+            if (typeof stats.followingCount === "number") interceptedFollowing = stats.followingCount;
+            if (typeof stats.heartCount === "number") interceptedLikes = stats.heartCount;
+            if (typeof stats.videoCount === "number") interceptedVideoCount = stats.videoCount;
+          }
+          if (user) {
+            if (user.nickname) interceptedNickname = user.nickname;
+          }
+        }
+      }
+
+      if (
+        url.includes("/api/item_list/") ||
+        url.includes("/api/post/item_list/") ||
+        url.includes("/api/creator/item/list")
+      ) {
+        const json = await safeJsonFromResponse(response);
+        if (json) {
+          const itemList = json.itemList || json.data?.itemList || json.items || [];
+          if (Array.isArray(itemList)) {
+            hasInterceptedApi = true;
+            let sum = 0;
+            for (const item of itemList) {
+              const playCount = item.stats?.playCount || item.statistics?.play_count || item.play_count || 0;
+              sum += Number(playCount) || 0;
+            }
+            if (sum > 0) {
+              interceptedViewsSum = Math.max(interceptedViewsSum, sum);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      // ignore parsing error
+    }
+  };
+
+  page.on("response", responseHandler);
+
+  try {
+    await page.goto(`https://www.tiktok.com/@${username}`, {
+      waitUntil: "domcontentloaded",
+      timeout: 25000,
+    });
+
+    await page.waitForTimeout(3000);
+
+    // Scroll to trigger lazy loading if needed
+    for (let i = 0; i < 4; i++) {
+      await safeEvaluate(
+        page,
+        () => {
+          window.scrollTo(0, document.body.scrollHeight);
+          return true;
+        },
+        false
+      );
+      await page.waitForTimeout(800);
+    }
+
+    // 2. DOM Fallback Extraction
+    const domData = await safeEvaluate<ScrapedTikTokData>(
+      page,
+      () => {
+        const followersEl = document.querySelector('[data-e2e="followers-count"]');
+        const followingEl = document.querySelector('[data-e2e="following-count"]');
+        const likesEl = document.querySelector('[data-e2e="likes-count"]');
+        const nicknameEl =
+          document.querySelector('h1[data-e2e="user-title"]') ||
+          document.querySelector('[data-e2e="user-subtitle"]');
+
+        const videoElements = document.querySelectorAll('[data-e2e="user-post-item"]');
+        let totalViewsSum = 0;
+        for (let i = 0; i < videoElements.length; i++) {
+          const el = videoElements[i];
+          const viewEl = el.querySelector('[data-e2e="video-views"]');
+          const viewText = (viewEl && viewEl.textContent) ? viewEl.textContent.trim() : "0";
+          let num = 0;
+          if (viewText.endsWith("M") || viewText.endsWith("m")) {
+            num = parseFloat(viewText) * 1000000;
+          } else if (viewText.endsWith("K") || viewText.endsWith("k")) {
+            num = parseFloat(viewText) * 1000;
+          } else {
+            num = parseFloat(viewText.replace(/[^0-9.]/g, "")) || 0;
+          }
+          totalViewsSum += Math.round(num);
+        }
+
+        const parseText = (txt: string | null | undefined): number => {
+          if (!txt) return 0;
+          const clean = txt.trim();
+          if (clean.endsWith("M") || clean.endsWith("m")) {
+            return Math.round(parseFloat(clean) * 1000000);
+          } else if (clean.endsWith("K") || clean.endsWith("k")) {
+            return Math.round(parseFloat(clean) * 1000);
+          }
+          return parseInt(clean.replace(/[^0-9]/g, ""), 10) || 0;
+        };
+
+        const text = document.body ? document.body.innerText : "";
+
+        let followers = parseText(followersEl ? followersEl.textContent : null);
+        if (followers === 0) {
+          const m =
+            text.match(/([0-9.KMBkmb]+)\s*(?:Follower|Followers|Người theo dõi)/i) ||
+            text.match(/(?:Follower|Followers|Người theo dõi)\s*([0-9.KMBkmb]+)/i);
+          if (m) followers = parseText(m[1]);
+        }
+
+        let following = parseText(followingEl ? followingEl.textContent : null);
+        if (following === 0) {
+          const m =
+            text.match(/([0-9.KMBkmb]+)\s*(?:Đã follow|Following|đang theo dõi)/i) ||
+            text.match(/(?:Đã follow|Following)\s*([0-9.KMBkmb]+)/i);
+          if (m) following = parseText(m[1]);
+        }
+
+        let likes = parseText(likesEl ? likesEl.textContent : null);
+        if (likes === 0) {
+          const m =
+            text.match(/([0-9.KMBkmb]+)\s*(?:Lượt thích|Likes|Thích)/i) ||
+            text.match(/(?:Lượt thích|Likes|Thích)\s*([0-9.KMBkmb]+)/i);
+          if (m) likes = parseText(m[1]);
+        }
+
+        const videoLinks = Array.from(document.querySelectorAll('a[href*="/video/"]'));
+        const videoCount = Math.max(videoElements.length, videoLinks.length);
+
+        if (totalViewsSum === 0 && videoCount > 0) {
+          const allVideoCards = Array.from(document.querySelectorAll('a[href*="/video/"], [data-e2e="user-post-item"]'));
+          for (let i = 0; i < allVideoCards.length; i++) {
+            const card = allVideoCards[i];
+            const cardText = card.textContent || "";
+            const vMatch = cardText.match(/([0-9.]+[KMBkmb]?)/);
+            if (vMatch) {
+              totalViewsSum += parseText(vMatch[1]);
+            }
+          }
+        }
+
+        return {
+          followers,
+          following,
+          likes,
+          nickname: nicknameEl && nicknameEl.textContent ? nicknameEl.textContent.trim() : "",
+          videoCount,
+          totalViews: totalViewsSum,
+        };
+      },
+      { followers: 0, following: 0, likes: 0, nickname: "", videoCount: 0, totalViews: 0 }
+    );
+
+    const followersCount = interceptedFollowers !== null ? interceptedFollowers : domData.followers;
+    const followingCount = interceptedFollowing !== null ? interceptedFollowing : domData.following;
+    const totalLikes = interceptedLikes !== null ? interceptedLikes : domData.likes;
+    const videoCount = interceptedVideoCount !== null ? interceptedVideoCount : domData.videoCount;
+    const totalViews = interceptedViewsSum > 0 ? interceptedViewsSum : domData.totalViews;
+    const nickname = interceptedNickname || domData.nickname || username;
+
+    const isLoggedIn = followersCount > 0 || totalLikes > 0 || videoCount > 0 || hasInterceptedApi;
+
+    console.log(`[TikTokExtractor] Stats for @${username} (intercepted=${hasInterceptedApi}):`, {
+      followersCount,
+      totalLikes,
+      videoCount,
+      totalViews,
+    });
+
+    return {
+      username,
+      nickname,
+      followersCount,
+      followingCount,
+      totalLikes,
+      videoCount,
+      totalVideos: videoCount,
+      totalViews,
+      isLoggedIn,
+    };
+  } finally {
+    page.off("response", responseHandler);
+    await page.close().catch(() => { });
+  }
+}
+
+/**
+ * Scrapes real live metrics for a username.
+ */
+export async function fetchLiveTikTokStats(
+  username: string,
+  profileId?: string
+): Promise<Omit<ExtractedTikTokData, "totalRewardsUsd" | "tiktokShopRewardsUsd">> {
+  let context: BrowserContext | undefined;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let tempProfileDir: string | null = null;
+
+  try {
+    if (profileId) {
+      const launched = await launchPersistentContextForProfile(profileId);
+      context = launched.context;
+      tempProfileDir = launched.tempProfileDir;
+    }
+
+    if (!context) {
+      const chromePath = getChromeExecutablePath();
+      browser = await chromium.launch({
+        headless: true,
+        executablePath: chromePath,
+        args: LAUNCH_ARGS,
+      });
+      context = await browser.newContext({
+        userAgent: USER_AGENT,
+        viewport: { width: 1280, height: 800 },
+      });
+    }
+
+    return await fetchLiveTikTokStatsWithContext(username, context);
+  } catch (err: any) {
+    console.warn(`[TikTokExtractor] Failed to scrape @${username}:`, err.message);
+    return {
+      username,
+      followersCount: 0,
+      followingCount: 0,
+      totalLikes: 0,
+      videoCount: 0,
+      totalVideos: 0,
+      totalViews: 0,
+      isLoggedIn: false,
+    };
+  } finally {
+    if (context) await context.close().catch(() => { });
+    if (browser) await browser.close().catch(() => { });
+    cleanupTempDir(tempProfileDir);
+  }
+}
+
+/**
+ * Builds the exact TikTok Studio Custom Date URL
+ */
+export function buildTikTokStudioCustomUrl(startDateStr: string = "2020-01-01", endDateStr?: string): string {
+  const start = new Date(startDateStr);
+  const end = endDateStr ? new Date(endDateStr) : new Date();
+
+  const formatUtc = (d: Date) => {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}/${m}/${day} 00:00:00`;
+  };
+
+  const payload = {
+    type: "custom",
+    dateRange: {
+      start: start.getTime(),
+      end: end.getTime(),
+    },
+    UTCDateRange: {
+      from: formatUtc(start),
+      to: formatUtc(end),
+    },
+  };
+
+  return `https://www.tiktok.com/tiktokstudio?dateRange=${encodeURIComponent(JSON.stringify(payload))}`;
+}
+
+/**
+ * Scrapes comprehensive metrics directly from TikTok Studio using Response Interception
+ * on TikTok Studio's backend analytics and content APIs, with fallback to DOM evaluation.
+ */
+export async function fetchTikTokStudioFullData(
+  profileId: string,
+  username?: string
+): Promise<Partial<ExtractedTikTokData>> {
+  let context: BrowserContext | undefined;
+  let tempProfileDir: string | null = null;
+
+  try {
+    const launched = await launchPersistentContextForProfile(profileId);
+    context = launched.context;
+    tempProfileDir = launched.tempProfileDir;
+
+    if (!context) {
+      return { isLoggedIn: false };
+    }
+
+    const page = context.pages()[0] || (await context.newPage());
+
+    // Intercepted Studio API Data Accumulators
+    let studioTotalViews: number | null = null;
+    let studioViewsToday: number | null = null;
+    let studioViews7d: number | null = null;
+    let studioViews14d: number | null = null;
+    let studioViews30d: number | null = null;
+    let studioFollowers: number | null = null;
+    let studioLikes: number | null = null;
+    let studioRewards: number | null = null;
+    let studioCurrency = "$";
+    let studioCountry = "US";
+    let studioVideos: any[] = [];
+
+    // Attach Response Interceptor for all Studio API calls
+    const studioResponseHandler = async (response: Response) => {
+      const url = response.url();
+      try {
+        if (
+          url.includes("/api/creator/overview") ||
+          url.includes("/api/studio/overview") ||
+          url.includes("/api/insights") ||
+          url.includes("/overview/data") ||
+          url.includes("/analytics/overview")
+        ) {
+          const json = await safeJsonFromResponse(response);
+          if (json) {
+            console.log(`[TikTokExtractor] Intercepted Studio Overview API (${url.substring(0, 80)})`);
+
+            const views = searchJsonObjectForKeys(json, ["video_views", "views", "play_count", "total_views"]);
+            if (typeof views === "number") {
+              if (url.includes("pastDay%22%3A1") || url.includes("pastDay\":1")) studioViewsToday = views;
+              else if (url.includes("pastDay%22%3A7") || url.includes("pastDay\":7")) studioViews7d = views;
+              else if (url.includes("pastDay%22%3A14") || url.includes("pastDay\":14")) studioViews14d = views;
+              else if (url.includes("pastDay%22%3A28") || url.includes("pastDay\":28")) studioViews30d = views;
+              else if (url.includes("custom") || url.includes("2020")) studioTotalViews = views;
+            }
+
+            const followers = searchJsonObjectForKeys(json, ["followers", "follower_count", "net_followers"]);
+            if (typeof followers === "number" && studioFollowers === null) studioFollowers = followers;
+
+            const likes = searchJsonObjectForKeys(json, ["likes", "heart_count", "total_likes"]);
+            if (typeof likes === "number" && studioLikes === null) studioLikes = likes;
+
+            const rewards = searchJsonObjectForKeys(json, ["estimated_rewards", "total_rewards", "rewards", "income"]);
+            if (typeof rewards === "number" && studioRewards === null) studioRewards = rewards;
+
+            const cur = searchJsonObjectForKeys(json, ["currency", "currency_code"]);
+            if (typeof cur === "string") {
+              if (cur === "GBP" || cur === "£") { studioCurrency = "£"; studioCountry = "UK"; }
+              else if (cur === "EUR" || cur === "€") { studioCurrency = "€"; studioCountry = "DE"; }
+              else if (cur === "VND" || cur === "₫") { studioCurrency = "₫"; studioCountry = "VN"; }
+            }
+          }
+        }
+
+        if (
+          url.includes("/api/creator/item/list") ||
+          url.includes("/api/item/list") ||
+          url.includes("/content/list") ||
+          url.includes("/api/studio/content")
+        ) {
+          const json = await safeJsonFromResponse(response);
+          if (json) {
+            const list = json.itemList || json.items || json.data?.itemList || json.data?.items;
+            if (Array.isArray(list)) {
+              console.log(`[TikTokExtractor] Intercepted Studio Content API (${list.length} videos)`);
+              studioVideos = list;
+            }
+          }
+        }
+      } catch (e) {
+        // ignore per-response parse failure
+      }
+    };
+
+    page.on("response", studioResponseHandler);
+
+    // 0. Warm-up navigation for Studio SSO handshake
+    await page.goto("https://www.tiktok.com/", {
+      waitUntil: "domcontentloaded",
+      timeout: 25000,
+    }).catch(() => { });
+    await page.waitForTimeout(1500);
+
+    // 1. Visit Custom Date Range (Lifetime from 2020-01-01 to Today)
+    const customUrl = buildTikTokStudioCustomUrl("2020-01-01");
+    console.log(`[TikTokExtractor] Scraping Studio Dashboard for ${profileId}...`);
+    await page.goto(customUrl, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => { });
+    await page.waitForTimeout(3500);
+
+    const isLogin = await safeEvaluate(page, () => /login|passport/i.test(location.href), false);
+    if (isLogin) {
+      console.warn(`[TikTokExtractor] TikTok Studio bounced to login for profile ${profileId}`);
+      page.off("response", studioResponseHandler);
+      return { isLoggedIn: false };
+    }
+
+    // 2. DOM Evaluation fallback for Lifetime Dashboard
+    const lifetimeDom = await safeEvaluate(
+      page,
+      () => {
+        let totalViews = 0;
+        let totalRewards = 0;
+        let likes = 0;
+        let followers = 0;
+        let following = 0;
+        let currency = "$";
+        let country = "US";
+
+        const all = Array.from(document.querySelectorAll("*"));
+        for (let i = 0; i < all.length; i++) {
+          const el = all[i];
+          const text = (el.textContent || "").trim().toLowerCase();
+          if (el.children.length === 0) {
+            if (text === "video views") {
+              const parent = el.parentElement;
+              if (parent) {
+                const lines = parent.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+                const idx = lines.findIndex((l) => l.toLowerCase() === "video views");
+                if (idx !== -1 && lines[idx + 1]) {
+                  const clean = lines[idx + 1].trim();
+                  if (clean.endsWith("M") || clean.endsWith("m")) totalViews = Math.round(parseFloat(clean) * 1000000);
+                  else if (clean.endsWith("K") || clean.endsWith("k")) totalViews = Math.round(parseFloat(clean) * 1000);
+                  else totalViews = parseInt(clean.replace(/[^0-9]/g, ""), 10) || 0;
+                }
+              }
+            } else if (text === "est. rewards") {
+              const parent = el.parentElement;
+              if (parent) {
+                const lines = parent.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+                const idx = lines.findIndex((l) => l.toLowerCase() === "est. rewards");
+                if (idx !== -1 && lines[idx + 1]) {
+                  const clean = lines[idx + 1].trim();
+                  if (clean.includes("£")) { currency = "£"; country = "UK"; }
+                  else if (clean.includes("€")) { currency = "€"; country = "DE"; }
+                  else if (clean.includes("₫") || clean.includes("VND")) { currency = "₫"; country = "VN"; }
+                  totalRewards = parseFloat(clean.replace(/[^0-9.]/g, "")) || 0;
+                }
+              }
+            }
+          }
+        }
+
+        const bodyText = document.body ? document.body.innerText : "";
+        const likesMatch = bodyText.match(/Likes\s*([0-9.KMBkmb]+)/i) || bodyText.match(/([0-9.KMBkmb]+)\s*Likes/i);
+        const followersMatch = bodyText.match(/Followers\s*([0-9.KMBkmb]+)/i) || bodyText.match(/([0-9.KMBkmb]+)\s*Followers/i);
+        const followingMatch = bodyText.match(/Following\s*([0-9.KMBkmb]+)/i) || bodyText.match(/([0-9.KMBkmb]+)\s*Following/i);
+
+        const parseTextNum = (val: string | null | undefined): number => {
+          if (!val) return 0;
+          const c = val.trim();
+          if (c.endsWith("M") || c.endsWith("m")) return Math.round(parseFloat(c) * 1000000);
+          if (c.endsWith("K") || c.endsWith("k")) return Math.round(parseFloat(c) * 1000);
+          return parseInt(c.replace(/[^0-9]/g, ""), 10) || 0;
+        };
+
+        if (likesMatch) likes = parseTextNum(likesMatch[1]);
+        if (followersMatch) followers = parseTextNum(followersMatch[1]);
+        if (followingMatch) following = parseTextNum(followingMatch[1]);
+
+        return {
+          likes,
+          followers,
+          following,
+          totalViews,
+          totalRewards,
+          currency,
+          country,
+        };
+      },
+      { likes: 0, followers: 0, following: 0, totalViews: 0, totalRewards: 0, currency: "$", country: "US" }
+    );
+
+    // 3. Query PastDay Windows (triggers response interception + DOM extraction)
+    const fetchWindowViews = async (pastDay: number) => {
+      const url = `https://www.tiktok.com/tiktokstudio?dateRange=%7B%22type%22%3A%22fixed%22%2C%22pastDay%22%3A${pastDay}%7D`;
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => { });
+      await page.waitForTimeout(2000);
+
+      return await safeEvaluate(page, () => {
+        const all = Array.from(document.querySelectorAll("*"));
+        for (let i = 0; i < all.length; i++) {
+          const el = all[i];
+          if (el.children.length === 0 && (el.textContent || "").trim().toLowerCase() === "video views") {
+            const parent = el.parentElement;
+            if (parent) {
+              const lines = parent.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+              const idx = lines.findIndex((l) => l.toLowerCase() === "video views");
+              if (idx !== -1 && lines[idx + 1]) {
+                const clean = lines[idx + 1].trim();
+                let num = 0;
+                if (clean.endsWith("M") || clean.endsWith("m")) num = Math.round(parseFloat(clean) * 1000000);
+                else if (clean.endsWith("K") || clean.endsWith("k")) num = Math.round(parseFloat(clean) * 1000);
+                else num = parseInt(clean.replace(/[^0-9]/g, ""), 10) || 0;
+                return num;
+              }
+            }
+          }
+        }
+        return 0;
+      }, 0);
+    };
+
+    const domViewsToday = await fetchWindowViews(1);
+    const domViews7d = await fetchWindowViews(7);
+    const domViews14d = await fetchWindowViews(14);
+    const domViews30d = await fetchWindowViews(28);
+
+    // 4. Visit Content Page (/tiktokstudio/content) to capture video rows & JSON API
+    await page.goto("https://www.tiktok.com/tiktokstudio/content", {
+      waitUntil: "domcontentloaded",
+      timeout: 25000,
+    }).catch(() => { });
+    await page.waitForTimeout(2500);
+
+    let totalVideos = 0;
+    let videosToday = 0;
+    let videos7d = 0;
+    let videos14d = 0;
+    let videos30d = 0;
+
+    if (studioVideos.length > 0) {
+      totalVideos = studioVideos.length;
+      const nowMs = Date.now();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+
+      for (let i = 0; i < studioVideos.length; i++) {
+        const item = studioVideos[i];
+        const createTimeSec = item.create_time || item.createTime || item.createtime || 0;
+        const createTimeMs = createTimeSec * 1000;
+        const diffMs = nowMs - createTimeMs;
+
+        if (diffMs <= oneDayMs) videosToday++;
+        if (diffMs <= 7 * oneDayMs) videos7d++;
+        if (diffMs <= 14 * oneDayMs) videos14d++;
+        if (diffMs <= 30 * oneDayMs) videos30d++;
+      }
+    } else {
+      const domVideoStats = await safeEvaluate(
+        page,
+        () => {
+          const rows = Array.from(document.querySelectorAll("tbody tr, [data-e2e='content-table-row'], [class*='TableRow']"));
+          let countToday = 0;
+          let count7d = 0;
+          let count14d = 0;
+          let count30d = 0;
+
+          for (let i = 0; i < rows.length; i++) {
+            const text = rows[i].textContent || "";
+            if (/today|hôm nay|hours ago|giờ trước|mins ago|phút trước/i.test(text)) {
+              countToday++;
+              count7d++;
+              count14d++;
+              count30d++;
+            } else if (/yesterday|hôm qua|[1-6] days ago|[1-6] ngày trước/i.test(text)) {
+              count7d++;
+              count14d++;
+              count30d++;
+            } else if (/([7-9]|1[0-3]) days ago|([7-9]|1[0-3]) ngày trước/i.test(text)) {
+              count14d++;
+              count30d++;
+            } else if (/(1[4-9]|2[0-9]|30) days ago/i.test(text)) {
+              count30d++;
+            }
+          }
+
+          return {
+            totalVideos: rows.length,
+            videosToday: countToday,
+            videos7d: count7d,
+            videos14d: count14d,
+            videos30d: count30d,
+          };
+        },
+        { totalVideos: 0, videosToday: 0, videos7d: 0, videos14d: 0, videos30d: 0 }
+      );
+
+      totalVideos = domVideoStats.totalVideos;
+      videosToday = domVideoStats.videosToday;
+      videos7d = domVideoStats.videos7d;
+      videos14d = domVideoStats.videos14d;
+      videos30d = domVideoStats.videos30d;
+    }
+
+    // Merge Intercepted vs DOM
+    const finalTotalViews = studioTotalViews !== null ? studioTotalViews : lifetimeDom.totalViews;
+    const finalViewsToday = studioViewsToday !== null ? studioViewsToday : domViewsToday;
+    const finalViews7d = studioViews7d !== null ? studioViews7d : domViews7d;
+    const finalViews14d = studioViews14d !== null ? studioViews14d : domViews14d;
+    const finalViews30d = studioViews30d !== null ? studioViews30d : domViews30d;
+    const finalFollowers = studioFollowers !== null ? studioFollowers : lifetimeDom.followers;
+    const finalLikes = studioLikes !== null ? studioLikes : lifetimeDom.likes;
+    const finalRewards = studioRewards !== null ? studioRewards : lifetimeDom.totalRewards;
+    const finalCurrency = studioCurrency !== "$" ? studioCurrency : lifetimeDom.currency;
+    const finalCountry = studioCountry !== "US" ? studioCountry : lifetimeDom.country;
+
+    const rpm =
+      finalTotalViews > 0 && finalRewards > 0
+        ? Math.round(((finalRewards * 1000) / finalTotalViews) * 100) / 100
+        : null;
+
+    console.log(`[TikTokExtractor] TikTok Studio full data extracted successfully for ${profileId}`);
+
+    return {
+      username: username || undefined,
+      followersCount: finalFollowers,
+      followingCount: lifetimeDom.following,
+      totalLikes: finalLikes,
+      totalViews: finalTotalViews,
+      viewsToday: finalViewsToday,
+      views7d: finalViews7d,
+      views14d: finalViews14d,
+      views30d: finalViews30d,
+      totalVideos,
+      videoCount: totalVideos,
+      videosToday,
+      videos7d,
+      videos14d,
+      videos30d,
+      totalRewardsUsd: finalRewards,
+      tiktokShopRewardsUsd: null,
+      rpm,
+      currency: finalCurrency,
+      country: finalCountry,
+      isLoggedIn: true,
+    };
+  } catch (err: any) {
+    console.warn(`[TikTokExtractor] fetchTikTokStudioFullData error for ${profileId}:`, err.message);
+    return { isLoggedIn: false };
+  } finally {
+    if (context) await context.close().catch(() => { });
+    cleanupTempDir(tempProfileDir);
+  }
+}
+
+/**
+ * Scrapes Creator Rewards balance using Response Interception with DOM fallback.
+ */
+export async function fetchCreatorRewardsBalanceWithContext(
+  context: BrowserContext
+): Promise<CreatorRewardsData> {
+  const page = await context.newPage();
+
+  let interceptedTotalRewards: number | null = null;
+  let interceptedShopRewards: number | null = null;
+  let interceptedCurrency = "$";
+
+  const rewardsResponseHandler = async (response: Response) => {
+    const url = response.url();
+    try {
+      if (
+        url.includes("/api/creator/monetization") ||
+        url.includes("/api/creator_rewards") ||
+        url.includes("/api/monetization") ||
+        url.includes("/rewards/overview") ||
+        url.includes("/income/overview")
+      ) {
+        const json = await safeJsonFromResponse(response);
+        if (json) {
+          console.log(`[TikTokExtractor] Intercepted Creator Rewards API (${url.substring(0, 80)})`);
+          const total = searchJsonObjectForKeys(json, ["total_rewards", "total_income", "total_amount", "rewards"]);
+          const shop = searchJsonObjectForKeys(json, ["tiktok_shop_rewards", "shop_rewards", "seller_income"]);
+          const cur = searchJsonObjectForKeys(json, ["currency", "currency_code"]);
+
+          if (typeof total === "number") interceptedTotalRewards = total;
+          if (typeof shop === "number") interceptedShopRewards = shop;
+          if (typeof cur === "string") {
+            if (cur === "GBP" || cur === "£") interceptedCurrency = "£";
+            else if (cur === "EUR" || cur === "€") interceptedCurrency = "€";
+            else if (cur === "VND" || cur === "₫") interceptedCurrency = "₫";
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  page.on("response", rewardsResponseHandler);
+
+  try {
+    await page.goto("https://www.tiktok.com/", {
+      waitUntil: "domcontentloaded",
+      timeout: 25000,
+    }).catch(() => { });
+    await page.waitForTimeout(1500);
+
+    const gotoMonetizationAndCheck = async (): Promise<boolean> => {
+      await page.goto("https://www.tiktok.com/tiktokstudio/monetization", {
+        waitUntil: "domcontentloaded",
+        timeout: 25000,
+      });
+      await page.waitForTimeout(3000);
+      return safeEvaluate(page, () => /login|passport/i.test(location.href), false);
+    };
+
+    let isLoginPage = await gotoMonetizationAndCheck();
+
+    if (isLoginPage) {
+      console.warn(`[TikTokExtractor] Bounced to login page fetching rewards - retrying once after warm-up`);
+      await page.waitForTimeout(2000);
+      isLoginPage = await gotoMonetizationAndCheck();
+    }
+
+    if (isLoginPage) {
+      console.warn(`[TikTokExtractor] Still on login page after retry - giving up`);
+      return { totalRewardsUsd: null, tiktokShopRewardsUsd: null, isLoggedIn: false };
+    }
+
+    await page.waitForSelector(".absolute-value, [role='listitem']", { timeout: 10000 }).catch(() => {
+      console.warn(`[TikTokExtractor] Neither .absolute-value nor [role='listitem'] appeared on monetization page`);
+    });
+
+    // DOM Fallback
+    const domResult = await safeEvaluate(
+      page,
+      () => {
+        let total: number | null = null;
+        let shop: number | null = null;
+        let currency = "$";
+
+        const parseVal = (text: string | null | undefined): number | null => {
+          if (!text) return null;
+          const num = parseFloat(text.replace(/[^0-9.]/g, ""));
+          return Number.isNaN(num) ? null : num;
+        };
+
+        const listItems = Array.from(document.querySelectorAll("[role='listitem'], [class*='reward-item'], [class*='Card']"));
+        for (let i = 0; i < listItems.length; i++) {
+          const item = listItems[i];
+          const txt = item.textContent || "";
+          const valEl = item.querySelector(".absolute-value") || item;
+          const valTxt = valEl?.textContent || "";
+
+          if (valTxt.includes("£")) currency = "£";
+          else if (valTxt.includes("€")) currency = "€";
+          else if (valTxt.includes("₫") || valTxt.includes("VND")) currency = "₫";
+
+          if (/tổng|total|all rewards/i.test(txt) && total === null) {
+            total = parseVal(valTxt);
+          } else if (/tiktok shop/i.test(txt) && shop === null) {
+            shop = parseVal(valTxt);
+          }
+        }
+
+        if (total === null) {
+          const els = Array.from(document.querySelectorAll(".absolute-value"));
+          if (els[0]) {
+            total = parseVal(els[0].textContent);
+            if (els[0].textContent?.includes("£")) currency = "£";
+            else if (els[0].textContent?.includes("€")) currency = "€";
+            else if (els[0].textContent?.includes("₫") || els[0].textContent?.includes("VND")) currency = "₫";
+          }
+          if (els[1]) {
+            shop = parseVal(els[1].textContent);
+          }
+        }
+
+        if (total !== null && shop !== null && shop > total) {
+          total = Math.max(total, shop);
+        }
+
+        return {
+          totalRewardsUsd: total,
+          tiktokShopRewardsUsd: shop,
+          currency,
+        };
+      },
+      {
+        totalRewardsUsd: null as number | null,
+        tiktokShopRewardsUsd: null as number | null,
+        currency: "$",
+      }
+    );
+
+    const finalTotal = interceptedTotalRewards !== null ? interceptedTotalRewards : domResult.totalRewardsUsd;
+    const finalShop = interceptedShopRewards !== null ? interceptedShopRewards : domResult.tiktokShopRewardsUsd;
+    const finalCurrency = interceptedCurrency !== "$" ? interceptedCurrency : domResult.currency;
+
+    return {
+      totalRewardsUsd: finalTotal,
+      tiktokShopRewardsUsd: finalShop,
+      currency: finalCurrency,
+      isLoggedIn: true,
+    };
+  } finally {
+    page.off("response", rewardsResponseHandler);
+    await page.close().catch(() => { });
+  }
+}
+
+/**
+ * Scrapes Creator Rewards balance with a standalone persistent context.
+ */
+export async function fetchCreatorRewardsBalance(profileId: string): Promise<CreatorRewardsData> {
+  let context: BrowserContext | undefined;
+  let tempProfileDir: string | null = null;
+
+  try {
+    const launched = await launchPersistentContextForProfile(profileId);
+    context = launched.context;
+    tempProfileDir = launched.tempProfileDir;
+
+    if (!context) {
+      return { totalRewardsUsd: null, tiktokShopRewardsUsd: null, isLoggedIn: false };
+    }
+
+    return await fetchCreatorRewardsBalanceWithContext(context);
+  } catch (err: any) {
+    console.warn(`[TikTokExtractor] Failed to fetch Creator Rewards balance for ${profileId}:`, err.message);
+    return { totalRewardsUsd: null, tiktokShopRewardsUsd: null, isLoggedIn: false };
+  } finally {
+    if (context) await context.close().catch(() => { });
+    cleanupTempDir(tempProfileDir);
+  }
+}
+
+/**
+ * High-level detection function combining TikTok Studio full analytics
+ * with fallback to public profile stats and Creator Rewards balance.
+ */
+export async function detectTikTokAccountFromGpm(
+  profileId: string
+): Promise<ExtractedTikTokData | null> {
+  console.log(`🤖 [TikTokExtractor] Starting real detection for GPM profile: ${profileId}`);
+
+  // 1. Detect handle from local profile storage
+  const handle = findTikTokHandleInProfile(profileId);
+
+  // 2. First Priority: Try full TikTok Studio Extraction (Response Interception + DOM)
+  const studioData = await fetchTikTokStudioFullData(profileId, handle || undefined);
+  if (
+    studioData &&
+    studioData.isLoggedIn &&
+    ((studioData.totalViews || 0) > 0 || (studioData.followersCount || 0) > 0)
+  ) {
+    const finalHandle = handle || studioData.username || `user_${profileId.substring(0, 8)}`;
+    return {
+      username: finalHandle,
+      nickname: studioData.nickname || finalHandle,
+      country: studioData.country || "US",
+      currency: studioData.currency || "$",
+      followersCount: studioData.followersCount || 0,
+      followingCount: studioData.followingCount || 0,
+      totalLikes: studioData.totalLikes || 0,
+      videoCount: studioData.totalVideos || studioData.videoCount || 0,
+      totalVideos: studioData.totalVideos || studioData.videoCount || 0,
+      totalViews: studioData.totalViews || 0,
+      viewsToday: studioData.viewsToday || 0,
+      views7d: studioData.views7d || 0,
+      views14d: studioData.views14d || 0,
+      views30d: studioData.views30d || 0,
+      videosToday: studioData.videosToday || 0,
+      videos7d: studioData.videos7d || 0,
+      videos14d: studioData.videos14d || 0,
+      videos30d: studioData.videos30d || 0,
+      totalRewardsUsd: studioData.totalRewardsUsd || null,
+      tiktokShopRewardsUsd: studioData.tiktokShopRewardsUsd || null,
+      rpm: studioData.rpm || null,
+      isLoggedIn: true,
+    };
+  }
+
+  // 3. Fallback: Shared single persistent context for public profile stats + monetization
+  let sharedContext: BrowserContext | undefined;
+  let sharedTempDir: string | null = null;
+
+  try {
+    let targetUsername = handle;
+    if (!targetUsername) {
+      const gpmProfile = await gpmClient.getProfile(profileId).catch((err: any) => {
+        console.warn(`[TikTokExtractor] gpmClient.getProfile failed for ${profileId}:`, err.message);
+        return null;
+      });
+      if (gpmProfile?.name) {
+        let clean = gpmProfile.name.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
+        if (clean.startsWith("tiktok_")) clean = clean.replace(/^tiktok_/, "");
+        if (!clean.startsWith("profile_")) targetUsername = clean;
+      }
+    }
+
+    if (!targetUsername) {
+      console.warn(`[TikTokExtractor] Could not resolve a username for profile ${profileId} - giving up`);
+      return null;
+    }
+
+    const launched = await launchPersistentContextForProfile(profileId);
+    sharedContext = launched.context;
+    sharedTempDir = launched.tempProfileDir;
+
+    let stats: Omit<ExtractedTikTokData, "totalRewardsUsd" | "tiktokShopRewardsUsd"> | null = null;
+    let rewards: CreatorRewardsData | null = null;
+
+    if (!sharedContext) {
+      try {
+        stats = await fetchLiveTikTokStats(targetUsername);
+      } catch (err: any) {
+        console.warn(`[TikTokExtractor] Anonymous public stats fetch failed for ${targetUsername}:`, err.message);
+      }
+    } else {
+      try {
+        stats = await fetchLiveTikTokStatsWithContext(targetUsername, sharedContext);
+      } catch (err: any) {
+        console.warn(`[TikTokExtractor] Public stats fetch failed for ${targetUsername} on profile ${profileId}:`, err.message);
+      }
+
+      try {
+        rewards = await fetchCreatorRewardsBalanceWithContext(sharedContext);
+      } catch (err: any) {
+        console.warn(`[TikTokExtractor] Creator rewards fetch failed for profile ${profileId}:`, err.message);
+      }
+    }
+
+    if (!stats && !rewards) {
+      return null;
+    }
+
+    const safeStats = stats || {
+      username: targetUsername,
+      followersCount: 0,
+      followingCount: 0,
+      totalLikes: 0,
+      videoCount: 0,
+      totalVideos: 0,
+      totalViews: 0,
+      isLoggedIn: false,
+    };
+    const safeRewards: CreatorRewardsData = rewards || {
+      totalRewardsUsd: null,
+      tiktokShopRewardsUsd: null,
+      isLoggedIn: false,
+    };
+
+    const rpm =
+      safeStats.totalViews > 0 && (safeRewards.totalRewardsUsd || 0) > 0
+        ? Math.round((((safeRewards.totalRewardsUsd as number) * 1000) / safeStats.totalViews) * 100) / 100
+        : null;
+
+    return {
+      ...safeStats,
+      country: "US",
+      currency: safeRewards.currency || "$",
+      totalRewardsUsd: safeRewards.totalRewardsUsd,
+      tiktokShopRewardsUsd: safeRewards.tiktokShopRewardsUsd,
+      rpm,
+      isLoggedIn: safeStats.isLoggedIn || safeRewards.isLoggedIn,
+    };
+  } catch (err: any) {
+    console.warn(`[TikTokExtractor] Fallback extraction error for ${profileId}:`, err.message);
+    return null;
+  } finally {
+    if (sharedContext) await sharedContext.close().catch(() => { });
+    cleanupTempDir(sharedTempDir);
+  }
+}
