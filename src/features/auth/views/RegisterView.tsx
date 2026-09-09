@@ -4,7 +4,8 @@ import NextImage from "next/image";
 import { ArrowRight, Check, X, Eye, EyeOff } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { AuthMessage, MessageType } from "../components/AuthMessage";
-import { SignInWithGoogle, RegisterUser } from "@/services/auth.service";
+import { signIn } from "next-auth/react";
+import { RegisterUser } from "@/services/auth.service";
 import { AuthContainer } from "../components/AuthContainer";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -25,6 +26,7 @@ export const RegisterView = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [touchedPassword, setTouchedPassword] = useState(false);
   const [isInviteFlow, setIsInviteFlow] = useState(false);
+  const [invitedEmail, setInvitedEmail] = useState<string | null>(null);
 
   useEffect(() => {
     if (rawCallbackUrl && rawCallbackUrl.includes("token=")) {
@@ -36,11 +38,12 @@ export const RegisterView = () => {
           .then((data) => {
             if (data.email) {
               setEmail(data.email);
+              setInvitedEmail(data.email);
               setMessageType("info");
               setMessage(`Đăng ký tài khoản cho email được mời: ${data.email}`);
             }
           })
-          .catch(() => {});
+          .catch(() => { });
       }
     }
   }, [rawCallbackUrl]);
@@ -102,6 +105,7 @@ export const RegisterView = () => {
         } else {
           setMessageType("error");
           setMessage(
+            result.error?.message ||
             getUserFriendlyMessage(
               result.error?.code,
               AUTH_MESSAGES.ERROR.REGISTRATION_FAILED
@@ -127,8 +131,13 @@ export const RegisterView = () => {
     setLoading(true);
     setMessage("");
     try {
-      await SignInWithGoogle(callbackUrl);
+      await signIn("google", {
+        callbackUrl: callbackUrl && callbackUrl !== "/" ? callbackUrl : "/accounts",
+      });
     } catch (error: any) {
+      if (error?.message?.includes("NEXT_REDIRECT") || error?.digest?.includes("NEXT_REDIRECT")) {
+        return;
+      }
       setMessageType("error");
       setMessage(AUTH_MESSAGES.ERROR.GOOGLE_CONNECT_FAILED);
       setLoading(false);
@@ -157,7 +166,7 @@ export const RegisterView = () => {
       <AuthMessage message={message} type={messageType} onDismiss={clearMessage} />
 
       {/* Google OAuth Button */}
-      <div className="space-y-4 mb-5">
+      <div className="space-y-2 mb-5">
         <button
           type="button"
           onClick={handleGoogle}
@@ -173,6 +182,11 @@ export const RegisterView = () => {
           />
           <span>Đăng ký với Google</span>
         </button>
+        {isInviteFlow && invitedEmail && (
+          <p className="text-xs text-center text-slate-500 dark:text-slate-400">
+            Lưu ý: Phải chọn đúng tài khoản Google <span className="font-bold text-pink-600 dark:text-pink-400">{invitedEmail}</span> để khớp với thư mời.
+          </p>
+        )}
       </div>
 
       {/* Divider */}
@@ -181,7 +195,7 @@ export const RegisterView = () => {
           <div className="w-full border-t border-slate-200 dark:border-slate-800" />
         </div>
         <div className="relative flex justify-center">
-          <span className="bg-white dark:bg-slate-900 px-3 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+          <span className="bg-white dark:bg-slate-900 px-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
             Hoặc đăng ký bằng Email
           </span>
         </div>
@@ -204,18 +218,33 @@ export const RegisterView = () => {
         </div>
 
         <div>
-          <Label htmlFor="email" className={labelClass}>
-            Địa Chỉ Email
-          </Label>
+          <div className="flex items-center justify-between mb-1.5">
+            <Label htmlFor="email" className={labelClass}>
+              Địa Chỉ Email
+            </Label>
+            {isInviteFlow && invitedEmail && (
+              <span className="text-xs font-bold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/50 px-2 py-0.5 rounded-md border border-pink-200 dark:border-pink-800 flex items-center gap-1">
+                🔒 Cố định theo thư mời
+              </span>
+            )}
+          </div>
           <input
             id="email"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              if (!invitedEmail) setEmail(e.target.value);
+            }}
+            readOnly={Boolean(isInviteFlow && invitedEmail)}
             required
-            className={inputClass}
+            className={`${inputClass} ${isInviteFlow && invitedEmail ? "bg-slate-100/90 dark:bg-slate-900/90 cursor-not-allowed opacity-90 select-none" : ""}`}
             placeholder="name@example.com"
           />
+          {isInviteFlow && invitedEmail && (
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Email này được liên kết cố định với mã mời của bạn và không thể thay đổi.
+            </p>
+          )}
         </div>
 
         <div>

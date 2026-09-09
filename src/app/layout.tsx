@@ -6,6 +6,7 @@ import { mergeOpenGraph } from "@/utils/utilities/mergeOpenGraph";
 import { getServerSideURL } from "@/utils/utilities/getURL";
 import { auth } from "@/lib/auth";
 import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
+import JsonLd from "@/components/seo/JsonLd";
 import "./globals.css";
 
 const inter = Inter({
@@ -23,7 +24,28 @@ export const metadata: Metadata = {
   description:
     "Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
 
+  keywords: [
+    "TikTok Automation",
+    "Quản trị dàn TikTok",
+    "GPM-Login API",
+    "TikTok Creator Rewards",
+    "Checklist TikTok",
+    "Tối ưu RPM TikTok",
+    "Automation Marketing",
+    "Chrome Extension TikTok",
+    "TikTok MCN Tool",
+    "TikTok Fleet Management",
+  ],
+
+  authors: [{ name: "TIKTOKFLOW Team", url: getServerSideURL() }],
+  creator: "TIKTOKFLOW",
+  publisher: "TIKTOKFLOW Technologies",
+  category: "technology",
+
   metadataBase: new URL(getServerSideURL()),
+  alternates: {
+    canonical: "/",
+  },
   manifest: "/site.webmanifest",
 
   appleWebApp: {
@@ -85,6 +107,13 @@ export const metadata: Metadata = {
   robots: {
     index: true,
     follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
   },
 };
 
@@ -97,8 +126,33 @@ export default async function RootLayout({
 
   return (
     <html lang="vi" suppressHydrationWarning>
+      <head>
+        <JsonLd />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var p = window.location.pathname;
+                var isPublic = p === '/' || p.startsWith('/docs') || p.startsWith('/api-docs') || p.startsWith('/security') || p.startsWith('/terms') || p.startsWith('/privacy') || p.startsWith('/signin') || p.startsWith('/signup');
+                if (isPublic) {
+                  var saved = localStorage.getItem('tiktokflow_public_theme');
+                  if (!saved || saved === 'light') {
+                    document.documentElement.classList.remove('dark');
+                    document.documentElement.classList.add('light');
+                    document.documentElement.style.colorScheme = 'light';
+                  } else if (saved === 'dark') {
+                    document.documentElement.classList.remove('light');
+                    document.documentElement.classList.add('dark');
+                    document.documentElement.style.colorScheme = 'dark';
+                  }
+                }
+              } catch (e) {}
+            `,
+          }}
+        />
+      </head>
       <body
-        className={`${inter.variable} font-sans antialiased bg-slate-950 text-slate-100 min-h-screen`}
+        className={`${inter.variable} font-sans antialiased bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-200`}
         suppressHydrationWarning
       >
         <Providers session={session}>

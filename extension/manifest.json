@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "TikTokFlow Companion",
+  "version": "1.0.0",
+  "description": "Tự động phát hiện phiên đăng nhập TikTok và đồng bộ GPMLogin với TikTokFlow",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TikTokFlow Companion",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "permissions": [
+    "cookies",
+    "storage",
+    "alarms",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*.tiktok.com/*",
+    "http://127.0.0.1:9495/*",
+    "http://localhost:9495/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.tiktok.com/*",
+        "https://*.tiktok.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

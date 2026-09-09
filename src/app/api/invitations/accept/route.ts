@@ -37,14 +37,40 @@ export async function POST(req: Request) {
       );
     }
 
-    if (invitation.status !== "PENDING") {
+    const currentEmail = session.user.email.toLowerCase().trim();
+    const targetEmail = invitation.email.toLowerCase().trim();
+
+    if (currentEmail !== targetEmail) {
+      const ownInvite = await prisma.invitation.findFirst({
+        where: {
+          email: { equals: currentEmail, mode: "insensitive" },
+          status: "PENDING",
+          expiresAt: { gt: new Date() },
+        },
+      });
+
       return NextResponse.json(
         {
-          message:
-            invitation.status === "ACCEPTED"
-              ? "Lời mời này đã được chấp nhận trước đó."
-              : "Lời mời này đã bị hủy bỏ.",
+          message: `This invitation was sent for ${targetEmail}, but you are currently logged in with ${currentEmail}.`,
+          currentEmail,
+          targetEmail,
+          ownInviteToken: ownInvite?.token || null,
         },
+        { status: 403 }
+      );
+    }
+
+    // If the user already accepted this invitation previously, treat as success and redirect
+    if (invitation.status === "ACCEPTED") {
+      return NextResponse.json({
+        message: "Bạn đã tham gia hệ thống thành công. Đang chuyển hướng vào bảng điều khiển...",
+        alreadyAccepted: true,
+      });
+    }
+
+    if (invitation.status !== "PENDING") {
+      return NextResponse.json(
+        { message: "Lời mời này đã bị hủy bỏ bởi Quản trị viên." },
         { status: 400 }
       );
     }
@@ -60,22 +86,20 @@ export async function POST(req: Request) {
       );
     }
 
-    const currentEmail = session.user.email.toLowerCase().trim();
-    const targetEmail = invitation.email.toLowerCase().trim();
-
-    if (currentEmail !== targetEmail) {
-      return NextResponse.json(
-        {
-          message: `This invitation was sent for ${targetEmail}, but you are currently logged in with ${currentEmail}.`,
-        },
-        { status: 403 }
-      );
-    }
-
-    // Assign role, group, and activate user
-    const updatedUser = await prisma.user.update({
+    // Assign role, group, and activate user (upsert ensures OAuth users without pre-existing DB rows get created)
+    const rawUsername = session.user.name || currentEmail.split("@")[0];
+    const updatedUser = await prisma.user.upsert({
       where: { email: currentEmail },
-      data: {
+      update: {
+        role: invitation.role,
+        groupId: invitation.groupId || undefined,
+        isActive: true,
+        isVerified: true,
+      },
+      create: {
+        email: currentEmail,
+        name: rawUsername,
+        username: rawUsername,
         role: invitation.role,
         groupId: invitation.groupId || undefined,
         isActive: true,

@@ -1,0 +1,13 @@
+{
+  "name": "tiktokflow-client-agent",
+  "version": "1.0.0",
+  "description": "TikTokFlow Client Agent - Background TikTok Studio Deep Sweeper for Member Machines",
+  "type": "module",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {
+    "playwright-core": "^1.49.1"
+  }
+}

@@ -348,9 +348,9 @@ export default function RevenueDetailsPage() {
   }, [filteredAndSortedRecords]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-20">
-      {/* Sticky Header Section */}
-      <div className="sticky top-16 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md pt-2 pb-3 -mt-2 space-y-4">
+    <div className="space-y-6 w-full pb-20">
+      {/* Header & Controls Section */}
+      <div className="space-y-4">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -412,19 +412,19 @@ export default function RevenueDetailsPage() {
         {/* Quick Summary Chips */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase">Tổng Doanh Thu (Bộ lọc hiện tại)</div>
+            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Tổng Doanh Thu (Bộ lọc hiện tại)</div>
             <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
               ${filteredTotalRevenue.toFixed(2)}
             </div>
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase">Tổng Views Đủ ĐK</div>
+            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Tổng Views Đủ ĐK</div>
             <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1">
               {filteredTotalViews.toLocaleString()}
             </div>
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase">Số Bản Ghi Phù Hợp</div>
+            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Số Bản Ghi Phù Hợp</div>
             <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1">
               {filteredAndSortedRecords.length}
             </div>
@@ -450,7 +450,7 @@ export default function RevenueDetailsPage() {
             </div>
 
             {/* Quick Presets Chips */}
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full">
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none">
               {[
                 { value: 7, label: "7 Ngày" },
                 { value: 28, label: "28 Ngày" },
@@ -464,7 +464,7 @@ export default function RevenueDetailsPage() {
                     key={p.value}
                     type="button"
                     onClick={() => applyPresetRange(p.value)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                       active
                         ? "bg-amber-500 text-slate-950 shadow-xs"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -510,7 +510,7 @@ export default function RevenueDetailsPage() {
                     <Filter className="w-3.5 h-3.5" />
                     <span>Bộ lọc nâng cao</span>
                     {activeFiltersCount > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-[10px] font-bold flex items-center justify-center">
+                      <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
                         {activeFiltersCount}
                       </span>
                     )}
@@ -522,7 +522,7 @@ export default function RevenueDetailsPage() {
                     {activeFiltersCount > 0 && (
                       <button
                         onClick={clearAllFilters}
-                        className="text-[11px] font-semibold text-pink-600 hover:underline cursor-pointer"
+                        className="text-xs font-semibold text-pink-600 hover:underline cursor-pointer"
                       >
                         Đặt lại
                       </button>
@@ -531,7 +531,7 @@ export default function RevenueDetailsPage() {
 
                   {/* Khoảng ngày nhanh */}
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
                       Chọn nhanh khoảng thời gian
                     </label>
                     <div className="grid grid-cols-3 gap-1.5">
@@ -548,7 +548,7 @@ export default function RevenueDetailsPage() {
                             key={p.value}
                             type="button"
                             onClick={() => applyPresetRange(p.value)}
-                            className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer border ${
+                            className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
                               active
                                 ? "bg-amber-500 text-slate-950 border-amber-500 font-bold"
                                 : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
@@ -564,7 +564,7 @@ export default function RevenueDetailsPage() {
                   {/* Khoảng ngày */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Từ ngày
                       </label>
                       <Popover open={isStartPickerOpen} onOpenChange={setIsStartPickerOpen}>
@@ -597,7 +597,7 @@ export default function RevenueDetailsPage() {
                       </Popover>
                     </div>
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Đến ngày
                       </label>
                       <Popover open={isEndPickerOpen} onOpenChange={setIsEndPickerOpen}>
@@ -634,7 +634,7 @@ export default function RevenueDetailsPage() {
                   {/* Doanh thu & Views tối thiểu */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Doanh thu ($) ≥
                       </label>
                       <Input
@@ -649,7 +649,7 @@ export default function RevenueDetailsPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Views ≥
                       </label>
                       <Input
@@ -698,7 +698,7 @@ export default function RevenueDetailsPage() {
                     >
                       <span>{item.label}</span>
                       {sortConfig.key === item.key && (
-                        <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                        <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
                           {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
                         </span>
                       )}
@@ -736,7 +736,7 @@ export default function RevenueDetailsPage() {
                           sourceType: true,
                         })
                       }
-                      className="text-[10px] text-pink-500 hover:underline font-normal cursor-pointer"
+                      className="text-xs text-pink-500 hover:underline font-normal cursor-pointer"
                     >
                       Mặc định
                     </button>
@@ -772,7 +772,7 @@ export default function RevenueDetailsPage() {
                           {col.label}
                         </span>
                         {col.locked && (
-                          <span className="text-[10px] text-slate-400 ml-auto font-normal">
+                          <span className="text-xs text-slate-400 ml-auto font-normal">
                             (Bắt buộc)
                           </span>
                         )}
@@ -788,7 +788,7 @@ export default function RevenueDetailsPage() {
           {activeFiltersCount > 0 && (
             <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/80">
               {search && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                   <span>Tìm: {search}</span>
                   <button onClick={() => setSearch("")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -796,7 +796,7 @@ export default function RevenueDetailsPage() {
                 </span>
               )}
               {sourceTypeFilter !== "ALL" && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
                   <span>Nguồn: {sourceTypeFilter}</span>
                   <button onClick={() => setSourceTypeFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -804,7 +804,7 @@ export default function RevenueDetailsPage() {
                 </span>
               )}
               {startDate && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
                   <span>Từ: {format(new Date(startDate + "T00:00:00"), "dd/MM/yyyy")}</span>
                   <button onClick={() => setStartDate("")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -812,7 +812,7 @@ export default function RevenueDetailsPage() {
                 </span>
               )}
               {endDate && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
                   <span>Đến: {format(new Date(endDate + "T00:00:00"), "dd/MM/yyyy")}</span>
                   <button onClick={() => setEndDate("")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -820,7 +820,7 @@ export default function RevenueDetailsPage() {
                 </span>
               )}
               {minRevenue && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
                   <span>Doanh thu ≥ ${minRevenue}</span>
                   <button onClick={() => setMinRevenue("")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -828,7 +828,7 @@ export default function RevenueDetailsPage() {
                 </span>
               )}
               {minViews && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
                   <span>Views ≥ {Number(minViews).toLocaleString()}</span>
                   <button onClick={() => setMinViews("")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -837,7 +837,7 @@ export default function RevenueDetailsPage() {
               )}
               <button
                 onClick={clearAllFilters}
-                className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white underline cursor-pointer ml-1"
+                className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white underline cursor-pointer ml-1"
               >
                 Xóa tất cả
               </button>
@@ -852,7 +852,7 @@ export default function RevenueDetailsPage() {
       ) : (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 min-w-[900px]">
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none normal-case">
                 <tr>
                   {/* Checkbox All */}
@@ -1025,7 +1025,7 @@ export default function RevenueDetailsPage() {
                         {/* Source */}
                         {visibleColumns.sourceType && (
                           <td className="px-5 py-3.5">
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs">
                               {item.sourceType}
                             </span>
                           </td>

@@ -2,9 +2,14 @@ import { router, protectedProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 
 export const settingsRouter = router({
-  // 1. Get all system configs
+  // 1. Get all system configs (Lead/Admin gets all, Staff gets safe configs only)
   getAll: protectedProcedure.query(async ({ ctx }) => {
-    const configs = await ctx.prisma.systemConfig.findMany();
+    const isLeadOrAdmin = ctx.session.user.role === "ADMIN" || ctx.session.user.role === "LEAD";
+    const configs = await ctx.prisma.systemConfig.findMany({
+      where: isLeadOrAdmin
+        ? undefined
+        : { key: { in: ["scoring_rules", "app_theme", "app_version"] } },
+    });
     const configMap: Record<string, any> = {};
     for (const c of configs) {
       try {

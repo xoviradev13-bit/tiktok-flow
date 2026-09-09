@@ -39,6 +39,19 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
     });
   }
 
+  // Check if user is active in database
+  const currentUser = await ctx.prisma.user.findUnique({
+    where: { id: ctx.session.user.id },
+    select: { isActive: true },
+  });
+
+  if (currentUser && !currentUser.isActive) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Tài khoản của bạn đã bị quản trị viên chặn quyền truy cập.",
+    });
+  }
+
   const role = String((ctx.session.user as any).role || (ctx.session.user as any).userType || "STAFF").toUpperCase();
 
   return next({

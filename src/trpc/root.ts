@@ -7,6 +7,9 @@ import { leaderboardRouter } from "@/trpc/routers/leaderboard";
 import { gpmRouter } from "@/trpc/routers/gpm";
 import { settingsRouter } from "@/trpc/routers/settings";
 import { adminRouter } from "@/trpc/routers/admin";
+import { extensionRouter } from "@/trpc/routers/extension";
+import { analyticsRouter } from "@/trpc/routers/analytics";
+import { supportRouter } from "@/trpc/routers/support";
 
 export const appRouter = router({
   user: userRouter,
@@ -17,6 +20,9 @@ export const appRouter = router({
   gpm: gpmRouter,
   settings: settingsRouter,
   admin: adminRouter,
+  extension: extensionRouter,
+  analytics: analyticsRouter,
+  support: supportRouter,
 });
 
 export type AppRouter = typeof appRouter;

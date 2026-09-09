@@ -26,14 +26,9 @@ export const accountsRouter = router({
     .query(async ({ ctx, input }) => {
       const where: any = {};
 
-      // If user is STAFF (not LEAD or ADMIN), show assigned accounts, or fleet accounts if none assigned yet
+      // If user is STAFF (not LEAD or ADMIN), strictly show assigned accounts only
       if (ctx.session.user.role === "STAFF") {
-        const hasAssigned = await ctx.prisma.tiktokAccount.count({
-          where: { assignedUserId: ctx.session.user.id },
-        });
-        if (hasAssigned > 0) {
-          where.assignedUserId = ctx.session.user.id;
-        }
+        where.assignedUserId = ctx.session.user.id;
       } else if (input?.assignedUserId && input.assignedUserId !== "ALL") {
         where.assignedUserId = input.assignedUserId;
       }
@@ -54,34 +49,43 @@ export const accountsRouter = router({
         where.country = input.country;
       }
 
-      const [accounts, totalCount, activeCount, restrictedCount, bannedCount, warmingCount] =
-        await Promise.all([
-          ctx.prisma.tiktokAccount.findMany({
-            where,
-            include: {
-              assignedUser: {
-                select: {
-                  id: true,
-                  username: true,
-                  name: true,
-                  firstName: true,
-                  lastName: true,
-                  role: true,
-                },
-              },
-              alerts: {
-                where: { status: "OPEN" },
-                orderBy: { createdAt: "desc" },
+      const [accounts, statusGroups] = await Promise.all([
+        ctx.prisma.tiktokAccount.findMany({
+          where,
+          include: {
+            assignedUser: {
+              select: {
+                id: true,
+                username: true,
+                name: true,
+                firstName: true,
+                lastName: true,
+                role: true,
               },
             },
-            orderBy: { updatedAt: "desc" },
-          }),
-          ctx.prisma.tiktokAccount.count(),
-          ctx.prisma.tiktokAccount.count({ where: { status: "ACTIVE" } }),
-          ctx.prisma.tiktokAccount.count({ where: { status: "RESTRICTED" } }),
-          ctx.prisma.tiktokAccount.count({ where: { status: "BANNED" } }),
-          ctx.prisma.tiktokAccount.count({ where: { status: "WARMING" } }),
-        ]);
+            alerts: {
+              where: { status: "OPEN" },
+              orderBy: { createdAt: "desc" },
+            },
+          },
+          orderBy: { updatedAt: "desc" },
+        }),
+        ctx.prisma.tiktokAccount.groupBy({
+          by: ["status"],
+          _count: { id: true },
+        }),
+      ]);
+
+      const statusMap = statusGroups.reduce<Record<string, number>>((acc, curr) => {
+        acc[curr.status] = curr._count.id;
+        return acc;
+      }, {});
+
+      const totalCount = statusGroups.reduce((sum, curr) => sum + curr._count.id, 0);
+      const activeCount = statusMap["ACTIVE"] || 0;
+      const restrictedCount = statusMap["RESTRICTED"] || 0;
+      const bannedCount = statusMap["BANNED"] || 0;
+      const warmingCount = statusMap["WARMING"] || 0;
 
       const totalFleetRevenue = accounts.reduce(
         (sum, acc) => sum + Number(acc.totalRevenue || 0),
@@ -217,6 +221,7 @@ export const accountsRouter = router({
         groupName: z.string().optional().nullable(),
         status: z.enum(["ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"]).optional(),
         assignedUserId: z.string().optional().nullable(),
+        isAssignmentLocked: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -238,6 +243,14 @@ export const accountsRouter = router({
         });
       }
 
+      const isReassigning = input.assignedUserId !== undefined && input.assignedUserId !== current.assignedUserId;
+      if (isReassigning && current.isAssignmentLocked && ctx.session.user.role === "STAFF") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Tài khoản này đã bị khóa phân công. Chỉ Quản trị viên mới có quyền chuyển giao.",
+        });
+      }
+
       const statusChanged = input.status && input.status !== current.status;
 
       const updated = await ctx.prisma.tiktokAccount.update({
@@ -248,11 +261,32 @@ export const accountsRouter = router({
           groupName: input.groupName,
           status: input.status,
           assignedUserId: ctx.session.user.role !== "STAFF" ? input.assignedUserId : undefined,
+          isAssignmentLocked: ctx.session.user.role !== "STAFF" && input.isAssignmentLocked !== undefined ? input.isAssignmentLocked : undefined,
         },
         include: {
           assignedUser: true,
         },
       });
+
+      if (isReassigning) {
+        const oldUser = current.assignedUserId
+          ? await ctx.prisma.user.findUnique({ where: { id: current.assignedUserId }, select: { name: true, username: true } })
+          : null;
+        const newUser = input.assignedUserId
+          ? await ctx.prisma.user.findUnique({ where: { id: input.assignedUserId }, select: { name: true, username: true } })
+          : null;
+
+        await ctx.prisma.accountLog.create({
+          data: {
+            accountId: current.id,
+            oldStatus: current.status,
+            newStatus: current.status,
+            logType: "HANDOVER",
+            message: `[CHUYỂN GIAO QUẢN LÝ] Tài khoản @${current.username} đã được chuyển giao từ ${oldUser?.name || oldUser?.username || "Chưa gán"} sang ${newUser?.name || newUser?.username || "Chưa gán"} bởi ${ctx.session.user.name || ctx.session.user.email || "Admin"}.`,
+            actorName: ctx.session.user.name || ctx.session.user.email || "Admin",
+          },
+        });
+      }
 
       if (statusChanged) {
         await ctx.prisma.accountLog.create({
@@ -268,6 +302,35 @@ export const accountsRouter = router({
       }
 
       return serializeBigInt(updated);
+    }),
+
+  // 12. Toggle Lock Assignment (LEAD / ADMIN)
+  toggleLockAssignment: leadProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        isLocked: z.boolean(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const updated = await ctx.prisma.tiktokAccount.update({
+        where: { id: input.id },
+        data: { isAssignmentLocked: input.isLocked },
+      });
+
+      await ctx.prisma.accountLog.create({
+        data: {
+          accountId: input.id,
+          newStatus: updated.status,
+          logType: "STATUS_CHANGE",
+          message: input.isLocked
+            ? `[KHÓA PHÂN CÔNG] Quản trị viên ${ctx.session.user.name || "Admin"} đã khóa phân công tài khoản này.`
+            : `[MỞ KHÓA PHÂN CÔNG] Quản trị viên ${ctx.session.user.name || "Admin"} đã mở khóa, cho phép chuyển giao tự động.`,
+          actorName: ctx.session.user.name || ctx.session.user.email || "Admin",
+        },
+      });
+
+      return { success: true, isAssignmentLocked: updated.isAssignmentLocked };
     }),
 
   // 5. Delete TikTok Account (ADMIN)

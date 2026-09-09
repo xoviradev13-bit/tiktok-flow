@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   UserCog,
@@ -34,6 +35,15 @@ import {
   Ban,
   CheckCircle2,
   ExternalLink,
+  Key,
+  Download,
+  RefreshCw,
+  EyeOff,
+  LayoutGrid,
+  List,
+  Crown,
+  User,
+  ArrowRight,
 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
@@ -66,9 +76,81 @@ import { trpc } from "@/lib/trpc";
 
 type SortKey = "fullName" | "username" | "email" | "role" | "groupName" | "accountsCount" | "isActive" | "createdAt";
 
-export default function UsersManagementPage() {
-  const { data: session } = useSession();
+function UsersManagementContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // View Mode: read initial value from URL Search Params ("grid" | "list")
+  const urlViewMode = (searchParams?.get("view") === "list" ? "list" : "grid") as "grid" | "list";
+  const [viewMode, setViewMode] = useState<"grid" | "list">(urlViewMode);
+
+  const initialPage = useMemo(() => {
+    const p = searchParams?.get("page");
+    const num = p ? parseInt(p, 10) : 1;
+    return isNaN(num) || num < 1 ? 1 : num;
+  }, [searchParams]);
+
+  const initialPageSize = useMemo(() => {
+    const ps = searchParams?.get("pageSize");
+    const fallback = urlViewMode === "grid" ? 12 : 10;
+    const num = ps ? parseInt(ps, 10) : fallback;
+    return isNaN(num) || num < 1 ? fallback : num;
+  }, [searchParams, urlViewMode]);
+
+  const [page, setPage] = useState(initialPage);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+
+  const updateUrlParams = useCallback(
+    (updates: Record<string, string | number | undefined | null>) => {
+      const params = new URLSearchParams(searchParams?.toString() || "");
+      Object.entries(updates).forEach(([key, val]) => {
+        if (
+          val === undefined ||
+          val === null ||
+          val === "" ||
+          (key === "page" && Number(val) === 1) ||
+          (key === "view" && val === "grid")
+        ) {
+          params.delete(key);
+        } else {
+          params.set(key, String(val));
+        }
+      });
+      const searchStr = params.toString();
+      const newUrl = searchStr ? `${pathname}?${searchStr}` : pathname;
+      window.history.replaceState(null, "", newUrl);
+    },
+    [searchParams, pathname]
+  );
+
+  const handleViewModeChange = (mode: "grid" | "list") => {
+    setViewMode(mode);
+    const defaultSize = mode === "grid" ? 12 : 10;
+    setPageSize(defaultSize);
+    setPage(1);
+    updateUrlParams({ view: mode, pageSize: defaultSize, page: 1 });
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    updateUrlParams({ page: newPage });
+  };
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+    updateUrlParams({ pageSize: newSize, page: 1 });
+  };
+
+  const { data: session, status } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
+
+  useEffect(() => {
+    if (status !== "loading" && !isAdmin) {
+      router.replace("/accounts");
+    }
+  }, [status, isAdmin, router]);
 
   const [activeTab, setActiveTab] = useState<"USERS" | "INVITATIONS">("USERS");
 
@@ -82,9 +164,6 @@ export default function UsersManagementPage() {
     key: "createdAt",
     desc: true,
   });
-
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
 
   // Column visibility state (fullName is locked and cannot be unchecked)
   const [visibleColumns, setVisibleColumns] = useState({
@@ -107,19 +186,11 @@ export default function UsersManagementPage() {
 
   // Invite modal state
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteEmailInput, setInviteEmailInput] = useState("");
+  const [inviteEmailsList, setInviteEmailsList] = useState<string[]>([]);
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "LEAD" | "STAFF">("STAFF");
   const [inviteGroup, setInviteGroup] = useState("");
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
-
-  // New staff modal (Direct create)
-  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
-  const [newUsername, setNewUsername] = useState("");
-  const [newFullName, setNewFullName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [newRole, setNewRole] = useState<"ADMIN" | "LEAD" | "STAFF">("STAFF");
-  const [newGroup, setNewGroup] = useState("");
 
   // Group Management modal
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
@@ -135,28 +206,43 @@ export default function UsersManagementPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
 
+  // Block / Unblock Access confirmation modal
+  const [userToToggleStatus, setUserToToggleStatus] = useState<any>(null);
+  const [isToggleStatusModalOpen, setIsToggleStatusModalOpen] = useState(false);
+
+  // Extension Token Management Modal
+  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  const [selectedUserForToken, setSelectedUserForToken] = useState<any>(null);
+  const [isTokenRevealed, setIsTokenRevealed] = useState(false);
+  const [copiedExtensionToken, setCopiedExtensionToken] = useState(false);
+
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
 
-  const { data: users = [], isLoading: loading } = trpc.admin.listUsers.useQuery();
-  const { data: invitations = [], isLoading: loadingInvites } = trpc.admin.listInvitations.useQuery();
-  const { data: groupsData } = trpc.admin.listGroups.useQuery();
+  const { data: users = [], isLoading: loading } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
+  const { data: invitations = [], isLoading: loadingInvites } = trpc.admin.listInvitations.useQuery(undefined, { enabled: isAdmin });
+  const { data: groupsData } = trpc.admin.listGroups.useQuery(undefined, { enabled: isAdmin });
   const availableGroups = useMemo(() => {
     return groupsData?.groups || ["Team US #1", "Team EU #1", "Team VN #1"];
   }, [groupsData]);
 
-  const createInviteMutation = trpc.admin.createInvitation.useMutation({
+  const createBulkInvitesMutation = trpc.admin.createBulkInvitations.useMutation({
     onSuccess: (res) => {
       setIsInviteModalOpen(false);
-      setInviteEmail("");
+      setInviteEmailInput("");
+      setInviteEmailsList([]);
       setInviteGroup("");
-      setActionMsg(`✅ Đã gửi thư mời thành công đến ${res.email}!`);
+      if (res.failedCount === 0) {
+        setActionMsg(`✅ Đã gửi thư mời thành công đến ${res.successCount} thành viên!`);
+      } else {
+        setActionMsg(`⚠️ Đã gửi ${res.successCount}/${res.total} thư mời (${res.failedCount} thất bại hoặc đã có tài khoản).`);
+      }
       utils.admin.listInvitations.invalidate();
-      setTimeout(() => setActionMsg(null), 5000);
+      setTimeout(() => setActionMsg(null), 6000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi tạo thư mời");
+      alert(err.message || "Lỗi gửi thư mời");
     },
   });
 
@@ -230,24 +316,6 @@ export default function UsersManagementPage() {
     },
   });
 
-  const createUserMutation = trpc.admin.createUser.useMutation({
-    onSuccess: () => {
-      setIsAddUserOpen(false);
-      setNewUsername("");
-      setNewFullName("");
-      setNewEmail("");
-      setNewPassword("");
-      setNewGroup("");
-      setActionMsg("✅ Đã tạo nhân sự mới thành công!");
-      utils.admin.listUsers.invalidate();
-      utils.admin.listGroups.invalidate();
-      setTimeout(() => setActionMsg(null), 4000);
-    },
-    onError: (err: any) => {
-      alert(err.message || "Lỗi tạo tài khoản");
-    },
-  });
-
   const updateUserRoleMutation = trpc.admin.updateUserRole.useMutation({
     onSuccess: () => {
       setIsEditRoleOpen(false);
@@ -289,8 +357,12 @@ export default function UsersManagementPage() {
 
   const toggleStatusMutation = trpc.admin.toggleUserStatus.useMutation({
     onSuccess: (res: any) => {
+      setIsToggleStatusModalOpen(false);
+      setUserToToggleStatus(null);
       setActionMsg(
-        res.isActive ? "✅ Đã kích hoạt tài khoản" : "⚠️ Đã tạm khóa tài khoản"
+        res.isActive
+          ? "✅ Đã mở lại quyền truy cập cho nhân sự thành công!"
+          : "🚫 Đã chặn quyền truy cập của nhân sự thành công!"
       );
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
@@ -298,24 +370,88 @@ export default function UsersManagementPage() {
     onError: (err: any) => alert(err.message),
   });
 
-  const handleCreateUser = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newUsername || !newEmail) return;
-    createUserMutation.mutate({
-      username: newUsername,
-      name: newFullName || undefined,
-      email: newEmail,
-      role: newRole,
-      groupName: newGroup || null,
-      password: newPassword || undefined,
+  const {
+    data: tokenData,
+    isLoading: loadingToken,
+    refetch: refetchToken,
+  } = trpc.admin.getExtensionToken.useQuery(
+    { userId: selectedUserForToken?.id || "" },
+    { enabled: !!selectedUserForToken?.id && isTokenModalOpen }
+  );
+
+  const regenerateTokenMutation = trpc.admin.regenerateExtensionToken.useMutation({
+    onSuccess: () => {
+      refetchToken();
+      utils.admin.listUsers.invalidate();
+      setActionMsg(
+        `🔑 Đã thu hồi & cấp Token mới thành công cho ${selectedUserForToken?.fullName || selectedUserForToken?.username
+        }!`
+      );
+      setTimeout(() => setActionMsg(null), 5000);
+    },
+    onError: (err: any) => {
+      alert(err.message || "Lỗi khi cấp lại Token");
+    },
+  });
+
+  const revokeTokenMutation = trpc.admin.revokeExtensionToken.useMutation({
+    onSuccess: () => {
+      refetchToken();
+      utils.admin.listUsers.invalidate();
+      setActionMsg(
+        `🚫 Đã vô hiệu hóa toàn bộ quyền Extension của ${selectedUserForToken?.fullName || selectedUserForToken?.username
+        }!`
+      );
+      setTimeout(() => setActionMsg(null), 5000);
+    },
+    onError: (err: any) => {
+      alert(err.message || "Lỗi khi vô hiệu hóa Token");
+    },
+  });
+
+  const parseAndAddEmails = (text: string) => {
+    if (!text.trim()) return;
+    const tokens = text.split(/[\s,;\n\r\t]+/);
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const validEmails: string[] = [];
+    tokens.forEach((t) => {
+      const cleaned = t.trim().toLowerCase();
+      if (emailRegex.test(cleaned)) {
+        validEmails.push(cleaned);
+      }
     });
+
+    if (validEmails.length > 0) {
+      setInviteEmailsList((prev) => {
+        const set = new Set([...prev, ...validEmails]);
+        return Array.from(set);
+      });
+      setInviteEmailInput("");
+    }
   };
 
   const handleSendInvite = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteEmail.trim()) return;
-    createInviteMutation.mutate({
-      email: inviteEmail.trim(),
+    const pending = inviteEmailInput.trim();
+    let allEmails = [...inviteEmailsList];
+    if (pending) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const tokens = pending.split(/[\s,;\n\r\t]+/);
+      tokens.forEach((t) => {
+        const cleaned = t.trim().toLowerCase();
+        if (emailRegex.test(cleaned) && !allEmails.includes(cleaned)) {
+          allEmails.push(cleaned);
+        }
+      });
+    }
+
+    if (allEmails.length === 0) {
+      alert("Vui lòng nhập ít nhất một địa chỉ email hợp lệ.");
+      return;
+    }
+
+    createBulkInvitesMutation.mutate({
+      emails: allEmails,
       role: inviteRole,
       groupName: inviteGroup || null,
     });
@@ -348,7 +484,20 @@ export default function UsersManagementPage() {
     });
   };
 
+  const openToggleStatusModal = (user: any) => {
+    if (user.id === session?.user?.id) {
+      alert("Bạn không thể tự chặn quyền truy cập của chính mình!");
+      return;
+    }
+    setUserToToggleStatus(user);
+    setIsToggleStatusModalOpen(true);
+  };
+
   const handleToggleStatus = (userId: string, currentStatus: boolean) => {
+    if (userId === session?.user?.id) {
+      alert("Bạn không thể tự chặn quyền truy cập của chính mình!");
+      return;
+    }
     toggleStatusMutation.mutate({
       userId,
       isActive: !currentStatus,
@@ -479,27 +628,28 @@ export default function UsersManagementPage() {
     switch (role) {
       case "ADMIN":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">
-            <Shield className="w-3 h-3" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
+            <Shield className="w-3.5 h-3.5" />
             ADMIN
           </span>
         );
       case "LEAD":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
-            <ShieldCheck className="w-3 h-3" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 shadow-2xs">
+            <ShieldCheck className="w-3.5 h-3.5" />
             LEAD
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
-            <UserCheck className="w-3 h-3" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 shadow-2xs">
+            <UserCheck className="w-3.5 h-3.5" />
             STAFF
           </span>
         );
     }
   };
+
 
   const renderSortIndicator = (key: SortKey) => {
     if (sortConfig.key !== key) {
@@ -512,10 +662,18 @@ export default function UsersManagementPage() {
     );
   };
 
+  if (status === "loading" || !isAdmin) {
+    return (
+      <div className="space-y-6 w-full pb-20">
+        <DataTableSkeleton columns={6} rows={8} />
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-20">
-      {/* Sticky Header Section */}
-      <div className="sticky top-16 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md pt-2 pb-3 -mt-2 space-y-4">
+    <div className="space-y-6 w-full pb-20">
+      {/* Header & Controls Section */}
+      <div className="space-y-4">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -537,13 +695,6 @@ export default function UsersManagementPage() {
               <span>Quản Lý Nhóm ({availableGroups.length})</span>
             </Link>
             <button
-              onClick={() => setIsAddUserOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs active:scale-95 transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tạo Trực Tiếp</span>
-            </button>
-            <button
               onClick={() => setIsInviteModalOpen(true)}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer"
             >
@@ -563,22 +714,20 @@ export default function UsersManagementPage() {
         <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
           <button
             onClick={() => setActiveTab("USERS")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "USERS"
-                ? "bg-pink-600 text-white shadow-md shadow-pink-600/25"
-                : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === "USERS"
+              ? "bg-pink-600 text-white shadow-md shadow-pink-600/25"
+              : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
+              }`}
           >
             <Users className="w-3.5 h-3.5" />
             <span>Thành Viên Hệ Thống ({totalCount})</span>
           </button>
           <button
             onClick={() => setActiveTab("INVITATIONS")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "INVITATIONS"
-                ? "bg-pink-600 text-white shadow-md shadow-pink-600/25"
-                : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === "INVITATIONS"
+              ? "bg-pink-600 text-white shadow-md shadow-pink-600/25"
+              : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
+              }`}
           >
             <Mail className="w-3.5 h-3.5" />
             <span>Lời Mời Đang Chờ ({invitations.filter((i: any) => i.status === "PENDING").length})</span>
@@ -616,9 +765,9 @@ export default function UsersManagementPage() {
           </div>
         )}
 
-        {/* Filter & Search Toolbar */}
+        {/* Filter & Search Toolbar (Sticky only on desktop) */}
         {activeTab === "USERS" && (
-          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
+          <div className="lg:sticky lg:top-[72px] z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
             <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
               {/* Search Input */}
               <div className="relative w-full md:w-80">
@@ -726,7 +875,7 @@ export default function UsersManagementPage() {
                       <Filter className="w-3.5 h-3.5" />
                       <span>Bộ lọc</span>
                       {activeFiltersCount > 0 && (
-                        <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-[10px] font-bold flex items-center justify-center">
+                        <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
                           {activeFiltersCount}
                         </span>
                       )}
@@ -738,7 +887,7 @@ export default function UsersManagementPage() {
                       {activeFiltersCount > 0 && (
                         <button
                           onClick={clearAllFilters}
-                          className="text-[11px] font-medium text-pink-600 hover:underline cursor-pointer"
+                          className="text-xs font-medium text-pink-600 hover:underline cursor-pointer"
                         >
                           Đặt lại
                         </button>
@@ -747,7 +896,7 @@ export default function UsersManagementPage() {
 
                     {/* Trạng thái hoạt động */}
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Trạng thái tài khoản
                       </label>
                       <Select
@@ -770,7 +919,7 @@ export default function UsersManagementPage() {
 
                     {/* Phụ trách Fleet */}
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Số tài khoản phụ trách
                       </label>
                       <Select
@@ -825,7 +974,7 @@ export default function UsersManagementPage() {
                       >
                         <span>{item.label}</span>
                         {sortConfig.key === item.key && (
-                          <span className="text-[11px] font-bold text-pink-600 dark:text-pink-400">
+                          <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
                             {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
                           </span>
                         )}
@@ -834,81 +983,110 @@ export default function UsersManagementPage() {
                   </PopoverContent>
                 </Popover>
 
-                {/* Column Visibility Popover */}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
-                      title="Tùy chỉnh cột hiển thị"
-                    >
-                      <Columns3 className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Cột hiển thị</span>
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
+                {/* View Mode Switcher */}
+                <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-800">
+                  <button
+                    onClick={() => handleViewModeChange("grid")}
+                    className={`flex items-center justify-center w-7 h-7 rounded-lg text-xs transition-all cursor-pointer ${
+                      viewMode === "grid"
+                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-semibold"
+                        : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    }`}
+                    title="Dạng lưới thẻ (Grid Cards)"
                   >
-                    <div className="px-2.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                      <span>Tùy chỉnh cột hiển thị</span>
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleViewModeChange("list")}
+                    className={`flex items-center justify-center w-7 h-7 rounded-lg text-xs transition-all cursor-pointer ${
+                      viewMode === "list"
+                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-semibold"
+                        : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    }`}
+                    title="Dạng bảng danh sách (Table List)"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Column Visibility Popover (Only for List view) */}
+                {viewMode === "list" && (
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <button
-                        onClick={() =>
-                          setVisibleColumns({
-                            fullName: true,
-                            username: true,
-                            email: true,
-                            role: true,
-                            groupName: true,
-                            accountsCount: true,
-                            isActive: true,
-                            actions: true,
-                          })
-                        }
-                        className="text-[10px] text-pink-500 hover:underline font-normal cursor-pointer"
+                        className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
+                        title="Tùy chỉnh cột hiển thị"
                       >
-                        Mặc định
+                        <Columns3 className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Cột hiển thị</span>
                       </button>
-                    </div>
-                    <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
-                      {[
-                        { key: "fullName", label: "Họ & tên", locked: true },
-                        { key: "username", label: "Username" },
-                        { key: "email", label: "Email" },
-                        { key: "role", label: "Vai trò" },
-                        { key: "groupName", label: "Nhóm" },
-                        { key: "accountsCount", label: "Số acc phụ trách" },
-                        { key: "isActive", label: "Trạng thái" },
-                        { key: "actions", label: "Thao tác" },
-                      ].map((col) => (
-                        <label
-                          key={col.key}
-                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
-                            }`}
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="end"
+                      className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
+                    >
+                      <div className="px-2.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <span>Tùy chỉnh cột hiển thị</span>
+                        <button
+                          onClick={() =>
+                            setVisibleColumns({
+                              fullName: true,
+                              username: true,
+                              email: true,
+                              role: true,
+                              groupName: true,
+                              accountsCount: true,
+                              isActive: true,
+                              actions: true,
+                            })
+                          }
+                          className="text-xs text-pink-500 hover:underline font-normal cursor-pointer"
                         >
-                          <Checkbox
-                            checked={visibleColumns[col.key as keyof typeof visibleColumns]}
-                            disabled={col.locked}
-                            onCheckedChange={(checked) => {
-                              if (col.locked) return;
-                              setVisibleColumns((prev) => ({
-                                ...prev,
-                                [col.key]: !!checked,
-                              }));
-                            }}
-                          />
-                          <span className="text-slate-700 dark:text-slate-300 font-medium">
-                            {col.label}
-                          </span>
-                          {col.locked && (
-                            <span className="text-[10px] text-slate-400 ml-auto font-normal">
-                              (Bắt buộc)
+                          Mặc định
+                        </button>
+                      </div>
+                      <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
+                        {[
+                          { key: "fullName", label: "Họ & tên", locked: true },
+                          { key: "username", label: "Username" },
+                          { key: "email", label: "Email" },
+                          { key: "role", label: "Vai trò" },
+                          { key: "groupName", label: "Nhóm" },
+                          { key: "accountsCount", label: "Số acc phụ trách" },
+                          { key: "isActive", label: "Trạng thái" },
+                          { key: "actions", label: "Thao tác" },
+                        ].map((col) => (
+                          <label
+                            key={col.key}
+                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${
+                              col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
+                            }`}
+                          >
+                            <Checkbox
+                              checked={visibleColumns[col.key as keyof typeof visibleColumns]}
+                              disabled={col.locked}
+                              onCheckedChange={(checked) => {
+                                if (col.locked) return;
+                                setVisibleColumns((prev) => ({
+                                  ...prev,
+                                  [col.key]: !!checked,
+                                }));
+                              }}
+                            />
+                            <span className="text-slate-700 dark:text-slate-300 font-medium">
+                              {col.label}
                             </span>
-                          )}
-                        </label>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
+                            {col.locked && (
+                              <span className="text-xs text-slate-400 ml-auto font-normal">
+                                (Bắt buộc)
+                              </span>
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
               </div>
             </div>
           </div>
@@ -918,7 +1096,352 @@ export default function UsersManagementPage() {
       {/* Main Content Area */}
       {activeTab === "USERS" ? (
         loading ? (
-          <DataTableSkeleton columnCount={visibleColumnCount} rowCount={pageSize} />
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {Array.from({ length: pageSize }).map((_, i) => (
+                <div
+                  key={i}
+                  className="bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 space-y-4 animate-pulse"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="w-4 h-4 bg-slate-200 dark:bg-slate-800 rounded" />
+                    <div className="w-20 h-5 bg-slate-200 dark:bg-slate-800 rounded-full" />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-200 dark:bg-slate-800" />
+                    <div className="space-y-1.5 flex-1">
+                      <div className="w-24 h-4 bg-slate-200 dark:bg-slate-800 rounded" />
+                      <div className="w-32 h-3 bg-slate-200 dark:bg-slate-800 rounded" />
+                    </div>
+                  </div>
+                  <div className="h-10 bg-slate-100 dark:bg-slate-800/50 rounded-xl" />
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between">
+                    <div className="w-16 h-3 bg-slate-200 dark:bg-slate-800 rounded" />
+                    <div className="w-16 h-3 bg-slate-200 dark:bg-slate-800 rounded" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <DataTableSkeleton columnCount={visibleColumnCount} rowCount={pageSize} />
+          )
+        ) : filteredAndSortedUsers.length === 0 ? (
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center shadow-xs">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-pink-50 dark:bg-pink-950/40 text-pink-500 flex items-center justify-center mb-3">
+              <UserX className="w-6 h-6" />
+            </div>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+              Không tìm thấy nhân sự phù hợp
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+              Thử thay đổi bộ lọc tìm kiếm, vai trò hoặc trạng thái để xem kết quả.
+            </p>
+            {activeFiltersCount > 0 && (
+              <button
+                onClick={clearAllFilters}
+                className="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Xóa bộ lọc</span>
+              </button>
+            )}
+          </div>
+        ) : viewMode === "grid" ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {paginatedUsers.map((u: any) => {
+                const isSelected = selectedIds.has(u.id);
+                const initials = (u.fullName || u.username || "U")
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(-2)
+                  .map((w: string) => w[0]?.toUpperCase())
+                  .join("") || "U";
+
+                return (
+                  <div
+                    key={u.id}
+                    className={`group bg-white dark:bg-slate-900/80 rounded-3xl border transition-all duration-200 relative overflow-hidden flex flex-col hover:shadow-lg hover:shadow-pink-500/5 hover:-translate-y-0.5 ${
+                      isSelected
+                        ? "border-pink-500/60 ring-2 ring-pink-500/20 shadow-md shadow-pink-500/10"
+                        : "border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                    }`}
+                  >
+                    {/* Top Bar: Checkbox + Role Badge + Status + Actions */}
+                    <div className="p-4 pb-2 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelectRow(u.id)}
+                          aria-label={`Chọn ${u.username}`}
+                        />
+                        {getRoleBadge(u.role)}
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {/* Status Toggle Button */}
+                        <button
+                          disabled={u.id === session?.user?.id}
+                          onClick={() => openToggleStatusModal(u)}
+                          title={
+                            u.id === session?.user?.id
+                              ? "Không thể tự chặn chính mình"
+                              : u.isActive
+                              ? "Bấm để chặn quyền truy cập"
+                              : "Bấm để mở chặn quyền truy cập"
+                          }
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold border transition-all ${
+                            u.id === session?.user?.id
+                              ? "opacity-75 cursor-default"
+                              : "cursor-pointer"
+                          } ${
+                            u.isActive
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                              : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              u.isActive ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
+                            }`}
+                          />
+                          <span>{u.isActive ? "Hoạt động" : "Bị chặn"}</span>
+                        </button>
+
+                        {/* More Actions Dropdown */}
+                        <DropdownMenu>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                  aria-label="Thao tác"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Tùy chọn thao tác</TooltipContent>
+                          </Tooltip>
+                          <DropdownMenuContent
+                            align="end"
+                            className="w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-1"
+                          >
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/users/${u.id}`}
+                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Xem chi tiết Fleet</span>
+                              </Link>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedUser(u);
+                                setEditRole(u.role);
+                                setIsEditRoleOpen(true);
+                              }}
+                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Đổi vai trò</span>
+                            </DropdownMenuItem>
+
+                            {isAdmin && (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedUserForToken(u);
+                                  setIsTokenRevealed(false);
+                                  setCopiedExtensionToken(false);
+                                  setIsTokenModalOpen(true);
+                                }}
+                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg cursor-pointer font-medium"
+                              >
+                                <Key className="w-3.5 h-3.5 text-amber-500" />
+                                <span>Quản lý Extension Token</span>
+                              </DropdownMenuItem>
+                            )}
+
+                            {isAdmin && (
+                              <DropdownMenuItem
+                                disabled={u.id === session?.user?.id}
+                                onClick={() => openToggleStatusModal(u)}
+                                className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-medium ${
+                                  u.id === session?.user?.id
+                                    ? "opacity-50 cursor-not-allowed text-slate-400"
+                                    : u.isActive
+                                    ? "text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                    : "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                                }`}
+                              >
+                                {u.isActive ? (
+                                  <>
+                                    <Ban className="w-3.5 h-3.5 text-rose-500" />
+                                    <span>Chặn quyền truy cập</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                    <span>Mở chặn quyền truy cập</span>
+                                  </>
+                                )}
+                              </DropdownMenuItem>
+                            )}
+
+                            <DropdownMenuSeparator className="my-1 border-slate-100 dark:border-slate-800" />
+
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setUserToDelete(u);
+                                setIsDeleteOpen(true);
+                              }}
+                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg cursor-pointer font-semibold"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                              <span>Xóa nhân sự</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+
+                    {/* User Identity Section */}
+                    <div className="px-4 py-3 flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-pink-500/20 via-rose-500/20 to-amber-500/20 border border-pink-500/30 flex items-center justify-center font-black text-sm text-pink-600 dark:text-pink-400 shrink-0 shadow-inner overflow-hidden">
+                        {u.avatar ? (
+                          <img
+                            src={u.avatar}
+                            alt={u.username}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          initials
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          href={`/users/${u.id}`}
+                          className="font-bold text-sm text-slate-900 dark:text-white truncate block hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+                          title={u.fullName || u.username}
+                        >
+                          {u.fullName || "Chưa đặt tên"}
+                        </Link>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                          @{u.username}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Contact & Group Info */}
+                    <div className="px-4 py-2 space-y-2 text-xs flex-1">
+                      {/* Email with copy */}
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
+                          <Mail className="w-3 h-3" /> Email
+                        </span>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span
+                            className="truncate max-w-[140px] text-slate-700 dark:text-slate-300 font-mono text-xs"
+                            title={u.email}
+                          >
+                            {u.email}
+                          </span>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(u.email);
+                                  setActionMsg(`Đã sao chép email: ${u.email}`);
+                                  setTimeout(() => setActionMsg(null), 2500);
+                                }}
+                                className="text-slate-400 hover:text-pink-500 p-0.5 cursor-pointer transition-colors"
+                                aria-label="Sao chép email"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Sao chép email</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
+
+                      {/* Group Assignment Dropdown */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
+                          <Users className="w-3 h-3" /> Nhóm
+                        </span>
+                        <Select
+                          value={u.groupName || "NONE"}
+                          onValueChange={(val) => {
+                            const targetGroup = val === "NONE" ? null : val;
+                            updateUserGroupMutation.mutate({
+                              userId: u.id,
+                              groupName: targetGroup,
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="w-36 h-7 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                            <SelectValue placeholder="Gán nhóm">
+                              {u.groupName ? (
+                                <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                  {u.groupName}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic">Chưa gán</span>
+                              )}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
+                            <SelectItem value="NONE" className="text-xs text-slate-400 cursor-pointer">
+                              Không gán nhóm (Trống)
+                            </SelectItem>
+                            {availableGroups.map((g: string) => (
+                              <SelectItem key={g} value={g} className="text-xs cursor-pointer font-medium">
+                                {g}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Card Footer: Accounts assigned & Fleet link */}
+                    <div className="mt-auto px-4 py-3 bg-slate-50/80 dark:bg-slate-950/50 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                          {u.accountsCount ?? 0}
+                        </span>
+                        <span className="text-xs text-slate-400">acc phụ trách</span>
+                      </div>
+
+                      <Link
+                        href={`/accounts?userId=${u.id}`}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
+                      >
+                        <span>Dàn acc</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Grid Pagination */}
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                pageSize={pageSize}
+                totalItems={filteredAndSortedUsers.length}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+                itemLabel="nhân sự"
+              />
+            </div>
+          </div>
         ) : (
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
             <div className="overflow-x-auto relative">
@@ -1011,7 +1534,7 @@ export default function UsersManagementPage() {
                     {visibleColumns.isActive && (
                       <th
                         onClick={() => handleSort("isActive")}
-                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[130px]"
+                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[150px] whitespace-nowrap"
                       >
                         <div className="flex items-center gap-1.5">
                           <span>Trạng thái</span>
@@ -1046,9 +1569,8 @@ export default function UsersManagementPage() {
                       return (
                         <tr
                           key={u.id}
-                          className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors group ${
-                            isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""
-                          }`}
+                          className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors group ${isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""
+                            }`}
                         >
                           {/* Checkbox (Frozen Left) */}
                           <td className="py-3 px-4 w-10 sticky left-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90">
@@ -1066,17 +1588,19 @@ export default function UsersManagementPage() {
                                 href={`/users/${u.id}`}
                                 className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 transition-colors flex items-center gap-2 group/link"
                               >
-                                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white text-[11px] font-bold shrink-0">
-                                  {u.avatar ? (
-                                    <img
-                                      src={u.avatar}
-                                      alt={u.username}
-                                      className="w-full h-full rounded-full object-cover"
-                                    />
-                                  ) : (
-                                    (u.fullName || u.username || "U")[0]?.toUpperCase()
-                                  )}
-                                </div>
+                                  <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white text-xs font-bold shrink-0 select-none">
+                                    {u.avatar ? (
+                                      <img
+                                        src={u.avatar}
+                                        alt={u.username}
+                                        className="w-full h-full rounded-full object-cover"
+                                      />
+                                    ) : (
+                                      <span className="leading-none">
+                                        {(u.fullName || u.username || "U")[0]?.toUpperCase()}
+                                      </span>
+                                    )}
+                                  </div>
                                 <span className="group-hover/link:underline truncate">
                                   {u.fullName || "Chưa đặt tên"}
                                 </span>
@@ -1118,7 +1642,7 @@ export default function UsersManagementPage() {
                                   });
                                 }}
                               >
-                                <SelectTrigger className="w-36 h-7 text-[11px] rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                <SelectTrigger className="w-36 h-7.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
                                   <SelectValue placeholder="Gán nhóm">
                                     {u.groupName ? (
                                       <span className="font-semibold text-slate-800 dark:text-slate-200">
@@ -1146,7 +1670,7 @@ export default function UsersManagementPage() {
                           {/* Accounts Count */}
                           {visibleColumns.accountsCount && (
                             <td className="py-3 px-4">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">
+                              <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
                                 {u.accountsCount} tài khoản
                               </span>
                             </td>
@@ -1154,37 +1678,56 @@ export default function UsersManagementPage() {
 
                           {/* Status */}
                           {visibleColumns.isActive && (
-                            <td className="py-3 px-4">
+                            <td className="py-3 px-4 whitespace-nowrap min-w-[150px]">
                               <button
-                                onClick={() => handleToggleStatus(u.id, u.isActive)}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
-                                  u.isActive
-                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
-                                    : "bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20"
-                                }`}
+                                disabled={u.id === session?.user?.id}
+                                onClick={() => openToggleStatusModal(u)}
+                                title={
+                                  u.id === session?.user?.id
+                                    ? "Không thể tự chặn chính mình"
+                                    : u.isActive
+                                    ? "Bấm để chặn quyền truy cập"
+                                    : "Bấm để mở chặn quyền truy cập"
+                                }
+                                className={`inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold border transition-all shadow-2xs whitespace-nowrap ${
+                                  u.id === session?.user?.id
+                                    ? "opacity-80 cursor-default"
+                                    : "cursor-pointer"
+                                } ${u.isActive
+                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                                  : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
+                                  }`}
                               >
                                 <span
-                                  className={`w-1.5 h-1.5 rounded-full ${
-                                    u.isActive ? "bg-emerald-500" : "bg-rose-500"
-                                  }`}
+                                  className={`w-1.5 h-1.5 rounded-full ${u.isActive ? "bg-emerald-500" : "bg-rose-500"
+                                    }`}
                                 />
-                                {u.isActive ? "Hoạt động" : "Tạm khóa"}
+                                <span>{u.isActive ? "Hoạt động" : "Bị chặn"}</span>
                               </button>
                             </td>
                           )}
+
 
                           {/* Action Menu (Frozen Right) */}
                           {visibleColumns.actions && (
                             <td className="py-3 px-6 text-center sticky right-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]">
                               <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
-                                    <MoreHorizontal className="w-4 h-4" />
-                                  </button>
-                                </DropdownMenuTrigger>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <DropdownMenuTrigger asChild>
+                                      <button 
+                                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                        aria-label="Tùy chọn nhân sự"
+                                      >
+                                        <MoreHorizontal className="w-4 h-4" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left">Tùy chọn nhân sự</TooltipContent>
+                                </Tooltip>
                                 <DropdownMenuContent
                                   align="end"
-                                  className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-1"
+                                  className="w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-1"
                                 >
                                   <DropdownMenuItem asChild>
                                     <Link
@@ -1207,6 +1750,47 @@ export default function UsersManagementPage() {
                                     <Pencil className="w-3.5 h-3.5 text-slate-400" />
                                     <span>Đổi vai trò</span>
                                   </DropdownMenuItem>
+
+                                  {isAdmin && (
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        setSelectedUserForToken(u);
+                                        setIsTokenRevealed(false);
+                                        setCopiedExtensionToken(false);
+                                        setIsTokenModalOpen(true);
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg cursor-pointer font-medium"
+                                    >
+                                      <Key className="w-3.5 h-3.5 text-amber-500" />
+                                      <span>Quản lý Extension Token</span>
+                                    </DropdownMenuItem>
+                                  )}
+
+                                  {isAdmin && (
+                                    <DropdownMenuItem
+                                      disabled={u.id === session?.user?.id}
+                                      onClick={() => openToggleStatusModal(u)}
+                                      className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-medium ${
+                                        u.id === session?.user?.id
+                                          ? "opacity-50 cursor-not-allowed text-slate-400"
+                                          : u.isActive
+                                          ? "text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                          : "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                                      }`}
+                                    >
+                                      {u.isActive ? (
+                                        <>
+                                          <Ban className="w-3.5 h-3.5 text-rose-500" />
+                                          <span>Chặn quyền truy cập</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                          <span>Mở chặn quyền truy cập</span>
+                                        </>
+                                      )}
+                                    </DropdownMenuItem>
+                                  )}
 
                                   <DropdownMenuSeparator className="my-1 border-slate-100 dark:border-slate-800" />
 
@@ -1239,11 +1823,8 @@ export default function UsersManagementPage() {
                 totalPages={totalPages}
                 pageSize={pageSize}
                 totalItems={filteredAndSortedUsers.length}
-                onPageChange={setPage}
-                onPageSizeChange={(newSize) => {
-                  setPageSize(newSize);
-                  setPage(1);
-                }}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
                 itemLabel="nhân sự"
               />
             </div>
@@ -1310,13 +1891,15 @@ export default function UsersManagementPage() {
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
                     <tr>
-                      <th className="py-3.5 px-4">Email Nhận Lời Mời</th>
-                      <th className="py-3.5 px-4">Phân Quyền</th>
-                      <th className="py-3.5 px-4">Nhóm / Team</th>
-                      <th className="py-3.5 px-4">Người Gửi Lời Mời</th>
-                      <th className="py-3.5 px-4">Hạn Sử Dụng</th>
-                      <th className="py-3.5 px-4">Trạng Thái</th>
-                      <th className="py-3.5 px-4 text-center">Thao Tác</th>
+                      <th className="py-3.5 px-4 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px]">
+                        Email Nhận Lời Mời
+                      </th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[120px]">Phân Quyền</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">Nhóm / Team</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">Người Gửi Lời Mời</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">Hạn Sử Dụng</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[120px]">Trạng Thái</th>
+                      <th className="py-3.5 px-4 text-center whitespace-nowrap min-w-[140px]">Thao Tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
@@ -1326,60 +1909,63 @@ export default function UsersManagementPage() {
                       const isExpired = inv.status === "EXPIRED";
                       const isRevoked = inv.status === "REVOKED";
 
-                      const isExpiringSoon = isPending && new Date(inv.expiresAt).getTime() - Date.now() < 24 * 60 * 60 * 1000;
+                      const isExpiringSoon = isPending && new Date(inv.expiresAt).getTime() - Date.now() < 6 * 60 * 60 * 1000;
 
                       return (
-                        <tr key={inv.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
+                        <tr key={inv.id} className="group hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200/80 dark:border-slate-800/80 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px] transition-colors">
                             <div className="flex items-center gap-2">
-                              <Mail className="w-4 h-4 text-slate-400" />
-                              <span>{inv.email}</span>
+                              <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span className="truncate max-w-[240px]">{inv.email}</span>
                             </div>
                           </td>
-                          <td className="py-3.5 px-4">
+                          <td className="py-3.5 px-4 whitespace-nowrap">
                             {getRoleBadge(inv.role)}
                           </td>
-                          <td className="py-3.5 px-4">
+                          <td className="py-3.5 px-4 whitespace-nowrap">
                             {inv.groupName ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">
+                              <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
                                 {inv.groupName}
                               </span>
                             ) : (
-                              <span className="text-slate-400 text-xs">Chưa gán</span>
+                              <span className="inline-flex items-center h-7.5 text-slate-400 text-xs">Chưa gán</span>
                             )}
                           </td>
-                          <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
+                          <td className="py-3.5 px-4 whitespace-nowrap text-slate-700 dark:text-slate-300">
                             {inv.invitedBy?.name || inv.invitedBy?.username || inv.invitedBy?.email || "Admin"}
                           </td>
-                          <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400">
+                          <td className="py-3.5 px-4 whitespace-nowrap text-slate-600 dark:text-slate-400">
                             <div className="flex flex-col">
-                              <span>{new Date(inv.expiresAt).toLocaleDateString("vi-VN")}</span>
+                              <span>
+                                {new Date(inv.expiresAt).toLocaleDateString("vi-VN")}{" "}
+                                {new Date(inv.expiresAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
                               {isExpiringSoon && (
-                                <span className="text-[10px] font-bold text-amber-500 flex items-center gap-0.5">
+                                <span className="text-xs font-bold text-amber-500 flex items-center gap-0.5">
                                   <Clock className="w-3 h-3" /> Sắp hết hạn
                                 </span>
                               )}
                             </div>
                           </td>
-                          <td className="py-3.5 px-4">
+                          <td className="py-3.5 px-4 whitespace-nowrap">
                             {isPending && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                <Clock className="w-3 h-3" /> Đang chờ
+                              <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shadow-2xs">
+                                <Clock className="w-3.5 h-3.5" /> Đang chờ
                               </span>
                             )}
                             {isAccepted && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                                <CheckCircle2 className="w-3 h-3" /> Đã tham gia
+                              <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-2xs">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Đã tham gia
                               </span>
                             )}
                             {isExpired && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
-                                <Clock className="w-3 h-3" /> Hết hạn
+                              <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 shadow-2xs">
+                                <Clock className="w-3.5 h-3.5" /> Hết hạn
                               </span>
                             )}
                             {isRevoked && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                                <Ban className="w-3 h-3" /> Đã thu hồi
+                              <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 shadow-2xs">
+                                <Ban className="w-3.5 h-3.5" /> Đã thu hồi
                               </span>
                             )}
                           </td>
@@ -1403,32 +1989,47 @@ export default function UsersManagementPage() {
                                     <TooltipTrigger asChild>
                                       <button
                                         onClick={() => resendInviteMutation.mutate({ id: inv.id })}
-                                        className="w-7 h-7 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors cursor-pointer"
+                                        disabled={resendInviteMutation.isPending}
+                                        className="w-7 h-7 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40"
                                       >
-                                        <RotateCcw className="w-3.5 h-3.5" />
+                                        <RotateCcw className={`w-3.5 h-3.5 ${resendInviteMutation.isPending ? "animate-spin" : ""}`} />
                                       </button>
                                     </TooltipTrigger>
-                                    <TooltipContent>Gửi lại & Gia hạn 7 ngày</TooltipContent>
+                                    <TooltipContent>Gửi lại email & Gia hạn thêm 24h</TooltipContent>
                                   </Tooltip>
 
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <button
-                                        onClick={() => revokeInviteMutation.mutate({ id: inv.id })}
-                                        className="w-7 h-7 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
+                                        onClick={() => {
+                                          if (
+                                            confirm(
+                                              `Xác nhận THU HỒI lời mời gửi đến "${inv.email}"?\n\nSau khi thu hồi, liên kết kích hoạt trong email sẽ bị vô hiệu hóa hoàn toàn ngay lập tức.`
+                                            )
+                                          ) {
+                                            revokeInviteMutation.mutate({ id: inv.id });
+                                          }
+                                        }}
+                                        disabled={revokeInviteMutation.isPending}
+                                        className="w-7 h-7 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40"
                                       >
                                         <Ban className="w-3.5 h-3.5" />
                                       </button>
                                     </TooltipTrigger>
-                                    <TooltipContent>Thu hồi lời mời</TooltipContent>
+                                    <TooltipContent>Thu hồi (vô hiệu hóa) lời mời</TooltipContent>
                                   </Tooltip>
                                 </>
                               )}
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
-                                    onClick={() => deleteInviteMutation.mutate({ id: inv.id })}
-                                    className="w-7 h-7 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
+                                    onClick={() => {
+                                      if (confirm(`Xác nhận xóa hoàn toàn bản ghi lời mời gửi đến "${inv.email}"?`)) {
+                                        deleteInviteMutation.mutate({ id: inv.id });
+                                      }
+                                    }}
+                                    disabled={deleteInviteMutation.isPending}
+                                    className="w-7 h-7 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1468,6 +2069,214 @@ export default function UsersManagementPage() {
             <Trash2 className="w-3.5 h-3.5" />
             <span>Xóa đã chọn ({selectedIds.size})</span>
           </button>
+        </div>
+      )}
+
+      {/* Modal: Invite New Member */}
+      {isInviteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-pink-50 dark:bg-pink-950/50 text-pink-600 dark:text-pink-400 flex items-center justify-center shrink-0 shadow-xs">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Mời Thành Viên Mới
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Gửi thư mời qua email để thành viên tự tạo mật khẩu
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsInviteModalOpen(false)}
+                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Invite Form */}
+            <form onSubmit={handleSendInvite} className="space-y-4">
+              {/* Email field with multi-email badges */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Danh Sách Email Thành Viên <span className="text-rose-500">*</span>
+                  </label>
+                  {inviteEmailsList.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
+                        {inviteEmailsList.length} email đã chọn
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setInviteEmailsList([])}
+                        className="inline-flex items-center text-xs font-medium text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 px-2 py-0.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-transparent hover:border-rose-200/60 dark:hover:border-rose-900/50 transition-all cursor-pointer"
+                      >
+                        Xóa hết
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Email badges */}
+                {inviteEmailsList.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl mb-2">
+                    {inviteEmailsList.map((em, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/60 text-pink-700 dark:text-pink-300 border border-pink-200/80 dark:border-pink-900/60"
+                      >
+                        <span className="truncate max-w-[220px]">{em}</span>
+                        <button
+                          type="button"
+                          onClick={() => setInviteEmailsList((prev) => prev.filter((_, i) => i !== idx))}
+                          className="w-3.5 h-3.5 rounded-full hover:bg-pink-200 dark:hover:bg-pink-900 flex items-center justify-center text-pink-500 hover:text-pink-800 dark:hover:text-white transition-colors cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      placeholder={inviteEmailsList.length > 0 ? "Thêm email khác hoặc dán danh sách..." : "Nhập email và nhấn Enter hoặc dán danh sách..."}
+                      value={inviteEmailInput}
+                      onChange={(e) => setInviteEmailInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === "," || e.key === " ") {
+                          e.preventDefault();
+                          parseAndAddEmails(inviteEmailInput);
+                        }
+                      }}
+                      onPaste={(e) => {
+                        const pasted = e.clipboardData.getData("text");
+                        if (pasted && (pasted.includes(",") || pasted.includes("\n") || pasted.includes(" ") || pasted.includes(";"))) {
+                          e.preventDefault();
+                          parseAndAddEmails(pasted);
+                        }
+                      }}
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-3.5 pr-8 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-all"
+                    />
+                    <Mail className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => parseAndAddEmails(inviteEmailInput)}
+                    disabled={!inviteEmailInput.trim()}
+                    className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 disabled:opacity-40 cursor-pointer transition-colors shrink-0"
+                  >
+                    + Thêm
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                  💡 Hỗ trợ dán danh sách nhiều email cùng lúc (ngăn cách bởi dấu phẩy, khoảng trắng hoặc xuống dòng).
+                </p>
+              </div>
+
+              {/* Role selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                  Phân Quyền Vai Trò (Role) <span className="text-rose-500">*</span>
+                </label>
+                <Select
+                  value={inviteRole}
+                  onValueChange={(val: "ADMIN" | "LEAD" | "STAFF") => setInviteRole(val)}
+                >
+                  <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
+                    <SelectValue placeholder="Chọn vai trò" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-2xl">
+                    <SelectItem value="STAFF" className="text-xs cursor-pointer">
+                      STAFF (Nhân viên vận hành)
+                    </SelectItem>
+                    <SelectItem value="LEAD" className="text-xs cursor-pointer">
+                      LEAD (Trưởng nhóm)
+                    </SelectItem>
+                    <SelectItem value="ADMIN" className="text-xs cursor-pointer">
+                      ADMIN (Quản trị viên cấp cao)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  {inviteRole === "STAFF" && "• Chỉ xem và thao tác các tài khoản TikTok được chỉ định"}
+                  {inviteRole === "LEAD" && "• Quản lý thành viên và danh sách tài khoản thuộc nhóm phụ trách"}
+                  {inviteRole === "ADMIN" && "• Toàn quyền hệ thống, nhân sự và cấu hình phân nhóm"}
+                </p>
+              </div>
+
+              {/* Group / Team selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                  Phân Vào Nhóm / Team <span className="text-slate-400 font-normal">(Tùy chọn)</span>
+                </label>
+                <Select
+                  value={inviteGroup || "NONE"}
+                  onValueChange={(val) => setInviteGroup(val === "NONE" ? "" : val)}
+                >
+                  <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
+                    <SelectValue placeholder="Chọn nhóm / team" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-2xl">
+                    <SelectItem value="NONE" className="text-xs cursor-pointer">
+                      -- Chưa gán nhóm (Mặc định) --
+                    </SelectItem>
+                    {availableGroups.map((g: string) => (
+                      <SelectItem key={g} value={g} className="text-xs cursor-pointer">
+                        {g}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Notice note */}
+              <div className="p-3 rounded-2xl bg-pink-50/50 dark:bg-pink-950/20 border border-pink-100 dark:border-pink-900/40 text-xs text-pink-700 dark:text-pink-300 leading-relaxed">
+                💡 <span className="font-medium">Lưu ý:</span> Email lời mời có hiệu lực trong vòng <strong>24 giờ</strong>. Sau khi hoàn tất đăng ký, tài khoản sẽ được tự động kích hoạt và đưa vào nhóm tương ứng.
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsInviteModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={createBulkInvitesMutation.isPending || (inviteEmailsList.length === 0 && !inviteEmailInput.trim())}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-md shadow-pink-600/25 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {createBulkInvitesMutation.isPending ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang gửi thư mời...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>
+                        {inviteEmailsList.length > 1
+                          ? `Gửi ${inviteEmailsList.length} Lời Mời`
+                          : "Gửi Lời Mời"}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -1531,7 +2340,7 @@ export default function UsersManagementPage() {
                         <span className="font-semibold text-slate-900 dark:text-white">
                           {groupName}
                         </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                           {memberCount} thành viên
                         </span>
                       </div>
@@ -1563,138 +2372,6 @@ export default function UsersManagementPage() {
                 Đóng
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Add User */}
-      {isAddUserOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Plus className="w-4 h-4 text-pink-500" />
-                Thêm Thành Viên Mới
-              </h3>
-              <button
-                onClick={() => setIsAddUserOpen(false)}
-                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateUser} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Username *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. david_staff"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Họ & Tên
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. David Nguyen"
-                  value={newFullName}
-                  onChange={(e) => setNewFullName(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="email@tiktokflow.io"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Mật Khẩu Khởi Tạo (Tùy chọn)
-                </label>
-                <input
-                  type="password"
-                  placeholder="Mặc định: 123456"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Vai Trò (Role)
-                  </label>
-                  <Select value={newRole} onValueChange={(val) => setNewRole(val as "ADMIN" | "LEAD" | "STAFF")}>
-                    <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
-                      <SelectValue placeholder="Chọn vai trò" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-2xl">
-                      <SelectItem value="STAFF" className="text-xs cursor-pointer">STAFF (Nhân viên / Operator)</SelectItem>
-                      <SelectItem value="LEAD" className="text-xs cursor-pointer">LEAD (Team Leader)</SelectItem>
-                      <SelectItem value="ADMIN" className="text-xs cursor-pointer">ADMIN (Quản trị viên)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Nhóm (Group / Team)
-                  </label>
-                  <Select value={newGroup || "UNASSIGNED"} onValueChange={(val) => setNewGroup(val === "UNASSIGNED" ? "" : val)}>
-                    <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
-                      <SelectValue placeholder="-- Chưa gán nhóm --" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-2xl max-h-56">
-                      <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
-                        -- Chưa gán nhóm --
-                      </SelectItem>
-                      {availableGroups.map((g: string) => (
-                        <SelectItem key={g} value={g} className="text-xs cursor-pointer">
-                          {g}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAddUserOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={createUserMutation.isPending}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
-                >
-                  {createUserMutation.isPending ? "Đang tạo..." : "Tạo Nhân Sự"}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
@@ -1791,7 +2468,7 @@ export default function UsersManagementPage() {
                 <span className="font-semibold">Email:</span> {userToDelete.email}
               </div>
               {userToDelete.accountsCount > 0 && (
-                <div className="text-[11px] text-amber-600 dark:text-amber-400 pt-1 font-medium">
+                <div className="text-xs text-amber-600 dark:text-amber-400 pt-1 font-medium">
                   ⚠️ Nhân sự này đang phụ trách {userToDelete.accountsCount} tài khoản TikTok. Các tài khoản này sẽ được chuyển về trạng thái Chưa phân công.
                 </div>
               )}
@@ -1871,6 +2548,328 @@ export default function UsersManagementPage() {
           </div>
         </div>
       )}
+
+      {/* Modal: Confirm Block / Unblock User Access */}
+      {isToggleStatusModalOpen && userToToggleStatus && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                  userToToggleStatus.isActive
+                    ? "bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400"
+                    : "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400"
+                }`}
+              >
+                {userToToggleStatus.isActive ? (
+                  <Ban className="w-5 h-5" />
+                ) : (
+                  <CheckCircle2 className="w-5 h-5" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  {userToToggleStatus.isActive
+                    ? "Xác nhận chặn quyền truy cập"
+                    : "Xác nhận mở chặn quyền truy cập"}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {userToToggleStatus.isActive
+                    ? "Nhân sự sẽ không thể đăng nhập vào hệ thống"
+                    : "Cho phép nhân sự đăng nhập và sử dụng hệ thống"}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 space-y-1.5">
+              <div className="text-xs text-slate-700 dark:text-slate-300">
+                <span className="font-semibold">Họ & tên:</span>{" "}
+                {userToToggleStatus.fullName || userToToggleStatus.name || userToToggleStatus.username}
+              </div>
+              <div className="text-xs text-slate-700 dark:text-slate-300">
+                <span className="font-semibold">Username:</span> @{userToToggleStatus.username}
+              </div>
+              <div className="text-xs text-slate-700 dark:text-slate-300">
+                <span className="font-semibold">Email:</span> {userToToggleStatus.email}
+              </div>
+              <div className="text-xs text-slate-700 dark:text-slate-300">
+                <span className="font-semibold">Trạng thái hiện tại:</span>{" "}
+                {userToToggleStatus.isActive ? (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">Đang hoạt động</span>
+                ) : (
+                  <span className="text-rose-600 dark:text-rose-400 font-bold">Đang bị chặn</span>
+                )}
+              </div>
+            </div>
+
+            {userToToggleStatus.isActive ? (
+              <div className="p-3.5 bg-rose-50/70 dark:bg-rose-950/40 border border-rose-200/70 dark:border-rose-900/50 rounded-2xl text-xs text-rose-700 dark:text-rose-300 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>Cảnh báo chặn truy cập</span>
+                </div>
+                <p className="text-xs leading-relaxed text-rose-600 dark:text-rose-300/90">
+                  Khi bạn chặn quyền truy cập, nhân sự này sẽ bị ngắt mọi phiên làm việc hiện tại ngay lập tức và <b>không thể đăng nhập</b> vào hệ thống cho đến khi được bạn mở chặn lại.
+                </p>
+              </div>
+            ) : (
+              <div className="p-3.5 bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/70 dark:border-emerald-900/50 rounded-2xl text-xs text-emerald-700 dark:text-emerald-300 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Mở lại quyền truy cập</span>
+                </div>
+                <p className="text-xs leading-relaxed text-emerald-600 dark:text-emerald-300/90">
+                  Nhân sự này sẽ có thể đăng nhập bình thường và tiếp tục quản trị các tài khoản TikTok được phân công.
+                </p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsToggleStatusModalOpen(false);
+                  setUserToToggleStatus(null);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={toggleStatusMutation.isPending}
+                onClick={() => {
+                  if (userToToggleStatus) {
+                    toggleStatusMutation.mutate({
+                      userId: userToToggleStatus.id,
+                      isActive: !userToToggleStatus.isActive,
+                    });
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer ${
+                  userToToggleStatus.isActive
+                    ? "bg-rose-600 hover:bg-rose-700"
+                    : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {userToToggleStatus.isActive ? (
+                  <>
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>{toggleStatusMutation.isPending ? "Đang xử lý..." : "Xác nhận chặn"}</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{toggleStatusMutation.isPending ? "Đang xử lý..." : "Mở quyền truy cập"}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Admin Extension Token Management */}
+      {isTokenModalOpen && selectedUserForToken && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5 animate-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-xs">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Quản Lý Extension Token
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {selectedUserForToken.fullName || selectedUserForToken.username} ({selectedUserForToken.email})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsTokenModalOpen(false);
+                  setSelectedUserForToken(null);
+                }}
+                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Explanation Note */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/60 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 space-y-1.5 leading-relaxed">
+              <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <span>💡 Cơ chế Machine-Wide Token</span>
+              </div>
+              <p>
+                Token này được mã hóa bảo mật dùng để xác thực Extension của nhân sự này trên tất cả các profile GPMLogin của máy họ. Nhân viên không cần nhớ hay tự gõ token vì token đã được tự động nhúng vào file ZIP khi tải về.
+              </p>
+            </div>
+
+            {/* Token Display Box */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Extension Secret Token:
+                </label>
+                <div className="flex items-center gap-1.5">
+                  {tokenData?.accessEnabled === false ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                      🚫 Đã vô hiệu hóa
+                    </span>
+                  ) : tokenData?.token ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      ✓ Đang hoạt động
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">
+                      {loadingToken ? "Đang truy xuất..." : "Chưa tạo"}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="relative flex items-center">
+                <input
+                  type={isTokenRevealed ? "text" : "password"}
+                  readOnly
+                  placeholder={tokenData?.accessEnabled === false ? "Quyền đã bị khóa" : "Chưa có token"}
+                  value={loadingToken ? "Đang tải token..." : tokenData?.token || ""}
+                  className={`w-full bg-slate-50 dark:bg-slate-950 border rounded-xl px-3.5 py-2.5 text-xs font-mono pr-20 focus:outline-none ${tokenData?.accessEnabled === false
+                    ? "border-rose-200 dark:border-rose-900/60 text-rose-500"
+                    : "border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                    }`}
+                />
+                <div className="absolute right-2 flex items-center gap-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        disabled={!tokenData?.token}
+                        onClick={() => setIsTokenRevealed(!isTokenRevealed)}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer transition-colors disabled:opacity-40"
+                      >
+                        {isTokenRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {isTokenRevealed ? "Ẩn Token" : "Hiện Token"}
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        disabled={!tokenData?.token}
+                        onClick={() => {
+                          if (tokenData?.token) {
+                            navigator.clipboard.writeText(tokenData.token);
+                            setCopiedExtensionToken(true);
+                            setTimeout(() => setCopiedExtensionToken(false), 2500);
+                          }
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer transition-colors disabled:opacity-40"
+                      >
+                        {copiedExtensionToken ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {copiedExtensionToken ? "Đã sao chép!" : "Sao chép Token"}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
+              {copiedExtensionToken && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                  ✓ Đã sao chép token vào bộ nhớ tạm!
+                </p>
+              )}
+            </div>
+
+            {/* Quick Actions for Admin */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row gap-2.5">
+              <button
+                type="button"
+                disabled={regenerateTokenMutation.isPending}
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Xác nhận ${tokenData?.accessEnabled === false ? "mở lại quyền và cấp Token mới" : "thu hồi và tạo Token mới"} cho ${selectedUserForToken.fullName || selectedUserForToken.username
+                      }?`
+                    )
+                  ) {
+                    regenerateTokenMutation.mutate({ userId: selectedUserForToken.id });
+                  }
+                }}
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 cursor-pointer transition-all disabled:opacity-60"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${regenerateTokenMutation.isPending ? "animate-spin" : ""}`}
+                />
+                <span>
+                  {regenerateTokenMutation.isPending ? "Đang xử lý..." : tokenData?.accessEnabled === false ? "Mở khóa & Cấp Token" : "Cấp lại Token mới"}
+                </span>
+              </button>
+
+              {tokenData?.accessEnabled !== false && (
+                <button
+                  type="button"
+                  disabled={revokeTokenMutation.isPending}
+                  onClick={() => {
+                    if (
+                      confirm(
+                        `Xác nhận VÔ HIỆU HÓA HOÀN TOÀN quyền Extension của ${selectedUserForToken.fullName || selectedUserForToken.username
+                        }?\n\nSau khi vô hiệu hóa, nhân sự sẽ không thể tự tạo lại token và Extension sẽ bị khóa ngay lập tức!`
+                      )
+                    ) {
+                      revokeTokenMutation.mutate({ userId: selectedUserForToken.id });
+                    }
+                  }}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-900/50 cursor-pointer transition-all disabled:opacity-60"
+                >
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>Vô hiệu hóa</span>
+                </button>
+              )}
+
+              <a
+                href={tokenData?.accessEnabled === false ? "#" : `/api/extension/download?userId=${selectedUserForToken.id}`}
+                download={tokenData?.accessEnabled !== false}
+                onClick={(e) => {
+                  if (tokenData?.accessEnabled === false) {
+                    e.preventDefault();
+                    alert("Quyền Extension của nhân sự này đang bị vô hiệu hóa. Hãy bấm 'Mở khóa & Cấp Token' trước.");
+                  }
+                }}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${tokenData?.accessEnabled === false
+                  ? "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
+                  : "text-white bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-md shadow-pink-600/20 cursor-pointer active:scale-95"
+                  }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Tải Extension hộ (ZIP)</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+export default function UsersManagementPage() {
+  return (
+    <Suspense fallback={<DataTableSkeleton columnCount={8} rowCount={10} />}>
+      <UsersManagementContent />
+    </Suspense>
+  );
+}
+

@@ -25,11 +25,20 @@ export interface ExtractedTikTokData {
   videos7d?: number;
   videos14d?: number;
   videos30d?: number;
-  // Monetization & RPM
+  // Key metrics
+  profileViews?: number;
+  commentsCount?: number;
+  sharesCount?: number;
+  // Monetization & RPM Breakdown
   totalRewardsUsd: number | null;
+  liveRewardsUsd?: number | null;
   tiktokShopRewardsUsd: number | null;
+  creatorRewardsUsd?: number | null;
   rpm?: number | null;
   isLoggedIn: boolean;
+  // Per-Video and Top Videos
+  videosList?: any[];
+  topVideos?: any;
 }
 
 interface ScrapedTikTokData {
@@ -114,32 +123,47 @@ function cleanupTempDir(tempDir: string | null) {
  */
 export function getGpmStoragePath(): string {
   warnIfNonWindows();
-  try {
-    const appData = process.env.APPDATA || "";
-    const settingPath = path.join(appData, "GPMLoginGlobal", "setting.dat");
-    if (fs.existsSync(settingPath)) {
-      const content = fs.readFileSync(settingPath, "utf-8");
-      const parsed = JSON.parse(content);
-      if (parsed.local_storage_path && fs.existsSync(parsed.local_storage_path)) {
-        return parsed.local_storage_path;
+  const appData = process.env.APPDATA || "";
+  const localAppData = process.env.LOCALAPPDATA || "";
+
+  // 1. Dynamic check in GPMLogin setting configuration files
+  const settingCandidates = [
+    path.join(appData, "GPMLoginGlobal", "setting.dat"),
+    path.join(appData, "GPMLoginGlobal", "gpm_setting.dat"),
+    path.join(appData, "GPMLogin", "setting.dat"),
+    path.join(localAppData, "GPMLoginGlobal", "setting.dat"),
+  ];
+
+  for (const sPath of settingCandidates) {
+    if (fs.existsSync(sPath)) {
+      try {
+        const content = fs.readFileSync(sPath, "utf-8");
+        const parsed = JSON.parse(content);
+        const resolvedPath = parsed.local_storage_path || parsed.profile_path || parsed.storage_path;
+        if (resolvedPath && fs.existsSync(resolvedPath)) {
+          return resolvedPath;
+        }
+      } catch (err) {
+        // ignore parse error, continue to next
       }
     }
-  } catch (err) {
-    console.warn("[TikTokExtractor] Could not parse GPMLogin setting.dat:", err);
   }
 
-  // Common fallbacks
+  // 2. Common fallback directory locations across drives
   const fallbacks = [
     "D:\\Tiktok automation",
-    path.join(process.env.LOCALAPPDATA || "", "GPMLoginGlobal", "Profiles"),
-    path.join(process.env.APPDATA || "", "GPMLoginGlobal", "Profiles"),
+    "C:\\Tiktok automation",
+    "E:\\Tiktok automation",
+    path.join(appData, "GPMLoginGlobal", "Profiles"),
+    path.join(localAppData, "GPMLoginGlobal", "Profiles"),
+    path.join(appData, "GPMLogin", "Profiles"),
   ];
 
   for (const fb of fallbacks) {
     if (fs.existsSync(fb)) return fb;
   }
 
-  return "D:\\Tiktok automation";
+  return path.join(appData, "GPMLoginGlobal", "Profiles");
 }
 
 /**
@@ -177,11 +201,23 @@ export function getChromeExecutablePath(): string | undefined {
 }
 
 /**
+ * Validates GPM Profile ID to strictly prevent Path Traversal attacks (../)
+ */
+export function isValidGpmProfileId(profileId: string): boolean {
+  return typeof profileId === "string" && /^[a-zA-Z0-9_\-\.]+$/.test(profileId) && !profileId.includes("..");
+}
+
+/**
  * Inspects the GPM profile directory on disk (History, LevelDB)
  * to find the real logged-in or active TikTok username.
  */
 export function findTikTokHandleInProfile(profileId: string): string | null {
   try {
+    if (!isValidGpmProfileId(profileId)) {
+      console.warn(`[TikTokExtractor] Blocked invalid profileId with suspicious characters: "${profileId}"`);
+      return null;
+    }
+
     const storagePath = getGpmStoragePath();
     const profileDir = path.join(storagePath, profileId, "Default");
     if (!fs.existsSync(profileDir)) {
@@ -284,6 +320,11 @@ function copyDirRecursive(src: string, dest: string) {
  * Automatically cleans up if an exception occurs during copy.
  */
 function snapshotProfileToTemp(profileId: string): string | null {
+  if (!isValidGpmProfileId(profileId)) {
+    console.warn(`[TikTokExtractor] Blocked invalid profileId in snapshot: "${profileId}"`);
+    return null;
+  }
+
   const storagePath = getGpmStoragePath();
   const sourceDir = path.join(storagePath, profileId);
   if (!fs.existsSync(sourceDir)) return null;
@@ -724,6 +765,15 @@ export async function fetchTikTokStudioFullData(
 
     const page = context.pages()[0] || (await context.newPage());
 
+    // Abort heavy media, image, font, and stylesheet assets to speed up page load by ~80%
+    await page.route("**/*", (route) => {
+      const type = route.request().resourceType();
+      if (["image", "media", "font", "stylesheet"].includes(type)) {
+        return route.abort();
+      }
+      return route.continue();
+    });
+
     // Intercepted Studio API Data Accumulators
     let studioTotalViews: number | null = null;
     let studioViewsToday: number | null = null;
@@ -821,7 +871,7 @@ export async function fetchTikTokStudioFullData(
       return { isLoggedIn: false };
     }
 
-    // 2. DOM Evaluation fallback for Lifetime Dashboard
+    // 2. DOM Evaluation fallback for Lifetime Dashboard (10-Country Multi-Language Support)
     const lifetimeDom = await safeEvaluate(
       page,
       () => {
@@ -830,59 +880,184 @@ export async function fetchTikTokStudioFullData(
         let likes = 0;
         let followers = 0;
         let following = 0;
+        let profileViews = 0;
+        let comments = 0;
+        let shares = 0;
+        let liveRewards = 0;
+        let tiktokShopRewards = 0;
+        let creatorRewards = 0;
         let currency = "$";
         let country = "US";
+
+        function parseUniversalNum(str: any): number {
+          if (!str) return 0;
+          let s = String(str).trim();
+
+          // Digits mapping across all 57 language scripts
+          const scriptDigits = [
+            ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"], // Arabic
+            ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"], // Urdu/Persian
+            ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"], // Bengali
+            ["०", "१", "२", "३", "४", "५", "६", "७", "८", "९"], // Devanagari (Hindi)
+            ["๐", "๑", "๒", "๓", "๔", "๕", "๖", "๗", "๘", "๙"], // Thai
+            ["၀", "၁", "၂", "၃", "၄", "၅", "၆", "၇", "၈", "၉"], // Myanmar
+            ["០", "១", "២", "៣", "៤", "៥", "៦", "៧", "៨", "៩"], // Khmer
+          ];
+
+          for (const digitSet of scriptDigits) {
+            for (let i = 0; i < 10; i++) {
+              s = s.split(digitSet[i]).join(String(i));
+            }
+          }
+
+          s = s.replace(/\u066B/g, ".").replace(/\u066C/g, ",");
+          s = s.toLowerCase();
+
+          let multiplier = 1;
+          if (/(?:^|[\s\d.,])(t|trillion|b|billion|млрд|tỷ|ty|مليار|কোটি|করোড়|করোড়|crore|หมื่นล้าน|亿|億|억)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 1000000000;
+          } else if (/(?:^|[\s\d.,])(m|million|млн|jt|tr|مليون|মি|মিলিয়ন|নিঝুত|ล้าน|သန်း|លាន|millon|milhões)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 1000000;
+          } else if (/(?:^|[\s\d.,])(lakh|লাখ|लाख|แสน|သိန်း|សែន)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 100000;
+          } else if (/(?:^|[\s\d.,])(万|萬|만|หมื่น|သောင်း|ម៉ឺន)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 10000;
+          } else if (/(?:^|[\s\d.,])(k|thousand|тыс|тыс\.|тис|тис\.|rb|mil|ألف|হাজার|हज़ार|พัน|ထောင်|ពាន់|хил|kilo|tūkst|tūst|tsd|tsd\.|bin)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 1000;
+          }
+
+          if (multiplier > 1) {
+            const match = s.match(/([0-9]+(?:[.,][0-9]+)?)/);
+            if (match) {
+              const val = parseFloat(match[1].replace(",", "."));
+              return Math.round(val * multiplier);
+            }
+          }
+          const clean = s.replace(/[^0-9]/g, "");
+          return parseInt(clean, 10) || 0;
+        }
+
+        function parseMoneyVal(str: any): number {
+          if (!str) return 0;
+          let s = String(str).trim();
+          const arabicDigits = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
+          const urduDigits = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+          const bengaliDigits = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
+          for (let i = 0; i < 10; i++) {
+            s = s.split(arabicDigits[i]).join(String(i))
+              .split(urduDigits[i]).join(String(i))
+              .split(bengaliDigits[i]).join(String(i));
+          }
+          s = s.replace(/\u066B/g, ".");
+          const clean = s.replace(/[^0-9.,]/g, "").replace(",", ".");
+          return parseFloat(clean) || 0;
+        }
+
+        const viewsVariants = [
+          "video views", "views", "video view", "lượt xem video", "lượt xem", "tayangan video", "penayangan video",
+          "visualizações de vídeo", "visualizações", "visualizaciones de videos", "reproducciones de video",
+          "просмотры видео", "просмотры", "مشاهدات الفيديو", "مشاهدات", "ویڈیو ملاحظات", "ভিডিও ভিউ", "mga panonood ng video", "vues de vidéos", "videoaufrufe", "视频播放量"
+        ];
+
+        const rewardsVariants = [
+          "est. rewards", "estimated rewards", "rewards", "total rewards", "ước tính phần thưởng", "phần thưởng ước tính",
+          "estimasi hadiah", "hadiah", "recompensas estimadas", "recompensas", "расчетное вознаграждение", "расчётное вознаграждение",
+          "вознаграждения", "المكافآت التقديرية", "المكافآت", "تخمینہ شدہ انعامات", "আনুমানিক পুরস্কার", "tinatayang mga gantimpala",
+          "récompenses estimées", "geschätzte belohnungen", "预计收益", "预计奖励"
+        ];
+
+        const profileViewsVariants = [
+          "profile views", "lượt xem hồ sơ", "tayangan profil", "visualizações do perfil", "visualizaciones del perfil",
+          "просмотры профиля", "مشاهدات الملف الشخصي", "پروفائل ملاحظات", "প্রোফাইল ভিউ", "mga panonood ng profile"
+        ];
+
+        const likesVariants = [
+          "likes", "like", "lượt thích", "thích", "suka", "curtidas", "me gusta", "лайки", "تسجيلات الإعجاب", "پسندیدگیاں", "পছন্দ", "mga like"
+        ];
+
+        const commentsVariants = [
+          "comments", "comment", "bình luận", "komentar", "comentários", "comentarios", "комментарии", "التعليقات", "تبصرے", "মন্তব্য", "mga komento"
+        ];
+
+        const sharesVariants = [
+          "shares", "share", "lượt chia sẻ", "chia sẻ", "dibagikan", "bagikan", "compartilhamentos", "compartidos", "репосты", "مشاركات", "شیئرز", "শেয়ার", "mga share"
+        ];
 
         const all = Array.from(document.querySelectorAll("*"));
         for (let i = 0; i < all.length; i++) {
           const el = all[i];
           const text = (el.textContent || "").trim().toLowerCase();
           if (el.children.length === 0) {
-            if (text === "video views") {
-              const parent = el.parentElement;
-              if (parent) {
-                const lines = parent.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
-                const idx = lines.findIndex((l) => l.toLowerCase() === "video views");
-                if (idx !== -1 && lines[idx + 1]) {
-                  const clean = lines[idx + 1].trim();
-                  if (clean.endsWith("M") || clean.endsWith("m")) totalViews = Math.round(parseFloat(clean) * 1000000);
-                  else if (clean.endsWith("K") || clean.endsWith("k")) totalViews = Math.round(parseFloat(clean) * 1000);
-                  else totalViews = parseInt(clean.replace(/[^0-9]/g, ""), 10) || 0;
+            const parent = el.parentElement;
+            if (parent) {
+              const lines = parent.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+              const findNear = (variants: string[]) => {
+                const idx = lines.findIndex((l) => variants.includes(l.toLowerCase()));
+                if (idx !== -1) {
+                  if (lines[idx + 1]) return lines[idx + 1];
+                  if (lines[idx - 1]) return lines[idx - 1];
                 }
-              }
-            } else if (text === "est. rewards") {
-              const parent = el.parentElement;
-              if (parent) {
-                const lines = parent.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
-                const idx = lines.findIndex((l) => l.toLowerCase() === "est. rewards");
-                if (idx !== -1 && lines[idx + 1]) {
-                  const clean = lines[idx + 1].trim();
-                  if (clean.includes("£")) { currency = "£"; country = "UK"; }
-                  else if (clean.includes("€")) { currency = "€"; country = "DE"; }
-                  else if (clean.includes("₫") || clean.includes("VND")) { currency = "₫"; country = "VN"; }
-                  totalRewards = parseFloat(clean.replace(/[^0-9.]/g, "")) || 0;
+                return "";
+              };
+
+              if (viewsVariants.includes(text) && totalViews === 0) {
+                const val = findNear(viewsVariants);
+                if (val) totalViews = parseUniversalNum(val);
+              } else if (rewardsVariants.includes(text) && totalRewards === 0) {
+                const val = findNear(rewardsVariants);
+                if (val) {
+                  if (val.includes("£")) { currency = "£"; country = "UK"; }
+                  else if (val.includes("€")) { currency = "€"; country = "DE"; }
+                  else if (val.includes("₫") || val.toLowerCase().includes("vnd")) { currency = "₫"; country = "VN"; }
+                  totalRewards = parseMoneyVal(val);
                 }
+              } else if (profileViewsVariants.includes(text) && profileViews === 0) {
+                const val = findNear(profileViewsVariants);
+                if (val) profileViews = parseUniversalNum(val);
+              } else if (likesVariants.includes(text) && likes === 0) {
+                const val = findNear(likesVariants);
+                if (val) likes = parseUniversalNum(val);
+              } else if (commentsVariants.includes(text) && comments === 0) {
+                const val = findNear(commentsVariants);
+                if (val) comments = parseUniversalNum(val);
+              } else if (sharesVariants.includes(text) && shares === 0) {
+                const val = findNear(sharesVariants);
+                if (val) shares = parseUniversalNum(val);
               }
             }
           }
         }
 
+        // Context-Aware Card Scan for Revenue Breakdown
+        try {
+          const rewardContainers = Array.from(document.querySelectorAll("[class*='reward'], [class*='monetiz'], [class*='tab-item'], [class*='card']"));
+          for (const card of rewardContainers) {
+            const text = (card as HTMLElement).innerText || "";
+            const moneyMatch = text.match(/([$£€₫¥]|USD|EUR|GBP|VND)?\s*([0-9]+(?:[.,][0-9]{2})?)\s*([$£€₫¥]|USD|EUR|GBP|VND)?/);
+            if (moneyMatch && moneyMatch[2]) {
+              const amount = parseFloat(moneyMatch[2].replace(",", "."));
+              const lower = text.toLowerCase();
+              if (/\blive\b|phần thưởng live|hadiah live|recompensas live|награды за live|مكافآت live|لائیو|লাইভ/iu.test(lower) && liveRewards === 0) {
+                liveRewards = amount;
+              } else if (/shop|seller|vendeur|tienda|boutique|cửa hàng|متجر|магазин/iu.test(lower) && tiktokShopRewards === 0) {
+                tiktokShopRewards = amount;
+              } else if (/creator|crp|programme|chương trình|creador|criador|kreator|программа вознаграждений|مكافآت المبدعين/iu.test(lower) && creatorRewards === 0) {
+                creatorRewards = amount;
+              } else if (/\btotal\b|tổng|gesamt|tous|всего|итого|إجمالي|کل|মোট/iu.test(lower) && totalRewards === 0) {
+                totalRewards = amount;
+              }
+            }
+          }
+        } catch (e) { }
+
         const bodyText = document.body ? document.body.innerText : "";
-        const likesMatch = bodyText.match(/Likes\s*([0-9.KMBkmb]+)/i) || bodyText.match(/([0-9.KMBkmb]+)\s*Likes/i);
-        const followersMatch = bodyText.match(/Followers\s*([0-9.KMBkmb]+)/i) || bodyText.match(/([0-9.KMBkmb]+)\s*Followers/i);
-        const followingMatch = bodyText.match(/Following\s*([0-9.KMBkmb]+)/i) || bodyText.match(/([0-9.KMBkmb]+)\s*Following/i);
+        const likesMatch = bodyText.match(/(?:Likes|Lượt thích|Suka|Curtidas|Me gusta|Лайки|الإعجابات)\s*([0-9.,KMBkmbмлнтысrbjttr]+)/iu);
+        const followersMatch = bodyText.match(/(?:Followers|Người theo dõi|Pengikut|Seguidores|Подписчики|المتابعون)\s*([0-9.,KMBkmbмлнтысrbjttr]+)/iu);
+        const followingMatch = bodyText.match(/(?:Following|Đang theo dõi|Mengikuti|Seguindo|Siguiendo|Подписки|أتابعه)\s*([0-9.,KMBkmbмлнтысrbjttr]+)/iu);
 
-        const parseTextNum = (val: string | null | undefined): number => {
-          if (!val) return 0;
-          const c = val.trim();
-          if (c.endsWith("M") || c.endsWith("m")) return Math.round(parseFloat(c) * 1000000);
-          if (c.endsWith("K") || c.endsWith("k")) return Math.round(parseFloat(c) * 1000);
-          return parseInt(c.replace(/[^0-9]/g, ""), 10) || 0;
-        };
-
-        if (likesMatch) likes = parseTextNum(likesMatch[1]);
-        if (followersMatch) followers = parseTextNum(followersMatch[1]);
-        if (followingMatch) following = parseTextNum(followingMatch[1]);
+        if (likesMatch && likes === 0) likes = parseUniversalNum(likesMatch[1]);
+        if (followersMatch && followers === 0) followers = parseUniversalNum(followersMatch[1]);
+        if (followingMatch && following === 0) following = parseUniversalNum(followingMatch[1]);
 
         return {
           likes,
@@ -890,35 +1065,91 @@ export async function fetchTikTokStudioFullData(
           following,
           totalViews,
           totalRewards,
+          profileViews,
+          comments,
+          shares,
+          liveRewards,
+          tiktokShopRewards,
+          creatorRewards: creatorRewards || totalRewards,
           currency,
           country,
         };
       },
-      { likes: 0, followers: 0, following: 0, totalViews: 0, totalRewards: 0, currency: "$", country: "US" }
+      { likes: 0, followers: 0, following: 0, totalViews: 0, totalRewards: 0, profileViews: 0, comments: 0, shares: 0, liveRewards: 0, tiktokShopRewards: 0, creatorRewards: 0, currency: "$", country: "US" }
     );
 
-    // 3. Query PastDay Windows (triggers response interception + DOM extraction)
+    // 3. Query PastDay Windows (triggers response interception + multi-language DOM extraction)
     const fetchWindowViews = async (pastDay: number) => {
       const url = `https://www.tiktok.com/tiktokstudio?dateRange=%7B%22type%22%3A%22fixed%22%2C%22pastDay%22%3A${pastDay}%7D`;
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => { });
       await page.waitForTimeout(2000);
 
       return await safeEvaluate(page, () => {
+        const viewsVariants = [
+          "video views", "views", "video view", "lượt xem video", "lượt xem", "tayangan video", "penayangan video",
+          "visualizações de vídeo", "visualizações", "visualizaciones de videos", "reproducciones de video",
+          "просмотры видео", "просмотры", "مشاهدات الفيديو", "مشاهدات", "ویڈیو ملاحظات", "ভিডিও ভیو", "mga panonood ng video", "vues de vidéos", "videoaufrufe", "视频播放量"
+        ];
+
+        function parseUniversalNum(str: any): number {
+          if (!str) return 0;
+          let s = String(str).trim();
+
+          // Digits mapping across all 57 language scripts
+          const scriptDigits = [
+            ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"], // Arabic
+            ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"], // Urdu/Persian
+            ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"], // Bengali
+            ["०", "१", "२", "३", "४", "५", "६", "७", "८", "९"], // Devanagari (Hindi)
+            ["๐", "๑", "๒", "๓", "๔", "๕", "๖", "๗", "๘", "๙"], // Thai
+            ["၀", "၁", "၂", "၃", "၄", "၅", "၆", "၇", "၈", "၉"], // Myanmar
+            ["០", "១", "២", "៣", "۴", "۵", "۶", "۷", "۸", "۹"], // Khmer
+          ];
+
+          for (const digitSet of scriptDigits) {
+            for (let i = 0; i < 10; i++) {
+              s = s.split(digitSet[i]).join(String(i));
+            }
+          }
+
+          s = s.replace(/\u066B/g, ".").replace(/\u066C/g, ",");
+          s = s.toLowerCase();
+
+          let multiplier = 1;
+          if (/(?:^|[\s\d.,])(t|trillion|b|billion|млрд|tỷ|ty|مليار|কোটি|করোড়|করোড়|crore|หมื่นล้าน|亿|億|억)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 1000000000;
+          } else if (/(?:^|[\s\d.,])(m|million|млн|jt|tr|مليون|মি|মিলিয়ন|নিঝুত|ล้าน|သန်း|លាន|millon|milhões)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 1000000;
+          } else if (/(?:^|[\s\d.,])(lakh|লাখ|लाख|แสน|သိန်း|សែន)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 100000;
+          } else if (/(?:^|[\s\d.,])(万|萬|만|หมื่น|သောင်း|ម៉ឺន)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 10000;
+          } else if (/(?:^|[\s\d.,])(k|thousand|тыс|тыс\.|тис|тис\.|rb|mil|ألف|হাজার|हज़ार|พัน|ထောင်|ពាន់|хил|kilo|tūkst|tūst|tsd|tsd\.|bin)(?:[\s.,]|$)/iu.test(s)) {
+            multiplier = 1000;
+          }
+
+          if (multiplier > 1) {
+            const match = s.match(/([0-9]+(?:[.,][0-9]+)?)/);
+            if (match) {
+              const val = parseFloat(match[1].replace(",", "."));
+              return Math.round(val * multiplier);
+            }
+          }
+          const clean = s.replace(/[^0-9]/g, "");
+          return parseInt(clean, 10) || 0;
+        }
+
         const all = Array.from(document.querySelectorAll("*"));
         for (let i = 0; i < all.length; i++) {
           const el = all[i];
-          if (el.children.length === 0 && (el.textContent || "").trim().toLowerCase() === "video views") {
+          const text = (el.textContent || "").trim().toLowerCase();
+          if (el.children.length === 0 && viewsVariants.includes(text)) {
             const parent = el.parentElement;
             if (parent) {
               const lines = parent.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
-              const idx = lines.findIndex((l) => l.toLowerCase() === "video views");
+              const idx = lines.findIndex((l) => viewsVariants.includes(l.toLowerCase()));
               if (idx !== -1 && lines[idx + 1]) {
-                const clean = lines[idx + 1].trim();
-                let num = 0;
-                if (clean.endsWith("M") || clean.endsWith("m")) num = Math.round(parseFloat(clean) * 1000000);
-                else if (clean.endsWith("K") || clean.endsWith("k")) num = Math.round(parseFloat(clean) * 1000);
-                else num = parseInt(clean.replace(/[^0-9]/g, ""), 10) || 0;
-                return num;
+                return parseUniversalNum(lines[idx + 1]);
               }
             }
           }
@@ -1043,8 +1274,23 @@ export async function fetchTikTokStudioFullData(
       videos7d,
       videos14d,
       videos30d,
+      profileViews: (lifetimeDom as any).profileViews || 0,
+      commentsCount: (lifetimeDom as any).comments || 0,
+      sharesCount: (lifetimeDom as any).shares || 0,
       totalRewardsUsd: finalRewards,
-      tiktokShopRewardsUsd: null,
+      liveRewardsUsd: (lifetimeDom as any).liveRewards || null,
+      creatorRewardsUsd: (lifetimeDom as any).creatorRewards || finalRewards,
+      tiktokShopRewardsUsd: (lifetimeDom as any).tiktokShopRewards || null,
+      videosList: studioVideos.map((item) => ({
+        id: item.id || item.item_id || "",
+        title: item.desc || item.title || "",
+        views: item.stats?.playCount || item.statistics?.play_count || 0,
+        likes: item.stats?.diggCount || item.statistics?.digg_count || 0,
+        comments: item.stats?.commentCount || item.statistics?.comment_count || 0,
+        shares: item.stats?.shareCount || item.statistics?.share_count || 0,
+        postDate: item.createTime || item.create_time ? new Date((item.createTime || item.create_time) * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "",
+        privacy: item.isPublic !== false ? "Everyone" : "Private",
+      })),
       rpm,
       currency: finalCurrency,
       country: finalCountry,
@@ -1280,9 +1526,16 @@ export async function detectTikTokAccountFromGpm(
       videos7d: studioData.videos7d || 0,
       videos14d: studioData.videos14d || 0,
       videos30d: studioData.videos30d || 0,
+      profileViews: studioData.profileViews || 0,
+      commentsCount: studioData.commentsCount || 0,
+      sharesCount: studioData.sharesCount || 0,
       totalRewardsUsd: studioData.totalRewardsUsd || null,
+      liveRewardsUsd: studioData.liveRewardsUsd || null,
+      creatorRewardsUsd: studioData.creatorRewardsUsd || studioData.totalRewardsUsd || null,
       tiktokShopRewardsUsd: studioData.tiktokShopRewardsUsd || null,
       rpm: studioData.rpm || null,
+      videosList: studioData.videosList || [],
+      topVideos: studioData.topVideos || {},
       isLoggedIn: true,
     };
   }
@@ -1377,5 +1630,112 @@ export async function detectTikTokAccountFromGpm(
   } finally {
     if (sharedContext) await sharedContext.close().catch(() => { });
     cleanupTempDir(sharedTempDir);
+  }
+}
+
+/**
+ * Lightweight Tier-2 Public Profile Extractor
+ * Fetches public metrics (followers, likes, videos) in ~200-500ms via pure HTTP without opening a browser.
+ */
+export async function fetchTikTokPublicProfileHttp(username: string): Promise<{
+  followersCount: number;
+  followingCount: number;
+  totalLikes: number;
+  videoCount: number;
+  nickname?: string;
+  avatar?: string;
+} | null> {
+  const cleanUsername = username.replace(/^@/, "").trim();
+  if (!cleanUsername) return null;
+  const url = `https://www.tiktok.com/@${cleanUsername}`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    // Strategy 1: __UNIVERSAL_DATA_FOR_REHYDRATION__
+    const rehydrationMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+    if (rehydrationMatch && rehydrationMatch[1]) {
+      try {
+        const json = JSON.parse(rehydrationMatch[1]);
+        const userInfo = json?.["__DEFAULT_SCOPE__"]?.["webapp.user-detail"]?.userInfo;
+        if (userInfo) {
+          const stats = userInfo.stats || {};
+          return {
+            followersCount: Number(stats.followerCount || 0),
+            followingCount: Number(stats.followingCount || 0),
+            totalLikes: Number(stats.heartCount || 0),
+            videoCount: Number(stats.videoCount || 0),
+            nickname: userInfo.user?.nickname,
+            avatar: userInfo.user?.avatarLarger || userInfo.user?.avatarThumb,
+          };
+        }
+      } catch (e) {
+        // Fall through to strategy 2
+      }
+    }
+
+    // Strategy 2: __NEXT_DATA__
+    const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (nextDataMatch && nextDataMatch[1]) {
+      try {
+        const json = JSON.parse(nextDataMatch[1]);
+        const userProps = json?.props?.pageProps?.userInfo;
+        if (userProps) {
+          const stats = userProps.stats || {};
+          return {
+            followersCount: Number(stats.followerCount || 0),
+            followingCount: Number(stats.followingCount || 0),
+            totalLikes: Number(stats.heartCount || 0),
+            videoCount: Number(stats.videoCount || 0),
+            nickname: userProps.user?.nickname,
+          };
+        }
+      } catch (e) {
+        // Fall through to strategy 3
+      }
+    }
+
+    // Strategy 3: OpenGraph meta tag fallback
+    const ogDescMatch = html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']*)["']/i);
+    if (ogDescMatch && ogDescMatch[1]) {
+      const desc = ogDescMatch[1];
+      const followersMatch = desc.match(/([\d.,]+[KkMm]?)\s+Followers/i);
+      const likesMatch = desc.match(/([\d.,]+[KkMm]?)\s+Likes/i);
+
+      const parseSuffix = (str: string) => {
+        const clean = str.trim();
+        if (/m$/i.test(clean)) return Math.round(parseFloat(clean) * 1000000);
+        if (/k$/i.test(clean)) return Math.round(parseFloat(clean) * 1000);
+        return parseInt(clean.replace(/[^0-9]/g, ""), 10) || 0;
+      };
+
+      if (followersMatch) {
+        return {
+          followersCount: parseSuffix(followersMatch[1]),
+          followingCount: 0,
+          totalLikes: likesMatch ? parseSuffix(likesMatch[1]) : 0,
+          videoCount: 0,
+        };
+      }
+    }
+
+    return null;
+  } catch (err: any) {
+    return null;
   }
 }

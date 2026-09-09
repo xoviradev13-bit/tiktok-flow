@@ -130,7 +130,7 @@ export default function Navbar() {
               <div className="font-black text-base tracking-tight bg-gradient-to-r from-white via-slate-200 to-pink-300 bg-clip-text text-transparent">
                 TIKTOK<span className="text-pink-500 font-extrabold">FLOW</span>
               </div>
-              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Ops & Automation
               </div>
             </div>
@@ -167,12 +167,12 @@ export default function Navbar() {
             >
               <Clock className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
               <div suppressHydrationWarning className="text-slate-300">
-                <span className="text-slate-500 text-[10px] block leading-none">Giờ VN:</span>
+                <span className="text-slate-500 text-xs block leading-none">Giờ VN:</span>
                 <span className="font-bold">{mounted ? timeInfo.time : "--:--:--"}</span>
               </div>
               <div className="h-4 w-px bg-slate-800 mx-1" />
               <div suppressHydrationWarning>
-                <span className="text-slate-500 text-[10px] block leading-none">Chốt 10:00:</span>
+                <span className="text-slate-500 text-xs block leading-none">Chốt 10:00:</span>
                 <span
                   className={`font-bold ${
                     timeInfo.isPast ? "text-amber-400" : "text-emerald-400"
@@ -215,7 +215,7 @@ export default function Navbar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium shrink-0 ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium shrink-0 ${
                   isActive
                     ? "bg-pink-600 text-white"
                     : "text-slate-400 hover:bg-slate-800"

@@ -1,0 +1,48 @@
+npm warn ERESOLVE overriding peer dependency
+npm warn While resolving: @auth/core@0.37.2
+npm warn Found: nodemailer@10.0.0
+npm warn node_modules/nodemailer
+npm warn   nodemailer@"^10.0.0" from the root project
+npm warn
+npm warn Could not resolve dependency:
+npm warn peerOptional nodemailer@"^6.8.0" from @auth/core@0.37.2
+npm warn node_modules/@auth/core
+npm warn   @auth/core@"0.37.2" from next-auth@5.0.0-beta.25
+npm warn   node_modules/next-auth
+npm warn
+npm warn Conflicting peer dependency: nodemailer@6.10.1
+npm warn node_modules/nodemailer
+npm warn   peerOptional nodemailer@"^6.8.0" from @auth/core@0.37.2
+npm warn   node_modules/@auth/core
+npm warn     @auth/core@"0.37.2" from next-auth@5.0.0-beta.25
+npm warn     node_modules/next-auth
+npm error code ERESOLVE
+npm error ERESOLVE could not resolve
+npm error
+npm error While resolving: next-auth@5.0.0-beta.25
+npm error Found: next@16.3.4
+npm error node_modules/next
+npm error   next@"16.3.4" from the root project
+npm error   peer next@"^13.2.0 || ^14.0 || ^15.0.0-rc.0 || ^16.0.0-0" from @sentry/nextjs@10.73.0
+npm error   node_modules/@sentry/nextjs
+npm error     @sentry/nextjs@"10" from the root project
+npm error
+npm error Could not resolve dependency:
+npm error peer next@"^14.0.0-0 || ^15.0.0-0" from next-auth@5.0.0-beta.25
+npm error node_modules/next-auth
+npm error   next-auth@"^5.0.0-beta.25" from the root project
+npm error
+npm error Conflicting peer dependency: next@15.5.25
+npm error node_modules/next
+npm error   peer next@"^14.0.0-0 || ^15.0.0-0" from next-auth@5.0.0-beta.25
+npm error   node_modules/next-auth
+npm error     next-auth@"^5.0.0-beta.25" from the root project
+npm error
+npm error Fix the upstream dependency conflict, or retry
+npm error this command with --force or --legacy-peer-deps
+npm error to accept an incorrect (and potentially broken) dependency resolution.
+npm error
+npm error
+npm error For a full report see:
+npm error C:\Users\datng\AppData\Local\npm-cache\_logs\2026-09-09T02_51_14_142Z-eresolve-report.txt
+npm error A complete log of this run can be found in: C:\Users\datng\AppData\Local\npm-cache\_logs\2026-09-09T02_51_14_142Z-debug-0.log

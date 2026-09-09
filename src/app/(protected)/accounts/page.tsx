@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
   Users,
   Search,
@@ -31,6 +32,10 @@ import {
   MoreHorizontal,
   Copy,
   Columns3,
+  LayoutGrid,
+  List,
+  DollarSign,
+  Video,
 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
@@ -75,7 +80,15 @@ type AccountSortKey =
   | "alertsCount"
   | "updatedAt";
 
-export default function AccountsPage() {
+function AccountsPageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // View Mode: read initial value from URL Search Params ("grid" | "list")
+  const urlViewMode = (searchParams?.get("view") === "list" ? "list" : "grid") as "grid" | "list";
+  const [viewMode, setViewMode] = useState<"grid" | "list">(urlViewMode);
+
   // Fast filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<any>("ALL");
@@ -94,8 +107,64 @@ export default function AccountsPage() {
     desc: true,
   });
 
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const initialPage = useMemo(() => {
+    const p = searchParams?.get("page");
+    const num = p ? parseInt(p, 10) : 1;
+    return isNaN(num) || num < 1 ? 1 : num;
+  }, [searchParams]);
+
+  const initialPageSize = useMemo(() => {
+    const ps = searchParams?.get("pageSize");
+    const fallback = urlViewMode === "grid" ? 12 : 10;
+    const num = ps ? parseInt(ps, 10) : fallback;
+    return isNaN(num) || num < 1 ? fallback : num;
+  }, [searchParams, urlViewMode]);
+
+  const [page, setPage] = useState(initialPage);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+
+  // Sync URL search parameters
+  const updateUrlParams = useCallback(
+    (updates: Record<string, string | number | undefined | null>) => {
+      const params = new URLSearchParams(searchParams?.toString() || "");
+      Object.entries(updates).forEach(([key, val]) => {
+        if (
+          val === undefined ||
+          val === null ||
+          val === "" ||
+          (key === "page" && Number(val) === 1) ||
+          (key === "view" && val === "grid")
+        ) {
+          params.delete(key);
+        } else {
+          params.set(key, String(val));
+        }
+      });
+      const searchStr = params.toString();
+      const newUrl = searchStr ? `${pathname}?${searchStr}` : pathname;
+      window.history.replaceState(null, "", newUrl);
+    },
+    [searchParams, pathname]
+  );
+
+  const handleViewModeChange = (mode: "grid" | "list") => {
+    setViewMode(mode);
+    const defaultSize = mode === "grid" ? 12 : 10;
+    setPageSize(defaultSize);
+    setPage(1);
+    updateUrlParams({ view: mode, pageSize: defaultSize, page: 1 });
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    updateUrlParams({ page: newPage });
+  };
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+    updateUrlParams({ pageSize: newSize, page: 1 });
+  };
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -137,6 +206,7 @@ export default function AccountsPage() {
 
   // Toast msg
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [copiedGpmId, setCopiedGpmId] = useState<string | null>(null);
 
   // Form states
   const [newUsername, setNewUsername] = useState("");
@@ -439,6 +509,7 @@ export default function AccountsPage() {
 
   // Active filter count
   const activeAdvancedCount =
+    (countryFilter !== "ALL" ? 1 : 0) +
     (warningFilter !== "ALL" ? 1 : 0) +
     (gpmFilter !== "ALL" ? 1 : 0) +
     (minViews ? 1 : 0) +
@@ -447,7 +518,6 @@ export default function AccountsPage() {
   const totalActiveFiltersCount =
     (search ? 1 : 0) +
     (statusFilter !== "ALL" ? 1 : 0) +
-    (countryFilter !== "ALL" ? 1 : 0) +
     (assignedFilter !== "ALL" ? 1 : 0) +
     activeAdvancedCount;
 
@@ -468,43 +538,44 @@ export default function AccountsPage() {
     switch (code) {
       case "US":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
-            <span className="text-[11px]">🇺🇸</span> US
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 shadow-2xs">
+            <span className="text-xs">🇺🇸</span> US
           </span>
         );
       case "UK":
       case "GB":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
-            <span className="text-[11px]">🇬🇧</span> UK
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 shadow-2xs">
+            <span className="text-xs">🇬🇧</span> UK
           </span>
         );
       case "VN":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300 border border-red-200 dark:border-red-800/50">
-            <span className="text-[11px]">🇻🇳</span> VN
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300 border border-red-200 dark:border-red-800/50 shadow-2xs">
+            <span className="text-xs">🇻🇳</span> VN
           </span>
         );
       case "DE":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50">
-            <span className="text-[11px]">🇩🇪</span> DE
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 shadow-2xs">
+            <span className="text-xs">🇩🇪</span> DE
           </span>
         );
       case "FR":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800/50">
-            <span className="text-[11px]">🇫🇷</span> FR
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800/50 shadow-2xs">
+            <span className="text-xs">🇫🇷</span> FR
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-            <Globe className="w-3 h-3 text-slate-500" /> {code}
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs">
+            <Globe className="w-3.5 h-3.5 text-slate-500" /> {code}
           </span>
         );
     }
   };
+
 
   const renderSortIndicator = (key: AccountSortKey) => {
     if (sortConfig.key !== key) {
@@ -519,8 +590,8 @@ export default function AccountsPage() {
 
   return (
     <div className="space-y-6 pb-20">
-      {/* Sticky Header Section */}
-      <div className="sticky top-16 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md pt-2 pb-3 -mt-2 space-y-4">
+      {/* Header & Controls Section */}
+      <div className="space-y-4">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -528,7 +599,7 @@ export default function AccountsPage() {
               <Users className="w-6 h-6 text-pink-500" />
               Quản Lý Dàn Tài Khoản TikTok ({accounts.length})
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
               Theo dõi trạng thái, phân công nhân sự, quản lý cảnh báo và đồng bộ số liệu qua GPM-Login.
             </p>
           </div>
@@ -536,7 +607,7 @@ export default function AccountsPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Thêm Tài Khoản</span>
@@ -554,42 +625,42 @@ export default function AccountsPage() {
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Tổng Số Acc</div>
+              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tổng Số Acc</div>
               <div className="text-xl font-black text-slate-900 dark:text-white mt-1">{stats.total}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                 <CheckCircle className="w-3.5 h-3.5" /> Hoạt Động (Active)
               </div>
               <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{stats.active}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
                 <Flame className="w-3.5 h-3.5" /> Nuôi Acc (Warming)
               </div>
               <div className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1">{stats.warming}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-[11px] font-semibold text-orange-600 dark:text-orange-400 flex items-center gap-1">
+              <div className="text-xs font-semibold text-orange-600 dark:text-orange-400 flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5" /> Hạn Chế (Restricted)
               </div>
               <div className="text-xl font-black text-orange-600 dark:text-orange-400 mt-1">{stats.restricted}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+              <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
                 <XCircle className="w-3.5 h-3.5" /> Bị Khóa (Banned)
               </div>
               <div className="text-xl font-black text-rose-600 dark:text-rose-400 mt-1">{stats.banned}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-[11px] font-semibold text-pink-600 dark:text-pink-400">Doanh Thu Toàn Dàn</div>
+              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400">Doanh Thu Toàn Dàn</div>
               <div className="text-xl font-black text-pink-600 dark:text-pink-400 mt-1">${stats.totalRevenue.toLocaleString()}</div>
             </div>
           </div>
         )}
 
-        {/* Filter & Toolbar Area */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
+        {/* Filter & Toolbar Area (Sticky only on desktop) */}
+        <div className="lg:sticky lg:top-[72px] z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
           <div className="flex flex-col lg:flex-row gap-3 items-center justify-between">
             {/* Search Box */}
             <div className="relative w-full lg:w-72">
@@ -629,27 +700,6 @@ export default function AccountsPage() {
                 </SelectContent>
               </Select>
 
-              {/* Country Fast Filter */}
-              <Select
-                value={countryFilter}
-                onValueChange={(val) => {
-                  setCountryFilter(val);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                  <SelectValue placeholder="Quốc gia" />
-                </SelectTrigger>
-                <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
-                  <SelectItem value="US" className="text-xs font-normal cursor-pointer">🇺🇸 US</SelectItem>
-                  <SelectItem value="UK" className="text-xs font-normal cursor-pointer">🇬🇧 UK</SelectItem>
-                  <SelectItem value="VN" className="text-xs font-normal cursor-pointer">🇻🇳 VN</SelectItem>
-                  <SelectItem value="DE" className="text-xs font-normal cursor-pointer">🇩🇪 DE</SelectItem>
-                  <SelectItem value="FR" className="text-xs font-normal cursor-pointer">🇫🇷 FR</SelectItem>
-                </SelectContent>
-              </Select>
-
               {/* Assigned Staff Fast Filter */}
               <Select
                 value={assignedFilter}
@@ -658,7 +708,7 @@ export default function AccountsPage() {
                   setPage(1);
                 }}
               >
-                <SelectTrigger className="w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                <SelectTrigger className="w-44 sm:w-48 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer [&>span]:truncate whitespace-nowrap">
                   <SelectValue placeholder="Nhân sự" />
                 </SelectTrigger>
                 <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
@@ -685,7 +735,7 @@ export default function AccountsPage() {
                     <Filter className="w-3.5 h-3.5" />
                     <span>Bộ lọc nâng cao</span>
                     {activeAdvancedCount > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-[10px] font-bold flex items-center justify-center">
+                      <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
                         {activeAdvancedCount}
                       </span>
                     )}
@@ -697,22 +747,49 @@ export default function AccountsPage() {
                     {activeAdvancedCount > 0 && (
                       <button
                         onClick={() => {
+                          setCountryFilter("ALL");
                           setWarningFilter("ALL");
                           setGpmFilter("ALL");
                           setMinViews("");
                           setMinRevenue("");
                           setPage(1);
                         }}
-                        className="text-[11px] font-semibold text-pink-600 hover:underline cursor-pointer"
+                        className="text-xs font-semibold text-pink-600 hover:underline cursor-pointer"
                       >
                         Đặt lại
                       </button>
                     )}
                   </div>
 
+                  {/* Quốc gia */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                      Quốc gia
+                    </label>
+                    <Select
+                      value={countryFilter}
+                      onValueChange={(val) => {
+                        setCountryFilter(val);
+                        setPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                        <SelectValue placeholder="Tất cả quốc gia" />
+                      </SelectTrigger>
+                      <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                        <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
+                        <SelectItem value="US" className="text-xs font-normal cursor-pointer">🇺🇸 US</SelectItem>
+                        <SelectItem value="UK" className="text-xs font-normal cursor-pointer">🇬🇧 UK</SelectItem>
+                        <SelectItem value="VN" className="text-xs font-normal cursor-pointer">🇻🇳 VN</SelectItem>
+                        <SelectItem value="DE" className="text-xs font-normal cursor-pointer">🇩🇪 DE</SelectItem>
+                        <SelectItem value="FR" className="text-xs font-normal cursor-pointer">🇫🇷 FR</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   {/* Cảnh báo vi phạm */}
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                       Cảnh báo vi phạm
                     </label>
                     <Select
@@ -735,7 +812,7 @@ export default function AccountsPage() {
 
                   {/* Đồng bộ GPM-Login */}
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                       Đồng bộ GPM-Login
                     </label>
                     <Select
@@ -758,7 +835,7 @@ export default function AccountsPage() {
 
                   {/* Lượt xem tối thiểu */}
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                       Lượt xem tối thiểu (Views)
                     </label>
                     <Input
@@ -775,7 +852,7 @@ export default function AccountsPage() {
 
                   {/* Doanh thu tối thiểu */}
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                       Doanh thu tối thiểu ($)
                     </label>
                     <Input
@@ -825,7 +902,7 @@ export default function AccountsPage() {
                     >
                       <span>{item.label}</span>
                       {sortConfig.key === item.key && (
-                        <span className="text-[11px] font-bold text-pink-600 dark:text-pink-400">
+                        <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
                           {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
                         </span>
                       )}
@@ -834,86 +911,118 @@ export default function AccountsPage() {
                 </PopoverContent>
               </Popover>
 
-              {/* Column Visibility Popover */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
-                    title="Tùy chỉnh cột hiển thị"
-                  >
-                    <Columns3 className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Cột hiển thị</span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="end"
-                  className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
+              {/* View Mode Switcher */}
+              <div className="flex items-center p-0.5 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => handleViewModeChange("grid")}
+                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    viewMode === "grid"
+                      ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                      : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                  title="Chế độ xem dạng lưới (Cards)"
                 >
-                  <div className="px-2.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <span>Tùy chỉnh cột hiển thị</span>
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Lưới</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleViewModeChange("list")}
+                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    viewMode === "list"
+                      ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                      : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                  title="Chế độ xem dạng danh sách (Bảng)"
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Bảng</span>
+                </button>
+              </div>
+
+              {/* Column Visibility Popover (List View Only) */}
+              {viewMode === "list" && (
+                <Popover>
+                  <PopoverTrigger asChild>
                     <button
-                      onClick={() =>
-                        setVisibleColumns({
-                          username: true,
-                          gpmProfileId: true,
-                          country: true,
-                          status: true,
-                          assignedUser: true,
-                          totalViews: true,
-                          totalVideos: true,
-                          totalRevenue: true,
-                          alertsCount: true,
-                          actions: true,
-                        })
-                      }
-                      className="text-[10px] text-pink-500 hover:underline font-normal cursor-pointer"
+                      className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
+                      title="Tùy chỉnh cột hiển thị"
                     >
-                      Mặc định
+                      <Columns3 className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Cột hiển thị</span>
                     </button>
-                  </div>
-                  <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
-                    {[
-                      { key: "username", label: "Tài khoản & nhóm", locked: true },
-                      { key: "gpmProfileId", label: "GPM Profile ID" },
-                      { key: "country", label: "Quốc gia" },
-                      { key: "status", label: "Trạng thái" },
-                      { key: "assignedUser", label: "Người phụ trách" },
-                      { key: "totalViews", label: "Views / Follow" },
-                      { key: "totalVideos", label: "Số video" },
-                      { key: "totalRevenue", label: "Doanh thu" },
-                      { key: "alertsCount", label: "Cảnh báo" },
-                      { key: "actions", label: "Thao tác" },
-                    ].map((col) => (
-                      <label
-                        key={col.key}
-                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${
-                          col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
-                        }`}
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
+                  >
+                    <div className="px-2.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                      <span>Tùy chỉnh cột hiển thị</span>
+                      <button
+                        onClick={() =>
+                          setVisibleColumns({
+                            username: true,
+                            gpmProfileId: true,
+                            country: true,
+                            status: true,
+                            assignedUser: true,
+                            totalViews: true,
+                            totalVideos: true,
+                            totalRevenue: true,
+                            alertsCount: true,
+                            actions: true,
+                          })
+                        }
+                        className="text-xs text-pink-500 hover:underline font-normal cursor-pointer"
                       >
-                        <Checkbox
-                          checked={visibleColumns[col.key as keyof typeof visibleColumns]}
-                          disabled={col.locked}
-                          onCheckedChange={(checked) => {
-                            if (col.locked) return;
-                            setVisibleColumns((prev) => ({
-                              ...prev,
-                              [col.key]: !!checked,
-                            }));
-                          }}
-                        />
-                        <span className="text-slate-700 dark:text-slate-300 font-medium">
-                          {col.label}
-                        </span>
-                        {col.locked && (
-                          <span className="text-[10px] text-slate-400 ml-auto font-normal">
-                            (Bắt buộc)
+                        Mặc định
+                      </button>
+                    </div>
+                    <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
+                      {[
+                        { key: "username", label: "Tài khoản & nhóm", locked: true },
+                        { key: "gpmProfileId", label: "GPM Profile ID" },
+                        { key: "country", label: "Quốc gia" },
+                        { key: "status", label: "Trạng thái" },
+                        { key: "assignedUser", label: "Người phụ trách" },
+                        { key: "totalViews", label: "Views / Follow" },
+                        { key: "totalVideos", label: "Số video" },
+                        { key: "totalRevenue", label: "Doanh thu" },
+                        { key: "alertsCount", label: "Cảnh báo" },
+                        { key: "actions", label: "Thao tác" },
+                      ].map((col) => (
+                        <label
+                          key={col.key}
+                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${
+                            col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
+                          }`}
+                        >
+                          <Checkbox
+                            checked={visibleColumns[col.key as keyof typeof visibleColumns]}
+                            disabled={col.locked}
+                            onCheckedChange={(checked) => {
+                              if (col.locked) return;
+                              setVisibleColumns((prev) => ({
+                                ...prev,
+                                [col.key]: !!checked,
+                              }));
+                            }}
+                          />
+                          <span className="text-slate-700 dark:text-slate-300 font-medium">
+                            {col.label}
                           </span>
-                        )}
-                      </label>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
+                          {col.locked && (
+                            <span className="text-xs text-slate-400 ml-auto font-normal">
+                              (Bắt buộc)
+                            </span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
           </div>
 
@@ -921,7 +1030,7 @@ export default function AccountsPage() {
           {totalActiveFiltersCount > 0 && (
             <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/80">
               {search && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                   <span>Tìm: {search}</span>
                   <button onClick={() => setSearch("")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -929,7 +1038,7 @@ export default function AccountsPage() {
                 </span>
               )}
               {statusFilter !== "ALL" && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
                   <span>Trạng thái: {statusFilter}</span>
                   <button onClick={() => setStatusFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -937,7 +1046,7 @@ export default function AccountsPage() {
                 </span>
               )}
               {countryFilter !== "ALL" && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
                   <span>Quốc gia: {countryFilter}</span>
                   <button onClick={() => setCountryFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -945,7 +1054,7 @@ export default function AccountsPage() {
                 </span>
               )}
               {assignedFilter !== "ALL" && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
                   <span>Nhân sự: {users.find((u: any) => u.id === assignedFilter)?.fullName || assignedFilter}</span>
                   <button onClick={() => setAssignedFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -953,7 +1062,7 @@ export default function AccountsPage() {
                 </span>
               )}
               {warningFilter !== "ALL" && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
                   <span>{warningFilter === "HAS_WARNING" ? "Có cảnh báo" : "Không có cảnh báo"}</span>
                   <button onClick={() => setWarningFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -961,7 +1070,7 @@ export default function AccountsPage() {
                 </span>
               )}
               {gpmFilter !== "ALL" && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300">
                   <span>{gpmFilter === "LINKED" ? "GPM Linked" : "Chưa gắn GPM"}</span>
                   <button onClick={() => setGpmFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -969,7 +1078,7 @@ export default function AccountsPage() {
                 </span>
               )}
               {minViews && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                   <span>Views ≥ {Number(minViews).toLocaleString()}</span>
                   <button onClick={() => setMinViews("")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -977,7 +1086,7 @@ export default function AccountsPage() {
                 </span>
               )}
               {minRevenue && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
                   <span>Doanh thu ≥ ${minRevenue}</span>
                   <button onClick={() => setMinRevenue("")} className="hover:text-rose-500 cursor-pointer">
                     <X className="w-3 h-3" />
@@ -986,7 +1095,7 @@ export default function AccountsPage() {
               )}
               <button
                 onClick={clearAllFilters}
-                className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white underline cursor-pointer ml-1"
+                className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white underline cursor-pointer ml-1"
               >
                 Xóa tất cả
               </button>
@@ -995,428 +1104,819 @@ export default function AccountsPage() {
         </div>
       </div>
 
-      {/* Main Table Container */}
+      {/* Main Content Area: Grid or Table */}
       {loading ? (
-        <DataTableSkeleton columnCount={visibleColumnCount} rowCount={pageSize} />
+        viewMode === "grid" ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-4">
+            {[...Array(pageSize)].map((_, i) => (
+              <div
+                key={i}
+                className="relative flex flex-col bg-white dark:bg-slate-900/80 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4 animate-pulse"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-slate-200 dark:bg-slate-800" />
+                    <div className="h-6 w-14 rounded-xl bg-slate-200 dark:bg-slate-800" />
+                  </div>
+                  <div className="h-6 w-20 rounded-lg bg-slate-200 dark:bg-slate-800" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-slate-200 dark:bg-slate-800 shrink-0" />
+                  <div className="space-y-1.5 flex-1">
+                    <div className="h-4 w-3/4 rounded bg-slate-200 dark:bg-slate-800" />
+                    <div className="h-3 w-1/2 rounded bg-slate-100 dark:bg-slate-800/60" />
+                  </div>
+                </div>
+                <div className="h-8 rounded-xl bg-slate-100 dark:bg-slate-800/60" />
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                  <div className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800/40" />
+                  <div className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800/40" />
+                  <div className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800/40" />
+                  <div className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800/40" />
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80">
+                  <div className="h-7 w-20 rounded-lg bg-slate-200 dark:bg-slate-800" />
+                  <div className="h-7 w-16 rounded-lg bg-slate-200 dark:bg-slate-800" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <DataTableSkeleton columnCount={visibleColumnCount} rowCount={pageSize} />
+        )
+      ) : filteredAndSortedAccounts.length === 0 ? (
+        <div className="flex min-h-[360px] flex-col items-center justify-center rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8 text-center shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-pink-50 dark:bg-pink-950/40 text-pink-500 dark:text-pink-400 flex items-center justify-center mb-4">
+            <Users className="w-7 h-7" />
+          </div>
+          <h3 className="text-base font-bold text-slate-900 dark:text-white">
+            Không tìm thấy tài khoản nào phù hợp
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
+            Thử thay đổi từ khóa tìm kiếm hoặc làm mới các tiêu chí bộ lọc để xem kết quả.
+          </p>
+          {totalActiveFiltersCount > 0 && (
+            <button
+              onClick={clearAllFilters}
+              className="mt-4 px-4 py-2 text-xs font-semibold text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 rounded-xl transition-colors cursor-pointer"
+            >
+              Xóa tất cả bộ lọc
+            </button>
+          )}
+        </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
-          <div className="overflow-x-auto relative">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 border-collapse">
-              <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none">
-                <tr>
-                  {/* Checkbox All (Frozen Left) */}
-                  <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs">
-                    <Checkbox
-                      checked={isAllPageSelected}
-                      onCheckedChange={(val) => toggleSelectAll(!!val)}
-                      aria-label="Chọn tất cả trên trang"
-                    />
-                  </th>
-
-                  {/* Username & Group (Frozen Left, Locked) */}
-                  {visibleColumns.username && (
-                    <th
-                      onClick={() => handleSort("username")}
-                      className="px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>Tài khoản & nhóm</span>
-                        {renderSortIndicator("username")}
+        <div className="space-y-4">
+          {viewMode === "grid" ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-2">
+              {paginatedAccounts.map((acc: any) => {
+                const isSelected = selectedIds.has(acc.id);
+                return (
+                  <div
+                    key={acc.id}
+                    className={`group relative flex flex-col bg-white dark:bg-slate-900/90 rounded-2xl border transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5 overflow-hidden ${
+                      isSelected
+                        ? "border-pink-500 ring-2 ring-pink-500/20 bg-pink-50/10 dark:bg-pink-950/10 shadow-md"
+                        : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs"
+                    }`}
+                  >
+                    {/* Top Bar: Checkbox + Country + Status + Actions */}
+                    <div className="p-4 pb-0 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelectRow(acc.id)}
+                          aria-label={`Chọn @${acc.username}`}
+                        />
+                        {getCountryFlag(acc.country)}
                       </div>
-                    </th>
-                  )}
 
-                  {/* GPM Profile ID */}
-                  {visibleColumns.gpmProfileId && (
-                    <th
-                      onClick={() => handleSort("gpmProfileId")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[160px]"
-                    >
                       <div className="flex items-center gap-1.5">
-                        <span>GPM Profile ID</span>
-                        {renderSortIndicator("gpmProfileId")}
-                      </div>
-                    </th>
-                  )}
+                        {/* Status Select */}
+                        <Select
+                          value={acc.status}
+                          onValueChange={(val) => handleStatusChange(acc.id, val)}
+                        >
+                          <SelectTrigger className="h-7 px-2 text-xs font-bold rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full mr-1 ${
+                                acc.status === "ACTIVE"
+                                  ? "bg-emerald-500 animate-pulse"
+                                  : acc.status === "WARMING"
+                                  ? "bg-amber-500"
+                                  : acc.status === "RESTRICTED"
+                                  ? "bg-orange-500"
+                                  : acc.status === "BANNED"
+                                  ? "bg-rose-500"
+                                  : "bg-slate-400"
+                              }`}
+                            />
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                            <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
+                            <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
+                            <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
+                            <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
+                            <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
+                          </SelectContent>
+                        </Select>
 
-                  {/* Country */}
-                  {visibleColumns.country && (
-                    <th
-                      onClick={() => handleSort("country")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[110px]"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>Quốc gia</span>
-                        {renderSortIndicator("country")}
-                      </div>
-                    </th>
-                  )}
-
-                  {/* Status */}
-                  {visibleColumns.status && (
-                    <th
-                      onClick={() => handleSort("status")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[130px]"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>Trạng thái</span>
-                        {renderSortIndicator("status")}
-                      </div>
-                    </th>
-                  )}
-
-                  {/* Assigned User */}
-                  {visibleColumns.assignedUser && (
-                    <th
-                      onClick={() => handleSort("assignedUser")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[170px]"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>Người phụ trách</span>
-                        {renderSortIndicator("assignedUser")}
-                      </div>
-                    </th>
-                  )}
-
-                  {/* Views / Follow */}
-                  {visibleColumns.totalViews && (
-                    <th
-                      onClick={() => handleSort("totalViews")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[130px]"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>Views / Follow</span>
-                        {renderSortIndicator("totalViews")}
-                      </div>
-                    </th>
-                  )}
-
-                  {/* Video Count */}
-                  {visibleColumns.totalVideos && (
-                    <th
-                      onClick={() => handleSort("totalVideos")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[110px]"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>Số video</span>
-                        {renderSortIndicator("totalVideos")}
-                      </div>
-                    </th>
-                  )}
-
-                  {/* Revenue */}
-                  {visibleColumns.totalRevenue && (
-                    <th
-                      onClick={() => handleSort("totalRevenue")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[120px]"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>Doanh thu</span>
-                        {renderSortIndicator("totalRevenue")}
-                      </div>
-                    </th>
-                  )}
-
-                  {/* Alerts */}
-                  {visibleColumns.alertsCount && (
-                    <th
-                      onClick={() => handleSort("alertsCount")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[120px]"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>Cảnh báo</span>
-                        {renderSortIndicator("alertsCount")}
-                      </div>
-                    </th>
-                  )}
-
-                  {/* Actions (Frozen Right) */}
-                  {visibleColumns.actions && (
-                    <th className="px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
-                      Thao tác
-                    </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                {paginatedAccounts.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={visibleColumnCount}
-                      className="px-6 py-12 text-center text-slate-400 dark:text-slate-500"
-                    >
-                      Không tìm thấy tài khoản nào phù hợp bộ lọc.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedAccounts.map((acc: any) => {
-                    const isSelected = selectedIds.has(acc.id);
-                    const rowBgClass = isSelected
-                      ? "bg-pink-50/40 dark:bg-pink-950/20"
-                      : "bg-white dark:bg-slate-900";
-
-                    return (
-                      <tr
-                        key={acc.id}
-                        className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 group ${
-                          isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""
-                        }`}
-                      >
-                        {/* Checkbox Row (Frozen Left) */}
-                        <td className={`py-3.5 px-4 sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={() => toggleSelectRow(acc.id)}
-                            aria-label={`Chọn @${acc.username}`}
-                          />
-                        </td>
-
-                        {/* Username & Group (Frozen Left, Locked) */}
-                        {visibleColumns.username && (
-                          <td className={`px-5 py-3.5 sticky left-10 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]`}>
-                            <Link
-                              href={`/accounts/${acc.id}`}
-                              className="font-bold text-slate-900 dark:text-slate-100 hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors flex items-center gap-1.5"
-                            >
-                              <span>@{acc.username}</span>
-                            </Link>
-                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                              <span>{acc.groupName || "Chưa phân nhóm"}</span>
-                            </div>
-                          </td>
-                        )}
-
-                        {/* GPM Profile ID */}
-                        {visibleColumns.gpmProfileId && (
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            {acc.gpmProfileId ? (
-                              <div className="flex items-center gap-1.5">
-                                <span
-                                  className="font-mono text-[11px] text-cyan-700 dark:text-cyan-300 bg-cyan-50/80 dark:bg-cyan-950/50 px-2 py-0.5 rounded-lg border border-cyan-200/60 dark:border-cyan-800/40 max-w-[130px] truncate inline-block"
-                                  title={acc.gpmProfileId}
-                                >
-                                  {acc.gpmProfileId}
-                                </span>
+                        {/* More Actions Dropdown */}
+                        <DropdownMenu>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <DropdownMenuTrigger asChild>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(acc.gpmProfileId);
-                                    setActionMsg(`📋 Đã copy GPM ID: ${acc.gpmProfileId}`);
-                                    setTimeout(() => setActionMsg(null), 3000);
-                                  }}
-                                  className="p-1 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 rounded transition-colors cursor-pointer"
-                                  title="Copy GPM Profile ID"
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                  aria-label="Thao tác"
                                 >
-                                  <Copy className="w-3 h-3" />
+                                  <MoreHorizontal className="w-4 h-4" />
                                 </button>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-[11px] italic">-- Chưa gán --</span>
-                            )}
-                          </td>
-                        )}
-
-                        {/* Country */}
-                        {visibleColumns.country && (
-                          <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
-                            {getCountryFlag(acc.country)}
-                          </td>
-                        )}
-
-                        {/* Status Dropdown */}
-                        {visibleColumns.status && (
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            <Select
-                              value={acc.status}
-                              onValueChange={(val) => handleStatusChange(acc.id, val)}
+                              </DropdownMenuTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Tùy chọn thao tác</TooltipContent>
+                          </Tooltip>
+                          <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/accounts/${acc.id}`}
+                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Xem chi tiết</span>
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => syncMutation.mutate({ accountId: acc.id })}
+                              disabled={syncMutation.isPending}
+                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                             >
-                              <SelectTrigger className="h-7.5 w-28 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                                <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
-                                <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
-                                <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
-                                <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
-                                <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </td>
-                        )}
-
-                        {/* Assigned Staff */}
-                        {visibleColumns.assignedUser && (
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            <Select
-                              value={acc.assignedUserId || "UNASSIGNED"}
-                              onValueChange={(val) => handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)}
+                              <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                              <span>Đồng bộ số liệu</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleOpenLogs(acc)}
+                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                             >
-                              <SelectTrigger className="h-7.5 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                                <SelectValue placeholder="-- Chưa gán --">
-                                  {acc.assignedUser ? acc.assignedUser.fullName : "-- Chưa gán --"}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
-                                <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
-                                  -- Chưa gán --
-                                </SelectItem>
-                                {users.map((u: any) => (
-                                  <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
-                                    {u.fullName}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </td>
-                        )}
+                              <History className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Lịch sử hoạt động</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleOpenEdit(acc)}
+                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Chỉnh sửa</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setAccountToDelete(acc);
+                                setIsDeleteOpen(true);
+                              }}
+                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                              <span>Xóa tài khoản</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
 
-                        {/* Views / Followers */}
-                        {visibleColumns.totalViews && (
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            <div className="font-bold text-slate-900 dark:text-slate-200">
-                              {Number(acc.totalViews || 0).toLocaleString()} <span className="text-[10px] text-slate-500 dark:text-slate-400">views</span>
-                            </div>
-                            <div className="text-[11px] text-slate-600 dark:text-slate-400">
-                              {Number(acc.totalFollowers || 0).toLocaleString()} follow
-                            </div>
-                          </td>
-                        )}
-
-                        {/* Video Count */}
-                        {visibleColumns.totalVideos && (
-                          <td className="px-4 py-3.5 whitespace-nowrap font-semibold text-slate-700 dark:text-slate-300">
-                            {acc.totalVideos} videos
-                          </td>
-                        )}
-
-                        {/* Revenue */}
-                        {visibleColumns.totalRevenue && (
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            <div className="font-bold text-amber-600 dark:text-amber-300">
-                              ${Number(acc.totalRevenue || 0).toFixed(2)}
-                            </div>
-                          </td>
-                        )}
-
-                        {/* Alerts */}
-                        {visibleColumns.alertsCount && (
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            {acc.alerts && acc.alerts.length > 0 ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900">
-                                <AlertTriangle className="w-3 h-3" /> {acc.alerts.length} cảnh báo
+                    {/* Account Identity */}
+                    <div className="p-4 pt-3 space-y-3 flex-1 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                          <Link
+                            href={`/accounts/${acc.id}`}
+                            className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-pink-500/20 via-rose-500/20 to-purple-500/20 border border-pink-500/30 flex items-center justify-center text-pink-600 dark:text-pink-400 font-black text-sm shrink-0 group-hover:scale-105 transition-transform"
+                          >
+                            @{acc.username ? acc.username.slice(0, 2).toUpperCase() : "TK"}
+                          </Link>
+                          <div className="min-w-0 flex-1">
+                            <Link
+                              href={`/accounts/${acc.id}`}
+                              className="font-bold text-sm text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 transition-colors truncate block"
+                            >
+                              @{acc.username}
+                            </Link>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 truncate max-w-[130px]">
+                                {acc.groupName || "Chưa phân nhóm"}
                               </span>
-                            ) : (
-                              <span className="text-slate-400 text-[11px]">Bình thường</span>
-                            )}
-                          </td>
-                        )}
-
-                        {/* Actions (More Dropdown, Frozen Right) */}
-                        {visibleColumns.actions && (
-                          <td className={`px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]`}>
-                            <div className="flex items-center justify-center gap-1.5">
-                              {/* Quick Play GPM */}
-                              {acc.gpmProfileId && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      onClick={() => handleStartGpm(acc.gpmProfileId)}
-                                      className="p-1.5 rounded-lg text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 transition-colors cursor-pointer"
-                                      aria-label="Mở trình duyệt GPM"
-                                    >
-                                      <Play className="w-3.5 h-3.5 fill-cyan-600" />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="text-[11px] font-semibold">
-                                    Mở GPMLogin
-                                  </TooltipContent>
-                                </Tooltip>
+                              {acc.alerts && acc.alerts.length > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 text-xs font-bold border border-amber-200 dark:border-amber-800/50">
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  {acc.alerts.length}
+                                </span>
                               )}
+                            </div>
+                          </div>
+                        </div>
 
-                              {/* More Actions Dropdown Menu */}
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
+                        {/* GPM Profile ID Bar */}
+                        {acc.gpmProfileId ? (
+                          <div className="flex items-center justify-between p-2 rounded-xl bg-cyan-50/70 dark:bg-cyan-950/40 border border-cyan-200/50 dark:border-cyan-800/40">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Shield className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                              <span className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 truncate" title={acc.gpmProfileId}>
+                                {acc.gpmProfileId}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
                                   <button
                                     type="button"
-                                    className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                                    aria-label="Thao tác khác"
-                                  >
-                                    <MoreHorizontal className="w-4 h-4" />
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
-                                  <DropdownMenuItem asChild>
-                                    <Link
-                                      href={`/accounts/${acc.id}`}
-                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                    >
-                                      <Eye className="w-3.5 h-3.5 text-slate-400" />
-                                      <span>Xem chi tiết</span>
-                                    </Link>
-                                  </DropdownMenuItem>
-
-                                  {acc.gpmProfileId && (
-                                    <DropdownMenuItem
-                                      onClick={() => handleStartGpm(acc.gpmProfileId)}
-                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-cyan-600 dark:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 rounded-xl cursor-pointer"
-                                    >
-                                      <Play className="w-3.5 h-3.5 fill-cyan-500" />
-                                      <span>Mở GPM-Login</span>
-                                    </DropdownMenuItem>
-                                  )}
-
-                                  <DropdownMenuItem
-                                    onClick={() => syncMutation.mutate({ accountId: acc.id })}
-                                    disabled={syncMutation.isPending}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                  >
-                                    <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-                                    <span>Đồng bộ số liệu</span>
-                                  </DropdownMenuItem>
-
-                                  <DropdownMenuItem
-                                    onClick={() => handleOpenLogs(acc)}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                  >
-                                    <History className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Lịch sử hoạt động</span>
-                                  </DropdownMenuItem>
-
-                                  <DropdownMenuItem
-                                    onClick={() => handleOpenEdit(acc)}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Chỉnh sửa thông tin</span>
-                                  </DropdownMenuItem>
-
-                                  <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
-
-                                  <DropdownMenuItem
-                                    onClick={() => {
-                                      setAccountToDelete(acc);
-                                      setIsDeleteOpen(true);
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigator.clipboard.writeText(acc.gpmProfileId);
+                                      setCopiedGpmId(acc.id);
+                                      setTimeout(() => setCopiedGpmId((prev) => (prev === acc.id ? null : prev)), 2000);
+                                      setActionMsg(`📋 Đã copy GPM ID: ${acc.gpmProfileId}`);
+                                      setTimeout(() => setActionMsg(null), 3000);
                                     }}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                    className="p-1 text-cyan-600 hover:text-cyan-800 dark:text-cyan-400 hover:bg-cyan-100 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                    aria-label="Sao chép GPM ID"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                    <span>Xóa tài khoản</span>
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                                    {copiedGpmId === acc.id ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">
+                                  {copiedGpmId === acc.id ? "Đã sao chép!" : "Sao chép Profile ID"}
+                                </TooltipContent>
+                              </Tooltip>
 
-          {/* Pagination */}
-          <div className="p-4 border-t border-slate-100 dark:border-slate-800/80">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleStartGpm(acc.gpmProfileId);
+                                    }}
+                                    disabled={startGpmMutation.isPending}
+                                    className="p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                                    aria-label="Mở trình duyệt GPM"
+                                  >
+                                    <Play className="w-3 h-3" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">Mở trình duyệt GPMLogin</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-dashed border-slate-200 dark:border-slate-800 text-xs text-slate-400">
+                            <span>Chưa gắn Profile GPM</span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(acc)}
+                              className="text-pink-600 dark:text-pink-400 font-semibold hover:underline cursor-pointer"
+                            >
+                              + Gắn
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Performance Metrics Matrix */}
+                        <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                            <div className="text-xs text-slate-400 flex items-center gap-1">
+                              <Eye className="w-3 h-3" /> Lượt xem
+                            </div>
+                            <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 truncate">
+                              {Number(acc.totalViews || 0).toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                            <div className="text-xs text-slate-400 flex items-center gap-1">
+                              <Flame className="w-3 h-3 text-pink-500" /> Followers
+                            </div>
+                            <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 truncate">
+                              {Number(acc.totalFollowers || 0).toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                            <div className="text-xs text-slate-400 flex items-center gap-1">
+                              <Video className="w-3 h-3" /> Video
+                            </div>
+                            <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 truncate">
+                              {acc.totalVideos || 0}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40">
+                            <div className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                              <DollarSign className="w-3 h-3" /> Doanh thu
+                            </div>
+                            <div className="font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 truncate">
+                              ${Number(acc.totalRevenue || 0).toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Assigned Staff Row */}
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+                        <span className="text-xs text-slate-400">Phụ trách:</span>
+                        <div className="max-w-[140px]">
+                          <Select
+                            value={acc.assignedUserId || "UNASSIGNED"}
+                            onValueChange={(val) => handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)}
+                          >
+                            <SelectTrigger className="h-6.5 px-2 text-xs font-normal rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                              <SelectValue placeholder="-- Chưa gán --">
+                                <span className="truncate">{acc.assignedUser ? acc.assignedUser.fullName : "-- Chưa gán --"}</span>
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
+                              <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
+                                -- Chưa gán --
+                              </SelectItem>
+                              {users.map((u: any) => (
+                                <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
+                                  {u.fullName}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Footer Quick Actions */}
+                    <div className="mt-auto px-4 py-2.5 bg-slate-50/80 dark:bg-slate-950/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                      <Link
+                        href={`/accounts/${acc.id}`}
+                        className="text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+                      >
+                        Chi tiết →
+                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => syncMutation.mutate({ accountId: acc.id })}
+                              disabled={syncMutation.isPending}
+                              className="p-1.5 text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                              aria-label="Đồng bộ số liệu"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Đồng bộ số liệu tài khoản</TooltipContent>
+                        </Tooltip>
+
+                        {acc.gpmProfileId && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => handleStartGpm(acc.gpmProfileId)}
+                                disabled={startGpmMutation.isPending}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                                aria-label="Khởi chạy Profile GPM"
+                              >
+                                <Play className="w-2.5 h-2.5" /> GPM
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Khởi chạy Profile GPMLogin</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* Table View */
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
+              <div className="overflow-x-auto relative">
+                <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 border-collapse min-w-[1050px]">
+                  <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none">
+                    <tr>
+                      {/* Checkbox All (Frozen Left) */}
+                      <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs">
+                        <Checkbox
+                          checked={isAllPageSelected}
+                          onCheckedChange={(val) => toggleSelectAll(!!val)}
+                          aria-label="Chọn tất cả trên trang"
+                        />
+                      </th>
+
+                      {/* Username & Group (Frozen Left, Locked) */}
+                      {visibleColumns.username && (
+                        <th
+                          onClick={() => handleSort("username")}
+                          className="px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>Tài khoản & nhóm</span>
+                            {renderSortIndicator("username")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* GPM Profile ID */}
+                      {visibleColumns.gpmProfileId && (
+                        <th
+                          onClick={() => handleSort("gpmProfileId")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[160px]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>GPM Profile ID</span>
+                            {renderSortIndicator("gpmProfileId")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* Country */}
+                      {visibleColumns.country && (
+                        <th
+                          onClick={() => handleSort("country")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[110px]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>Quốc gia</span>
+                            {renderSortIndicator("country")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* Status */}
+                      {visibleColumns.status && (
+                        <th
+                          onClick={() => handleSort("status")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[130px]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>Trạng thái</span>
+                            {renderSortIndicator("status")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* Assigned User */}
+                      {visibleColumns.assignedUser && (
+                        <th
+                          onClick={() => handleSort("assignedUser")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[170px]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>Người phụ trách</span>
+                            {renderSortIndicator("assignedUser")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* Views / Follow */}
+                      {visibleColumns.totalViews && (
+                        <th
+                          onClick={() => handleSort("totalViews")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[130px]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>Views / Follow</span>
+                            {renderSortIndicator("totalViews")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* Video Count */}
+                      {visibleColumns.totalVideos && (
+                        <th
+                          onClick={() => handleSort("totalVideos")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[110px]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>Số video</span>
+                            {renderSortIndicator("totalVideos")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* Revenue */}
+                      {visibleColumns.totalRevenue && (
+                        <th
+                          onClick={() => handleSort("totalRevenue")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[120px]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>Doanh thu</span>
+                            {renderSortIndicator("totalRevenue")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* Alerts */}
+                      {visibleColumns.alertsCount && (
+                        <th
+                          onClick={() => handleSort("alertsCount")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[120px]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>Cảnh báo</span>
+                            {renderSortIndicator("alertsCount")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* Actions (Frozen Right) */}
+                      {visibleColumns.actions && (
+                        <th className="px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
+                          Thao tác
+                        </th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                    {paginatedAccounts.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={visibleColumnCount}
+                          className="px-6 py-12 text-center text-slate-400 dark:text-slate-500"
+                        >
+                          Không tìm thấy tài khoản nào phù hợp bộ lọc.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedAccounts.map((acc: any) => {
+                        const isSelected = selectedIds.has(acc.id);
+                        const rowBgClass = isSelected
+                          ? "bg-pink-50/40 dark:bg-pink-950/20"
+                          : "bg-white dark:bg-slate-900";
+
+                        return (
+                          <tr
+                            key={acc.id}
+                            className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 group ${
+                              isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""
+                            }`}
+                          >
+                            {/* Checkbox Row (Frozen Left) */}
+                            <td className={`py-3.5 px-4 sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => toggleSelectRow(acc.id)}
+                                aria-label={`Chọn @${acc.username}`}
+                              />
+                            </td>
+
+                            {/* Username & Group (Frozen Left, Locked) */}
+                            {visibleColumns.username && (
+                              <td className={`px-5 py-3.5 sticky left-10 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]`}>
+                                <Link
+                                  href={`/accounts/${acc.id}`}
+                                  className="font-bold text-slate-900 dark:text-slate-100 hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors flex items-center gap-1.5"
+                                >
+                                  <span>@{acc.username}</span>
+                                </Link>
+                                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                  <span>{acc.groupName || "Chưa phân nhóm"}</span>
+                                </div>
+                              </td>
+                            )}
+
+                            {/* GPM Profile ID */}
+                            {visibleColumns.gpmProfileId && (
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                {acc.gpmProfileId ? (
+                                  <div className="inline-flex items-center gap-1.5 h-7.5 bg-cyan-50/80 dark:bg-cyan-950/50 border border-cyan-200/60 dark:border-cyan-800/40 rounded-xl px-2.5 shadow-2xs">
+                                    <span
+                                      className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 max-w-[130px] truncate"
+                                      title={acc.gpmProfileId}
+                                    >
+                                      {acc.gpmProfileId}
+                                    </span>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(acc.gpmProfileId);
+                                            setCopiedGpmId(acc.id);
+                                            setTimeout(() => {
+                                              setCopiedGpmId((prev) => (prev === acc.id ? null : prev));
+                                            }, 2000);
+                                            setActionMsg(`📋 Đã copy GPM ID: ${acc.gpmProfileId}`);
+                                            setTimeout(() => setActionMsg(null), 3000);
+                                          }}
+                                          className="p-1 -mr-1 text-cyan-600/70 hover:text-cyan-700 dark:text-cyan-400/70 dark:hover:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                          aria-label="Sao chép GPM Profile ID"
+                                        >
+                                          {copiedGpmId === acc.id ? (
+                                            <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                          ) : (
+                                            <Copy className="w-3 h-3" />
+                                          )}
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="text-xs font-medium">
+                                        {copiedGpmId === acc.id ? "Đã sao chép!" : "Sao chép GPM Profile ID"}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex items-center h-7.5 px-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 text-slate-400 text-xs italic bg-slate-50/50 dark:bg-slate-900/50">-- Chưa gán --</span>
+                                )}
+                              </td>
+                            )}
+
+                            {/* Country */}
+                            {visibleColumns.country && (
+                              <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                                {getCountryFlag(acc.country)}
+                              </td>
+                            )}
+
+                            {/* Status Dropdown */}
+                            {visibleColumns.status && (
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                <Select
+                                  value={acc.status}
+                                  onValueChange={(val) => handleStatusChange(acc.id, val)}
+                                >
+                                  <SelectTrigger className="h-7.5 w-28 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                                    <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
+                                    <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
+                                    <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
+                                    <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
+                                    <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                            )}
+
+                            {/* Assigned Staff */}
+                            {visibleColumns.assignedUser && (
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                <Select
+                                  value={acc.assignedUserId || "UNASSIGNED"}
+                                  onValueChange={(val) => handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)}
+                                >
+                                  <SelectTrigger className="h-7.5 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                    <SelectValue placeholder="-- Chưa gán --">
+                                      {acc.assignedUser ? acc.assignedUser.fullName : "-- Chưa gán --"}
+                                    </SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
+                                    <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
+                                      -- Chưa gán --
+                                    </SelectItem>
+                                    {users.map((u: any) => (
+                                      <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
+                                        {u.fullName}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                            )}
+
+                            {/* Total Views / Follow */}
+                            {visibleColumns.totalViews && (
+                              <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                                <div className="flex flex-col">
+                                  <span>{Number(acc.totalViews || 0).toLocaleString()} views</span>
+                                  <span className="text-xs text-slate-400">
+                                    {Number(acc.totalFollowers || 0).toLocaleString()} followers
+                                  </span>
+                                </div>
+                              </td>
+                            )}
+
+                            {/* Total Videos */}
+                            {visibleColumns.totalVideos && (
+                              <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                                {acc.totalVideos || 0}
+                              </td>
+                            )}
+
+                            {/* Total Revenue */}
+                            {visibleColumns.totalRevenue && (
+                              <td className="px-4 py-3.5 whitespace-nowrap font-bold text-emerald-600 dark:text-emerald-400">
+                                ${Number(acc.totalRevenue || 0).toFixed(2)}
+                              </td>
+                            )}
+
+                            {/* Alerts / Warnings */}
+                            {visibleColumns.alertsCount && (
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                {acc.alerts && acc.alerts.length > 0 ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 cursor-pointer">
+                                        <AlertTriangle className="w-3 h-3" />
+                                        <span>{acc.alerts.length} cảnh báo</span>
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs text-xs space-y-1">
+                                      {acc.alerts.map((al: any, idx: number) => (
+                                        <div key={idx} className="text-slate-200">
+                                          • {al.message || al.type}
+                                        </div>
+                                      ))}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                                    <Shield className="w-3 h-3 text-emerald-500" /> An toàn
+                                  </span>
+                                )}
+                              </td>
+                            )}
+
+                            {/* Actions (Frozen Right, DropdownMenu) */}
+                            {visibleColumns.actions && (
+                              <td className={`px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]`}>
+                                <div className="flex items-center justify-center gap-1">
+                                  <DropdownMenu>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <DropdownMenuTrigger asChild>
+                                          <button
+                                            type="button"
+                                            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                            aria-label="Thao tác"
+                                          >
+                                            <MoreHorizontal className="w-4 h-4" />
+                                          </button>
+                                        </DropdownMenuTrigger>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="left">Tùy chọn thao tác</TooltipContent>
+                                    </Tooltip>
+                                    <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
+                                      <DropdownMenuItem asChild>
+                                        <Link
+                                          href={`/accounts/${acc.id}`}
+                                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                        >
+                                          <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                          <span>Xem chi tiết</span>
+                                        </Link>
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuItem
+                                        onClick={() => syncMutation.mutate({ accountId: acc.id })}
+                                        disabled={syncMutation.isPending}
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                      >
+                                        <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                                        <span>Đồng bộ số liệu</span>
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuItem
+                                        onClick={() => handleOpenLogs(acc)}
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                      >
+                                        <History className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>Lịch sử hoạt động</span>
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuItem
+                                        onClick={() => handleOpenEdit(acc)}
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>Chỉnh sửa thông tin</span>
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setAccountToDelete(acc);
+                                          setIsDeleteOpen(true);
+                                        }}
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                        <span>Xóa tài khoản</span>
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Unified Pagination */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <Pagination
               currentPage={page}
               totalPages={totalPages}
@@ -1928,12 +2428,12 @@ export default function AccountsPage() {
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-slate-800 dark:text-slate-200">{log.logType}</span>
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-xs text-slate-400">
                         {new Date(log.createdAt).toLocaleString("vi-VN")}
                       </span>
                     </div>
                     <p className="text-slate-600 dark:text-slate-400">{log.message}</p>
-                    <div className="text-[10px] text-slate-400">Thực hiện bởi: {log.actorName}</div>
+                    <div className="text-xs text-slate-400">Thực hiện bởi: {log.actorName}</div>
                   </div>
                 ))
               ) : (
@@ -1953,5 +2453,13 @@ export default function AccountsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AccountsPage() {
+  return (
+    <Suspense fallback={<DataTableSkeleton columnCount={8} rowCount={12} />}>
+      <AccountsPageContent />
+    </Suspense>
   );
 }

@@ -14,7 +14,7 @@ export const authConfig: NextAuthConfig = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-      allowDangerousEmailAccountLinking: true,
+      allowDangerousEmailAccountLinking: false,
       authorization: {
         params: {
           access_type: 'offline',
@@ -27,7 +27,7 @@ export const authConfig: NextAuthConfig = {
     GitHubProvider({
       clientId: process.env.GITHUB_CLIENT_ID || "",
       clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
-      allowDangerousEmailAccountLinking: true,
+      allowDangerousEmailAccountLinking: false,
     }),
 
     ...(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET
@@ -35,7 +35,7 @@ export const authConfig: NextAuthConfig = {
         SlackProvider({
           clientId: process.env.SLACK_CLIENT_ID,
           clientSecret: process.env.SLACK_CLIENT_SECRET,
-          allowDangerousEmailAccountLinking: true,
+          allowDangerousEmailAccountLinking: false,
         }),
       ]
       : []),
@@ -62,13 +62,13 @@ export const authConfig: NextAuthConfig = {
           return null;
         }
 
-        const isPasswordValid = await bcrypt.compare(password, user.password);
-
-        if (!isPasswordValid) {
+        if (!user.isActive) {
           return null;
         }
 
-        if (!user.isActive) {
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+
+        if (!isPasswordValid) {
           return null;
         }
 
@@ -85,8 +85,8 @@ export const authConfig: NextAuthConfig = {
           name,
           image: user.avatar || user.image || undefined,
           emailVerified: user.emailVerified ?? undefined,
-          role: user.role ?? "ADMIN",
-          userType: user.role ?? "ADMIN",
+          role: user.role ?? "STAFF",
+          userType: user.role ?? "STAFF",
           isVerified: user.isVerified,
         };
       }

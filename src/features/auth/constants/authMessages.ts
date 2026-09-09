@@ -16,7 +16,7 @@ export const AUTH_MESSAGES = {
         // Login errors
         INVALID_CREDENTIALS: "Email hoặc mật khẩu bạn nhập không chính xác.",
         TOKEN_EXPIRED: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
-        ACCOUNT_LOCKED: "Tài khoản của bạn tạm thời bị khóa. Vui lòng thử lại sau.",
+        ACCOUNT_LOCKED: "Tài khoản của bạn đã bị quản trị viên chặn quyền truy cập. Vui lòng liên hệ Quản trị viên để được hỗ trợ.",
         INVITATION_REQUIRED: "Hệ thống chỉ dành cho Quản trị viên và thành viên đã được mời. Vui lòng liên hệ Admin để nhận thư mời tham gia.",
         WRONG_ACCOUNT: "Tài khoản hiện tại không khớp với email nhận thư mời. Vui lòng chuyển sang đúng tài khoản được mời.",
 
@@ -74,6 +74,7 @@ export const ERROR_CODE_TO_MESSAGE: Record<string, string> = {
     WEAK_PASSWORD: AUTH_MESSAGES.ERROR.WEAK_PASSWORD,
     UNAUTHORIZED: AUTH_MESSAGES.ERROR.TOKEN_EXPIRED,
     FORBIDDEN: AUTH_MESSAGES.ERROR.GENERIC,
+    ACCOUNT_LOCKED: AUTH_MESSAGES.ERROR.ACCOUNT_LOCKED,
     RATE_LIMITED: AUTH_MESSAGES.ERROR.ACCOUNT_LOCKED,
     INTERNAL_ERROR: AUTH_MESSAGES.ERROR.SERVER_ERROR,
     SERVICE_UNAVAILABLE: AUTH_MESSAGES.ERROR.SERVER_ERROR,

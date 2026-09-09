@@ -42,6 +42,7 @@ import confetti from "canvas-confetti";
 import * as XLSX from "xlsx";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import type { DateRange } from "react-day-picker";
 import {
   Popover,
   PopoverContent,
@@ -100,8 +101,21 @@ export default function ChecklistPage() {
 
   // Date picker popovers
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
-  const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
+  const [rangeSelection, setRangeSelection] = useState<DateRange | undefined>(() => ({
+    from: new Date(startDateStr + "T00:00:00"),
+    to: new Date(endDateStr + "T00:00:00"),
+  }));
+
+  // Date helpers for Daily Mode
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayStr = format(yesterdayDate, "yyyy-MM-dd");
+
+  const isDailyToday = dateStr === todayStr;
+  const isDailyYesterday = dateStr === yesterdayStr;
+  const isDailyCustom = !isDailyToday && !isDailyYesterday;
 
   // Settings Drawer
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
@@ -369,6 +383,7 @@ export default function ChecklistPage() {
     start.setDate(start.getDate() - days);
     setStartDateStr(format(start, "yyyy-MM-dd"));
     setEndDateStr(format(end, "yyyy-MM-dd"));
+    setRangeSelection({ from: start, to: end });
   };
 
   const applyThisMonth = () => {
@@ -377,6 +392,7 @@ export default function ChecklistPage() {
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     setStartDateStr(format(start, "yyyy-MM-dd"));
     setEndDateStr(format(now, "yyyy-MM-dd"));
+    setRangeSelection({ from: start, to: now });
   };
 
   // Country badge helper
@@ -385,32 +401,32 @@ export default function ChecklistPage() {
     switch (code) {
       case "US":
         return (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
             <span>🇺🇸</span> US
           </span>
         );
       case "UK":
       case "GB":
         return (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
             <span>🇬🇧</span> UK
           </span>
         );
       case "VN":
         return (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-200 dark:border-red-800">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-200 dark:border-red-800">
             <span>🇻🇳</span> VN
           </span>
         );
       case "DE":
         return (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
             <span>🇩🇪</span> DE
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
             {code}
           </span>
         );
@@ -420,7 +436,7 @@ export default function ChecklistPage() {
   const getWorkdayBadge = (scoreNum: number, rateNum: number) => {
     if (scoreNum >= 1.0) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-xs">
+        <span className="inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-2xs">
           <CheckCircle2 className="w-3.5 h-3.5" />
           <span>1.0 Công (Đạt)</span>
         </span>
@@ -428,14 +444,14 @@ export default function ChecklistPage() {
     }
     if (scoreNum === 0.5) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs">
+        <span className="inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-2xs">
           <Clock className="w-3.5 h-3.5" />
           <span>0.5 Công (Nửa ngày)</span>
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 shadow-xs">
+      <span className="inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-black bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 shadow-2xs">
         <AlertCircle className="w-3.5 h-3.5" />
         <span>0 Công (Không đạt)</span>
       </span>
@@ -446,24 +462,25 @@ export default function ChecklistPage() {
     switch (role) {
       case "ADMIN":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">
-            <Shield className="w-3 h-3" /> ADMIN
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
+            <Shield className="w-3.5 h-3.5" /> ADMIN
           </span>
         );
       case "LEAD":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
-            <ShieldCheck className="w-3 h-3" /> LEAD
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 shadow-2xs">
+            <ShieldCheck className="w-3.5 h-3.5" /> LEAD
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
-            <UserCheck className="w-3 h-3" /> STAFF
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 shadow-2xs">
+            <UserCheck className="w-3.5 h-3.5" /> STAFF
           </span>
         );
     }
   };
+
 
   const summary = timesheetData?.summary || {
     totalRecords: 0,
@@ -480,7 +497,7 @@ export default function ChecklistPage() {
   const cutoffInfo = timesheetData?.cutoffInfo;
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto pb-24 animate-fadeIn">
+    <div className="space-y-6 w-full pb-24 animate-fadeIn">
       {/* Top Header Section */}
       <div className="bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md pt-1 pb-2 space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -548,96 +565,118 @@ export default function ChecklistPage() {
         )}
 
         {/* Cutoff Countdown & Auto-Scan Status Banner */}
-        <div className="bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-xs">
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
             {/* Left Side: Cutoff Status & Rules */}
-            <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
-              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 flex items-center justify-center shrink-0 border border-slate-200/60 dark:border-slate-700/60 shadow-xs">
-                <Clock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 flex items-center justify-center shrink-0 border border-slate-200/60 dark:border-slate-700/60 shadow-xs">
+                <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 dark:text-emerald-400" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <span className="text-sm font-black text-slate-900 dark:text-white tracking-tight">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight">
                     Mốc Chốt Công Tự Động: 10:00 Sáng (Giờ VN)
                   </span>
                   {cutoffInfo?.isPastCutoff ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs sm:text-xs font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                       Đã chốt hôm nay (10:00 AM)
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs sm:text-xs font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
                       Đang chờ chốt (Còn {cutoffInfo?.remainingFormatted || "10:00 AM"})
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-[560px] leading-relaxed">
+                <p className="text-xs sm:text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-[560px] leading-relaxed">
                   Đúng 10:00 AM mỗi ngày, hệ thống tự động quét Live toàn bộ dàn kênh. Nhân sự hoàn thành <strong>&ge;85%</strong> hưởng 1.0 công, <strong>50% - 85%</strong> hưởng 0.5 công.
                 </p>
               </div>
             </div>
 
-            {/* Right Side: Cohesive Segmented KPI Stat Bar */}
-            <div className="flex items-center bg-slate-50 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0 self-start lg:self-auto overflow-x-auto">
-              <div className="px-3.5 py-1.5 text-center min-w-[80px]">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Tổng Nhân Sự</div>
-                <div className="text-sm font-black text-slate-900 dark:text-white mt-0.5">{summary.totalStaff} NV</div>
+            {/* Right Side: Cohesive Segmented KPI Stat Bar - Fully responsive 2x2 on mobile, 4 in row on tablet/desktop */}
+            <div className="w-full xl:w-auto grid grid-cols-2 sm:grid-cols-4 xl:flex xl:items-center bg-slate-50 dark:bg-slate-950 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 gap-1.5 shrink-0">
+              <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Tổng Nhân Sự</div>
+                {loading ? (
+                  <div className="w-10 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
+                ) : (
+                  <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white mt-0.5">{summary.totalStaff} NV</div>
+                )}
               </div>
-              <div className="px-3.5 py-1.5 text-center border-l border-slate-200 dark:border-slate-800 min-w-[86px]">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1 whitespace-nowrap">
+              <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                <div className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                   1.0 Công
                 </div>
-                <div className="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{summary.fullWorkdayCount}</div>
+                {loading ? (
+                  <div className="w-8 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
+                ) : (
+                  <div className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{summary.fullWorkdayCount}</div>
+                )}
               </div>
-              <div className="px-3.5 py-1.5 text-center border-l border-slate-200 dark:border-slate-800 min-w-[76px]">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1 whitespace-nowrap">
+              <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                <div className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
                   0.5 Công
                 </div>
-                <div className="text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5">{summary.halfWorkdayCount}</div>
+                {loading ? (
+                  <div className="w-8 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
+                ) : (
+                  <div className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5">{summary.halfWorkdayCount}</div>
+                )}
               </div>
-              <div className="px-3.5 py-1.5 text-center border-l border-slate-200 dark:border-slate-800 min-w-[70px]">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1 whitespace-nowrap">
+              <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                <div className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
                   0 Công
                 </div>
-                <div className="text-sm font-black text-rose-600 dark:text-rose-400 mt-0.5">{summary.zeroWorkdayCount}</div>
+                {loading ? (
+                  <div className="w-8 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
+                ) : (
+                  <div className="text-xs sm:text-sm font-black text-rose-600 dark:text-rose-400 mt-0.5">{summary.zeroWorkdayCount}</div>
+                )}
               </div>
             </div>
           </div>
         </div>
 
         {/* Filter & Toolbar Box */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-sm space-y-3.5">
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-3.5 sm:p-4 shadow-sm space-y-3.5">
           {/* Row 1: Mode Switcher & Time Presets */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
+            <div className="w-full sm:w-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
               <button
+                type="button"
                 onClick={() => setViewMode("daily")}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${viewMode === "daily"
+                className={`px-3 py-2 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${viewMode === "daily"
                   ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
               >
-                📅 Bảng Chấm Công Theo Ngày (Roll Call)
+                <span>📅</span>
+                <span className="hidden sm:inline">Bảng Chấm Công Theo Ngày (Roll Call)</span>
+                <span className="sm:hidden">Theo Ngày (Roll Call)</span>
               </button>
               <button
+                type="button"
                 onClick={() => setViewMode("range")}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${viewMode === "range"
+                className={`px-3 py-2 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${viewMode === "range"
                   ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
               >
-                📈 Lịch Sử Khoảng Ngày (Timesheet Range)
+                <span>📈</span>
+                <span className="hidden sm:inline">Lịch Sử Khoảng Ngày (Timesheet Range)</span>
+                <span className="sm:hidden">Khoảng Ngày (Timesheet)</span>
               </button>
             </div>
 
             {/* Quick Date Presets */}
             {viewMode === "range" ? (
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none py-1">
                 {[
                   { id: "7d", label: "7 Ngày Qua", action: () => applyRangePreset(7, "7d") },
                   { id: "28d", label: "28 Ngày Qua", action: () => applyRangePreset(28, "28d") },
@@ -650,7 +689,7 @@ export default function ChecklistPage() {
                     <button
                       key={p.id}
                       onClick={p.action}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${isActive
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isActive
                         ? "bg-emerald-500 text-white shadow-xs font-black"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
                         }`}
@@ -659,12 +698,93 @@ export default function ChecklistPage() {
                     </button>
                   );
                 })}
+
+
+                {/* Custom Range Popover Tab Button */}
+                <Popover
+                  open={isRangePickerOpen}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      setRangeSelection({
+                        from: new Date(startDateStr + "T00:00:00"),
+                        to: new Date(endDateStr + "T00:00:00"),
+                      });
+                    }
+                    setIsRangePickerOpen(open);
+                  }}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${activeRangePreset === "custom"
+                        ? "bg-emerald-500 text-white shadow-xs font-black"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
+                        }`}
+                    >
+                      <CalendarIcon className="w-3.5 h-3.5" />
+                      <span>
+                        {activeRangePreset === "custom"
+                          ? `${format(new Date(startDateStr + "T00:00:00"), "dd/MM")} - ${format(new Date(endDateStr + "T00:00:00"), "dd/MM/yy")}`
+                          : "Tùy chọn khoảng ngày"}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-auto p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 space-y-2.5">
+                    <div className="px-1 pt-1 pb-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                        Chọn khoảng ngày chấm công
+                      </span>
+                      {rangeSelection?.from && (
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                          {format(rangeSelection.from, "dd/MM/yy")} - {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
+                        </span>
+                      )}
+                    </div>
+
+                    <CalendarPicker
+                      mode="range"
+                      selected={rangeSelection}
+                      onSelect={(range) => {
+                        setRangeSelection(range);
+                      }}
+                      numberOfMonths={1}
+                    />
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setIsRangePickerOpen(false)}
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!rangeSelection?.from}
+                        onClick={() => {
+                          if (rangeSelection?.from) {
+                            const s = format(rangeSelection.from, "yyyy-MM-dd");
+                            const e = rangeSelection.to ? format(rangeSelection.to, "yyyy-MM-dd") : s;
+                            setStartDateStr(s);
+                            setEndDateStr(e);
+                            setActiveRangePreset("custom");
+                          }
+                          setIsRangePickerOpen(false);
+                        }}
+                        className="px-3 py-1.5 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white rounded-lg shadow-sm cursor-pointer transition-all"
+                      >
+                        Áp dụng
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             ) : (
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none py-1">
                 <button
-                  onClick={() => setDateStr(new Date().toISOString().split("T")[0])}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${dateStr === new Date().toISOString().split("T")[0]
+                  type="button"
+                  onClick={() => setDateStr(todayStr)}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyToday
                     ? "bg-emerald-500 text-white shadow-xs font-black"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
                     }`}
@@ -672,157 +792,156 @@ export default function ChecklistPage() {
                   Hôm nay
                 </button>
                 <button
-                  onClick={() => {
-                    const d = new Date();
-                    d.setDate(d.getDate() - 1);
-                    setDateStr(d.toISOString().split("T")[0]);
-                  }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${dateStr !== new Date().toISOString().split("T")[0]
+                  type="button"
+                  onClick={() => setDateStr(yesterdayStr)}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyYesterday
                     ? "bg-emerald-500 text-white shadow-xs font-black"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
                     }`}
                 >
                   Hôm qua
                 </button>
+
+                {/* Custom Date Popover Tab Button */}
+                <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${isDailyCustom
+                        ? "bg-emerald-500 text-white shadow-xs font-black"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
+                        }`}
+                    >
+                      <CalendarIcon className="w-3.5 h-3.5" />
+                      <span>
+                        {isDailyCustom
+                          ? format(new Date(dateStr + "T00:00:00"), "dd/MM/yyyy")
+                          : "Tùy chọn ngày"}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-auto p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50">
+                    <div className="px-2 pt-1 pb-2 border-b border-slate-100 dark:border-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Chọn ngày chấm công
+                    </div>
+                    <CalendarPicker
+                      mode="single"
+                      selected={new Date(dateStr + "T00:00:00")}
+                      onSelect={(d) => {
+                        if (d) setDateStr(format(d, "yyyy-MM-dd"));
+                        setIsDatePickerOpen(false);
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             )}
           </div>
 
-          {/* Row 2: Search, User Selector, Date Picker, Score Filter */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {/* Search Input */}
-            <div className="relative">
+          {/* Row 2: Search, User Selector, Score Filter */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            {/* Search Input - Compact fixed width for optimal balance */}
+            <div className="relative w-full sm:w-64 md:w-72 shrink-0">
               <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 placeholder="Tìm nhân sự, @username TikTok..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-emerald-500"
+                className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-8 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 transition-colors"
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                  title="Xóa tìm kiếm"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
-            {/* Staff / Operator Selector */}
-            <Select
-              value={selectedUserId}
-              onValueChange={(val) => setSelectedUserId(val)}
-            >
-              <SelectTrigger className="h-9 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer">
-                <SelectValue placeholder="Tất cả nhân sự" />
-              </SelectTrigger>
-              <SelectContent className="rounded-2xl max-h-72">
-                <SelectItem value="ALL" className="text-xs font-bold cursor-pointer">
-                  👥 Tất cả nhân sự ({staffList.length} thành viên)
-                </SelectItem>
-                {staffList.map((s: any) => (
-                  <SelectItem key={s.id} value={s.id} className="text-xs cursor-pointer">
-                    {s.fullName} (@{s.username}) — {s.role}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Date Picker (Single or Range) */}
-            {viewMode === "daily" ? (
-              <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="w-full h-9 px-3.5 flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-900 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors select-none"
-                  >
-                    <div className="flex items-center gap-2">
-                      <CalendarIcon className="w-4 h-4 text-emerald-500" />
-                      <span>{format(new Date(dateStr + "T00:00:00"), "dd/MM/yyyy")}</span>
-                    </div>
-                    <span className="text-[10px] font-normal text-slate-400">Chọn ngày</span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-auto p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50">
-                  <CalendarPicker
-                    mode="single"
-                    selected={new Date(dateStr + "T00:00:00")}
-                    onSelect={(d) => {
-                      if (d) setDateStr(format(d, "yyyy-MM-dd"));
-                      setIsDatePickerOpen(false);
-                    }}
-                  />
-                </PopoverContent>
-              </Popover>
-            ) : (
-              <div className="grid grid-cols-2 gap-1.5">
-                {/* Start Date */}
-                <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="w-full h-9 px-2.5 flex items-center justify-between bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
-                    >
-                      <span>{format(new Date(startDateStr + "T00:00:00"), "dd/MM/yy")}</span>
-                      <CalendarIcon className="w-3.5 h-3.5 text-slate-400" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-auto p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50">
-                    <CalendarPicker
-                      mode="single"
-                      selected={new Date(startDateStr + "T00:00:00")}
-                      onSelect={(d) => {
-                        if (d) {
-                          setStartDateStr(format(d, "yyyy-MM-dd"));
-                          setActiveRangePreset("custom");
-                        }
-                        setIsStartDatePickerOpen(false);
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
-
-                {/* End Date */}
-                <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="w-full h-9 px-2.5 flex items-center justify-between bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
-                    >
-                      <span>{format(new Date(endDateStr + "T00:00:00"), "dd/MM/yy")}</span>
-                      <CalendarIcon className="w-3.5 h-3.5 text-slate-400" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="end" className="w-auto p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50">
-                    <CalendarPicker
-                      mode="single"
-                      selected={new Date(endDateStr + "T00:00:00")}
-                      onSelect={(d) => {
-                        if (d) {
-                          setEndDateStr(format(d, "yyyy-MM-dd"));
-                          setActiveRangePreset("custom");
-                        }
-                        setIsEndDatePickerOpen(false);
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
+            {/* Dropdown Filters Group */}
+            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+              {/* Staff / Operator Selector */}
+              <div className="w-full sm:w-60 md:w-64">
+                <Select
+                  value={selectedUserId}
+                  onValueChange={(val) => setSelectedUserId(val)}
+                >
+                  <SelectTrigger className="w-full h-9 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap">
+                    <SelectValue placeholder="Tất cả nhân sự" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-2xl max-h-72">
+                    <SelectItem value="ALL" className="text-xs font-bold cursor-pointer">
+                      👥 Tất cả nhân sự ({staffList.length} thành viên)
+                    </SelectItem>
+                    {staffList.map((s: any) => (
+                      <SelectItem key={s.id} value={s.id} className="text-xs cursor-pointer">
+                        {s.fullName} (@{s.username}) — {s.role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
 
-            {/* Score Filter */}
-            <Select
-              value={scoreFilter}
-              onValueChange={(val: any) => setScoreFilter(val)}
-            >
-              <SelectTrigger className="h-9 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer">
-                <SelectValue placeholder="Tất cả kết quả" />
-              </SelectTrigger>
-              <SelectContent className="rounded-2xl">
-                <SelectItem value="ALL" className="text-xs cursor-pointer">Tất cả kết quả công</SelectItem>
-                <SelectItem value="FULL" className="text-xs font-bold text-emerald-600 cursor-pointer">🟢 Đủ 1.0 Ngày Công (&ge;85%)</SelectItem>
-                <SelectItem value="HALF" className="text-xs font-bold text-amber-600 cursor-pointer">🟡 Nửa 0.5 Ngày Công (50%-85%)</SelectItem>
-                <SelectItem value="ZERO" className="text-xs font-bold text-rose-600 cursor-pointer">🔴 0 Ngày Công (&lt;50%)</SelectItem>
-              </SelectContent>
-            </Select>
+              {/* Score Filter */}
+              <div className="w-full sm:w-40 md:w-44">
+                <Select
+                  value={scoreFilter}
+                  onValueChange={(val: any) => setScoreFilter(val)}
+                >
+                  <SelectTrigger className="w-full h-9 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap">
+                    <SelectValue placeholder="Tất cả kết quả" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-2xl">
+                    <SelectItem value="ALL" className="text-xs cursor-pointer">
+                      Tất cả kết quả công
+                    </SelectItem>
+                    <SelectItem value="FULL" className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 cursor-pointer">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                        <span>Đủ 1.0 Ngày Công (&ge;85%)</span>
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="HALF" className="text-xs font-semibold text-amber-600 dark:text-amber-400 cursor-pointer">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                        <span>Nửa 0.5 Ngày Công (50%-85%)</span>
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="ZERO" className="text-xs font-semibold text-rose-600 dark:text-rose-400 cursor-pointer">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                        <span>0 Ngày Công (&lt;50%)</span>
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Quick Reset Filters Button when any filter active */}
+              {(search || selectedUserId !== "ALL" || scoreFilter !== "ALL") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setSelectedUserId("ALL");
+                    setScoreFilter("ALL");
+                  }}
+                  className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
+                  title="Đặt lại bộ lọc"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Đặt lại</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Quick Row Expansion control */}
-          <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
+          <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
             <div>
               Hiển thị <strong>{timesheetData?.checklists?.length || 0}</strong> bản ghi chấm công.
             </div>
@@ -861,7 +980,7 @@ export default function ChecklistPage() {
       ) : (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+            <table className="w-full text-left text-xs border-collapse min-w-[980px]">
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none normal-case">
                 <tr>
                   <th className="py-3.5 px-3 w-10 text-center">#</th>
@@ -892,7 +1011,7 @@ export default function ChecklistPage() {
                         {/* Master Staff Row */}
                         <div className="flex items-center w-full py-3 px-3 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                           {/* Col 0: Index */}
-                          <div className="w-10 text-center text-slate-400 font-mono text-[11px] shrink-0">
+                          <div className="w-10 text-center text-slate-400 font-mono text-xs shrink-0">
                             {idx + 1}
                           </div>
 
@@ -921,7 +1040,7 @@ export default function ChecklistPage() {
                                 </Link>
                                 {getRoleBadge(chk.user.role)}
                               </div>
-                              <div className="text-[11px] font-mono text-slate-400 truncate">
+                              <div className="text-xs font-mono text-slate-400 truncate">
                                 @{chk.user.username}
                               </div>
                             </div>
@@ -932,7 +1051,7 @@ export default function ChecklistPage() {
                             <span className="font-extrabold text-slate-800 dark:text-slate-200">
                               {totalAcc}
                             </span>{" "}
-                            <span className="text-slate-400 text-[11px]">accounts</span>
+                            <span className="text-slate-400 text-xs">accounts</span>
                           </div>
 
                           {/* Col 3: Posted Count */}
@@ -963,7 +1082,7 @@ export default function ChecklistPage() {
 
                           {/* Col 5: Completion Progress */}
                           <div className="w-44 px-3 shrink-0">
-                            <div className="flex items-center justify-between text-[11px] font-bold mb-1">
+                            <div className="flex items-center justify-between text-xs font-bold mb-1">
                               <span className="text-slate-700 dark:text-slate-300">{rate}% Hoàn thành</span>
                               <span className="text-slate-400 font-normal">
                                 {chk.completedCount}/{totalAcc}
@@ -991,7 +1110,7 @@ export default function ChecklistPage() {
                           <div className="w-28 text-center px-2 shrink-0">
                             <button
                               onClick={() => handleToggleRowExpand(chk.id)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${isExpanded
+                              className={`inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${isExpanded
                                 ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
                                 : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
                                 }`}
@@ -1006,7 +1125,7 @@ export default function ChecklistPage() {
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <button
-                                  className="flex items-center justify-center w-8 h-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
+                                  className="flex items-center justify-center w-7.5 h-7.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
                                   title="Tùy chọn thao tác"
                                 >
                                   <MoreHorizontal className="w-4 h-4" />
@@ -1034,7 +1153,7 @@ export default function ChecklistPage() {
                                     <span>Check Hoàn Thành (1.0 Công)</span>
                                   </DropdownMenuItem>
                                 ) : (
-                                  <div className="px-3 py-1.5 text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5 italic">
+                                  <div className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1.5 italic">
                                     <Shield className="w-3.5 h-3.5 shrink-0" />
                                     <span>Chỉ Admin mới được duyệt công</span>
                                   </div>
@@ -1065,7 +1184,7 @@ export default function ChecklistPage() {
                                   <Users className="w-4 h-4 text-pink-500" />
                                   <span>Danh sách {chk.items.length} tài khoản giao việc cho {chk.user.fullName}</span>
                                 </div>
-                                <div className="text-[11px] text-slate-400">
+                                <div className="text-xs text-slate-400">
                                   Bấm vào các ô Đã đăng / Đã sync để chấm công trực tiếp
                                 </div>
                               </div>
@@ -1075,19 +1194,20 @@ export default function ChecklistPage() {
                                   Nhân viên này chưa được gán tài khoản TikTok nào. Vui lòng vào trang Quản lý tài khoản để phân công.
                                 </div>
                               ) : (
-                                <table className="w-full text-left text-xs">
-                                  <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-100 dark:border-slate-800 normal-case">
-                                    <tr>
-                                      <th className="py-2.5 px-4">Tài khoản TikTok</th>
-                                      <th className="py-2.5 px-4 text-center">Đã đăng video</th>
-                                      <th className="py-2.5 px-4 text-center">Đã sync GPM</th>
-                                      <th className="py-2.5 px-4 text-center">Trạng thái KPI</th>
-                                      <th className="py-2.5 px-4">Giờ đăng & tiêu đề video mới nhất</th>
-                                      <th className="py-2.5 px-4">Ghi chú vận hành</th>
-                                      <th className="py-2.5 px-4 text-right">Thao tác</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-left text-xs min-w-[720px]">
+                                    <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-100 dark:border-slate-800 normal-case">
+                                      <tr>
+                                        <th className="py-2.5 px-4">Tài khoản TikTok</th>
+                                        <th className="py-2.5 px-4 text-center">Đã đăng video</th>
+                                        <th className="py-2.5 px-4 text-center">Đã sync GPM</th>
+                                        <th className="py-2.5 px-4 text-center">Trạng thái KPI</th>
+                                        <th className="py-2.5 px-4">Giờ đăng & tiêu đề video mới nhất</th>
+                                        <th className="py-2.5 px-4">Ghi chú vận hành</th>
+                                        <th className="py-2.5 px-4 text-right">Thao tác</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                                     {chk.items.map((item: any) => {
                                       const isItemCompleted = item.isCompleted || (item.isPosted && item.isSynced);
                                       const lastSyncFormatted = item.account.lastSyncedAt
@@ -1107,7 +1227,7 @@ export default function ChecklistPage() {
                                                 >
                                                   @{item.account.username}
                                                 </Link>
-                                                <div className="text-[10px] text-slate-400">
+                                                <div className="text-xs text-slate-400">
                                                   Views: {Number(item.account.totalViews || 0).toLocaleString()} • Rev: ${Number(item.account.totalRevenue || 0).toFixed(2)}
                                                 </div>
                                               </div>
@@ -1118,8 +1238,8 @@ export default function ChecklistPage() {
                                           <td className="py-3 px-4 text-center">
                                             <button
                                               onClick={() => handleToggleItemField(item, "isPosted")}
-                                              className={`w-7 h-7 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer ${item.isPosted
-                                                ? "bg-emerald-500 border-emerald-500 text-white shadow-xs"
+                                              className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer shadow-2xs ${item.isPosted
+                                                ? "bg-emerald-500 border-emerald-500 text-white"
                                                 : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-transparent hover:border-emerald-400"
                                                 }`}
                                             >
@@ -1131,8 +1251,8 @@ export default function ChecklistPage() {
                                           <td className="py-3 px-4 text-center">
                                             <button
                                               onClick={() => handleToggleItemField(item, "isSynced")}
-                                              className={`w-7 h-7 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer ${item.isSynced
-                                                ? "bg-cyan-500 border-cyan-500 text-white shadow-xs"
+                                              className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer shadow-2xs ${item.isSynced
+                                                ? "bg-cyan-500 border-cyan-500 text-white"
                                                 : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-transparent hover:border-cyan-400"
                                                 }`}
                                             >
@@ -1143,11 +1263,11 @@ export default function ChecklistPage() {
                                           {/* KPI Status */}
                                           <td className="py-3 px-4 text-center">
                                             {isItemCompleted ? (
-                                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                                <CheckCircle2 className="w-3 h-3" /> Đạt KPI
+                                              <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
+                                                <CheckCircle2 className="w-3.5 h-3.5" /> Đạt KPI
                                               </span>
                                             ) : (
-                                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                              <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs">
                                                 Chưa đạt
                                               </span>
                                             )}
@@ -1166,7 +1286,7 @@ export default function ChecklistPage() {
                                                       : "Chưa phát hiện video mới"}
                                                 </span>
                                               </div>
-                                              <div className="text-[10px] text-slate-400">
+                                              <div className="text-xs text-slate-400">
                                                 Sync Live gần nhất: <strong>{lastSyncFormatted}</strong>
                                               </div>
                                             </div>
@@ -1197,7 +1317,7 @@ export default function ChecklistPage() {
                                                   {item.notes || "Nhập ghi chú vận hành, tiêu đề.."}
                                                 </span>
                                               </div>
-                                              <span className="text-[10px] text-pink-600 dark:text-pink-400 font-bold shrink-0 opacity-0 group-hover/note:opacity-100 transition-opacity">
+                                              <span className="text-xs text-pink-600 dark:text-pink-400 font-bold shrink-0 opacity-0 group-hover/note:opacity-100 transition-opacity">
                                                 Sửa
                                               </span>
                                             </button>
@@ -1218,7 +1338,7 @@ export default function ChecklistPage() {
                                                       <Play className="w-3.5 h-3.5" />
                                                     </button>
                                                   </TooltipTrigger>
-                                                  <TooltipContent side="top" className="text-[11px]">
+                                                  <TooltipContent side="top" className="text-xs">
                                                     Mở GPM Profile
                                                   </TooltipContent>
                                                 </Tooltip>
@@ -1235,7 +1355,7 @@ export default function ChecklistPage() {
                                                     <RefreshCw className="w-3.5 h-3.5" />
                                                   </button>
                                                 </TooltipTrigger>
-                                                <TooltipContent side="top" className="text-[11px]">
+                                                <TooltipContent side="top" className="text-xs">
                                                   Đồng bộ Live Studio
                                                 </TooltipContent>
                                               </Tooltip>
@@ -1251,7 +1371,7 @@ export default function ChecklistPage() {
                                                     <ExternalLink className="w-3.5 h-3.5" />
                                                   </Link>
                                                 </TooltipTrigger>
-                                                <TooltipContent side="top" className="text-[11px]">
+                                                <TooltipContent side="top" className="text-xs">
                                                   Xem chi tiết kênh
                                                 </TooltipContent>
                                               </Tooltip>
@@ -1261,7 +1381,8 @@ export default function ChecklistPage() {
                                       );
                                     })}
                                   </tbody>
-                                </table>
+                                  </table>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -1303,7 +1424,7 @@ export default function ChecklistPage() {
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <span className="text-[11px] text-slate-400">Giờ (0 - 23)</span>
+                    <span className="text-xs text-slate-400">Giờ (0 - 23)</span>
                     <input
                       type="number"
                       min={0}
@@ -1314,7 +1435,7 @@ export default function ChecklistPage() {
                     />
                   </div>
                   <div>
-                    <span className="text-[11px] text-slate-400">Phút (0 - 59)</span>
+                    <span className="text-xs text-slate-400">Phút (0 - 59)</span>
                     <input
                       type="number"
                       min={0}
@@ -1325,7 +1446,7 @@ export default function ChecklistPage() {
                     />
                   </div>
                 </div>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-xs text-slate-400">
                   Mặc định: 10:00 Sáng hàng ngày. Hệ thống Cron tự động chốt vào mốc này.
                 </p>
               </div>
@@ -1343,7 +1464,7 @@ export default function ChecklistPage() {
                   onChange={(e) => setEditRules({ ...editRules, fullDayThreshold: parseInt(e.target.value) || 85 })}
                   className="w-full h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white"
                 />
-                <p className="text-[11px] text-slate-400">
+                <p className="text-xs text-slate-400">
                   Mặc định: &ge;85%. Đạt từ 85% số accounts được giao trở lên sẽ được tính 1.0 công.
                 </p>
               </div>
@@ -1361,7 +1482,7 @@ export default function ChecklistPage() {
                   onChange={(e) => setEditRules({ ...editRules, halfDayThreshold: parseInt(e.target.value) || 50 })}
                   className="w-full h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white"
                 />
-                <p className="text-[11px] text-slate-400">
+                <p className="text-xs text-slate-400">
                   Mặc định: 50% - 85%. Đạt từ 50% đến dưới 85% sẽ được tính nửa ngày công (0.5 công). Dưới 50% tính 0 công.
                 </p>
               </div>
@@ -1437,7 +1558,7 @@ export default function ChecklistPage() {
             {/* Quick Preset Tags (Only when user can edit) */}
             {noteModalItem?.canEdit && (
               <div>
-                <div className="text-[11px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
+                <div className="text-xs font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
                   Gợi ý nhanh (Click để chèn):
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -1454,7 +1575,7 @@ export default function ChecklistPage() {
                       onClick={() => {
                         setNoteInputText((prev) => (prev ? `${prev} • ${tag}` : tag));
                       }}
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
                     >
                       {tag}
                     </button>

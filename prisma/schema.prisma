@@ -66,6 +66,9 @@ model Group {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  @@index([leaderId])
+  @@index([createdById])
+  @@index([createdAt])
   @@map("groups")
 }
 
@@ -97,46 +100,61 @@ model User {
   accounts          Account[]
   sessions          Session[]
   tiktokAccounts    TiktokAccount[]
-  dailyChecklists   DailyChecklist[]
-  sentInvitations   Invitation[]      @relation("SentInvitations")
+  dailyChecklists        DailyChecklist[]
+  sentInvitations        Invitation[]             @relation("SentInvitations")
+  extensionToken         String?                  @unique @map("extension_token")
+  extensionAccessEnabled Boolean                  @default(true) @map("extension_access_enabled")
+  extensionRevokedAt     DateTime?                @map("extension_revoked_at")
+  extensionInstallations ExtensionInstallation[]
 
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
 
-  deletedAt         DateTime?         @map("deleted_at")
+  deletedAt              DateTime?                @map("deleted_at")
 
   @@index([deletedAt])
   @@index([isActive])
   @@index([role])
   @@index([groupId])
   @@index([createdAt])
+  @@index([deletedAt, isActive])
+  @@index([deletedAt, role])
   @@map("users")
 }
 
 // 2. TikTok Accounts Fleet
 model TiktokAccount {
-  id             String               @id @default(cuid())
-  username       String               @unique
-  country        String               @default("US") // US, UK, VN, DE, FR...
-  gpmProfileId   String?              // GPM-Login profile UUID
-  groupName      String?              // Raw GPM group / tag
-  status         AccountStatus        @default(ACTIVE)
-  assignedUserId String?
-  assignedUser   User?                @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
-  totalViews     BigInt               @default(0)
-  totalFollowers Int                  @default(0)
-  totalVideos    Int                  @default(0)
-  totalRevenue   Decimal              @default(0.0) @db.Decimal(12, 2)
-  lastSyncedAt   DateTime?
-  alerts         AccountAlert[]
-  logs           AccountLog[]
-  dailyRevenues  DailyRevenue[]
-  checklistItems DailyChecklistItem[]
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  id                 String               @id @default(cuid())
+  username           String               @unique
+  country            String               @default("US") // US, UK, VN, DE, FR...
+  gpmProfileId       String?              // GPM-Login profile UUID
+  groupName          String?              // Raw GPM group / tag
+  status             AccountStatus        @default(ACTIVE)
+  assignedUserId     String?
+  assignedUser       User?                @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  isAssignmentLocked Boolean              @default(false) @map("is_assignment_locked") // Khóa phân công: chỉ Admin mới đổi được
+  totalViews         BigInt               @default(0)
+  totalFollowers     Int                  @default(0)
+  totalVideos        Int                  @default(0)
+  totalRevenue       Decimal              @default(0.0) @db.Decimal(12, 2)
+  lastSyncedAt       DateTime?
+  alerts             AccountAlert[]
+  logs               AccountLog[]
+  dailyRevenues      DailyRevenue[]
+  checklistItems     DailyChecklistItem[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   @@index([status])
   @@index([assignedUserId])
+  @@index([country])
+  @@index([gpmProfileId])
+  @@index([groupName])
+  @@index([updatedAt])
+  @@index([createdAt])
+  @@index([assignedUserId, status])
+  @@index([totalRevenue(sort: Desc)])
+  @@index([totalViews(sort: Desc)])
   @@map("tiktok_accounts")
 }
 
@@ -153,6 +171,8 @@ model AccountLog {
   createdAt DateTime      @default(now())
 
   @@index([accountId])
+  @@index([accountId, createdAt])
+  @@index([createdAt])
   @@map("account_logs")
 }
 
@@ -170,6 +190,9 @@ model AccountAlert {
 
   @@index([accountId])
   @@index([status])
+  @@index([accountId, status])
+  @@index([status, severity])
+  @@index([createdAt])
   @@map("account_alerts")
 }
 
@@ -191,6 +214,8 @@ model DailyChecklist {
 
   @@unique([userId, date])
   @@index([date])
+  @@index([date, workdayScore])
+  @@index([userId, isLocked])
   @@map("daily_checklists")
 }
 
@@ -208,6 +233,9 @@ model DailyChecklistItem {
 
   @@index([checklistId])
   @@index([accountId])
+  @@index([checklistId, isCompleted])
+  @@index([checklistId, isPosted])
+  @@index([checklistId, isSynced])
   @@map("daily_checklist_items")
 }
 
@@ -225,6 +253,8 @@ model DailyRevenue {
 
   @@unique([accountId, date, sourceType])
   @@index([date])
+  @@index([accountId, date])
+  @@index([date, revenue])
   @@map("daily_revenues")
 }
 
@@ -257,7 +287,61 @@ model Invitation {
   @@index([email])
   @@index([token])
   @@index([status])
+  @@index([groupId])
+  @@index([invitedById])
+  @@index([expiresAt])
   @@map("invitations")
+}
+
+// 7. Extensions Registry & Companion Hub
+model Extension {
+  id                String                  @id @default(cuid())
+  slug              String                  @unique // e.g. "tiktokflow-companion"
+  name              String                  // "TikTokFlow Companion"
+  version           String                  @default("1.0.0")
+  description       String?                 @db.Text
+  shortDesc         String?                 @map("short_desc")
+  category          String                  @default("AUTOMATION") // AUTOMATION, ANALYTICS, SCRAPER, UTILITY
+  iconUrl           String?                 @map("icon_url")
+  downloadUrl       String?                 @map("download_url")
+  folderPath        String?                 @default("extension") @map("folder_path")
+  changelog         String?                 @db.Text
+  permissions       String[]                @default([])
+  supportedBrowsers String[]                @default(["Chrome", "Edge", "Brave"]) @map("supported_browsers")
+  isActive          Boolean                 @default(true) @map("is_active")
+  isFeatured        Boolean                 @default(false) @map("is_featured")
+  minAppVersion     String?                 @map("min_app_version")
+  author            String                  @default("TikTokFlow Team")
+  installations     ExtensionInstallation[]
+
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+  @@index([createdAt])
+  @@index([name])
+  @@map("extensions")
+}
+
+model ExtensionInstallation {
+  id               String    @id @default(cuid())
+  extensionId      String    @map("extension_id")
+  extension        Extension @relation(fields: [extensionId], references: [id], onDelete: Cascade)
+  userId           String    @map("user_id")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  installedVersion String    @default("1.0.0") @map("installed_version")
+  browserName      String?   @map("browser_name")
+  lastPingAt       DateTime? @map("last_ping_at")
+  status           String    @default("ACTIVE") // ACTIVE, OUTDATED, INACTIVE
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([extensionId, userId])
+  @@index([userId])
+  @@index([extensionId])
+  @@map("extension_installations")
 }
 
 enum Role {
@@ -302,3 +386,4 @@ enum VerificationLevel {
   BUSINESS_VERIFIED
   PREMIUM_VERIFIED
 }
+

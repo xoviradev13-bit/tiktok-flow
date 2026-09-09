@@ -124,6 +124,8 @@ interface ScheduleModalProps {
   onClose: () => void;
   initialItem?: SyncScheduleItem | null;
   onSave: (item: SyncScheduleItem) => Promise<void>;
+  title?: string;
+  description?: string;
 }
 
 // 15-minute intervals across 24 hours
@@ -143,6 +145,8 @@ export default function ScheduleModal({
   onClose,
   initialItem,
   onSave,
+  title,
+  description,
 }: ScheduleModalProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -285,13 +289,24 @@ export default function ScheduleModal({
         className="max-w-md w-full rounded-3xl p-0 gap-0 border border-slate-200 dark:border-slate-800 shadow-2xl bg-white dark:bg-slate-900 overflow-hidden"
       >
         {/* Header */}
-        <div className="px-6 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
-            {initialItem ? "Chỉnh sửa lịch trình" : "Thêm lịch trình đồng bộ"}
-          </DialogTitle>
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between">
+          <div className="space-y-0.5">
+            <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
+              {initialItem
+                ? title
+                  ? `Chỉnh sửa: ${title}`
+                  : "Chỉnh sửa lịch trình"
+                : title || "Thêm lịch trình đồng bộ"}
+            </DialogTitle>
+            {description && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {description}
+              </p>
+            )}
+          </div>
           <button
             onClick={onClose}
-            className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+            className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 ml-2"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -527,7 +542,7 @@ export default function ScheduleModal({
                 onChange={(e) => setItem({ ...item, instructions: e.target.value })}
                 className="rounded-xl bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-sm font-normal resize-none placeholder:text-slate-400 focus-visible:ring-purple-500"
               />
-              <div className="text-[11px] text-slate-400 text-right pr-2 pt-1 flex items-center justify-end gap-1">
+              <div className="text-xs text-slate-400 text-right pr-2 pt-1 flex items-center justify-end gap-1">
                 <span>Tham chiếu công việc, tài liệu, thành viên bằng ký tự</span>
                 <span className="font-bold text-slate-500">@</span>
               </div>

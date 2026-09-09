@@ -45,11 +45,14 @@ export const AuthLayout = ({ children }: { children: React.ReactNode }) => {
 
         <div className="relative z-10 flex gap-6 text-xs font-semibold text-slate-400">
           <span>© 2026 TIKTOKFLOW Inc.</span>
+          <Link href="/security" className="hover:text-white transition-colors">
+            Bảo Mật
+          </Link>
           <Link href="/privacy" className="hover:text-white transition-colors">
-            Chính Sách Bảo Mật
+            Quyền Riêng Tư
           </Link>
           <Link href="/terms" className="hover:text-white transition-colors">
-            Điều Khoản Sử Dụng
+            Điều Khoản
           </Link>
         </div>
       </div>

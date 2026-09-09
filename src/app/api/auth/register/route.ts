@@ -78,6 +78,24 @@ export async function POST(req: Request) {
       });
     }
 
+    // If callbackUrl contains an invitation token, verify that the token strictly belongs to this email
+    if (callbackUrl && callbackUrl.includes("token=")) {
+      const match = callbackUrl.match(/token=([^&]+)/);
+      if (match && match[1]) {
+        const tokenInvite = await prisma.invitation.findUnique({
+          where: { token: match[1].trim() },
+        });
+
+        if (!tokenInvite || tokenInvite.email.toLowerCase().trim() !== email.toLowerCase().trim()) {
+          const response = createErrorResponse(
+            AUTH_ERROR_CODES.UNAUTHORIZED,
+            `Liên kết mời này được cấp riêng cho email: ${tokenInvite?.email || "khác"}. Bạn không thể dùng liên kết này để đăng ký cho tài khoản ${email}.`
+          );
+          return NextResponse.json(response, { status: 403 });
+        }
+      }
+    }
+
     // Check if the user has a valid pending invitation
     const pendingInvite = await prisma.invitation.findFirst({
       where: {

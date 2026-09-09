@@ -4,8 +4,16 @@ import { authConfig } from "@/config/auth.config";
 import { prisma } from "@/lib/prisma";
 
 // OPTIMIZATION: Cache user lookups briefly to prevent DB slamming on every JWT call during navigation
-const userCache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 5000; // 5 seconds
+export const userCache = new Map<string, { data: any; timestamp: number }>();
+export const CACHE_TTL = 5000; // 5 seconds
+
+export function clearUserCache(userId?: string) {
+  if (userId) {
+    userCache.delete(userId);
+  } else {
+    userCache.clear();
+  }
+}
 
 const IS_PRODUCTION = process.env.APP_ENV === "production";
 const SHARED_COOKIE_NAME = IS_PRODUCTION
@@ -50,7 +58,7 @@ export const authOptions: NextAuthConfig = {
       if (user?.id) {
         token.id = user.id;
         token.name = user.name || (user.email ? user.email.split("@")[0] : token.name);
-        token.role = (user as any).role || (user as any).userType || "ADMIN";
+        token.role = (user as any).role || (user as any).userType || "STAFF";
         token.userType = token.role;
       }
       if (!token.id && token.sub) {
@@ -90,6 +98,7 @@ export const authOptions: NextAuthConfig = {
               username: true,
               email: true,
               avatar: true,
+              isActive: true,
             },
           });
           if (dbUser) {
@@ -98,6 +107,17 @@ export const authOptions: NextAuthConfig = {
         }
 
         if (dbUser) {
+          if (!dbUser.isActive) {
+            token.isActive = false;
+            token.error = "ACCOUNT_LOCKED";
+            return {
+              ...token,
+              id: "",
+              isActive: false,
+              error: "ACCOUNT_LOCKED",
+            };
+          }
+          token.isActive = true;
           token.name = dbUser.name || dbUser.username || (dbUser.email ? dbUser.email.split("@")[0] : token.name);
           token.role = dbUser.role ?? "STAFF";
           token.userType = dbUser.role ?? "STAFF";
@@ -109,11 +129,14 @@ export const authOptions: NextAuthConfig = {
     },
 
     async session({ session, token }) {
+      if ((token as any)?.isActive === false || !(token?.id || token?.sub)) {
+        return null as any;
+      }
       if (token && session.user) {
         session.user.id = (token.id ?? token.sub) as string;
-        session.user.name = (token.name as string) || session.user.name || (session.user.email ? session.user.email.split("@")[0] : "Admin");
-        session.user.role = (token.role ?? token.userType ?? "ADMIN") as string;
-        session.user.userType = (token.role ?? token.userType ?? "ADMIN") as string;
+        session.user.name = (token.name as string) || session.user.name || (session.user.email ? session.user.email.split("@")[0] : "User");
+        session.user.role = (token.role ?? token.userType ?? "STAFF") as string;
+        session.user.userType = (token.role ?? token.userType ?? "STAFF") as string;
         session.user.isVerified = Boolean(token.isVerified);
         session.accessToken = token.accessToken as string;
       }
@@ -137,22 +160,22 @@ export const authOptions: NextAuthConfig = {
         return true;
       }
 
-      // 2. If user does NOT exist, check if they have a valid pending invitation
-      const pendingInvite = await prisma.invitation.findFirst({
+      // 2. If user does NOT exist, check if they have a valid invitation in the system
+      const validInvite = await prisma.invitation.findFirst({
         where: {
           email: { equals: email, mode: "insensitive" },
-          status: "PENDING",
+          status: { in: ["PENDING", "ACCEPTED"] },
           expiresAt: { gt: new Date() },
         },
       });
 
-      if (pendingInvite) {
-        // User is invited, allow them to authenticate so /invite/accept can complete acceptance
+      if (validInvite) {
+        // User is invited, allow them to authenticate so /invite/accept can complete acceptance or handle account mismatch
         return true;
       }
 
       // 3. Neither user exists nor has valid invitation -> Block access
-      return "/auth/error?error=InvitationRequired";
+      return `/auth/error?error=InvitationRequired&email=${encodeURIComponent(email)}`;
     },
   },
 };

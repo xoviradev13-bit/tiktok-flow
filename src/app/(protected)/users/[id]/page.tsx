@@ -33,9 +33,12 @@ import {
   SlidersHorizontal,
   ChevronRight,
   Globe,
+  Ban,
+  CheckCircle2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
+import { UserDetailSkeleton } from "@/components/skeletons/PageSkeletons";
 import {
   Tooltip,
   TooltipContent,
@@ -117,32 +120,32 @@ export default function UserDetailPage() {
       case "US":
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
-            <span className="text-[11px]">🇺🇸</span> US
+            <span className="text-xs">🇺🇸</span> US
           </span>
         );
       case "UK":
       case "GB":
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
-            <span className="text-[11px]">🇬🇧</span> UK
+            <span className="text-xs">🇬🇧</span> UK
           </span>
         );
       case "VN":
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300 border border-red-200 dark:border-red-800/50">
-            <span className="text-[11px]">🇻🇳</span> VN
+            <span className="text-xs">🇻🇳</span> VN
           </span>
         );
       case "DE":
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50">
-            <span className="text-[11px]">🇩🇪</span> DE
+            <span className="text-xs">🇩🇪</span> DE
           </span>
         );
       case "FR":
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800/50">
-            <span className="text-[11px]">🇫🇷</span> FR
+            <span className="text-xs">🇫🇷</span> FR
           </span>
         );
       default:
@@ -237,11 +240,7 @@ export default function UserDetailPage() {
   }, [userDetail?.tiktokAccounts, accountSearch, accountStatusFilter, accountCountryFilter]);
 
   if (loading) {
-    return (
-      <div className="space-y-6 animate-fadeIn pb-16">
-        <DataTableSkeleton columnCount={5} rowCount={8} />
-      </div>
-    );
+    return <UserDetailSkeleton />;
   }
 
   if (error || !userDetail) {
@@ -320,7 +319,7 @@ export default function UserDetailPage() {
                   </h1>
                   {getRoleBadge(user.role)}
                   <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold ${
                       user.isActive
                         ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50"
                         : "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50"
@@ -377,14 +376,31 @@ export default function UserDetailPage() {
                 </Select>
 
                 <button
-                  onClick={() => toggleStatusMutation.mutate({ userId: user.id, isActive: !user.isActive })}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                  onClick={() => {
+                    const confirmMsg = user.isActive
+                      ? `Xác nhận CHẶN QUYỀN TRUY CẬP của nhân sự ${user.fullName || user.username}?\n\nNhân sự này sẽ bị ngắt phiên làm việc và không thể đăng nhập vào hệ thống!`
+                      : `Xác nhận MỞ LẠI QUYỀN TRUY CẬP cho nhân sự ${user.fullName || user.username}?`;
+                    if (confirm(confirmMsg)) {
+                      toggleStatusMutation.mutate({ userId: user.id, isActive: !user.isActive });
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                     user.isActive
                       ? "bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900"
                       : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900"
                   }`}
                 >
-                  {user.isActive ? "Khóa Tài Khoản" : "Kích Hoạt"}
+                  {user.isActive ? (
+                    <>
+                      <Ban className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Chặn quyền truy cập</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Mở chặn quyền truy cập</span>
+                    </>
+                  )}
                 </button>
               </>
             )}
@@ -443,7 +459,7 @@ export default function UserDetailPage() {
               <button
                 key={p.value}
                 onClick={() => setDays(p.value)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   days === p.value
                     ? "bg-amber-500 text-slate-950 shadow-xs"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -461,13 +477,13 @@ export default function UserDetailPage() {
         {/* Total Assigned Accounts */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Account Giao Việc</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Account Giao Việc</span>
             <Users className="w-4 h-4 text-pink-500" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-pink-600 dark:text-pink-400 mt-2">
             {stats.totalAssigned}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             <span>{stats.activeAccounts} hoạt động • {stats.warmingAccounts} nuôi</span>
           </div>
         </div>
@@ -475,7 +491,7 @@ export default function UserDetailPage() {
         {/* Total Views across fleet */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">
+            <span className="text-xs font-bold uppercase tracking-wider">
               Views ({days === 0 ? "Toàn bộ" : `${days}d`})
             </span>
             <Eye className="w-4 h-4 text-cyan-500" />
@@ -483,7 +499,7 @@ export default function UserDetailPage() {
           <div className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-2">
             {Number(stats.totalViews).toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             <span>{days === 0 ? "Toàn thời gian (Studio)" : `Dàn kênh ${days} ngày qua`}</span>
           </div>
         </div>
@@ -491,13 +507,13 @@ export default function UserDetailPage() {
         {/* Total Followers */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Tổng Followers</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Tổng Followers</span>
             <UserCheck className="w-4 h-4 text-purple-500" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2">
             {Number(stats.totalFollowers).toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             <span>Người theo dõi tích lũy</span>
           </div>
         </div>
@@ -505,7 +521,7 @@ export default function UserDetailPage() {
         {/* Total Revenue */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">
+            <span className="text-xs font-bold uppercase tracking-wider">
               Doanh Thu ({days === 0 ? "Toàn bộ" : `${days}d`})
             </span>
             <DollarSign className="w-4 h-4 text-emerald-500" />
@@ -513,7 +529,7 @@ export default function UserDetailPage() {
           <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">
             ${Number(stats.totalRevenue).toFixed(2)}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             <span>{days === 0 ? "Creator Rewards (Lũy kế)" : `Thu nhập ${days} ngày qua`}</span>
           </div>
         </div>
@@ -521,7 +537,7 @@ export default function UserDetailPage() {
         {/* Workday Score */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">
+            <span className="text-xs font-bold uppercase tracking-wider">
               Ngày Công ({days === 0 ? "Toàn bộ" : `${days}d`})
             </span>
             <Calendar className="w-4 h-4 text-amber-500" />
@@ -529,7 +545,7 @@ export default function UserDetailPage() {
           <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-2">
             {Number(stats.monthlyWorkdays)} Công
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             <span>Chốt theo mốc 10:00 AM</span>
           </div>
         </div>
@@ -537,7 +553,7 @@ export default function UserDetailPage() {
         {/* Average Completion Rate */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">
+            <span className="text-xs font-bold uppercase tracking-wider">
               KPI TB ({days === 0 ? "Toàn bộ" : `${days}d`})
             </span>
             <TrendingUp className="w-4 h-4 text-indigo-500" />
@@ -545,7 +561,7 @@ export default function UserDetailPage() {
           <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2">
             {stats.avgCompletionRate}%
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             <span>Tỷ lệ hoàn thành nhiệm vụ</span>
           </div>
         </div>
@@ -641,7 +657,7 @@ export default function UserDetailPage() {
                               <span>@{acc.username}</span>
                               <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                             </Link>
-                            <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                            <div className="text-xs text-slate-400 font-mono flex items-center gap-1 mt-0.5">
                               {acc.gpmProfileId ? (
                                 <span className="text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/60 px-1 py-0.2 rounded border border-cyan-200 dark:border-cyan-800/40">
                                   {acc.gpmProfileId.slice(0, 8)}...
@@ -685,7 +701,7 @@ export default function UserDetailPage() {
                         </td>
 
                         {/* Last Synced */}
-                        <td className="py-3.5 px-4 text-[11px] text-slate-500 dark:text-slate-400">
+                        <td className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">
                           {acc.lastSyncedAt
                             ? new Date(acc.lastSyncedAt).toLocaleString("vi-VN", {
                                 hour: "2-digit",
@@ -862,11 +878,11 @@ export default function UserDetailPage() {
                           </td>
                           <td className="py-3.5 px-4">
                             {c.isLocked ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
                                 <Clock className="w-3.5 h-3.5 text-slate-400" /> Đã chốt (Locked)
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                                 <Flame className="w-3.5 h-3.5 text-emerald-500" /> Đang chạy (Open)
                               </span>
                             )}

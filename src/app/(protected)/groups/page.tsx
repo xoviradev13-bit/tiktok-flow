@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   Layers,
@@ -27,6 +28,9 @@ import {
   SlidersHorizontal,
   Columns3,
   MoreHorizontal,
+  LayoutGrid,
+  List,
+  ArrowRight,
 } from "lucide-react";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -67,9 +71,39 @@ const COLOR_OPTIONS = [
   { value: "indigo", label: "Xanh Indigo", class: "bg-indigo-500", text: "text-indigo-500", border: "border-indigo-500/30", bgLight: "bg-indigo-500/10" },
 ];
 
-export default function GroupsManagementPage() {
-  const { data: session } = useSession();
+function GroupsManagementContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // View Mode: read initial value from URL Search Params ("grid" | "list")
+  const urlViewMode = (searchParams?.get("view") === "list" ? "list" : "grid") as "grid" | "list";
+  const [viewMode, setViewMode] = useState<"grid" | "list">(urlViewMode);
+
+  const handleViewModeChange = useCallback(
+    (mode: "grid" | "list") => {
+      setViewMode(mode);
+      const params = new URLSearchParams(searchParams?.toString() || "");
+      if (mode === "grid") {
+        params.delete("view");
+      } else {
+        params.set("view", "list");
+      }
+      const searchStr = params.toString();
+      const newUrl = searchStr ? `${pathname}?${searchStr}` : pathname;
+      window.history.replaceState(null, "", newUrl);
+    },
+    [searchParams, pathname]
+  );
+
+  const { data: session, status } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
+
+  useEffect(() => {
+    if (status !== "loading" && !isAdmin) {
+      router.replace("/accounts");
+    }
+  }, [status, isAdmin, router]);
 
   const [search, setSearch] = useState("");
   const [sortConfig, setSortConfig] = useState<{ key: GroupSortKey; desc: boolean }>({
@@ -125,8 +159,8 @@ export default function GroupsManagementPage() {
   const utils = trpc.useUtils();
 
   // Queries
-  const { data: groupsData, isLoading: loading } = trpc.admin.listGroups.useQuery();
-  const { data: allUsers = [] } = trpc.admin.listUsers.useQuery();
+  const { data: groupsData, isLoading: loading } = trpc.admin.listGroups.useQuery(undefined, { enabled: isAdmin });
+  const { data: allUsers = [] } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
 
   const groups = useMemo(() => {
     return groupsData?.groupsDetails || [];
@@ -362,10 +396,18 @@ export default function GroupsManagementPage() {
     }
   };
 
+  if (status === "loading" || !isAdmin) {
+    return (
+      <div className="space-y-6 w-full pb-28">
+        <DataTableSkeleton columns={6} rows={6} />
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-28">
-      {/* Sticky Header Section */}
-      <div className="sticky top-16 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md pt-2 pb-3 -mt-2 space-y-4">
+    <div className="space-y-6 w-full pb-28">
+      {/* Header & Controls Section */}
+      <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
@@ -430,8 +472,8 @@ export default function GroupsManagementPage() {
           </div>
         </div>
 
-        {/* Search & Action Toolbar */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+        {/* Search & Action Toolbar (Sticky only on desktop) */}
+        <div className="lg:sticky lg:top-[72px] z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="relative w-full sm:w-96">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -472,7 +514,7 @@ export default function GroupsManagementPage() {
                   >
                     <span>{item.label}</span>
                     {sortConfig.key === item.key && (
-                      <span className="text-[11px] font-bold text-pink-600 dark:text-pink-400">
+                      <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
                         {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
                       </span>
                     )}
@@ -481,80 +523,109 @@ export default function GroupsManagementPage() {
               </PopoverContent>
             </Popover>
 
-            {/* Column Visibility Popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
-                  title="Tùy chỉnh cột hiển thị"
-                >
-                  <Columns3 className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Cột hiển thị</span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
+            {/* View Mode Switcher */}
+            <div className="flex items-center p-0.5 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setViewMode("grid")}
+                className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "grid"
+                    ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                title="Chế độ xem dạng lưới (Cards)"
               >
-                <div className="px-2.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <span>Tùy chỉnh cột hiển thị</span>
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Lưới</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("list")}
+                className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "list"
+                    ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                title="Chế độ xem dạng danh sách (Bảng)"
+              >
+                <List className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Bảng</span>
+              </button>
+            </div>
+
+            {/* Column Visibility Popover (List View Only) */}
+            {viewMode === "list" && (
+              <Popover>
+                <PopoverTrigger asChild>
                   <button
-                    onClick={() =>
-                      setVisibleColumns({
-                        name: true,
-                        createdBy: true,
-                        createdAt: true,
-                        leader: true,
-                        members: true,
-                        totalAccounts: true,
-                        actions: true,
-                      })
-                    }
-                    className="text-[10px] text-pink-500 hover:underline font-normal cursor-pointer"
+                    className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
+                    title="Tùy chỉnh cột hiển thị"
                   >
-                    Mặc định
+                    <Columns3 className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Cột hiển thị</span>
                   </button>
-                </div>
-                <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
-                  {[
-                    { key: "name", label: "Tên Nhóm", locked: true },
-                    { key: "createdBy", label: "Người Tạo" },
-                    { key: "createdAt", label: "Ngày Tạo" },
-                    { key: "leader", label: "Trưởng Nhóm" },
-                    { key: "members", label: "Thành Viên" },
-                    { key: "totalAccounts", label: "Số Acc Phụ Trách" },
-                    { key: "actions", label: "Thao Tác" },
-                  ].map((col) => (
-                    <label
-                      key={col.key}
-                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${
-                        col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
-                      }`}
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
+                >
+                  <div className="px-2.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <span>Tùy chỉnh cột hiển thị</span>
+                    <button
+                      onClick={() =>
+                        setVisibleColumns({
+                          name: true,
+                          createdBy: true,
+                          createdAt: true,
+                          leader: true,
+                          members: true,
+                          totalAccounts: true,
+                          actions: true,
+                        })
+                      }
+                      className="text-xs text-pink-500 hover:underline font-normal cursor-pointer"
                     >
-                      <Checkbox
-                        checked={visibleColumns[col.key as keyof typeof visibleColumns]}
-                        disabled={col.locked}
-                        onCheckedChange={(checked) => {
-                          if (col.locked) return;
-                          setVisibleColumns((prev) => ({
-                            ...prev,
-                            [col.key]: !!checked,
-                          }));
-                        }}
-                      />
-                      <span className="text-slate-700 dark:text-slate-300 font-medium">
-                        {col.label}
-                      </span>
-                      {col.locked && (
-                        <span className="text-[10px] text-slate-400 ml-auto font-normal">
-                          (Bắt buộc)
+                      Mặc định
+                    </button>
+                  </div>
+                  <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
+                    {[
+                      { key: "name", label: "Tên Nhóm", locked: true },
+                      { key: "createdBy", label: "Người Tạo" },
+                      { key: "createdAt", label: "Ngày Tạo" },
+                      { key: "leader", label: "Trưởng Nhóm" },
+                      { key: "members", label: "Thành Viên" },
+                      { key: "totalAccounts", label: "Số Acc Phụ Trách" },
+                      { key: "actions", label: "Thao Tác" },
+                    ].map((col) => (
+                      <label
+                        key={col.key}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
+                          }`}
+                      >
+                        <Checkbox
+                          checked={visibleColumns[col.key as keyof typeof visibleColumns]}
+                          disabled={col.locked}
+                          onCheckedChange={(checked) => {
+                            if (col.locked) return;
+                            setVisibleColumns((prev) => ({
+                              ...prev,
+                              [col.key]: !!checked,
+                            }));
+                          }}
+                        />
+                        <span className="text-slate-700 dark:text-slate-300 font-medium">
+                          {col.label}
                         </span>
-                      )}
-                    </label>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
+                        {col.locked && (
+                          <span className="text-xs text-slate-400 ml-auto font-normal">
+                            (Bắt buộc)
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
 
             <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline ml-2">
               Hiển thị: <strong className="text-slate-900 dark:text-white">{filteredAndSortedGroups.length}</strong> nhóm
@@ -563,10 +634,318 @@ export default function GroupsManagementPage() {
         </div>
       </div>
 
-      {/* Main Groups Table */}
+      {/* Main Groups View: Grid or Table */}
       {loading ? (
-        <DataTableSkeleton columnCount={visibleColumnCount} rowCount={5} />
+        viewMode === "grid" ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-4">
+            {[...Array(6)].map((_, i) => (
+              <div
+                key={i}
+                className="relative flex flex-col bg-white dark:bg-slate-900/80 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4 animate-pulse overflow-hidden"
+              >
+                <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-800 -mt-5 -mx-5 mb-1" />
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-slate-200 dark:bg-slate-800 shrink-0" />
+                  <div className="space-y-1.5 flex-1">
+                    <div className="h-4 w-3/4 rounded bg-slate-200 dark:bg-slate-800" />
+                    <div className="h-3 w-1/3 rounded bg-slate-100 dark:bg-slate-800/60" />
+                  </div>
+                </div>
+                <div className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800/50" />
+                <div className="h-12 rounded-xl bg-slate-100 dark:bg-slate-800/40" />
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                  <div className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800/50" />
+                  <div className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800/50" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <DataTableSkeleton columnCount={visibleColumnCount} rowCount={5} />
+        )
+      ) : filteredAndSortedGroups.length === 0 ? (
+        <div className="flex min-h-[360px] flex-col items-center justify-center rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8 text-center shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-pink-50 dark:bg-pink-950/40 text-pink-500 dark:text-pink-400 flex items-center justify-center mb-4">
+            <Layers className="w-7 h-7" />
+          </div>
+          <h3 className="text-base font-bold text-slate-900 dark:text-white">
+            Không tìm thấy nhóm nào
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
+            {search ? "Không có nhóm nào khớp với từ khóa tìm kiếm của bạn." : "Chưa có nhóm nào được tạo trong hệ thống."}
+          </p>
+          {search ? (
+            <button
+              onClick={() => setSearch("")}
+              className="mt-4 px-4 py-2 text-xs font-semibold text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 rounded-xl transition-colors cursor-pointer"
+            >
+              Xóa tìm kiếm
+            </button>
+          ) : isAdmin ? (
+            <button
+              onClick={() => setIsCreateOpen(true)}
+              className="mt-4 px-4 py-2 text-xs font-bold text-white bg-pink-600 hover:bg-pink-500 rounded-xl shadow-md transition-colors cursor-pointer"
+            >
+              + Tạo Nhóm Mới
+            </button>
+          ) : null}
+        </div>
+      ) : viewMode === "grid" ? (
+        /* Groups Grid View */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-4">
+          {filteredAndSortedGroups.map((group: any) => {
+            const isSelected = selectedGroupIds.includes(group.id);
+            const members = group.members || [];
+            const displayMembers = members.slice(0, 4);
+            const remainingMembers = members.slice(4);
+            const hasMore = remainingMembers.length > 0;
+
+            const accentGradient =
+              group.color === "cyan"
+                ? "from-cyan-500 to-blue-500"
+                : group.color === "emerald"
+                  ? "from-emerald-500 to-teal-500"
+                  : group.color === "violet"
+                    ? "from-violet-500 to-purple-500"
+                    : group.color === "amber"
+                      ? "from-amber-500 to-orange-500"
+                      : group.color === "indigo"
+                        ? "from-indigo-500 to-violet-500"
+                        : "from-pink-500 to-rose-500";
+
+            return (
+              <div
+                key={group.id}
+                className={`group relative flex flex-col bg-white dark:bg-slate-900/90 rounded-2xl border transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5 overflow-hidden ${isSelected
+                    ? "border-pink-500 ring-2 ring-pink-500/20 bg-pink-50/10 dark:bg-pink-950/10 shadow-md"
+                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs"
+                  }`}
+              >
+                {/* Top Accent Stripe */}
+                <div className={`h-1.5 w-full bg-gradient-to-r ${accentGradient}`} />
+
+                {/* Card Header */}
+                <div className="p-4 pb-2 flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {isAdmin && (
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleSelectGroup(group.id)}
+                        aria-label={`Chọn nhóm ${group.name}`}
+                      />
+                    )}
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center border shrink-0 ${getColorClass(group.color)}`}>
+                      <Layers className="w-4.5 h-4.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400 transition-colors truncate">
+                        {group.name}
+                      </h3>
+                      <span className="text-xs text-slate-400 block">
+                        {group.createdAt ? new Date(group.createdAt).toLocaleDateString("vi-VN") : "Hôm nay"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {isAdmin && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                          aria-label="Thao tác nhóm"
+                        >
+                          <MoreHorizontal className="w-4 h-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
+                        <DropdownMenuItem
+                          onClick={() => handleOpenEdit(group)}
+                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Chỉnh sửa nhóm</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setGroupToDelete(group);
+                            setIsDeleteOpen(true);
+                          }}
+                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                          <span>Xóa nhóm</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+
+                {/* Card Body */}
+                <div className="p-4 pt-1 space-y-3 flex-1 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    {/* Description */}
+                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 min-h-[32px]">
+                      {group.description || <span className="italic text-slate-400/80">Không có mô tả</span>}
+                    </p>
+
+                    {/* Leader Box */}
+                    {group.leader ? (
+                      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/50 dark:border-amber-900/40">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-xs">
+                          {group.leader.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-amber-950 dark:text-amber-200 truncate flex items-center gap-1">
+                            <Crown className="w-3 h-3 text-amber-500 shrink-0" />
+                            <span>{group.leader.name}</span>
+                          </div>
+                          <div className="text-xs text-amber-700/80 dark:text-amber-400/80 truncate">
+                            @{group.leader.username}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-dashed border-slate-200 dark:border-slate-800 text-xs text-slate-400">
+                        <span className="flex items-center gap-1.5 text-xs">
+                          <Crown className="w-3.5 h-3.5 opacity-40" /> Chưa có Trưởng nhóm
+                        </span>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(group)}
+                            className="text-xs font-semibold text-pink-600 dark:text-pink-400 hover:underline cursor-pointer"
+                          >
+                            + Gán
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Members Avatar Row */}
+                    <div>
+                      <div className="text-xs font-medium text-slate-400 mb-1.5 flex items-center justify-between">
+                        <span>Thành viên ({members.length})</span>
+                      </div>
+                      {members.length === 0 ? (
+                        <div className="text-xs text-slate-400 italic py-1">Chưa có thành viên trong nhóm</div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex items-center -space-x-2 py-1">
+                            {displayMembers.map((member: any) => (
+                              <Tooltip key={member.id}>
+                                <TooltipTrigger asChild>
+                                  <Link
+                                    href={`/users/${member.id}`}
+                                    className="inline-flex w-7 h-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-xs font-bold items-center justify-center hover:z-20 hover:scale-125 transition-all uppercase shadow-xs shrink-0 select-none"
+                                  >
+                                    {member.avatar || member.image ? (
+                                      <img
+                                        src={member.avatar || member.image}
+                                        alt={member.name}
+                                        className="w-full h-full rounded-full object-cover"
+                                      />
+                                    ) : (
+                                      <span className="leading-none">{member.name.slice(0, 2)}</span>
+                                    )}
+                                  </Link>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <div className="font-bold text-xs">{member.name}</div>
+                                  <div className="text-xs text-slate-400">
+                                    @{member.username} • {member.accountsCount} accounts
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            ))}
+                          </div>
+
+                          {hasMore && (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                                >
+                                  +{remainingMembers.length}
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent align="start" className="w-72 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
+                                <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 pb-1 border-b border-slate-100 dark:border-slate-800">
+                                  <Users className="w-3.5 h-3.5 text-pink-500" />
+                                  Tất cả thành viên ({members.length})
+                                </div>
+                                <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+                                  {members.map((m: any) => (
+                                    <Link
+                                      key={m.id}
+                                      href={`/users/${m.id}`}
+                                      className="flex items-center justify-between p-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-xs"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-6 h-6 rounded-full bg-pink-500 text-white font-bold text-xs flex items-center justify-center uppercase">
+                                          {m.name.slice(0, 2)}
+                                        </div>
+                                        <div>
+                                          <div className="font-bold text-slate-900 dark:text-white">{m.name}</div>
+                                          <div className="text-xs text-slate-400">@{m.username}</div>
+                                        </div>
+                                      </div>
+                                      <span className="text-xs text-slate-500">{m.accountsCount} accs</span>
+                                    </Link>
+                                  ))}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Metrics Strip */}
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+                    <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                      <div className="text-xs text-slate-400">Accounts</div>
+                      <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                        {group.totalAccounts} <span className="text-xs font-normal text-slate-400">accs</span>
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                      <div className="text-xs text-slate-400">Nhân sự</div>
+                      <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                        {group.membersCount || 0} <span className="text-xs font-normal text-slate-400">người</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Footer */}
+                <div className="mt-auto px-4 py-2.5 bg-slate-50/80 dark:bg-slate-950/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <Link
+                    href={`/accounts?search=${encodeURIComponent(group.name)}`}
+                    className="text-xs font-semibold text-pink-600 dark:text-pink-400 hover:underline flex items-center gap-1"
+                  >
+                    <span>Xem dàn tài khoản</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </Link>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(group)}
+                      className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+                    >
+                      Chỉnh sửa
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
+        /* Table View */
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
           <div className="overflow-x-auto relative">
             <table className="w-full text-left text-xs border-collapse">
@@ -598,9 +977,8 @@ export default function GroupsManagementPage() {
                   {visibleColumns.name && (
                     <th
                       onClick={() => handleSort("name")}
-                      className={`py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky ${
-                        isAdmin ? "left-22" : "left-12"
-                      } z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]`}
+                      className={`py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky ${isAdmin ? "left-22" : "left-12"
+                        } z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]`}
                     >
                       <div className="flex items-center gap-1.5">
                         <span>Tên nhóm</span>
@@ -654,231 +1032,165 @@ export default function GroupsManagementPage() {
                   )}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
                 {filteredAndSortedGroups.length === 0 ? (
                   <tr>
-                    <td colSpan={visibleColumnCount} className="py-12 text-center text-slate-400 dark:text-slate-500">
-                      Không tìm thấy nhóm nào phù hợp.
+                    <td
+                      colSpan={visibleColumnCount}
+                      className="py-12 text-center text-slate-400 dark:text-slate-500"
+                    >
+                      <Layers className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                      <div>Không tìm thấy nhóm nào phù hợp với từ khóa tìm kiếm.</div>
                     </td>
                   </tr>
                 ) : (
                   filteredAndSortedGroups.map((group: any, idx: number) => {
-                    const members = group.members || [];
-                    const maxDisplay = 5;
-                    const displayMembers = members.slice(0, maxDisplay);
-                    const remainingMembers = members.slice(maxDisplay);
-                    const hasMore = remainingMembers.length > 0;
                     const isSelected = selectedGroupIds.includes(group.id);
                     const rowBgClass = isSelected
-                      ? "bg-pink-50/50 dark:bg-pink-950/20"
+                      ? "bg-pink-50/40 dark:bg-pink-950/20"
                       : "bg-white dark:bg-slate-900";
+                    const members = group.members || [];
+                    const displayMembers = members.slice(0, 3);
+                    const remainingMembers = members.slice(3);
+                    const hasMore = remainingMembers.length > 0;
 
                     return (
                       <tr
                         key={group.id}
-                        className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 group ${
-                          isSelected ? "bg-pink-50/50 dark:bg-pink-950/20" : ""
-                        }`}
+                        className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors group align-middle ${isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""
+                          }`}
                       >
-                        {/* Checkbox (Frozen Left) */}
                         {isAdmin && (
-                          <td className={`py-4 px-4 text-center sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
-                            <button
-                              type="button"
-                              onClick={() => toggleSelectGroup(group.id)}
-                              className="text-slate-400 hover:text-pink-500 transition-colors cursor-pointer"
+                          <td className={`py-4 px-4 text-center align-middle sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleSelectGroup(group.id)}
                               aria-label={`Chọn nhóm ${group.name}`}
-                            >
-                              {isSelected ? (
-                                <CheckSquare className="w-4 h-4 text-pink-500" />
-                              ) : (
-                                <Square className="w-4 h-4" />
-                              )}
-                            </button>
+                            />
                           </td>
                         )}
-
-                        {/* Index (Frozen Left) */}
-                        <td className={`py-4 px-4 text-center font-mono text-slate-400 text-[11px] sticky ${isAdmin ? "left-10" : "left-0"} z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
+                        <td className={`py-4 px-4 text-center align-middle text-slate-400 text-xs font-mono sticky ${isAdmin ? "left-10" : "left-0"} z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
                           {idx + 1}
                         </td>
 
-                        {/* Group Name & Description (Frozen Left) */}
                         {visibleColumns.name && (
-                          <td className={`py-4 px-4 sticky ${isAdmin ? "left-22" : "left-12"} z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]`}>
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold border ${getColorClass(
-                                    group.color
-                                  )}`}
-                                >
-                                  <Layers className="w-3 h-3" />
+                          <td className={`py-4 px-4 align-middle sticky ${isAdmin ? "left-22" : "left-12"
+                            } z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]`}>
+                            <div className="flex items-center gap-2.5">
+                              <span className={`w-3 h-3 rounded-full shrink-0 border ${getColorClass(group.color || "pink")}`} />
+                              <div>
+                                <div className="font-bold text-slate-900 dark:text-white text-xs">
                                   {group.name}
-                                </span>
+                                </div>
+                                {group.description && (
+                                  <div className="text-xs text-slate-400 max-w-[220px] truncate" title={group.description}>
+                                    {group.description}
+                                  </div>
+                                )}
                               </div>
-                              {group.description && (
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 max-w-xs">
-                                  {group.description}
-                                </p>
-                              )}
                             </div>
                           </td>
                         )}
 
-                        {/* Created By */}
                         {visibleColumns.createdBy && (
-                          <td className="py-4 px-4 whitespace-nowrap">
-                            {group.createdBy ? (
-                              <div className="flex items-center gap-2">
-                                <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-300 font-bold text-[9px] uppercase shrink-0">
-                                  {group.createdBy.name.slice(0, 2)}
-                                </div>
-                                <div>
-                                  <span className="text-xs text-slate-800 dark:text-slate-200 font-medium block">
-                                    {group.createdBy.name}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400">
-                                    @{group.createdBy.username}
-                                  </span>
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-xs italic">Hệ thống</span>
+                          <td className="py-4 px-4 align-middle text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                            {group.creator?.name || group.creator?.username || (
+                              <span className="text-slate-400 italic">Hệ thống</span>
                             )}
                           </td>
                         )}
 
-                        {/* Created At */}
                         {visibleColumns.createdAt && (
-                          <td className="py-4 px-4 text-slate-600 dark:text-slate-400 text-[11px] whitespace-nowrap">
-                            {group.createdAt ? (
-                              <div>
-                                <div className="font-medium text-slate-800 dark:text-slate-200">
-                                  {new Date(group.createdAt).toLocaleDateString("vi-VN", {
-                                    day: "2-digit",
-                                    month: "2-digit",
-                                    year: "numeric",
-                                  })}
-                                </div>
-                                <div className="text-[10px] text-slate-400">
-                                  {new Date(group.createdAt).toLocaleTimeString("vi-VN", {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </div>
-                              </div>
-                            ) : (
-                              "--"
-                            )}
+                          <td className="py-4 px-4 align-middle text-slate-500 whitespace-nowrap text-xs">
+                            {group.createdAt ? new Date(group.createdAt).toLocaleDateString("vi-VN") : "--"}
                           </td>
                         )}
 
-                        {/* Leader */}
                         {visibleColumns.leader && (
-                          <td className="py-4 px-4 whitespace-nowrap">
+                          <td className="py-4 px-4 align-middle whitespace-nowrap">
                             {group.leader ? (
-                              <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold text-[10px] uppercase shadow-xs shrink-0">
-                                  {group.leader.name.slice(0, 2)}
-                                </div>
+                              <div className="flex items-center gap-1.5">
+                                {group.leader.avatar || group.leader.image ? (
+                                  <img
+                                    src={group.leader.avatar || group.leader.image}
+                                    alt={group.leader.name}
+                                    className="w-5 h-5 rounded-full object-cover ring-1 ring-amber-400/40 shadow-2xs shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0 shadow-2xs uppercase">
+                                    {group.leader.name.slice(0, 2)}
+                                  </div>
+                                )}
                                 <div>
-                                  <Link
-                                    href={`/users/${group.leader.id}`}
-                                    className="font-bold text-slate-800 dark:text-slate-200 hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors block text-xs"
-                                  >
-                                    {group.leader.name}
-                                  </Link>
-                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-cyan-600 dark:text-cyan-400">
-                                    <Crown className="w-2.5 h-2.5" /> Leader
-                                  </span>
+                                  <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1">
+                                    <Crown className="w-3 h-3 text-amber-500" />
+                                    <span>{group.leader.name}</span>
+                                  </div>
+                                  <div className="text-xs text-slate-400">
+                                    @{group.leader.username}
+                                  </div>
                                 </div>
                               </div>
                             ) : (
-                              <span className="text-slate-400 text-xs italic">-- Chưa chỉ định --</span>
+                              <span className="text-slate-400 text-xs italic">Chưa có Leader</span>
                             )}
                           </td>
                         )}
 
-                        {/* Members with Avatar Stack (max 5) & Popover for the rest */}
                         {visibleColumns.members && (
-                          <td className="py-4 px-4 min-w-[200px]">
+                          <td className="py-4 px-4 align-middle whitespace-nowrap">
                             {members.length === 0 ? (
-                              <span className="text-slate-400 text-xs italic">Chưa có thành viên</span>
+                              <span className="text-slate-400 text-xs italic">0 thành viên</span>
                             ) : (
-                              <div className="flex items-center gap-2">
-                                {/* Avatar Stack */}
-                                <div className="flex items-center -space-x-2 overflow-hidden py-1">
+                              <div className="flex items-center gap-1.5 h-6">
+                                <div className="flex items-center -space-x-1.5 py-1">
                                   {displayMembers.map((member: any) => (
                                     <Tooltip key={member.id}>
                                       <TooltipTrigger asChild>
                                         <Link
                                           href={`/users/${member.id}`}
-                                          className="inline-block relative ring-2 ring-white dark:ring-slate-900 rounded-full hover:scale-115 hover:z-20 transition-transform"
+                                          className="inline-flex w-6 h-6 rounded-full ring-2 ring-white dark:ring-slate-900 bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold items-center justify-center hover:z-20 hover:scale-125 transition-all uppercase shadow-xs shrink-0 select-none"
                                         >
-                                          <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white font-bold text-[10px] uppercase shadow-xs">
-                                            {member.name.slice(0, 2)}
-                                          </div>
+                                          {member.avatar || member.image ? (
+                                            <img
+                                              src={member.avatar || member.image}
+                                              alt={member.name}
+                                              className="w-full h-full rounded-full object-cover"
+                                            />
+                                          ) : (
+                                            <span className="leading-none">{member.name.slice(0, 2)}</span>
+                                          )}
                                         </Link>
                                       </TooltipTrigger>
-                                      <TooltipContent side="top" className="text-xs font-semibold">
-                                        <div className="text-slate-900 dark:text-white font-bold">{member.name}</div>
-                                        <div className="text-[10px] text-slate-400 font-normal">
-                                          @{member.username} ({member.role})
-                                        </div>
-                                        <div className="text-[10px] text-pink-500 font-medium">
-                                          {member.accountsCount} accounts phụ trách
+                                      <TooltipContent>
+                                        <div className="font-bold text-xs">{member.name}</div>
+                                        <div className="text-xs text-slate-400">
+                                          @{member.username} • {member.accountsCount} accounts phụ trách
                                         </div>
                                       </TooltipContent>
                                     </Tooltip>
                                   ))}
                                 </div>
 
-                                {/* Remaining Members Popover */}
                                 {hasMore && (
                                   <Popover>
                                     <PopoverTrigger asChild>
                                       <button
                                         type="button"
-                                        className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                                        className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 cursor-pointer"
                                       >
-                                        +{remainingMembers.length} thành viên
+                                        +{remainingMembers.length}
                                       </button>
                                     </PopoverTrigger>
-                                    <PopoverContent
-                                      align="start"
-                                      className="w-80 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2.5"
-                                    >
-                                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                                        <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                                          <Users className="w-3.5 h-3.5 text-pink-500" />
-                                          Toàn Bộ Thành Viên ({members.length})
-                                        </div>
+                                    <PopoverContent align="start" className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl space-y-1">
+                                      <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
+                                        Tất cả thành viên
                                       </div>
-                                      <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+                                      <div className="max-h-48 overflow-y-auto space-y-0.5">
                                         {members.map((m: any) => (
-                                          <Link
-                                            key={m.id}
-                                            href={`/users/${m.id}`}
-                                            className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
-                                          >
-                                            <div className="flex items-center gap-2">
-                                              <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white font-bold text-[9px] uppercase shadow-xs">
-                                                {m.name.slice(0, 2)}
-                                              </div>
-                                              <div>
-                                                <div className="font-bold text-xs text-slate-900 dark:text-white">
-                                                  {m.name}
-                                                </div>
-                                                <div className="text-[10px] text-slate-400">
-                                                  @{m.username} • {m.role}
-                                                </div>
-                                              </div>
-                                            </div>
-                                            <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                                              {m.accountsCount} accs
-                                            </span>
-                                          </Link>
+                                          <div key={m.id} className="text-xs px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg">
+                                            {m.name} <span className="text-slate-400">@{m.username}</span>
+                                          </div>
                                         ))}
                                       </div>
                                     </PopoverContent>
@@ -889,28 +1201,31 @@ export default function GroupsManagementPage() {
                           </td>
                         )}
 
-                        {/* Total Accounts */}
                         {visibleColumns.totalAccounts && (
-                          <td className="py-4 px-4 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                          <td className="py-4 px-4 align-middle font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                             {group.totalAccounts}{" "}
-                            <span className="text-slate-400 text-[11px] font-normal">accounts</span>
+                            <span className="text-slate-400 text-xs font-normal">accounts</span>
                           </td>
                         )}
 
-                        {/* Actions (Frozen Right, DropdownMenu) */}
                         {visibleColumns.actions && (
-                          <td className={`py-4 px-6 text-center whitespace-nowrap sticky right-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]`}>
+                          <td className={`py-4 px-6 text-center align-middle whitespace-nowrap sticky right-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]`}>
                             {isAdmin ? (
                               <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                                    aria-label="Thao tác"
-                                  >
-                                    <MoreHorizontal className="w-4 h-4" />
-                                  </button>
-                                </DropdownMenuTrigger>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                        aria-label="Thao tác"
+                                      >
+                                        <MoreHorizontal className="w-4 h-4" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left">Tùy chọn nhóm</TooltipContent>
+                                </Tooltip>
                                 <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
                                   <DropdownMenuItem
                                     onClick={() => handleOpenEdit(group)}
@@ -919,9 +1234,7 @@ export default function GroupsManagementPage() {
                                     <Pencil className="w-3.5 h-3.5 text-slate-400" />
                                     <span>Chỉnh sửa nhóm</span>
                                   </DropdownMenuItem>
-
                                   <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
-
                                   <DropdownMenuItem
                                     onClick={() => {
                                       setGroupToDelete(group);
@@ -1014,9 +1327,9 @@ export default function GroupsManagementPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateGroup} className="space-y-3.5">
+            <form onSubmit={handleCreateGroup} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
                   Tên Nhóm *
                 </label>
                 <input
@@ -1030,20 +1343,20 @@ export default function GroupsManagementPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
                   Mô Tả Nhóm (Tùy chọn)
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   placeholder="Mô tả mục tiêu, khu vực hoạt động của nhóm..."
                   value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none min-h-[72px]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
                   Màu Sắc Nhãn Nhóm
                 </label>
                 <div className="flex items-center gap-2">
@@ -1052,11 +1365,10 @@ export default function GroupsManagementPage() {
                       key={c.value}
                       type="button"
                       onClick={() => setNewColor(c.value)}
-                      className={`w-7 h-7 rounded-full ${c.class} transition-transform cursor-pointer ${
-                        newColor === c.value
+                      className={`w-7 h-7 rounded-full ${c.class} transition-transform cursor-pointer ${newColor === c.value
                           ? "ring-2 ring-offset-2 ring-pink-500 scale-110"
                           : "opacity-80 hover:opacity-100"
-                      }`}
+                        }`}
                       title={c.label}
                     />
                   ))}
@@ -1064,7 +1376,7 @@ export default function GroupsManagementPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
                   Chỉ Định Trưởng Nhóm (Leader)
                 </label>
                 <Select
@@ -1125,9 +1437,9 @@ export default function GroupsManagementPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveEdit} className="space-y-3.5">
+            <form onSubmit={handleSaveEdit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
                   Tên Nhóm *
                 </label>
                 <input
@@ -1140,19 +1452,20 @@ export default function GroupsManagementPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
                   Mô Tả Nhóm
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={editDesc}
                   onChange={(e) => setEditDesc(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none"
+                  placeholder="Nhập mô tả hoạt động hoặc mục tiêu của nhóm..."
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none min-h-[72px]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
                   Màu Sắc Nhãn Nhóm
                 </label>
                 <div className="flex items-center gap-2">
@@ -1161,11 +1474,10 @@ export default function GroupsManagementPage() {
                       key={c.value}
                       type="button"
                       onClick={() => setEditColor(c.value)}
-                      className={`w-7 h-7 rounded-full ${c.class} transition-transform cursor-pointer ${
-                        editColor === c.value
+                      className={`w-7 h-7 rounded-full ${c.class} transition-transform cursor-pointer ${editColor === c.value
                           ? "ring-2 ring-offset-2 ring-pink-500 scale-110"
                           : "opacity-80 hover:opacity-100"
-                      }`}
+                        }`}
                       title={c.label}
                     />
                   ))}
@@ -1173,7 +1485,7 @@ export default function GroupsManagementPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
                   Chỉ Định Trưởng Nhóm (Leader)
                 </label>
                 <Select
@@ -1238,7 +1550,7 @@ export default function GroupsManagementPage() {
             <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
               <div><span className="font-semibold">Số thành viên:</span> {groupToDelete.membersCount} nhân sự</div>
               <div><span className="font-semibold">Tài khoản liên đới:</span> {groupToDelete.totalAccounts} accounts</div>
-              <p className="text-[11px] text-amber-600 dark:text-amber-400 pt-1">
+              <p className="text-xs text-amber-600 dark:text-amber-400 pt-1">
                 ⚠️ Các thành viên trong nhóm này sẽ được chuyển về trạng thái Chưa phân nhóm.
               </p>
             </div>
@@ -1367,11 +1679,10 @@ export default function GroupsManagementPage() {
                       key={c.value}
                       type="button"
                       onClick={() => setBulkColorVal(c.value)}
-                      className={`w-8 h-8 rounded-full ${c.class} transition-transform cursor-pointer ${
-                        bulkColorVal === c.value
+                      className={`w-8 h-8 rounded-full ${c.class} transition-transform cursor-pointer ${bulkColorVal === c.value
                           ? "ring-2 ring-offset-2 ring-pink-500 scale-115"
                           : "opacity-80 hover:opacity-100"
-                      }`}
+                        }`}
                       title={c.label}
                     />
                   ))}
@@ -1457,3 +1768,12 @@ export default function GroupsManagementPage() {
     </div>
   );
 }
+
+export default function GroupsManagementPage() {
+  return (
+    <Suspense fallback={<DataTableSkeleton columnCount={7} rowCount={6} />}>
+      <GroupsManagementContent />
+    </Suspense>
+  );
+}
+

@@ -2,16 +2,19 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { gpmClient } from "@/lib/gpm-api";
 import { findTikTokHandleInProfile, detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
+import { auth } from "@/lib/auth";
 
 export async function GET(req: Request) {
   try {
+    const session = await auth();
     const url = new URL(req.url);
     const authHeader = req.headers.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
+    const isCronAuthorized = Boolean(cronSecret && authHeader === `Bearer ${cronSecret}`);
+    const isAdmin = session?.user?.role === "ADMIN";
 
-    // Optional bearer token verification if CRON_SECRET is configured
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!isCronAuthorized && !isAdmin) {
+      return NextResponse.json({ error: "Unauthorized: Yêu cầu quyền Quản trị viên hoặc CRON_SECRET hợp lệ." }, { status: 401 });
     }
 
     const health = await gpmClient.checkConnection();
@@ -64,7 +67,7 @@ export async function GET(req: Request) {
               videos = detected.videoCount;
               views = detected.totalViews;
             }
-          } catch (e) {}
+          } catch (e) { }
         }
 
         const newAccount = await prisma.tiktokAccount.create({
@@ -125,7 +128,7 @@ export async function GET(req: Request) {
           where: { key: "sync_schedule" },
           data: { value: JSON.stringify(parsed) },
         });
-      } catch (e) {}
+      } catch (e) { }
     }
 
     return NextResponse.json({

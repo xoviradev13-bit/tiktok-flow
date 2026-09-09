@@ -129,11 +129,11 @@ export function PwaInstallPrompt() {
           <div className="flex-1 min-w-0 pr-1">
             <h4 className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
               <span>Cài Đặt TIKTOKFLOW</span>
-              <span className="px-1.5 py-0.2 rounded-md bg-pink-500/20 text-pink-400 text-[9px] font-extrabold uppercase">
+              <span className="px-1.5 py-0.2 rounded-md bg-pink-500/20 text-pink-400 text-xs font-extrabold uppercase">
                 App
               </span>
             </h4>
-            <p className="text-[11px] text-slate-400 truncate mt-0.5">
+            <p className="text-xs text-slate-400 truncate mt-0.5">
               Truy cập nhanh từ màn hình chính & thanh tác vụ
             </p>
           </div>
@@ -175,7 +175,7 @@ export function PwaInstallPrompt() {
 
             <ol className="text-xs space-y-3 text-slate-300">
               <li className="flex items-start gap-2.5">
-                <span className="w-5 h-5 rounded-full bg-pink-500/20 text-pink-400 font-bold flex items-center justify-center shrink-0 text-[10px]">
+                <span className="w-5 h-5 rounded-full bg-pink-500/20 text-pink-400 font-bold flex items-center justify-center shrink-0 text-xs">
                   1
                 </span>
                 <span>
@@ -183,7 +183,7 @@ export function PwaInstallPrompt() {
                 </span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="w-5 h-5 rounded-full bg-pink-500/20 text-pink-400 font-bold flex items-center justify-center shrink-0 text-[10px]">
+                <span className="w-5 h-5 rounded-full bg-pink-500/20 text-pink-400 font-bold flex items-center justify-center shrink-0 text-xs">
                   2
                 </span>
                 <span>
@@ -191,7 +191,7 @@ export function PwaInstallPrompt() {
                 </span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="w-5 h-5 rounded-full bg-pink-500/20 text-pink-400 font-bold flex items-center justify-center shrink-0 text-[10px]">
+                <span className="w-5 h-5 rounded-full bg-pink-500/20 text-pink-400 font-bold flex items-center justify-center shrink-0 text-xs">
                   3
                 </span>
                 <span>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateWorkdayScore, DEFAULT_SCORING_CONFIG, ScoringRuleConfig } from "@/lib/scoring-engine";
 import { detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
+import { auth } from "@/lib/auth";
 
 function getTodayDateOnly(): Date {
   const now = new Date();
@@ -10,12 +11,14 @@ function getTodayDateOnly(): Date {
 
 export async function GET(req: Request) {
   try {
+    const session = await auth();
     const authHeader = req.headers.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
+    const isCronAuthorized = Boolean(cronSecret && authHeader === `Bearer ${cronSecret}`);
+    const isAdmin = session?.user?.role === "ADMIN";
 
-    // Optional bearer token verification if CRON_SECRET is configured
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!isCronAuthorized && !isAdmin) {
+      return NextResponse.json({ error: "Unauthorized: Yêu cầu quyền Quản trị viên hoặc CRON_SECRET hợp lệ." }, { status: 401 });
     }
 
     // 1. Fetch system scoring rules

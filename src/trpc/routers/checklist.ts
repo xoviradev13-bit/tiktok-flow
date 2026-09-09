@@ -133,44 +133,51 @@ export const checklistRouter = router({
       const todayDateStr = new Date().toISOString().split("T")[0];
       const targetDateStr = input?.date || todayDateStr;
 
-      // 1. Ensure checklists exist for all active staff for the requested dates
-      const activeUsers = await ctx.prisma.user.findMany({
-        where: { isActive: true, role: { in: ["STAFF", "LEAD", "ADMIN"] }, deletedAt: null },
-        include: { tiktokAccounts: { where: { status: { in: ["ACTIVE", "WARMING"] } } } },
-      });
-
+      // 1. Ensure checklists exist for all active staff for the requested date (only when single day mode)
       if (!isRangeMode) {
         const dateObj = parseDateOnly(targetDateStr);
-        for (const u of activeUsers) {
-          if (u.tiktokAccounts.length > 0) {
-            const existing = await ctx.prisma.dailyChecklist.findUnique({
-              where: { userId_date: { userId: u.id, date: dateObj } },
-            });
+        const activeUsers = await ctx.prisma.user.findMany({
+          where: { isActive: true, role: { in: ["STAFF", "LEAD", "ADMIN"] }, deletedAt: null },
+          include: { tiktokAccounts: { where: { status: { in: ["ACTIVE", "WARMING"] } } } },
+        });
 
-            if (!existing) {
-              const newChecklist = await ctx.prisma.dailyChecklist.create({
-                data: {
-                  userId: u.id,
-                  date: dateObj,
-                  totalAssigned: u.tiktokAccounts.length,
-                  completedCount: 0,
-                  completionRate: 0,
-                  workdayScore: 0,
-                },
-              });
+        const usersWithAccounts = activeUsers.filter((u) => u.tiktokAccounts.length > 0);
+        if (usersWithAccounts.length > 0) {
+          const candidateUserIds = usersWithAccounts.map((u) => u.id);
+          const existingChecklists = await ctx.prisma.dailyChecklist.findMany({
+            where: {
+              date: dateObj,
+              userId: { in: candidateUserIds },
+            },
+            select: { userId: true },
+          });
 
-              for (const acc of u.tiktokAccounts) {
-                await ctx.prisma.dailyChecklistItem.create({
+          const existingSet = new Set(existingChecklists.map((c) => c.userId));
+          const missingUsers = usersWithAccounts.filter((u) => !existingSet.has(u.id));
+
+          if (missingUsers.length > 0) {
+            await Promise.all(
+              missingUsers.map((u) =>
+                ctx.prisma.dailyChecklist.create({
                   data: {
-                    checklistId: newChecklist.id,
-                    accountId: acc.id,
-                    isPosted: false,
-                    isSynced: !!acc.lastSyncedAt,
-                    isCompleted: false,
+                    userId: u.id,
+                    date: dateObj,
+                    totalAssigned: u.tiktokAccounts.length,
+                    completedCount: 0,
+                    completionRate: 0,
+                    workdayScore: 0,
+                    items: {
+                      create: u.tiktokAccounts.map((acc) => ({
+                        accountId: acc.id,
+                        isPosted: false,
+                        isSynced: !!acc.lastSyncedAt,
+                        isCompleted: false,
+                      })),
+                    },
                   },
-                });
-              }
-            }
+                })
+              )
+            );
           }
         }
       }
@@ -370,9 +377,11 @@ export const checklistRouter = router({
         where: whereClause,
       });
 
-      for (const chk of allChecklists) {
+      if (allChecklists.length > 0) {
+        const checklistIds = allChecklists.map((c) => c.id);
+
         await ctx.prisma.dailyChecklistItem.updateMany({
-          where: { checklistId: chk.id },
+          where: { checklistId: { in: checklistIds } },
           data: {
             isPosted: true,
             isSynced: true,
@@ -380,19 +389,27 @@ export const checklistRouter = router({
           },
         });
 
-        const count = await ctx.prisma.dailyChecklistItem.count({
-          where: { checklistId: chk.id },
+        const counts = await ctx.prisma.dailyChecklistItem.groupBy({
+          by: ["checklistId"],
+          _count: { id: true },
+          where: { checklistId: { in: checklistIds } },
         });
+        const countMap = new Map(counts.map((c) => [c.checklistId, c._count.id]));
 
-        await ctx.prisma.dailyChecklist.update({
-          where: { id: chk.id },
-          data: {
-            totalAssigned: count,
-            completedCount: count,
-            completionRate: 100,
-            workdayScore: 1.0,
-          },
-        });
+        await Promise.all(
+          allChecklists.map((chk) => {
+            const count = countMap.get(chk.id) ?? chk.totalAssigned;
+            return ctx.prisma.dailyChecklist.update({
+              where: { id: chk.id },
+              data: {
+                totalAssigned: count,
+                completedCount: count,
+                completionRate: 100,
+                workdayScore: 1.0,
+              },
+            });
+          })
+        );
       }
 
       return { count: allChecklists.length };

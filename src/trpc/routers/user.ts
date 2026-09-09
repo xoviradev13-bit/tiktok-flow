@@ -1,6 +1,9 @@
 import { router, publicProcedure, protectedProcedure, leadProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
+import { clearUserCache } from "@/lib/auth";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -30,6 +33,13 @@ export const userRouter = router({
         isVerified: true,
         createdAt: true,
         lastActiveAt: true,
+        extensionToken: true,
+        extensionAccessEnabled: true,
+        groupId: true,
+        group: {
+          select: { id: true, name: true, color: true },
+        },
+        password: true,
       },
     });
 
@@ -40,14 +50,19 @@ export const userRouter = router({
       });
     }
 
-    return user;
+    const { password, ...safeUser } = user;
+    return {
+      ...safeUser,
+      hasPassword: Boolean(password),
+    };
   }),
 
-  // 2. Update self profile
+  // 2. Update self profile (name, username, avatar, phone)
   updateProfile: protectedProcedure
     .input(
       z.object({
         name: z.string().optional(),
+        username: z.string().min(3, "Username tối thiểu 3 ký tự").optional(),
         firstName: z.string().optional(),
         lastName: z.string().optional(),
         avatar: z.string().optional(),
@@ -55,10 +70,29 @@ export const userRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Check username uniqueness if changing
+      if (input.username) {
+        const cleanUsername = input.username.trim().toLowerCase();
+        const existing = await ctx.prisma.user.findFirst({
+          where: {
+            username: cleanUsername,
+            NOT: { id: ctx.session.user.id },
+          },
+        });
+        if (existing) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Username này đã được sử dụng bởi thành viên khác.",
+          });
+        }
+      }
+
       const updated = await ctx.prisma.user.update({
         where: { id: ctx.session.user.id },
         data: {
           ...input,
+          image: input.avatar !== undefined ? input.avatar : undefined,
+          username: input.username ? input.username.trim().toLowerCase() : undefined,
         },
         select: {
           id: true,
@@ -72,8 +106,93 @@ export const userRouter = router({
         },
       });
 
+      clearUserCache(ctx.session.user.id);
       return updated;
     }),
+
+  // 2b. Secure Password Update
+  updatePassword: protectedProcedure
+    .input(
+      z.object({
+        currentPassword: z.string().optional(),
+        newPassword: z.string().min(8, "Mật khẩu mới phải có ít nhất 8 ký tự"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: { id: true, password: true },
+      });
+
+      if (!user) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Không tìm thấy người dùng.",
+        });
+      }
+
+      // If user currently has a password, verify it
+      if (user.password) {
+        if (!input.currentPassword) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Vui lòng nhập mật khẩu hiện tại.",
+          });
+        }
+        const isMatch = await bcrypt.compare(input.currentPassword, user.password);
+        if (!isMatch) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Mật khẩu hiện tại không chính xác.",
+          });
+        }
+      }
+
+      // Hash new password securely with bcrypt (10 rounds)
+      const hashedPassword = await bcrypt.hash(input.newPassword, 10);
+
+      await ctx.prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      });
+
+      clearUserCache(user.id);
+
+      return {
+        success: true,
+        message: "Mật khẩu đã được thay đổi thành công.",
+      };
+    }),
+
+  // 2c. Self-service Personal Token Regeneration
+  regenerateToken: protectedProcedure.mutation(async ({ ctx }) => {
+    const user = await ctx.prisma.user.findUnique({
+      where: { id: ctx.session.user.id },
+      select: { id: true, extensionAccessEnabled: true, isActive: true },
+    });
+
+    if (!user || !user.isActive) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Tài khoản của bạn đã bị khóa.",
+      });
+    }
+
+    if (user.extensionAccessEnabled === false) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Quyền sử dụng Token của bạn đã bị Quản trị viên vô hiệu hóa.",
+      });
+    }
+
+    const newToken = `ttf_sec_${crypto.randomBytes(16).toString("hex")}`;
+    await ctx.prisma.user.update({
+      where: { id: user.id },
+      data: { extensionToken: newToken },
+    });
+
+    return { token: newToken };
+  }),
 
   // 3. List all staff / operators for account assignment
   listStaff: protectedProcedure.query(async ({ ctx }) => {

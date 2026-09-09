@@ -13,6 +13,8 @@ import {
     AUTH_ERROR_CODES
 } from '@/features/auth/types/apiResponse';
 
+import { prisma } from "@/lib/prisma";
+
 const DEFAULT_AUTH_REDIRECT = '/accounts';
 
 /**
@@ -45,8 +47,39 @@ export async function SignInWithCredentials(
     callbackUrl?: string
 ): Promise<AuthActionResult> {
     try {
+        const normalizedEmail = email.trim().toLowerCase();
+
+        // 0. Check if account exists and has been blocked by admin
+        const existingUser = await prisma.user.findUnique({
+            where: { email: normalizedEmail },
+            select: { id: true, isActive: true },
+        });
+
+        if (existingUser && !existingUser.isActive) {
+            return createAuthError(
+                AUTH_ERROR_CODES.ACCOUNT_LOCKED,
+                'Tài khoản của bạn đã bị quản trị viên chặn quyền truy cập. Vui lòng liên hệ Quản trị viên để được hỗ trợ.'
+            );
+        }
+
+        // If callbackUrl contains invite token, strictly verify email matches invitation
+        if (callbackUrl && callbackUrl.includes("token=")) {
+            const match = callbackUrl.match(/token=([^&]+)/);
+            if (match && match[1]) {
+                const invite = await prisma.invitation.findUnique({
+                    where: { token: match[1] },
+                });
+                if (invite && invite.email.toLowerCase() !== normalizedEmail) {
+                    return createAuthError(
+                        AUTH_ERROR_CODES.UNAUTHORIZED,
+                        `Email không khớp với thư mời. Thư mời này chỉ dành riêng cho ${invite.email}.`
+                    );
+                }
+            }
+        }
+
         const result = await signIn('credentials', {
-            email,
+            email: normalizedEmail,
             password,
             redirect: false,
             callbackUrl: callbackUrl && callbackUrl !== '/' ? callbackUrl : DEFAULT_AUTH_REDIRECT
@@ -80,8 +113,76 @@ export async function SignInWithMagicLink(
     callbackUrl?: string
 ): Promise<AuthActionResult> {
     try {
+        const normalizedEmail = email.trim().toLowerCase();
+        if (!normalizedEmail) {
+            return createAuthError(
+                AUTH_ERROR_CODES.VALIDATION_ERROR,
+                'Vui lòng nhập địa chỉ email'
+            );
+        }
+
+        // 1. If callbackUrl contains invite token, strictly verify email matches invitation
+        if (callbackUrl && callbackUrl.includes("token=")) {
+            const match = callbackUrl.match(/token=([^&]+)/);
+            if (match && match[1]) {
+                const invite = await prisma.invitation.findUnique({
+                    where: { token: match[1] },
+                });
+                if (invite) {
+                    if (invite.status === "EXPIRED" || new Date(invite.expiresAt) < new Date()) {
+                        return createAuthError(
+                            AUTH_ERROR_CODES.VALIDATION_ERROR,
+                            "Lời mời này đã hết hạn. Vui lòng liên hệ Quản trị viên."
+                        );
+                    }
+                    if (invite.status === "REVOKED") {
+                        return createAuthError(
+                            AUTH_ERROR_CODES.VALIDATION_ERROR,
+                            "Lời mời này đã bị hủy bỏ bởi Quản trị viên."
+                        );
+                    }
+                    if (invite.email.toLowerCase() !== normalizedEmail) {
+                        return createAuthError(
+                            AUTH_ERROR_CODES.UNAUTHORIZED,
+                            `Email không khớp với thư mời. Thư mời này chỉ dành riêng cho ${invite.email}.`
+                        );
+                    }
+                }
+            }
+        }
+
+        // 2. Verify that this email is either an existing active user or an invited user
+        const existingUser = await prisma.user.findUnique({
+            where: { email: normalizedEmail },
+            select: { id: true, isActive: true },
+        });
+
+        if (existingUser) {
+            if (!existingUser.isActive) {
+                return createAuthError(
+                    AUTH_ERROR_CODES.ACCOUNT_LOCKED,
+                    "Tài khoản của bạn đã bị quản trị viên chặn quyền truy cập. Vui lòng liên hệ Quản trị viên để được hỗ trợ."
+                );
+            }
+        } else {
+            const validInvite = await prisma.invitation.findFirst({
+                where: {
+                    email: { equals: normalizedEmail, mode: "insensitive" },
+                    status: { in: ["PENDING", "ACCEPTED"] },
+                    expiresAt: { gt: new Date() },
+                },
+            });
+
+            if (!validInvite) {
+                return createAuthError(
+                    AUTH_ERROR_CODES.USER_NOT_FOUND,
+                    "Email này chưa được kích hoạt hoặc chưa nhận được thư mời tham gia hệ thống."
+                );
+            }
+        }
+
         await signIn('nodemailer', {
-            email,
+            email: normalizedEmail,
             redirect: false,
             callbackUrl: callbackUrl && callbackUrl !== '/' ? callbackUrl : DEFAULT_AUTH_REDIRECT
         });
@@ -153,6 +254,13 @@ export async function RegisterUser(
                 return createAuthError(
                     AUTH_ERROR_CODES.VALIDATION_ERROR,
                     errorMessage || 'Dữ liệu không hợp lệ'
+                );
+            }
+
+            if (axiosError.response?.status === 403) {
+                return createAuthError(
+                    AUTH_ERROR_CODES.UNAUTHORIZED,
+                    errorMessage || 'Hệ thống chỉ mở cho thành viên được mời. Vui lòng liên hệ Admin để nhận thư mời.'
                 );
             }
 

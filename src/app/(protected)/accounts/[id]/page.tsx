@@ -36,7 +36,11 @@ import {
   ChevronRight,
   BarChart3,
   Sliders,
+  Lock,
+  Unlock,
 } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ResponsiveContainer,
   BarChart,
@@ -67,8 +71,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { AccountDetailSkeleton } from "@/components/skeletons/PageSkeletons";
 
 export default function AccountDetailPage() {
+  const { data: session } = useSession();
+  const isLeadOrAdmin = (session?.user as any)?.role === "ADMIN" || (session?.user as any)?.role === "LEAD";
+
   const params = useParams();
   const router = useRouter();
   const accountId = (params?.id as string) || "";
@@ -84,6 +92,11 @@ export default function AccountDetailPage() {
   const [newRevAmount, setNewRevAmount] = useState("");
   const [newRevSource, setNewRevSource] = useState("CREATOR_REWARDS");
 
+  // Reassignment & Handover Modal States
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [selectedTransferUserId, setSelectedTransferUserId] = useState<string>("");
+  const [isLockOnTransfer, setIsLockOnTransfer] = useState(false);
+
   const [newLogMessage, setNewLogMessage] = useState("");
   const [toastMsg, setToastMsg] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
 
@@ -93,6 +106,20 @@ export default function AccountDetailPage() {
     setToastMsg({ text, type });
     setTimeout(() => setToastMsg(null), 4000);
   };
+
+  const toggleLockMutation = trpc.accounts.toggleLockAssignment.useMutation({
+    onSuccess: (data) => {
+      showToast(
+        data.isAssignmentLocked
+          ? "🔒 Đã khóa phân công tài khoản này!"
+          : "🔓 Đã mở khóa phân công, cho phép đổi ca tự do!",
+        "success"
+      );
+      utils.accounts.getById.invalidate({ id: accountId });
+      utils.accounts.list.invalidate();
+    },
+    onError: (err) => showToast(err.message, "error"),
+  });
 
   // 1. Fetch Account Details
   const {
@@ -294,14 +321,7 @@ export default function AccountDetailPage() {
       : 0;
 
   if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <RefreshCw className="w-8 h-8 text-pink-500 animate-spin" />
-        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-          Đang tải chi tiết tài khoản TikTok...
-        </p>
-      </div>
-    );
+    return <AccountDetailSkeleton />;
   }
 
   if (isError || !account) {
@@ -384,16 +404,47 @@ export default function AccountDetailPage() {
                   </h1>
                   {getStatusBadge(account.status)}
                   {account.groupName && (
-                    <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                       {account.groupName}
                     </span>
                   )}
                 </div>
 
                 <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1 flex-wrap">
-                  <span>ID: <code className="text-[11px] font-mono text-slate-700 dark:text-slate-300">{account.id}</code></span>
+                  <span>ID: <code className="text-xs font-mono text-slate-700 dark:text-slate-300">{account.id}</code></span>
                   <span>•</span>
-                  <span>Phụ trách: <strong className="text-slate-800 dark:text-slate-200">{account.assignedUser?.fullName || account.assignedUser?.username || "Chưa gán"}</strong></span>
+                  <span className="flex items-center gap-1.5">
+                    Phụ trách: <strong className="text-slate-800 dark:text-slate-200">{account.assignedUser?.name || account.assignedUser?.fullName || account.assignedUser?.username || "Chưa gán"}</strong>
+                  </span>
+                  {isLeadOrAdmin ? (
+                    <button
+                      onClick={() => toggleLockMutation.mutate({ id: account.id, isLocked: !account.isAssignmentLocked })}
+                      disabled={toggleLockMutation.isPending}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                        account.isAssignmentLocked
+                          ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
+                          : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                      }`}
+                      title={account.isAssignmentLocked ? "Click để mở khóa phân công" : "Click để khóa phân công"}
+                    >
+                      {account.isAssignmentLocked ? (
+                        <>
+                          <Lock className="w-3 h-3" />
+                          <span>Đã khóa phân công</span>
+                        </>
+                      ) : (
+                        <>
+                          <Unlock className="w-3 h-3" />
+                          <span>Đổi ca tự do</span>
+                        </>
+                      )}
+                    </button>
+                  ) : account.isAssignmentLocked ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                      <Lock className="w-3 h-3" />
+                      <span>Đã khóa</span>
+                    </span>
+                  ) : null}
                   <span>•</span>
                   <span>Cập nhật: {account.lastSyncedAt ? new Date(account.lastSyncedAt).toLocaleString("vi-VN") : "Chưa đồng bộ"}</span>
                 </div>
@@ -403,6 +454,21 @@ export default function AccountDetailPage() {
 
           {/* Action Buttons Toolbar */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Transfer / Reassign Button for Admin & Lead */}
+            {isLeadOrAdmin && (
+              <button
+                onClick={() => {
+                  setSelectedTransferUserId(account.assignedUserId || "UNASSIGNED");
+                  setIsLockOnTransfer(!!account.isAssignmentLocked);
+                  setIsTransferModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs active:scale-95 transition-all cursor-pointer"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Chuyển giao</span>
+              </button>
+            )}
+
             {/* Sync Live Button */}
             <button
               onClick={() => syncMutation.mutate({ accountId: account.id })}
@@ -483,7 +549,7 @@ export default function AccountDetailPage() {
             <BarChart3 className="w-3.5 h-3.5" />
             <span>Biểu Đồ & Lịch Sử Doanh Thu</span>
             {account.dailyRevenues?.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-500">
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-xs bg-pink-500/20 text-pink-500">
                 {account.dailyRevenues.length}
               </span>
             )}
@@ -500,7 +566,7 @@ export default function AccountDetailPage() {
             <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
             <span>Cảnh Báo & Rủi Ro</span>
             {account.alerts?.filter((a: any) => a.status === "OPEN").length > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold">
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-xs bg-rose-500 text-white font-bold">
                 {account.alerts.filter((a: any) => a.status === "OPEN").length}
               </span>
             )}
@@ -517,7 +583,7 @@ export default function AccountDetailPage() {
             <FileText className="w-3.5 h-3.5" />
             <span>Nhật Ký & Audit Trail</span>
             {account.logs?.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-xs bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
                 {account.logs.length}
               </span>
             )}
@@ -530,13 +596,13 @@ export default function AccountDetailPage() {
         {/* Total Views */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Tổng Lượt Xem</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Tổng Lượt Xem</span>
             <Eye className="w-4 h-4 text-cyan-500" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-2">
             {totalViewsNum.toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
             <Sparkles className="w-3 h-3 text-cyan-500" />
             <span>Toàn thời gian (Studio)</span>
           </div>
@@ -545,13 +611,13 @@ export default function AccountDetailPage() {
         {/* Total Followers */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Followers</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Followers</span>
             <Users className="w-4 h-4 text-purple-500" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2">
             {Number(account.totalFollowers || 0).toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
             <span>Kênh đạt chuẩn quỹ</span>
           </div>
         </div>
@@ -559,13 +625,13 @@ export default function AccountDetailPage() {
         {/* Total Videos */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Số Video</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Số Video</span>
             <Video className="w-4 h-4 text-indigo-500" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2">
             {Number(account.totalVideos || 0).toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
             <span>Đã đăng trên kênh</span>
           </div>
         </div>
@@ -573,13 +639,13 @@ export default function AccountDetailPage() {
         {/* Total Revenue */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Tổng Doanh Thu</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Tổng Doanh Thu</span>
             <DollarSign className="w-4 h-4 text-pink-500" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-pink-600 dark:text-pink-400 mt-2">
             {currencySymbol}{totalRevNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
             <span>Creator Rewards</span>
           </div>
         </div>
@@ -587,13 +653,13 @@ export default function AccountDetailPage() {
         {/* Average RPM */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">RPM Trung Bình</span>
+            <span className="text-xs font-bold uppercase tracking-wider">RPM Trung Bình</span>
             <TrendingUp className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">
             {currencySymbol}{calculatedRpm.toFixed(2)}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
             <span>/ 1,000 views</span>
           </div>
         </div>
@@ -601,13 +667,13 @@ export default function AccountDetailPage() {
         {/* Fleet / Country Status */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Khu Vực & Tiền Tệ</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Khu Vực & Tiền Tệ</span>
             <Globe className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-2 flex items-center gap-1.5">
             {getCountryBadge(account.country)}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Đơn vị: <strong className="text-slate-700 dark:text-slate-300 font-mono">{currencySymbol} ({account.country})</strong>
           </div>
         </div>
@@ -657,43 +723,43 @@ export default function AccountDetailPage() {
               {/* Metric Comparison Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">7 Ngày Qua</div>
+                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">7 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-cyan-600 dark:text-cyan-400 mt-1">
                     {account.dailyRevenues?.slice(0, 7).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Lượt xem (7d)</div>
+                  <div className="text-xs text-slate-400 mt-0.5">Lượt xem (7d)</div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">28 Ngày Qua</div>
+                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">28 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 mt-1">
                     {account.dailyRevenues?.slice(0, 28).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Lượt xem (28d)</div>
+                  <div className="text-xs text-slate-400 mt-0.5">Lượt xem (28d)</div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">60 Ngày Qua</div>
+                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">60 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 mt-1">
                     {account.dailyRevenues?.slice(0, 60).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Lượt xem (60d)</div>
+                  <div className="text-xs text-slate-400 mt-0.5">Lượt xem (60d)</div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">365 Ngày (1 Năm)</div>
+                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">365 Ngày (1 Năm)</div>
                   <div className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 mt-1">
                     {account.dailyRevenues?.slice(0, 365).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Lượt xem (365d)</div>
+                  <div className="text-xs text-slate-400 mt-0.5">Lượt xem (365d)</div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center col-span-2 sm:col-span-1">
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Toàn Thời Gian</div>
+                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Toàn Thời Gian</div>
                   <div className="text-base sm:text-lg font-black text-pink-600 dark:text-pink-400 mt-1">
                     {totalViewsNum.toLocaleString()}
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Lifetime Views</div>
+                  <div className="text-xs text-slate-400 mt-0.5">Lifetime Views</div>
                 </div>
               </div>
 
@@ -707,7 +773,7 @@ export default function AccountDetailPage() {
                     <div className="text-xs font-bold text-slate-900 dark:text-white">
                       Trạng thái Quỹ Creator Rewards
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
                       Tài khoản đã được liên kết và cập nhật đầy đủ dữ liệu thống kê từ TikTok Studio.
                     </div>
                   </div>
@@ -896,11 +962,11 @@ export default function AccountDetailPage() {
                   GPM-Login Integration
                 </h3>
                 {account.gpmProfileId ? (
-                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800">
+                  <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800">
                     Đã Liên Kết
                   </span>
                 ) : (
-                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">
+                  <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">
                     Chưa gắn GPM
                   </span>
                 )}
@@ -909,8 +975,8 @@ export default function AccountDetailPage() {
               {account.gpmProfileId ? (
                 <div className="space-y-3">
                   <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 space-y-1.5">
-                    <div className="text-[11px] font-medium text-slate-500">GPM Profile ID</div>
-                    <code className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400 break-all block font-bold">
+                    <div className="text-xs font-medium text-slate-500">GPM Profile ID</div>
+                    <code className="text-xs font-mono text-cyan-600 dark:text-cyan-400 break-all block font-bold">
                       {account.gpmProfileId}
                     </code>
                   </div>
@@ -1003,7 +1069,7 @@ export default function AccountDetailPage() {
                         {new Date(rec.date).toLocaleDateString("vi-VN")}
                       </td>
                       <td className="py-3 px-4">
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800">
+                        <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800">
                           {rec.sourceType || "CREATOR_REWARDS"}
                         </span>
                       </td>
@@ -1016,7 +1082,7 @@ export default function AccountDetailPage() {
                       <td className="py-3 px-4 font-black text-pink-600 dark:text-pink-400 text-sm">
                         {currencySymbol}{Number(rec.revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="py-3 px-4 text-slate-400 text-[11px]">
+                      <td className="py-3 px-4 text-slate-400 text-xs">
                         {new Date(rec.createdAt).toLocaleTimeString("vi-VN")}
                       </td>
                     </tr>
@@ -1074,7 +1140,7 @@ export default function AccountDetailPage() {
                           {alt.alertType}
                         </span>
                         <span
-                          className={`px-2 py-0.2 rounded-full text-[10px] font-bold ${
+                          className={`px-2 py-0.2 rounded-full text-xs font-bold ${
                             alt.status === "OPEN"
                               ? "bg-rose-500 text-white"
                               : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
@@ -1086,7 +1152,7 @@ export default function AccountDetailPage() {
                       <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
                         {alt.description}
                       </p>
-                      <div className="text-[10px] text-slate-400 mt-1">
+                      <div className="text-xs text-slate-400 mt-1">
                         Tạo lúc: {new Date(alt.createdAt).toLocaleString("vi-VN")}
                       </div>
                     </div>
@@ -1178,7 +1244,7 @@ export default function AccountDetailPage() {
                       <div className="text-xs font-bold text-slate-900 dark:text-white">
                         {log.actorName || "System"}
                       </div>
-                      <div className="text-[11px] text-slate-400 font-mono">
+                      <div className="text-xs text-slate-400 font-mono">
                         {new Date(log.createdAt).toLocaleString("vi-VN")}
                       </div>
                     </div>
@@ -1308,6 +1374,91 @@ export default function AccountDetailPage() {
               className="px-4 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm transition-all disabled:opacity-50 cursor-pointer"
             >
               {upsertRevenueMutation.isPending ? "Đang lưu..." : "Lưu Bản Ghi"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Handover / Transfer Assignment Modal */}
+      <Dialog open={isTransferModalOpen} onOpenChange={setIsTransferModalOpen}>
+        <DialogContent className="sm:max-w-md bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <UserCheck className="w-5 h-5 text-amber-500" />
+              Chuyển Giao Quyền Quản Lý
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs space-y-1">
+              <div>Tài khoản TikTok: <strong className="text-pink-600 dark:text-pink-400">@{account.username}</strong></div>
+              <div>Người phụ trách hiện tại: <strong>{account.assignedUser?.name || account.assignedUser?.fullName || account.assignedUser?.username || "Chưa gán"}</strong></div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Chọn nhân sự mới tiếp nhận:
+              </label>
+              <Select value={selectedTransferUserId} onValueChange={setSelectedTransferUserId}>
+                <SelectTrigger className="w-full h-10 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-medium cursor-pointer">
+                  <SelectValue placeholder="Chọn nhân sự..." />
+                </SelectTrigger>
+                <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
+                  <SelectItem value="UNASSIGNED" className="text-xs cursor-pointer text-slate-400">
+                    -- Chưa phân công (Bỏ gán) --
+                  </SelectItem>
+                  {staffList.map((s: any) => (
+                    <SelectItem key={s.id} value={s.id} className="text-xs cursor-pointer">
+                      {s.name || s.username || s.email} ({s.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center space-x-2 pt-2">
+              <Checkbox
+                id="lockTransferCheckbox"
+                checked={isLockOnTransfer}
+                onCheckedChange={(checked) => setIsLockOnTransfer(!!checked)}
+              />
+              <label
+                htmlFor="lockTransferCheckbox"
+                className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+              >
+                Khóa phân công tài khoản này (Chỉ Admin/Lead mới được đổi)
+              </label>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <button
+              onClick={() => setIsTransferModalOpen(false)}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+            >
+              Hủy
+            </button>
+            <button
+              onClick={() => {
+                const targetUserId = selectedTransferUserId === "UNASSIGNED" ? null : selectedTransferUserId;
+                updateMutation.mutate(
+                  {
+                    id: account.id,
+                    assignedUserId: targetUserId,
+                    isAssignmentLocked: isLockOnTransfer,
+                  },
+                  {
+                    onSuccess: () => {
+                      setIsTransferModalOpen(false);
+                      showToast("Đã chuyển giao tài khoản thành công!", "success");
+                    },
+                  }
+                );
+              }}
+              disabled={updateMutation.isPending}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {updateMutation.isPending ? "Đang xử lý..." : "Xác Nhận Chuyển Giao"}
             </button>
           </DialogFooter>
         </DialogContent>

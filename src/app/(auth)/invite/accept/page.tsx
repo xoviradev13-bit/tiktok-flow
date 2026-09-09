@@ -50,16 +50,13 @@ function AcceptInvitationContent() {
           } else if (data.status === "REVOKED") {
             setStatus("error");
             setMessage("Lời mời này đã bị hủy bỏ bởi Quản trị viên.");
-          } else if (data.status === "ACCEPTED") {
-            setStatus("error");
-            setMessage("Lời mời này đã được chấp nhận trước đó. Vui lòng đăng nhập vào hệ thống.");
           }
         } else if (data.message) {
           setStatus("error");
           setMessage(data.message);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [token]);
 
   useEffect(() => {
@@ -108,7 +105,7 @@ function AcceptInvitationContent() {
         if (response.status === 403) {
           const backendMsg: string = data.message || "";
           const emailMatch = backendMsg.match(/for ([\w.+%-]+@[\w.-]+\.[a-z]{2,})/i);
-          setWrongAccountEmail(emailMatch?.[1] ?? invitePreview?.email ?? null);
+          setWrongAccountEmail(data.targetEmail || emailMatch?.[1] || invitePreview?.email || null);
           setStatus("wrong-account");
           return;
         }
@@ -117,14 +114,18 @@ function AcceptInvitationContent() {
 
       // Refresh session
       if (updateSession) {
-        await updateSession().catch(() => {});
+        await updateSession().catch(() => { });
       }
 
       const targetUrl = "/accounts";
       setRedirectUrl(targetUrl);
       setActionLabel("Truy Cập Hệ Thống");
       setStatus("success");
-      setMessage("Kích hoạt thành viên thành công! Đang chuyển hướng...");
+      setMessage(
+        data.alreadyAccepted
+          ? "Bạn đã tham gia hệ thống thành công! Đang chuyển hướng..."
+          : "Kích hoạt thành viên thành công! Đang chuyển hướng..."
+      );
 
       toast({
         title: "Thành công!",
@@ -295,25 +296,36 @@ function AcceptInvitationContent() {
               </div>
               <div className="space-y-2 max-w-sm">
                 <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                  Đăng Nhập Sai Tài Khoản
+                  Đang Mở Nhầm Thư Mời
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Thư mời này được gửi riêng cho địa chỉ:
+                  Liên kết này được cấp riêng cho địa chỉ:
                 </p>
-                <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs font-bold text-amber-900 dark:text-amber-300">
+                <div className="p-2.5 rounded-xl bg-pink-50 dark:bg-pink-950/40 border border-pink-200 dark:border-pink-800 text-xs font-bold text-pink-700 dark:text-pink-300 font-mono break-all">
                   {wrongAccountEmail || "email được mời"}
                 </div>
-                <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                  Bạn đang đăng nhập bằng tài khoản khác. Vui lòng đăng xuất và đăng nhập lại bằng đúng email trên.
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Bạn đang đăng nhập bằng: <span className="font-bold text-slate-700 dark:text-slate-300">{session?.user?.email}</span>
                 </p>
               </div>
-              <Button
-                onClick={handleSwitchAccount}
-                className="w-full h-11 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold rounded-xl shadow-md text-xs cursor-pointer mt-2"
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Đăng Xuất & Chuyển Tài Khoản Đúng
-              </Button>
+
+              <div className="w-full space-y-2.5 mt-2">
+                <Button
+                  onClick={handleSwitchAccount}
+                  className="w-full h-11 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold rounded-xl shadow-md text-xs cursor-pointer"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Đăng Xuất & Đổi Sang {wrongAccountEmail || "Email Được Mời"}
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={() => router.push("/signin")}
+                  className="w-full h-11 border-slate-200 dark:border-slate-800 text-xs font-bold rounded-xl cursor-pointer"
+                >
+                  Về Trang Đăng Nhập
+                </Button>
+              </div>
             </div>
           )}
 

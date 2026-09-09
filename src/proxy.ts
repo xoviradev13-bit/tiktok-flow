@@ -7,12 +7,32 @@ export async function proxy(request: NextRequest) {
   const url = request.nextUrl;
   const pathname = url.pathname;
 
-  // Skip proxy for static files and API routes
+  // Skip proxy for static files and Sentry monitoring tunnel
   const isStatic = pathname.startsWith("/_next") || /\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/.test(pathname);
+  const isMonitoring = pathname === "/monitoring" || pathname.startsWith("/monitoring/");
+  if (isStatic || isMonitoring) {
+    return NextResponse.next();
+  }
+
+  // Subdomain routing support (e.g. docs.domain.com -> /docs, api.domain.com -> /api-docs)
+  const host = request.headers.get("host") || "";
+  if (host.startsWith("docs.") && !pathname.startsWith("/docs")) {
+    return NextResponse.rewrite(new URL(`/docs${pathname === "/" ? "" : pathname}`, request.url));
+  }
+  if ((host.startsWith("api.") || host.startsWith("developers.")) && !pathname.startsWith("/api-docs")) {
+    return NextResponse.rewrite(new URL(`/api-docs${pathname === "/" ? "" : pathname}`, request.url));
+  }
+  if ((host.startsWith("trust.") || host.startsWith("legal.")) && !pathname.startsWith("/security")) {
+    return NextResponse.rewrite(new URL(`/security${pathname === "/" ? "" : pathname}`, request.url));
+  }
+
   const isAccessingApiAuthRoute = pathname.startsWith(API_AUTH_PREFIX);
   const isApiRoute = pathname.startsWith("/api");
+  const isTrpcRoute = pathname.startsWith("/api/trpc");
+  const isInviteApiRoute = pathname.startsWith("/api/invitations");
 
-  if (isAccessingApiAuthRoute || isStatic || isApiRoute) {
+  // Allow auth callbacks, tRPC (handled by tRPC context/procedures) and invitation validation
+  if (isAccessingApiAuthRoute || isTrpcRoute || isInviteApiRoute) {
     return NextResponse.next();
   }
 

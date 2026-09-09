@@ -44,6 +44,14 @@ export const leaderboardRouter = router({
               id: true,
               totalRevenue: true,
               totalViews: true,
+              dailyRevenues: {
+                where: startDate ? { date: { gte: startDate } } : undefined,
+                select: {
+                  views: true,
+                  revenue: true,
+                  rpm: true,
+                },
+              },
             },
           },
           dailyChecklists: {
@@ -70,21 +78,32 @@ export const leaderboardRouter = router({
           (sum, c) => sum + Number(c.workdayScore || 0),
           0
         );
-        const totalRevenue = u.tiktokAccounts.reduce(
-          (sum, a) => sum + Number(a.totalRevenue || 0),
-          0
-        );
-        const totalViews = u.tiktokAccounts.reduce(
-          (sum, a) => sum + Number(a.totalViews || 0),
-          0
-        );
+
+        let periodRevenue = 0;
+        let periodViews = 0;
+
+        for (const a of u.tiktokAccounts) {
+          if (startDate) {
+            for (const dr of a.dailyRevenues) {
+              periodRevenue += Number(dr.revenue || 0);
+              periodViews += Number(dr.views || 0);
+            }
+          } else {
+            periodRevenue += Number(a.totalRevenue || 0);
+            periodViews += Number(a.totalViews || 0);
+          }
+        }
 
         const completionRate =
           totalAssigned > 0 ? Math.round((totalCompleted / totalAssigned) * 100) : 0;
         
         const accountsCount = u.tiktokAccounts.length;
-        const avgRpm = totalViews > 0 ? Math.round((totalRevenue / (totalViews / 1000)) * 100) / 100 : 0.85;
-        const revPerAccount = accountsCount > 0 ? Math.round((totalRevenue / accountsCount) * 100) / 100 : 0;
+        const avgRpm =
+          periodViews > 0 && periodRevenue > 0
+            ? Math.round(((periodRevenue * 1000) / periodViews) * 100) / 100
+            : 0;
+        const revPerAccount =
+          accountsCount > 0 ? Math.round((periodRevenue / accountsCount) * 100) / 100 : 0;
 
         return {
           userId: u.id,
@@ -99,18 +118,19 @@ export const leaderboardRouter = router({
           avgCompletionRate: completionRate,
           totalScore: Math.round(totalScore * 10) / 10,
           totalWorkdays: Math.round(totalScore * 10) / 10,
-          totalRevenue: Math.round(totalRevenue * 100) / 100,
-          periodRevenue: Math.round(totalRevenue * 100) / 100,
+          totalRevenue: Math.round(periodRevenue * 100) / 100,
+          periodRevenue: Math.round(periodRevenue * 100) / 100,
           avgRpm,
           revPerAccount,
         };
       });
 
-      // Sort by totalScore desc, then completionRate desc, then totalRevenue desc
+      // Sort by periodRevenue desc, then totalScore desc, then completionRate desc
       leaderData.sort((a, b) => {
+        if (b.periodRevenue !== a.periodRevenue) return b.periodRevenue - a.periodRevenue;
         if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
         if (b.completionRate !== a.completionRate) return b.completionRate - a.completionRate;
-        return b.totalRevenue - a.totalRevenue;
+        return b.accountsCount - a.accountsCount;
       });
 
       const rankedList = leaderData.map((item, index) => ({

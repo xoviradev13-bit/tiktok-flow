@@ -16,6 +16,7 @@ import {
 import confetti from "canvas-confetti";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
+import { LeaderboardPageSkeleton } from "@/components/skeletons/PageSkeletons";
 import { trpc } from "@/lib/trpc";
 
 export default function LeaderboardPage() {
@@ -49,6 +50,10 @@ export default function LeaderboardPage() {
     });
   };
 
+  if (loading) {
+    return <LeaderboardPageSkeleton />;
+  }
+
   return (
     <div className="space-y-8 animate-fadeIn">
       {/* Top Header */}
@@ -64,7 +69,7 @@ export default function LeaderboardPage() {
         </div>
 
         {/* Period Filter Buttons */}
-        <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 rounded-xl shadow-sm">
+        <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 rounded-xl shadow-sm flex-wrap sm:flex-nowrap overflow-x-auto max-w-full">
           {[
             { key: "TODAY" as const, label: "Hôm Nay" },
             { key: "THIS_WEEK" as const, label: "Tuần Này" },
@@ -74,7 +79,7 @@ export default function LeaderboardPage() {
             <button
               key={item.key}
               onClick={() => setPeriod(item.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 period === item.key
                   ? "bg-gradient-to-r from-yellow-500 to-amber-600 text-slate-950 shadow-md shadow-yellow-500/20"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -98,13 +103,13 @@ export default function LeaderboardPage() {
               <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
                 {top2.fullName}
               </h3>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {top2.accountsCount} accounts | {top2.totalWorkdays} ngày công
               </div>
               <div className="mt-4 text-2xl font-black text-amber-600 dark:text-amber-300">
                 ${top2.periodRevenue.toLocaleString()}
               </div>
-              <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+              <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 RPM: <span className="text-emerald-600 dark:text-emerald-400 font-bold">${top2.avgRpm}</span>
               </div>
             </div>
@@ -143,13 +148,13 @@ export default function LeaderboardPage() {
               <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
                 {top3.fullName}
               </h3>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {top3.accountsCount} accounts | {top3.totalWorkdays} ngày công
               </div>
               <div className="mt-4 text-2xl font-black text-amber-600 dark:text-amber-300">
                 ${top3.periodRevenue.toLocaleString()}
               </div>
-              <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+              <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 RPM: <span className="text-emerald-600 dark:text-emerald-400 font-bold">${top3.avgRpm}</span>
               </div>
             </div>
@@ -176,7 +181,7 @@ export default function LeaderboardPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 min-w-[850px]">
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 normal-case">
                 <tr>
                   <th className="px-5 py-3.5">Hạng</th>
@@ -230,7 +235,7 @@ export default function LeaderboardPage() {
                           <div className="font-extrabold text-slate-900 dark:text-white">
                             {user.fullName}
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                          <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
                             @{user.username} ({user.role})
                           </div>
                         </td>
@@ -240,7 +245,7 @@ export default function LeaderboardPage() {
                         </td>
 
                         <td className="px-4 py-3.5 whitespace-nowrap">
-                          <span className="px-2 py-0.5 rounded text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-2xs">
                             {user.totalWorkdays} Ngày
                           </span>
                         </td>

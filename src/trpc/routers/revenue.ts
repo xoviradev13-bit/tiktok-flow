@@ -22,11 +22,17 @@ export const revenueRouter = router({
       z
         .object({
           days: z.number().optional().default(28),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
         })
         .optional()
     )
     .query(async ({ ctx, input }) => {
       const days = input?.days ?? 28;
+      const startDate = input?.startDate;
+      const endDate = input?.endDate;
+      const isCustomRange = Boolean(startDate && endDate);
+
       const whereAccount: any = {};
       if (ctx.session.user.role === "STAFF") {
         whereAccount.assignedUserId = ctx.session.user.id;
@@ -43,7 +49,12 @@ export const revenueRouter = router({
         accountId: { in: accountIds },
       };
 
-      if (days > 0) {
+      if (isCustomRange && startDate && endDate) {
+        const start = parseDateOnly(startDate);
+        const end = parseDateOnly(endDate);
+        end.setUTCHours(23, 59, 59, 999);
+        whereDaily.date = { gte: start, lte: end };
+      } else if (days > 0) {
         const pastDate = new Date();
         pastDate.setDate(pastDate.getDate() - days);
         whereDaily.date = { gte: pastDate };
@@ -76,27 +87,52 @@ export const revenueRouter = router({
         chartMap.set(dateStr, existing);
       }
 
-      const chartData = Array.from(chartMap.values()).map((d) => ({
-        ...d,
-        revenue: Math.round(d.revenue * 100) / 100,
-        rpm: d.views > 0 ? Math.round(((d.revenue * 1000) / d.views) * 100) / 100 : 0,
-      }));
+      // If custom date range is provided, fill missing days in range so chart is continuous
+      if (isCustomRange && startDate && endDate) {
+        const start = parseDateOnly(startDate);
+        const end = parseDateOnly(endDate);
+        const curr = new Date(start);
+        while (curr <= end) {
+          const dStr = curr.toISOString().split("T")[0];
+          if (!chartMap.has(dStr)) {
+            chartMap.set(dStr, { date: dStr, revenue: 0, views: 0 });
+          }
+          curr.setUTCDate(curr.getUTCDate() + 1);
+        }
+      }
 
-      // If all-time and daily records are empty, fall back to account accumulated totals
+      const chartData = Array.from(chartMap.values())
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((d) => ({
+          ...d,
+          revenue: Math.round(d.revenue * 100) / 100,
+          rpm: d.views > 0 ? Math.round(((d.revenue * 1000) / d.views) * 100) / 100 : 0,
+        }));
+
+      // Total records count in database
+      const totalRecords = dailyRecords.length;
+
+      // For ALL-TIME (days === 0 and not custom range), if daily records don't cover full lifetime, use the higher accumulated totals from accounts
+      const accTotalRevenue = accounts.reduce((sum, a) => sum + Number(a.totalRevenue || 0), 0);
+      const accTotalViews = accounts.reduce((sum, a) => sum + Number(a.totalViews || 0), 0);
+
       const totalRevenue =
-        days === 0 && dailyRecords.length === 0
-          ? accounts.reduce((sum, a) => sum + Number(a.totalRevenue || 0), 0)
+        days === 0 && !isCustomRange
+          ? Math.max(periodRevenue, accTotalRevenue)
           : periodRevenue;
 
       const totalViews =
-        days === 0 && dailyRecords.length === 0
-          ? accounts.reduce((sum, a) => sum + Number(a.totalViews || 0), 0)
+        days === 0 && !isCustomRange
+          ? Math.max(periodViews, accTotalViews)
           : periodViews;
 
       return {
-        days,
+        days: isCustomRange ? 0 : days,
+        startDate: startDate || null,
+        endDate: endDate || null,
         totalRevenue: Math.round(totalRevenue * 100) / 100,
         totalViews,
+        totalRecords,
         averageRpm:
           totalViews > 0
             ? Math.round(((totalRevenue * 1000) / totalViews) * 100) / 100
@@ -168,15 +204,13 @@ export const revenueRouter = router({
         },
       });
 
-      // Recalculate account total revenue
-      const accountRevenues = await ctx.prisma.dailyRevenue.findMany({
+      // Recalculate account total revenue using database SUM aggregation
+      const revenueAggregate = await ctx.prisma.dailyRevenue.aggregate({
         where: { accountId: input.accountId },
+        _sum: { revenue: true },
       });
 
-      const newTotalRevenue = accountRevenues.reduce(
-        (sum, r) => sum + Number(r.revenue || 0),
-        0
-      );
+      const newTotalRevenue = Number(revenueAggregate._sum.revenue || 0);
 
       await ctx.prisma.tiktokAccount.update({
         where: { id: input.accountId },

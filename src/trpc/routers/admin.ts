@@ -1,6 +1,9 @@
 import { router, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import crypto from "crypto";
+import bcrypt from "bcryptjs";
+import { clearUserCache } from "@/lib/auth";
 
 export const adminRouter = router({
   // 1. List all users with fleet stats & Group info (ADMIN)
@@ -21,6 +24,7 @@ export const adminRouter = router({
         createdAt: true,
         lastActiveAt: true,
         groupId: true,
+        extensionToken: true,
         group: {
           select: { id: true, name: true, color: true },
         },
@@ -41,6 +45,7 @@ export const adminRouter = router({
       checklistsCount: u._count.dailyChecklists,
       groupName: u.group?.name || null,
       groupId: u.groupId || u.group?.id || null,
+      hasExtensionToken: !!u.extensionToken,
     }));
   }),
 
@@ -443,6 +448,11 @@ export const adminRouter = router({
         groupId = group.id;
       }
 
+      let hashedPassword: string | null = null;
+      if (input.password && input.password.trim()) {
+        hashedPassword = await bcrypt.hash(input.password.trim(), 10);
+      }
+
       const user = await ctx.prisma.user.create({
         data: {
           username: input.username,
@@ -450,6 +460,7 @@ export const adminRouter = router({
           email: input.email,
           role: input.role,
           groupId,
+          password: hashedPassword,
           isVerified: true,
           isActive: true,
         },
@@ -494,7 +505,7 @@ export const adminRouter = router({
       if (input.userId === ctx.session.user.id) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "You cannot deactivate your own account.",
+          message: "Bạn không thể tự chặn quyền truy cập của chính mình.",
         });
       }
 
@@ -502,6 +513,14 @@ export const adminRouter = router({
         where: { id: input.userId },
         data: { isActive: input.isActive },
       });
+
+      // Clear cached user so JWT callbacks reflect this change immediately
+      clearUserCache(input.userId);
+
+      // Invalidate active database sessions if any
+      await ctx.prisma.session.deleteMany({
+        where: { userId: input.userId },
+      }).catch(() => {});
 
       return updated;
     }),
@@ -683,7 +702,7 @@ export const adminRouter = router({
 
       const crypto = await import("crypto");
       const token = crypto.randomBytes(32).toString("hex");
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours (1 day)
 
       const invitation = await ctx.prisma.invitation.create({
         data: {
@@ -713,6 +732,7 @@ export const adminRouter = router({
           inviterName,
           workspaceName: "TIKTOKFLOW",
           role: input.role,
+          groupName: input.groupName || null,
           invitationUrl: inviteUrl,
           expiresAt,
         });
@@ -738,6 +758,129 @@ export const adminRouter = router({
       };
     }),
 
+  // 9b. Create Bulk Invitations (ADMIN)
+  createBulkInvitations: adminProcedure
+    .input(
+      z.object({
+        emails: z.array(z.string().email()).min(1),
+        role: z.enum(["ADMIN", "LEAD", "STAFF"]).default("STAFF"),
+        groupName: z.string().optional().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const uniqueEmails = Array.from(
+        new Set(input.emails.map((e) => e.trim().toLowerCase()).filter(Boolean))
+      );
+
+      let groupId: string | null = null;
+      if (input.groupName && input.groupName.trim()) {
+        const cleanName = input.groupName.trim();
+        let group = await ctx.prisma.group.findUnique({ where: { name: cleanName } });
+        if (!group) {
+          group = await ctx.prisma.group.create({ data: { name: cleanName } });
+        }
+        groupId = group.id;
+      }
+
+      const crypto = await import("crypto");
+      const { default: emailService } = await import("@/utils/email/emailService");
+      const { InvitationEmailTemplates } = await import("@/utils/email/templates/invitationTemplate");
+      const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      const inviterName = ctx.session.user.name || ctx.session.user.email?.split("@")[0] || "Admin";
+
+      const results: { email: string; success: boolean; message: string }[] = [];
+      let successCount = 0;
+
+      for (const cleanEmail of uniqueEmails) {
+        try {
+          // Check if user already exists and is active
+          const existingUser = await ctx.prisma.user.findUnique({
+            where: { email: cleanEmail },
+          });
+          if (existingUser && existingUser.isActive) {
+            results.push({ email: cleanEmail, success: false, message: "Tài khoản đã tồn tại và đang hoạt động" });
+            continue;
+          }
+
+          // Check if an invitation already exists for this email
+          const existingInvite = await ctx.prisma.invitation.findFirst({
+            where: { email: cleanEmail, status: { in: ["PENDING", "EXPIRED", "REVOKED"] } },
+            orderBy: { createdAt: "desc" },
+          });
+
+          // Option 1 (Industry Best Practice):
+          // If already PENDING, preserve the existing token so earlier email links remain 100% valid!
+          // Only generate a new token if creating from scratch or reviving an EXPIRED/REVOKED invite.
+          const isPending = existingInvite?.status === "PENDING";
+          const token = isPending && existingInvite?.token
+            ? existingInvite.token
+            : crypto.randomBytes(32).toString("hex");
+
+          const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // refresh 24 hours
+
+          if (existingInvite) {
+            await ctx.prisma.invitation.update({
+              where: { id: existingInvite.id },
+              data: {
+                role: input.role,
+                groupId,
+                invitedById: ctx.session.user.id,
+                token,
+                status: "PENDING",
+                expiresAt,
+              },
+            });
+          } else {
+            await ctx.prisma.invitation.create({
+              data: {
+                email: cleanEmail,
+                role: input.role,
+                groupId,
+                invitedById: ctx.session.user.id,
+                token,
+                expiresAt,
+                status: "PENDING",
+              },
+            });
+          }
+
+          // Send email
+          try {
+            const inviteUrl = `${APP_URL}/invite/accept?token=${token}`;
+            const emailContent = InvitationEmailTemplates.getWorkspaceMemberInvite({
+              inviterName,
+              workspaceName: "TIKTOKFLOW",
+              role: input.role,
+              groupName: input.groupName || null,
+              invitationUrl: inviteUrl,
+              expiresAt,
+            });
+
+            await emailService.sendNodemailerEmail(
+              cleanEmail,
+              emailContent.subject,
+              emailContent.html,
+              emailContent.text
+            );
+          } catch (mailErr) {
+            console.error(`Failed to send invitation email to ${cleanEmail}:`, mailErr);
+          }
+
+          successCount++;
+          results.push({ email: cleanEmail, success: true, message: "Đã gửi thư mời" });
+        } catch (itemErr: any) {
+          results.push({ email: cleanEmail, success: false, message: itemErr.message || "Lỗi xử lý" });
+        }
+      }
+
+      return {
+        total: uniqueEmails.length,
+        successCount,
+        failedCount: uniqueEmails.length - successCount,
+        results,
+      };
+    }),
+
   // 10. Resend Invitation (ADMIN)
   resendInvitation: adminProcedure
     .input(
@@ -758,7 +901,7 @@ export const adminRouter = router({
         });
       }
 
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // refresh 7 days
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // refresh 24 hours (1 day)
       const updated = await ctx.prisma.invitation.update({
         where: { id: input.id },
         data: {
@@ -779,6 +922,7 @@ export const adminRouter = router({
           inviterName,
           workspaceName: "TIKTOKFLOW",
           role: updated.role,
+          groupName: invite.group?.name || null,
           invitationUrl: inviteUrl,
           expiresAt,
         });
@@ -825,5 +969,110 @@ export const adminRouter = router({
       });
 
       return { success: true };
+    }),
+
+  // 13. Get or generate Extension Token for a user (ADMIN)
+  getExtensionToken: adminProcedure
+    .input(z.object({ userId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: input.userId },
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          email: true,
+          extensionToken: true,
+          extensionAccessEnabled: true,
+          extensionRevokedAt: true,
+        },
+      });
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+
+      if (user.extensionToken) {
+        return {
+          userId: user.id,
+          token: user.extensionToken,
+          accessEnabled: user.extensionAccessEnabled,
+          revokedAt: user.extensionRevokedAt,
+          isNew: false,
+        };
+      }
+
+      // If access is explicitly revoked, do NOT auto-generate
+      if (user.extensionAccessEnabled === false) {
+        return {
+          userId: user.id,
+          token: null,
+          accessEnabled: false,
+          revokedAt: user.extensionRevokedAt,
+          isNew: false,
+        };
+      }
+
+      // Generate new token
+      const newToken = `ttf_sec_${crypto.randomBytes(16).toString("hex")}`;
+      await ctx.prisma.user.update({
+        where: { id: user.id },
+        data: { extensionToken: newToken, extensionAccessEnabled: true },
+      });
+
+      return {
+        userId: user.id,
+        token: newToken,
+        accessEnabled: true,
+        revokedAt: null,
+        isNew: true,
+      };
+    }),
+
+  // 14. Regenerate Extension Token for a user (ADMIN)
+  regenerateExtensionToken: adminProcedure
+    .input(z.object({ userId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: input.userId },
+      });
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+
+      // If access was previously revoked, re-enable it when Admin regenerates
+      const newToken = `ttf_sec_${crypto.randomBytes(16).toString("hex")}`;
+      await ctx.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          extensionToken: newToken,
+          extensionAccessEnabled: true,
+          extensionRevokedAt: null,
+        },
+      });
+
+      return {
+        userId: user.id,
+        token: newToken,
+      };
+    }),
+
+  // 15. Revoke Extension Token & Access (ADMIN)
+  revokeExtensionToken: adminProcedure
+    .input(z.object({ userId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: input.userId },
+      });
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+
+      await ctx.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          extensionToken: null,
+          extensionAccessEnabled: false,
+          extensionRevokedAt: new Date(),
+        },
+      });
+
+      return {
+        userId: user.id,
+        revoked: true,
+      };
     }),
 });
