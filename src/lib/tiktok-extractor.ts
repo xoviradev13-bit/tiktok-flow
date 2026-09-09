@@ -135,12 +135,12 @@ export function getGpmStoragePath(): string {
   ];
 
   for (const sPath of settingCandidates) {
-    if (fs.existsSync(sPath)) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ sPath)) {
       try {
-        const content = fs.readFileSync(sPath, "utf-8");
+        const content = fs.readFileSync(/*turbopackIgnore: true*/ sPath, "utf-8");
         const parsed = JSON.parse(content);
         const resolvedPath = parsed.local_storage_path || parsed.profile_path || parsed.storage_path;
-        if (resolvedPath && fs.existsSync(resolvedPath)) {
+        if (resolvedPath && fs.existsSync(/*turbopackIgnore: true*/ resolvedPath)) {
           return resolvedPath;
         }
       } catch (err) {
@@ -160,7 +160,7 @@ export function getGpmStoragePath(): string {
   ];
 
   for (const fb of fallbacks) {
-    if (fs.existsSync(fb)) return fb;
+    if (fs.existsSync(/*turbopackIgnore: true*/ fb)) return fb;
   }
 
   return path.join(appData, "GPMLoginGlobal", "Profiles");
@@ -179,7 +179,7 @@ export function getChromeExecutablePath(): string | undefined {
     "ChromiumCore_v151",
     "chrome.exe"
   );
-  if (fs.existsSync(gpmChromePath)) {
+  if (fs.existsSync(/*turbopackIgnore: true*/ gpmChromePath)) {
     return gpmChromePath;
   }
 
@@ -189,7 +189,7 @@ export function getChromeExecutablePath(): string | undefined {
     "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   ];
   for (const sp of systemPaths) {
-    if (fs.existsSync(sp)) return sp;
+    if (fs.existsSync(/*turbopackIgnore: true*/ sp)) return sp;
   }
 
   console.warn(
