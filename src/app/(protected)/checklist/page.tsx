@@ -942,8 +942,14 @@ export default function ChecklistPage() {
 
           {/* Quick Row Expansion control */}
           <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
-            <div>
-              Hiển thị <strong>{timesheetData?.checklists?.length || 0}</strong> bản ghi chấm công.
+            <div className="flex items-center gap-1.5">
+              <span>Hiển thị</span>
+              {loading ? (
+                <span className="inline-block w-8 h-4 rounded bg-slate-200 dark:bg-slate-800 animate-pulse" />
+              ) : (
+                <strong>{timesheetData?.checklists?.length || 0}</strong>
+              )}
+              <span>bản ghi chấm công.</span>
             </div>
             <div className="flex items-center gap-2">
               <button

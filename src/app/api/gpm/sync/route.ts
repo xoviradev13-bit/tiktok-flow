@@ -27,7 +27,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Không thể kết nối với phần mềm GPMLogin tại http://localhost:9495. Vui lòng đảm bảo GPMLogin đang mở.",
+          error: "Không thể kết nối với phần mềm GPMLogin (đã dò cổng 9495/19995/19996…). Vui lòng đảm bảo GPMLogin đang mở và bật API Setting.",
         },
         { status: 200 }
       );

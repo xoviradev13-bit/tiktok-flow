@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import jwt, { TokenExpiredError } from "jsonwebtoken";
 import { prisma } from "@/lib/prisma";
+import { rejectIfExtAccessTyp } from "@/lib/extension-auth";
 
 const JWT_SECRET = process.env.AUTH_SECRET || "default-secret";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -18,13 +19,14 @@ export async function GET(req: Request) {
 
   try {
     // Verify token
-    let decoded: { email: string; password: string; name?: string; callbackUrl?: string };
+    let decoded: { email: string; password: string; name?: string; callbackUrl?: string; typ?: string };
     try {
       decoded = jwt.verify(token, JWT_SECRET) as {
         email: string;
         password: string;
         name?: string;
         callbackUrl?: string;
+        typ?: string;
       };
     } catch (jwtError) {
       if (jwtError instanceof TokenExpiredError) {
@@ -32,6 +34,12 @@ export async function GET(req: Request) {
           `${APP_URL}/auth/error?error=TOKEN_EXPIRED`
         );
       }
+      return NextResponse.redirect(
+        `${APP_URL}/auth/error?error=TOKEN_INVALID`
+      );
+    }
+
+    if (rejectIfExtAccessTyp(decoded)) {
       return NextResponse.redirect(
         `${APP_URL}/auth/error?error=TOKEN_INVALID`
       );

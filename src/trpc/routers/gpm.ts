@@ -86,7 +86,7 @@ export const gpmRouter = router({
       if (!res) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Không thể kết nối đến GPMLogin (Port 9495 / 19995). Hãy chắc chắn ứng dụng GPMLogin đang mở trên máy tính và bật API Setting!",
+          message: "Không thể kết nối đến GPMLogin (đã dò cổng 9495/19995/19996…). Hãy chắc chắn ứng dụng GPMLogin đang mở trên máy tính và bật API Setting!",
         });
       }
       return res;

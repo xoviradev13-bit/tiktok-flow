@@ -40,13 +40,21 @@ export default function Sidebar() {
   const { isCollapsed, toggleSidebar, mobileOpen, setMobileOpen } = useSidebar();
   const { data: session } = useSession();
   const [gpmOnline, setGpmOnline] = useState<boolean | null>(null);
+  const [gpmPort, setGpmPort] = useState<number | null>(null);
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
 
   useEffect(() => {
-    // Check GPM API status
+    // Check GPM API status (auto-detected port)
     fetch("/api/gpm/scan")
-      .then(() => setGpmOnline(true))
-      .catch(() => setGpmOnline(false));
+      .then((r) => r.json())
+      .then((data) => {
+        setGpmOnline(!!data?.isOnline);
+        setGpmPort(typeof data?.port === "number" ? data.port : null);
+      })
+      .catch(() => {
+        setGpmOnline(false);
+        setGpmPort(null);
+      });
   }, []);
 
   // Close mobile drawer on route change
@@ -323,7 +331,7 @@ export default function Sidebar() {
                     : "bg-emerald-500"
                 }`}
               />
-              <span>GPMLogin API (9495)</span>
+              <span>GPMLogin API{gpmPort ? ` (${gpmPort})` : ""}</span>
             </div>
             <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
               Online
@@ -344,7 +352,10 @@ export default function Sidebar() {
                     />
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="right">GPMLogin API: Online (Port 9495)</TooltipContent>
+                <TooltipContent side="right">
+                  GPMLogin API: {gpmOnline ? "Online" : "Offline"}
+                  {gpmPort ? ` (Port ${gpmPort})` : ""}
+                </TooltipContent>
               </Tooltip>
             </div>
           )}

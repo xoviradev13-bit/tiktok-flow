@@ -29,6 +29,202 @@ if (fs.existsSync(CONFIG_FILE)) {
 // Normalize serverUrl
 config.serverUrl = (config.serverUrl || "http://localhost:3000").replace(/\/+$/, "");
 
+function persistConfig() {
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[!] Khong the ghi config.json:", err.message);
+  }
+}
+
+/**
+ * Clear local token after server revoke so the agent cannot keep replaying a dead secret.
+ */
+function markTokenRevoked(reason, httpStatus) {
+  const message =
+    reason ||
+    (httpStatus === 403
+      ? "Quyen Extension da bi vo hieu hoa boi Quan tri vien."
+      : "Personal Token khong hop le hoac da bi thu hoi.");
+
+  config.personalToken = "";
+  config.accessToken = "";
+  config.accessExpiresAt = 0;
+  config.refreshToken = "";
+  config.pairingCode = "";
+  config.tokenRevoked = true;
+  config.tokenRevokedReason = message;
+  config.tokenRevokedAt = new Date().toISOString();
+  persistConfig();
+
+  console.error("\n========================================================");
+  console.error("   [YEU CAU XAC THUC LAI] PERSONAL TOKEN BI THU HOI     ");
+  console.error("========================================================");
+  console.error(`   ${message}`);
+  console.error("   -> Mo trang Cai dat / Users tren web de lay Token moi");
+  console.error("   -> Chay setup-agent.bat (phim 3) de nhap Token moi");
+  console.error("   -> Hoac tai lai zip (ma pairing) tu Settings");
+  console.error("========================================================\n");
+
+  return { authRequired: true, error: message };
+}
+
+async function redeemPairingIfNeeded() {
+  if (config.tokenRevoked || config.personalToken || !config.pairingCode) return true;
+
+  try {
+    const res = await fetch(`${config.serverUrl}/api/extension/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pairingCode: config.pairingCode }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.personalToken) {
+      markTokenRevoked(
+        json.error ||
+          "Ma pairing het han hoac da dung. Tai lai zip hoac nhap Personal Token (setup-agent.bat phim 3).",
+        res.status
+      );
+      return false;
+    }
+
+    config.personalToken = json.personalToken;
+    config.accessToken = json.accessToken || "";
+    config.accessExpiresAt = json.accessToken
+      ? Date.now() + (Number(json.expiresIn) || 900) * 1000 - 30_000
+      : 0;
+    config.refreshToken = json.refreshToken || "";
+    config.pairingCode = "";
+    if (json.serverUrl) config.serverUrl = String(json.serverUrl).replace(/\/+$/, "");
+    config.tokenRevoked = false;
+    config.tokenRevokedReason = "";
+    persistConfig();
+    console.log("[+] Pairing redeemed thanh cong.");
+    return true;
+  } catch (err) {
+    console.warn("[!] Pairing redeem loi:", err.message);
+    return false;
+  }
+}
+
+async function exchangeSession() {
+  const res = await fetch(`${config.serverUrl}/api/extension/session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.personalToken}`,
+    },
+    body: JSON.stringify({}),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, status: res.status, error: json.error };
+  config.accessToken = json.accessToken;
+  config.accessExpiresAt = Date.now() + (Number(json.expiresIn) || 900) * 1000 - 30_000;
+  config.refreshToken = json.refreshToken;
+  persistConfig();
+  return { ok: true };
+}
+
+async function refreshSession() {
+  const res = await fetch(`${config.serverUrl}/api/extension/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: config.refreshToken }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      error: json.error,
+      reuseDetected: !!json.reuseDetected,
+    };
+  }
+  config.accessToken = json.accessToken;
+  config.accessExpiresAt = Date.now() + (Number(json.expiresIn) || 900) * 1000 - 30_000;
+  config.refreshToken = json.refreshToken;
+  persistConfig();
+  return { ok: true };
+}
+
+async function ensureAccessToken() {
+  await redeemPairingIfNeeded();
+  if (config.tokenRevoked || !config.personalToken) {
+    return { ok: false, bearer: null };
+  }
+  if (config.accessToken && config.accessExpiresAt && Date.now() < config.accessExpiresAt) {
+    return { ok: true, bearer: config.accessToken };
+  }
+  if (config.refreshToken) {
+    const refreshed = await refreshSession();
+    if (refreshed.ok) return { ok: true, bearer: config.accessToken };
+    if (refreshed.reuseDetected || refreshed.status === 401) {
+      const exchanged = await exchangeSession();
+      if (exchanged.ok) return { ok: true, bearer: config.accessToken };
+      if (exchanged.status === 401 || exchanged.status === 403) {
+        markTokenRevoked(exchanged.error, exchanged.status);
+        return { ok: false, bearer: null };
+      }
+    }
+  }
+  const exchanged = await exchangeSession();
+  if (exchanged.ok) return { ok: true, bearer: config.accessToken };
+  if (exchanged.status === 401 || exchanged.status === 403) {
+    markTokenRevoked(exchanged.error, exchanged.status);
+    return { ok: false, bearer: null };
+  }
+  return { ok: true, bearer: config.personalToken };
+}
+
+async function verifyPersonalTokenAtStartup() {
+  await redeemPairingIfNeeded();
+
+  if (!config.personalToken) {
+    if (config.tokenRevoked) {
+      markTokenRevoked(config.tokenRevokedReason || "Token da bi thu hoi truoc do.");
+      return false;
+    }
+    console.warn("[!] CHUA CO PERSONAL TOKEN — Agent se khong gui duoc bao cao len server.");
+    return false;
+  }
+
+  try {
+    const session = await ensureAccessToken();
+    if (session.ok && session.bearer) {
+      config.tokenRevoked = false;
+      config.tokenRevokedReason = "";
+      persistConfig();
+      console.log("[+] Session JWT / token san sang.");
+      return true;
+    }
+
+    const res = await fetch(`${config.serverUrl}/api/extension/verify-token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.personalToken}`,
+      },
+      body: JSON.stringify({ token: config.personalToken }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.valid) {
+      config.tokenRevoked = false;
+      config.tokenRevokedReason = "";
+      persistConfig();
+      console.log(`[+] Token hop le — nhan su: ${data.user?.name || data.user?.email || "OK"}`);
+      return true;
+    }
+    if (res.status === 401 || res.status === 403) {
+      markTokenRevoked(data.error, res.status);
+      return false;
+    }
+    console.warn(`[!] Khong xac minh duoc token (HTTP ${res.status}). Tiep tuc voi canh bao.`);
+    return true;
+  } catch (err) {
+    console.warn("[!] Khong ket noi duoc may chu de verify token:", err.message);
+    return true; // offline: don't clear token
+  }
+}
 // 🛡️ User Protection: Hạ độ ưu tiên tiến trình xuống BELOW_NORMAL
 // Đảm bảo Windows luôn nhường 100% CPU/I/O cho các ứng dụng người dùng đang mở (Word, Chrome, Game,...)
 try {
@@ -234,49 +430,183 @@ export function getChromeExecutablePath() {
   return undefined;
 }
 
+/** Common GPMLogin local API ports (same set as Extension / server). */
+const GPM_PORT_CANDIDATES = [9495, 19995, 19996, 19994, 8848];
+const GPM_API_VERSIONS = ["v1", "v3"];
+
+function readGpmConfiguredApiPort() {
+  const appData = process.env.APPDATA || "";
+  const localAppData = process.env.LOCALAPPDATA || "";
+  const settingCandidates = [
+    path.join(appData, "GPMLoginGlobal", "setting.dat"),
+    path.join(appData, "GPMLoginGlobal", "gpm_setting.dat"),
+    path.join(appData, "GPMLogin", "setting.dat"),
+    path.join(localAppData, "GPMLoginGlobal", "setting.dat"),
+  ];
+  for (const sPath of settingCandidates) {
+    try {
+      if (!fs.existsSync(sPath)) continue;
+      const parsed = JSON.parse(fs.readFileSync(sPath, "utf-8"));
+      const port = Number(parsed?.api?.port);
+      if (Number.isFinite(port) && port > 0) return port;
+    } catch { }
+  }
+  return null;
+}
+
+/**
+ * Probe local GPMLogin HTTP API and return the live base URL + port.
+ * Client Agent primarily uses disk profiles; this is for health/logging.
+ */
+export async function discoverGpmApiBase() {
+  const configuredPort = readGpmConfiguredApiPort();
+  const ports = [...(configuredPort ? [configuredPort] : []), ...GPM_PORT_CANDIDATES];
+  const seen = new Set();
+  const bases = [];
+
+  for (const port of ports) {
+    if (seen.has(port)) continue;
+    seen.add(port);
+    for (const ver of GPM_API_VERSIONS) {
+      bases.push(`http://127.0.0.1:${port}/api/${ver}`);
+    }
+  }
+
+  for (const base of bases) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    try {
+      const resp = await fetch(`${base}/profiles?page=1&per_page=1&page_size=1`, {
+        signal: controller.signal,
+      });
+      if (resp && resp.ok) {
+        const portMatch = base.match(/:(\d+)\//);
+        return {
+          online: true,
+          base,
+          port: portMatch ? Number(portMatch[1]) : null,
+        };
+      }
+    } catch { } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  return {
+    online: false,
+    base: null,
+    port: configuredPort || 9495,
+  };
+}
+
 // ==========================================
 // 4. READ-ONLY TIKTOK HANDLE DETECTION
 // ==========================================
+
+const NON_USER_PATH_SEGMENTS = new Set([
+  "foryou", "following", "friends", "live", "explore", "search", "messages",
+  "inbox", "upload", "setting", "settings", "privacy", "embed", "music", "tag",
+  "place", "effect", "coin", "balance", "wallet", "login", "signup", "about",
+  "creators", "business", "developers", "legal", "feedback", "discover",
+  "channel", "shop", "tiktokstudio", "creator-center",
+]);
+
+function isPlausibleTikTokHandle(raw) {
+  if (!raw) return false;
+  const h = String(raw).replace(/^@/, "").trim();
+  if (h.length < 2 || h.length > 24) return false;
+  if (!/^[a-zA-Z0-9._]+$/.test(h)) return false;
+  if (/https?$/i.test(h)) return false;
+  if (NON_USER_PATH_SEGMENTS.has(h.toLowerCase())) return false;
+  return true;
+}
+
+/**
+ * Score candidate handles from History/LevelDB.
+ * Never return the first /@ History URL — that is often a visited public profile.
+ * Returns null when the winner is ambiguous (common on multi-visit profiles).
+ */
+function scoreLoggedInHandleFromArtifacts(blob) {
+  const scores = new Map();
+  const bump = (raw, weight) => {
+    if (!isPlausibleTikTokHandle(raw)) return;
+    const casing = String(raw).replace(/^@/, "").trim();
+    const key = casing.toLowerCase();
+    const prev = scores.get(key);
+    if (prev) prev.score += weight;
+    else scores.set(key, { score: weight, casing });
+  };
+
+  for (const m of blob.matchAll(/"UniqId"\s*:\s*"([a-zA-Z0-9._]{2,24})"/g)) bump(m[1], 100);
+  for (const m of blob.matchAll(/"uniqueId"\s*:\s*"([a-zA-Z0-9._]{2,24})"/g)) bump(m[1], 60);
+  for (const m of blob.matchAll(/"unique_id"\s*:\s*"([a-zA-Z0-9._]{2,24})"/g)) bump(m[1], 60);
+  for (const m of blob.matchAll(/"screen_name"\s*:\s*"([a-zA-Z0-9._]{2,24})"/g)) bump(m[1], 40);
+  for (const m of blob.matchAll(/(?:tiktokstudio|creator-center|Creator_Center)[\s\S]{0,160}?@([a-zA-Z0-9._]{2,24})(?![a-zA-Z0-9._])/gi)) {
+    bump(m[1], 25);
+  }
+  for (const m of blob.matchAll(/refer_title":"\/@([a-zA-Z0-9._]{2,24})"/g)) bump(m[1], 1);
+  for (const m of blob.matchAll(/\(@([a-zA-Z0-9._]{2,24})\)/g)) bump(m[1], 3);
+  for (const m of blob.matchAll(/https:\/\/(?:www\.)?tiktok\.com\/@([a-zA-Z0-9._]{2,24})(?![a-zA-Z0-9._])/g)) {
+    bump(m[1], 1);
+  }
+
+  let best = null;
+  let second = 0;
+  for (const val of scores.values()) {
+    if (!best || val.score > best.score) {
+      if (best) second = Math.max(second, best.score);
+      best = val;
+    } else if (val.score > second) {
+      second = val.score;
+    }
+  }
+  if (!best || best.score < 2) return null;
+
+  // UniqId / uniqueId / screen_name level — always trust
+  if (best.score >= 60) return best.casing;
+
+  // History-only: require a clear margin so visited public profiles don't win
+  if (best.score - second >= 3 && best.score >= 5) return best.casing;
+
+  return null;
+}
 
 export function findTikTokHandleInProfile(profileDir) {
   try {
     const defaultDir = path.join(profileDir, "Default");
     if (!fs.existsSync(defaultDir)) return null;
 
-    // 1. Check Chrome History SQLite (Read-Only Buffer)
+    const chunks = [];
+
     const historyPath = path.join(defaultDir, "History");
     if (fs.existsSync(historyPath)) {
       try {
-        const histBuf = fs.readFileSync(historyPath);
-        const str = histBuf.toString("latin1");
-        const re = /https:\/\/www\.tiktok\.com\/@([a-zA-Z0-9_.-]+)/g;
-        let match;
-        while ((match = re.exec(str)) !== null) {
-          const raw = match[1].replace(/[^a-zA-Z0-9_.-]/g, "");
-          if (raw && !raw.includes("login") && !raw.includes("signup") && raw.length >= 3) {
-            return raw;
-          }
+        chunks.push(fs.readFileSync(historyPath).toString("latin1"));
+      } catch { }
+    }
+
+    const levelDbDir = path.join(defaultDir, "Local Storage", "leveldb");
+    if (fs.existsSync(levelDbDir)) {
+      try {
+        for (const f of fs.readdirSync(levelDbDir)) {
+          if (!f.endsWith(".log") && !f.endsWith(".ldb")) continue;
+          try {
+            chunks.push(fs.readFileSync(path.join(levelDbDir, f)).toString("latin1"));
+          } catch { }
         }
       } catch { }
     }
 
-    // 2. Check Local Storage LevelDB (Read-Only Buffer)
-    const levelDbDir = path.join(defaultDir, "Local Storage", "leveldb");
-    if (fs.existsSync(levelDbDir)) {
+    for (const rel of ["Preferences", "Secure Preferences", "Network/Cookies"]) {
+      const p = path.join(defaultDir, rel);
+      if (!fs.existsSync(p)) continue;
       try {
-        const files = fs.readdirSync(levelDbDir);
-        for (const f of files) {
-          if (f.endsWith(".log") || f.endsWith(".ldb")) {
-            try {
-              const buf = fs.readFileSync(path.join(levelDbDir, f));
-              const str = buf.toString("latin1");
-              const m = str.match(/refer_title":"\/@([a-zA-Z0-9_.-]+)"/);
-              if (m && m[1]) return m[1];
-            } catch { }
-          }
-        }
+        const buf = fs.readFileSync(p);
+        chunks.push(buf.toString("latin1", 0, Math.min(buf.length, 8 * 1024 * 1024)));
       } catch { }
     }
+
+    return scoreLoggedInHandleFromArtifacts(chunks.join("\n"));
   } catch { }
   return null;
 }
@@ -487,11 +817,48 @@ async function extractProfileStudio(profileDir, profileId, chromePath, detectedH
 
     const totalViews = videosList.reduce((sum, v) => sum + v.views, 0);
 
-    // Reliable Username detection: API UniqId -> SQLite History -> NickName -> Fallback
+    // Reliable Username: Studio API UniqId > Passport session > disk (never prefer visited public profiles)
+    let sessionHandle = userInfo?.UniqId || null;
+    if (!sessionHandle) {
+      try {
+        const passRes = await page.goto(
+          "https://www.tiktok.com/passport/web/account/info/?app_id=1233",
+          { waitUntil: "domcontentloaded", timeout: 10000 }
+        ).catch(() => null);
+        if (passRes) {
+          const info = await page.evaluate(() => {
+            try {
+              return JSON.parse(document.body?.innerText || "{}");
+            } catch {
+              return null;
+            }
+          }).catch(() => null);
+          sessionHandle = info?.data?.username || info?.data?.screen_name || null;
+        }
+        // Return to studio content context for monetization step if needed
+        await page.goto("https://www.tiktok.com/tiktokstudio/content", {
+          waitUntil: "domcontentloaded",
+          timeout: 12000,
+        }).catch(() => { });
+      } catch { }
+    }
+
     const finalHandle =
-      userInfo?.UniqId ||
-      detectedHandle ||
-      (userInfo?.NickName ? userInfo.NickName.replace(/\s+/g, "_") : `profile_${profileId.slice(0, 8)}`);
+      sessionHandle ||
+      null;
+
+    if (detectedHandle && sessionHandle && detectedHandle.toLowerCase() !== String(sessionHandle).toLowerCase()) {
+      console.warn(
+        `   [!] Disk handle @${detectedHandle} != session @${sessionHandle} — using session identity (bo qua public profile visit)`
+      );
+    }
+
+    if (!finalHandle) {
+      return {
+        success: false,
+        error: "Khong xac minh duoc username dang nhap (Studio UniqId / passport). Bo qua de tranh gan nham public profile.",
+      };
+    }
 
     // Visit monetization tab if channel has content/views
     let totalRewardsUsd = null;
@@ -562,7 +929,6 @@ async function extractProfileStudio(profileDir, profileId, chromePath, detectedH
         isLoggedIn: true,
         gpmProfileId: profileId,
         memberEmail: config.memberEmail,
-        personalToken: config.personalToken,
       },
     };
   } catch (err) {
@@ -595,12 +961,25 @@ async function performFullSweep() {
   console.log(`[+] Bo nho dem    : Khu tai Media (Tiet kiem 85% bang thong & RAM)`);
   console.log("--------------------------------------------------------");
 
+  const tokenOk = await verifyPersonalTokenAtStartup();
+  if (!tokenOk && config.tokenRevoked) {
+    console.error("[!] Dung quet — can nhap Personal Token moi truoc khi tiep tuc.");
+    return;
+  }
   // 1. Discover GPM storage and Chrome
   const storagePath = getGpmStoragePath();
   const chromePath = getChromeExecutablePath();
+  const gpmApi = await discoverGpmApiBase();
 
   console.log(`[*] Thu muc Profiles (Read-Only): ${storagePath}`);
   console.log(`[*] Trinh duyet Chrome: ${chromePath || "Playwright Chromium tich hop"}`);
+  if (gpmApi.online) {
+    console.log(`[*] GPMLogin API: Online · localhost:${gpmApi.port} (${gpmApi.base})`);
+  } else {
+    console.log(
+      `[*] GPMLogin API: Offline (da do cong 9495/19995/19996…). Agent van quet o dia Profiles.`
+    );
+  }
 
   if (!fs.existsSync(storagePath)) {
     console.error(`[!] LOI: Khong tim thay thu muc profile GPMLogin tai:\n   ${storagePath}`);
@@ -620,41 +999,47 @@ async function performFullSweep() {
   for (const p of profileDirs) {
     const fullDir = path.join(storagePath, p.name);
     const handle = findTikTokHandleInProfile(fullDir);
+    if (handle) {
+      console.log(`   [disk] ${p.name.slice(0, 8)}… → @${handle}`);
+    } else {
+      console.log(`   [disk] ${p.name.slice(0, 8)}… → (chua xac dinh — doi Studio UniqId)`);
+    }
     profilesToSync.push({
       id: p.name,
       name: p.name,
+      // Only high-confidence disk handles (null is safer than a visited public profile)
       tiktokHandle: handle,
       fullDir,
     });
   }
 
-  // Common secure headers
+  // Common secure headers — prefer short-lived access JWT
+  const sessionAuth = await ensureAccessToken();
+  const bearer = sessionAuth.bearer || config.personalToken;
   const authHeaders = {
     "Content-Type": "application/json",
-    ...(config.personalToken
-      ? {
-        Authorization: `Bearer ${config.personalToken}`,
-        "x-client-token": config.personalToken,
-      }
-      : {}),
+    ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
   };
 
   // 3. Sync Fleet Inventory to Server
   console.log("\n[>] Dang dong bo danh sach profile len may chu...");
-  if (!config.personalToken) {
-    console.warn("   [!] CHUA CO PERSONAL TOKEN: Hay chay file setup-agent.bat (chon 3) de nhap Token tu trang Cai Dat tren web.");
+  if (!bearer) {
+    console.warn("   [!] CHUA CO PERSONAL TOKEN: Hay chay file setup-agent.bat (chon 3) de nhap Token tu trang Cai Dat tren web, hoac tai lai zip pairing.");
   }
+
+  let authBlocked = !bearer && !!config.tokenRevoked;
 
   try {
     const res = await fetch(`${config.serverUrl}/api/gpm/client-sync`, {
       method: "POST",
       headers: authHeaders,
       body: JSON.stringify({
-        userEmail: config.memberEmail,
+        // Identity from Authorization Bearer only — omit memberEmail to avoid stale mismatch 403s.
         profiles: profilesToSync.map((p) => ({
           id: p.id,
           name: p.name,
-          tiktokHandle: p.tiktokHandle,
+          // Required for server to link Extension-created accounts → GPM UUID
+          tiktokHandle: p.tiktokHandle || null,
         })),
       }),
     });
@@ -662,9 +1047,10 @@ async function performFullSweep() {
     if (res.ok) {
       const syncResult = await res.json();
       console.log(`   [OK] Dong bo thanh cong: ${syncResult.totalScanned || profilesToSync.length} tai khoan ghi nhan.`);
-    } else if (res.status === 401) {
-      console.warn(`   [!] LOI XAC THUC (401): Token chua duoc cau hinh hoac da het han.`);
-      console.warn(`       -> Hay chay setup-agent.bat (phim 3) de cap nhat Token moi.`);
+    } else if (res.status === 401 || res.status === 403) {
+      const errData = await res.json().catch(() => ({}));
+      markTokenRevoked(errData.error, res.status);
+      authBlocked = true;
     } else {
       const err = await res.text();
       console.warn(`   [!] May chu phan hoi (${res.status}):`, err.slice(0, 150));
@@ -673,7 +1059,13 @@ async function performFullSweep() {
     console.warn("   [!] Khong the ket noi toi server de dong bo danh sach:", err.message);
   }
 
+  if (authBlocked) {
+    console.error("[!] Dung Deep Sweeper — Personal Token can duoc cap nhat truoc.");
+    return;
+  }
+
   // 4. Run Deep Sweeper on Profiles with TikTok
+  // Prefer session-confirmed scans; disk handle is only a weak hint for ordering/logging
   const activeTikTokProfiles = profilesToSync.filter((p) => p.tiktokHandle || profilesToSync.length <= 15);
   console.log(`\n[*] Bat dau cao so lieu chuyen sau TikTok Studio (${activeTikTokProfiles.length} profiles)...`);
   console.log("    Qua trinh chay ngam doc lap qua Snapshot, khong sua/xoa du lieu tren o cung.\n");
@@ -684,6 +1076,11 @@ async function performFullSweep() {
   await pMap(
     activeTikTokProfiles,
     async (p, idx) => {
+      if (authBlocked || config.tokenRevoked) {
+        failCount++;
+        return;
+      }
+
       const label = p.tiktokHandle ? `@${p.tiktokHandle}` : `Profile ${p.id.slice(0, 8)}`;
       console.log(`[${idx + 1}/${activeTikTokProfiles.length}] [SCAN] Dang quet ${label}...`);
 
@@ -693,17 +1090,29 @@ async function performFullSweep() {
         successCount++;
         const d = result.data;
         console.log(
-          `   [OK] ${label}: ${d.followersCount.toLocaleString()} followers | ` +
+          `   [OK] @${d.username}: ${d.followersCount.toLocaleString()} followers | ` +
           `${d.totalViews.toLocaleString()} views | Doanh thu: ${d.totalRevenue !== null ? `${d.currency}${d.totalRevenue}` : "Chua bat"}`
         );
 
-        // Send Studio Report to Server with Token
+        // Send Studio Report to Server with Token (session UniqId + gpmProfileId)
         try {
-          await fetch(`${config.serverUrl}/api/extension/report`, {
+          const reportRes = await fetch(`${config.serverUrl}/api/extension/report`, {
             method: "POST",
             headers: authHeaders,
-            body: JSON.stringify(d),
+            body: JSON.stringify({
+              ...d,
+              // Prefer Bearer session identity — avoid stale zip email mismatch
+              memberEmail: undefined,
+            }),
           });
+          if (reportRes.status === 401 || reportRes.status === 403) {
+            const errData = await reportRes.json().catch(() => ({}));
+            markTokenRevoked(errData.error, reportRes.status);
+            authBlocked = true;
+            console.warn(`   [!] Bao cao bi tu choi (auth) — dung cac profile con lai.`);
+          } else if (!reportRes.ok) {
+            console.warn(`   [!] May chu tu choi bao cao @${d.username}: HTTP ${reportRes.status}`);
+          }
         } catch (postErr) {
           console.warn(`   [!] Khong the gui bao cao @${d.username} len server:`, postErr.message);
         }
@@ -731,10 +1140,7 @@ async function fetchServerSchedule() {
   try {
     const authHeaders = {
       ...(config.personalToken
-        ? {
-          Authorization: `Bearer ${config.personalToken}`,
-          "x-client-token": config.personalToken,
-        }
+        ? { Authorization: `Bearer ${config.personalToken}` }
         : {}),
     };
     const res = await fetch(`${config.serverUrl}/api/gpm/client-sync`, {

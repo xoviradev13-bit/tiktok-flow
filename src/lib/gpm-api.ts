@@ -1,8 +1,11 @@
 /**
- * GPMLogin Local REST API Client (v1)
- * Official API Documentation: https://api-docs.gpmloginapp.com/
- * Default Base URL: http://localhost:9495/api/v1
+ * GPMLogin Local REST API Client
+ * Auto-detects live API port (9495 / 19995 / 19996 / setting.dat api.port).
  */
+
+import fs from "fs";
+import path from "path";
+import os from "os";
 
 export interface GpmProfileItem {
   id: string;
@@ -10,10 +13,7 @@ export interface GpmProfileItem {
   group_id: string;
   storage_path: string;
   raw_proxy: string;
-  browser: {
-    name: string;
-    version: string;
-  };
+  browser: { name: string; version: string };
   os: string;
   note: string;
   created_at: string;
@@ -49,6 +49,63 @@ export interface GpmPagination<T> {
   data: T[];
 }
 
+export interface GpmConnectionStatus {
+  isOnline: boolean;
+  message: string;
+  version?: string;
+  baseUrl: string;
+  port: number | null;
+}
+
+export const GPM_PORT_CANDIDATES = [9495, 19995, 19996, 19994, 8848] as const;
+export const GPM_API_VERSIONS = ["v1", "v3"] as const;
+
+export function portFromBaseUrl(baseUrl: string): number | null {
+  const m = String(baseUrl || "").match(/:(\d+)(?:\/|$)/);
+  return m ? Number(m[1]) : null;
+}
+
+export function readGpmConfiguredApiPort(): number | null {
+  const appData = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+  const localAppData =
+    process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  const settingCandidates = [
+    path.join(appData, "GPMLoginGlobal", "setting.dat"),
+    path.join(appData, "GPMLoginGlobal", "gpm_setting.dat"),
+    path.join(appData, "GPMLogin", "setting.dat"),
+    path.join(localAppData, "GPMLoginGlobal", "setting.dat"),
+  ];
+  for (const sPath of settingCandidates) {
+    try {
+      if (!fs.existsSync(/*turbopackIgnore: true*/ sPath)) continue;
+      const parsed = JSON.parse(fs.readFileSync(/*turbopackIgnore: true*/ sPath, "utf-8"));
+      const port = Number(parsed?.api?.port);
+      if (Number.isFinite(port) && port > 0) return port;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+function buildGpmBaseCandidates(preferredBase?: string): string[] {
+  const bases: string[] = [];
+  if (preferredBase) {
+    bases.push(preferredBase.replace(/\/$/, "").replace("localhost", "127.0.0.1"));
+  }
+  const configuredPort = readGpmConfiguredApiPort();
+  const ports = [...(configuredPort ? [configuredPort] : []), ...GPM_PORT_CANDIDATES];
+  const seen = new Set<number>();
+  for (const port of ports) {
+    if (seen.has(port)) continue;
+    seen.add(port);
+    for (const ver of GPM_API_VERSIONS) {
+      bases.push(`http://127.0.0.1:${port}/api/${ver}`);
+    }
+  }
+  return Array.from(new Set(bases));
+}
+
 export class GpmApiClient {
   private baseUrl: string;
 
@@ -64,83 +121,80 @@ export class GpmApiClient {
     return this.baseUrl;
   }
 
-  /**
-   * Health check to see if GPM-Login app HTTP server is actively running
-   * Probes default port and common GPM ports (9495, 19995)
-   */
-  async checkConnection(): Promise<{ isOnline: boolean; message: string; version?: string; baseUrl: string }> {
-    const candidateUrls = [
-      this.baseUrl,
-      "http://127.0.0.1:9495/api/v1",
-      "http://127.0.0.1:9495/api/v3",
-      "http://127.0.0.1:19995/api/v3",
-      "http://127.0.0.1:19995/api/v1",
-    ];
+  public getPort(): number | null {
+    return portFromBaseUrl(this.baseUrl);
+  }
 
-    const uniqueUrls = Array.from(new Set(candidateUrls));
-
-    for (const candidate of uniqueUrls) {
+  async checkConnection(): Promise<GpmConnectionStatus> {
+    for (const candidate of buildGpmBaseCandidates(this.baseUrl)) {
       try {
-        const res = await fetch(`${candidate}/profiles?page=1&page_size=1`, {
+        const res = await fetch(`${candidate}/profiles?page=1&per_page=1&page_size=1`, {
           method: "GET",
           headers: { "Content-Type": "application/json" },
           signal: AbortSignal.timeout(2000),
         });
-
         if (res.ok) {
           const json: GpmApiResponse<any> = await res.json();
           this.baseUrl = candidate;
+          const port = portFromBaseUrl(candidate);
           return {
             isOnline: json.success !== false,
-            message: json.message || "GPMLogin is online",
+            message: json.message || `GPMLogin is online (port ${port})`,
             version: json.sender,
             baseUrl: this.baseUrl,
+            port,
           };
         }
       } catch {
-        // Try next candidate
+        /* next */
       }
     }
-
     return {
       isOnline: false,
-      message: "Không thể kết nối đến GPMLogin (Port 9495/19995). Vui lòng mở ứng dụng GPMLogin.",
+      message:
+        "Không thể kết nối đến GPMLogin (đã dò cổng 9495/19995/19996…). Vui lòng mở GPMLogin và bật API Setting.",
       baseUrl: this.baseUrl,
+      port: portFromBaseUrl(this.baseUrl),
     };
   }
 
-  /**
-   * List all profiles with pagination and search
-   */
   async listProfiles(
     page = 1,
     pageSize = 100,
     search = ""
   ): Promise<GpmPagination<GpmProfileItem> | null> {
-    try {
+    const attempt = async () => {
       const url = new URL(`${this.baseUrl}/profiles`);
       url.searchParams.set("page", String(page));
       url.searchParams.set("page_size", String(pageSize));
+      url.searchParams.set("per_page", String(pageSize));
       if (search) url.searchParams.set("search", search);
-
       const res = await fetch(url.toString(), {
         method: "GET",
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(5000),
       });
-
       if (!res.ok) throw new Error(`GPMLogin responded with status ${res.status}`);
       const json: GpmApiResponse<GpmPagination<GpmProfileItem>> = await res.json();
       return json.data;
-    } catch (err) {
-      console.warn("[GpmApiClient] Failed to list profiles:", err);
-      return null;
+    };
+    try {
+      return await attempt();
+    } catch (firstErr) {
+      try {
+        const health = await this.checkConnection();
+        if (!health.isOnline) {
+          console.warn("[GpmApiClient] Failed to list profiles:", firstErr);
+          return null;
+        }
+        return await attempt();
+      } catch (err) {
+        console.warn("[GpmApiClient] Failed to list profiles:", err);
+        return null;
+      }
     }
   }
 
-  /**
-   * Get single profile details (including full fingerprint)
-   */
   async getProfile(profileId: string): Promise<GpmProfileItem | null> {
     try {
       const res = await fetch(`${this.baseUrl}/profiles/${profileId}`, {
@@ -156,9 +210,6 @@ export class GpmApiClient {
     }
   }
 
-  /**
-   * Start profile browser and get WebSocket debugging URL
-   */
   async startProfile(
     profileId: string,
     options?: {
@@ -168,105 +219,76 @@ export class GpmApiClient {
       url?: string;
     }
   ): Promise<GpmStartResponse | null> {
-    const candidateBaseUrls = Array.from(
-      new Set([
-        this.baseUrl,
-        "http://127.0.0.1:9495/api/v1",
-        "http://127.0.0.1:9495/api/v3",
-        "http://127.0.0.1:19995/api/v3",
-        "http://127.0.0.1:19995/api/v1",
-      ])
-    );
+    const targetUrl =
+      options?.url || (options?.additionArgs?.startsWith("http") ? options.additionArgs : null);
 
-    const targetUrl = options?.url || (options?.additionArgs?.startsWith("http") ? options.additionArgs : null);
-
-    for (const base of candidateBaseUrls) {
+    for (const base of buildGpmBaseCandidates(this.baseUrl)) {
       try {
         const url = new URL(`${base}/profiles/start/${profileId}`);
         if (options?.skipProxyCheck) url.searchParams.set("skip_proxy_check", "true");
         if (options?.windowScale) url.searchParams.set("window_scale", String(options.windowScale));
-        if (options?.additionArgs) {
-          url.searchParams.set("addition_args", options.additionArgs);
-        } else if (targetUrl) {
-          url.searchParams.set("addition_args", targetUrl);
-        }
-        if (options?.url) {
-          url.searchParams.set("url", options.url);
-        }
+        if (options?.additionArgs) url.searchParams.set("addition_args", options.additionArgs);
+        else if (targetUrl) url.searchParams.set("addition_args", targetUrl);
+        if (options?.url) url.searchParams.set("url", options.url);
 
         const res = await fetch(url.toString(), {
           method: "GET",
           headers: { "Content-Type": "application/json" },
           signal: AbortSignal.timeout(4000),
         });
+        if (!res.ok) continue;
 
-        if (res.ok) {
-          const json: GpmApiResponse<GpmStartResponse> = await res.json();
-          this.baseUrl = base;
+        const json: GpmApiResponse<GpmStartResponse> = await res.json();
+        this.baseUrl = base;
 
-          // Đảm bảo target URL (ví dụ TikTok Studio) được mở ngay cả khi GPM profile có tab mặc định
-          if (targetUrl && json?.data?.remote_debugging_port) {
-            const port = json.data.remote_debugging_port;
-            (async () => {
-              try {
-                await new Promise((resolve) => setTimeout(resolve, 1500));
-                const listRes = await fetch(`http://127.0.0.1:${port}/json/list`).catch(() => null);
-                if (listRes && listRes.ok) {
-                  const pages = (await listRes.json()) as Array<{ id: string; url: string; type: string }>;
-                  const hasTarget = pages.some((p) => p.url && (p.url.includes("tiktokstudio") || p.url === targetUrl));
-                  if (!hasTarget) {
-                    await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(targetUrl)}`, { method: "PUT" }).catch(() => {
-                      return fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(targetUrl)}`);
-                    });
-                  }
-                }
-              } catch {
-                // Ignore
+        if (targetUrl && json?.data?.remote_debugging_port) {
+          const port = json.data.remote_debugging_port;
+          (async () => {
+            try {
+              await new Promise((r) => setTimeout(r, 1500));
+              const listRes = await fetch(`http://127.0.0.1:${port}/json/list`).catch(() => null);
+              if (!listRes?.ok) return;
+              const pages = (await listRes.json()) as Array<{ url: string }>;
+              const hasTarget = pages.some(
+                (p) => p.url && (p.url.includes("tiktokstudio") || p.url === targetUrl)
+              );
+              if (!hasTarget) {
+                await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(targetUrl)}`, {
+                  method: "PUT",
+                }).catch(() =>
+                  fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(targetUrl)}`)
+                );
               }
-            })();
-          }
-
-          return json.data;
+            } catch {
+              /* ignore */
+            }
+          })();
         }
+        return json.data;
       } catch {
-        // Try next candidate port
+        /* next */
       }
     }
-
-    console.warn(`[GpmApiClient] Failed to start profile ${profileId} on all candidate ports (9495, 19995).`);
+    console.warn(`[GpmApiClient] Failed to start profile ${profileId} on candidate ports.`);
     return null;
   }
 
-  /**
-   * Stop profile browser instance
-   */
   async stopProfile(profileId: string): Promise<boolean> {
-    const candidateBaseUrls = Array.from(
-      new Set([
-        this.baseUrl,
-        "http://127.0.0.1:9495/api/v1",
-        "http://127.0.0.1:9495/api/v3",
-        "http://127.0.0.1:19995/api/v3",
-      ])
-    );
-
-    for (const base of candidateBaseUrls) {
+    for (const base of buildGpmBaseCandidates(this.baseUrl)) {
       try {
         const res = await fetch(`${base}/profiles/stop/${profileId}`, {
           method: "GET",
           headers: { "Content-Type": "application/json" },
           signal: AbortSignal.timeout(3000),
         });
-        if (res.ok) {
-          const json: GpmApiResponse<null> = await res.json();
-          this.baseUrl = base;
-          return json.success;
-        }
+        if (!res.ok) continue;
+        const json: GpmApiResponse<null> = await res.json();
+        this.baseUrl = base;
+        return json.success;
       } catch {
-        // Try next candidate
+        /* next */
       }
     }
-
     console.warn(`[GpmApiClient] Failed to stop profile ${profileId} on candidate ports.`);
     return false;
   }

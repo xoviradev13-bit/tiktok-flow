@@ -33,6 +33,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
+import { GroupsPageSkeleton } from "@/components/skeletons/PageSkeletons";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Popover,
@@ -160,7 +161,7 @@ function GroupsManagementContent() {
 
   // Queries
   const { data: groupsData, isLoading: loading } = trpc.admin.listGroups.useQuery(undefined, { enabled: isAdmin });
-  const { data: allUsers = [] } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
+  const { data: allUsers = [], isLoading: loadingUsers } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
 
   const groups = useMemo(() => {
     return groupsData?.groupsDetails || [];
@@ -397,11 +398,7 @@ function GroupsManagementContent() {
   };
 
   if (status === "loading" || !isAdmin) {
-    return (
-      <div className="space-y-6 w-full pb-28">
-        <DataTableSkeleton columns={6} rows={6} />
-      </div>
-    );
+    return <GroupsPageSkeleton />;
   }
 
   return (
@@ -412,7 +409,12 @@ function GroupsManagementContent() {
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
               <Layers className="w-7 h-7 text-pink-500" />
-              Quản Lý Nhóm & Teams ({totalGroupsCount})
+              <span>Quản Lý Nhóm & Teams</span>
+              {loading ? (
+                <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle" />
+              ) : (
+                <span>({totalGroupsCount})</span>
+              )}
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Quản trị cơ cấu nhóm, chỉ định Trưởng nhóm (Leader) và theo dõi thành viên & dàn tài khoản TikTok phụ trách.
@@ -450,25 +452,41 @@ function GroupsManagementContent() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Tổng Số Nhóm</div>
-            <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">{totalGroupsCount}</div>
+            {loading ? (
+              <div className="h-8 w-14 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-1" />
+            ) : (
+              <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">{totalGroupsCount}</div>
+            )}
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
               <UserCheck className="w-3.5 h-3.5" /> Thành Viên Đã Vào Nhóm
             </div>
-            <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{totalAssignedMembers}</div>
+            {loading ? (
+              <div className="h-8 w-14 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-1" />
+            ) : (
+              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{totalAssignedMembers}</div>
+            )}
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1">
               <Users className="w-3.5 h-3.5" /> Chưa Phân Nhóm
             </div>
-            <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">{unassignedStaffCount}</div>
+            {loading || loadingUsers ? (
+              <div className="h-8 w-14 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-1" />
+            ) : (
+              <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">{unassignedStaffCount}</div>
+            )}
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-medium text-pink-600 dark:text-pink-400 flex items-center gap-1">
               <Layers className="w-3.5 h-3.5" /> Tổng Account Thuộc Nhóm
             </div>
-            <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1">{totalAccountsCovered}</div>
+            {loading ? (
+              <div className="h-8 w-14 bg-pink-100 dark:bg-pink-950/60 rounded-lg animate-pulse mt-1" />
+            ) : (
+              <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1">{totalAccountsCovered}</div>
+            )}
           </div>
         </div>
 
@@ -628,7 +646,11 @@ function GroupsManagementContent() {
             )}
 
             <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline ml-2">
-              Hiển thị: <strong className="text-slate-900 dark:text-white">{filteredAndSortedGroups.length}</strong> nhóm
+              Hiển thị: {loading ? (
+                <span className="inline-block w-6 h-3.5 bg-slate-200 dark:bg-slate-800 rounded animate-pulse align-middle mx-1" />
+              ) : (
+                <strong className="text-slate-900 dark:text-white">{filteredAndSortedGroups.length}</strong>
+              )} nhóm
             </span>
           </div>
         </div>

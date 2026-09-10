@@ -195,6 +195,36 @@ body {
   color: var(--text-muted);
 }
 
+.auth-banner {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+}
+
+.auth-banner-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f87171;
+  margin-bottom: 4px;
+}
+
+.auth-banner-text {
+  font-size: 11px;
+  color: #fecaca;
+  line-height: 1.45;
+}
+
+.token-input.needs-reauth {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.35);
+}
+
+.identity-card.needs-reauth {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
 .token-input-row {
   margin-top: 4px;
   display: flex;
@@ -471,5 +501,92 @@ body {
 
   to {
     transform: rotate(360deg);
+  }
+}
+
+.hint-banner {
+  margin: 10px 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.hint-banner.studio-tip.hidden {
+  display: none;
+}
+
+.hint-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7dd3fc;
+  margin-bottom: 3px;
+}
+
+.hint-text {
+  font-size: 10px;
+  color: #bae6fd;
+  line-height: 1.45;
+}
+
+.sync-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.sync-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gray);
+  flex-shrink: 0;
+}
+
+.sync-status-bar.status-syncing {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.sync-status-bar.status-syncing .sync-status-dot {
+  background: #fbbf24;
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.sync-status-bar.status-ok {
+  color: #6ee7b7;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.sync-status-bar.status-ok .sync-status-dot {
+  background: #10b981;
+}
+
+.sync-status-bar.status-error {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.sync-status-bar.status-error .sync-status-dot {
+  background: #ef4444;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
   }
 }

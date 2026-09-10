@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { clearUserCache } from "@/lib/auth";
+import { revokeExtensionCredentials } from "@/lib/extension-auth";
 
 export const adminRouter = router({
   // 1. List all users with fleet stats & Group info (ADMIN)
@@ -509,18 +510,24 @@ export const adminRouter = router({
         });
       }
 
-      const updated = await ctx.prisma.user.update({
-        where: { id: input.userId },
-        data: { isActive: input.isActive },
+      const updated = await ctx.prisma.$transaction(async (tx) => {
+        const user = await tx.user.update({
+          where: { id: input.userId },
+          data: { isActive: input.isActive },
+        });
+
+        if (input.isActive === false) {
+          await revokeExtensionCredentials(input.userId, "toggle_user_inactive", tx);
+        }
+
+        await tx.session.deleteMany({
+          where: { userId: input.userId },
+        });
+
+        return user;
       });
 
-      // Clear cached user so JWT callbacks reflect this change immediately
       clearUserCache(input.userId);
-
-      // Invalidate active database sessions if any
-      await ctx.prisma.session.deleteMany({
-        where: { userId: input.userId },
-      }).catch(() => {});
 
       return updated;
     }),
@@ -557,21 +564,26 @@ export const adminRouter = router({
         });
       }
 
-      // Unassign accounts assigned to this user
-      await ctx.prisma.tiktokAccount.updateMany({
-        where: { assignedUserId: input.userId },
-        data: { assignedUserId: null },
+      const updated = await ctx.prisma.$transaction(async (tx) => {
+        await tx.tiktokAccount.updateMany({
+          where: { assignedUserId: input.userId },
+          data: { assignedUserId: null },
+        });
+
+        const user = await tx.user.update({
+          where: { id: input.userId },
+          data: {
+            deletedAt: new Date(),
+            isActive: false,
+          },
+        });
+
+        await revokeExtensionCredentials(input.userId, "delete_user", tx);
+
+        return user;
       });
 
-      // Soft delete by setting deletedAt and disabling
-      const updated = await ctx.prisma.user.update({
-        where: { id: input.userId },
-        data: {
-          deletedAt: new Date(),
-          isActive: false,
-        },
-      });
-
+      clearUserCache(input.userId);
       return updated;
     }),
 
@@ -592,20 +604,30 @@ export const adminRouter = router({
         });
       }
 
-      // Unassign accounts
-      await ctx.prisma.tiktokAccount.updateMany({
-        where: { assignedUserId: { in: targetIds } },
-        data: { assignedUserId: null },
+      const res = await ctx.prisma.$transaction(async (tx) => {
+        await tx.tiktokAccount.updateMany({
+          where: { assignedUserId: { in: targetIds } },
+          data: { assignedUserId: null },
+        });
+
+        const updated = await tx.user.updateMany({
+          where: { id: { in: targetIds } },
+          data: {
+            deletedAt: new Date(),
+            isActive: false,
+          },
+        });
+
+        for (const userId of targetIds) {
+          await revokeExtensionCredentials(userId, "bulk_delete_users", tx);
+        }
+
+        return updated;
       });
 
-      // Soft delete users
-      const res = await ctx.prisma.user.updateMany({
-        where: { id: { in: targetIds } },
-        data: {
-          deletedAt: new Date(),
-          isActive: false,
-        },
-      });
+      for (const userId of targetIds) {
+        clearUserCache(userId);
+      }
 
       return { count: res.count };
     }),
@@ -1061,14 +1083,8 @@ export const adminRouter = router({
       });
       if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
-      await ctx.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          extensionToken: null,
-          extensionAccessEnabled: false,
-          extensionRevokedAt: new Date(),
-        },
-      });
+      await revokeExtensionCredentials(user.id, "admin_revoke_extension_token");
+      clearUserCache(user.id);
 
       return {
         userId: user.id,

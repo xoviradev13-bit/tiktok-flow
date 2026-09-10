@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fetchTikTokPublicProfileHttp } from "@/lib/tiktok-extractor";
 import { pMap } from "@/lib/concurrency";
+import { resolveExtensionBearerAuth } from "@/lib/extension-auth";
 
 export interface ClientProfilePayload {
   id: string;
@@ -180,34 +181,53 @@ export async function POST(req: Request) {
       profiles?: ClientProfilePayload[];
     };
 
+    // Prefer Authorization Bearer (JWT or legacy personalToken); body personalToken kept as legacy fallback only
     const token = (bearerToken || bodyToken)?.trim();
 
     if (!token) {
       return NextResponse.json(
-        { success: false, error: "Yêu cầu cung cấp personalToken hợp lệ để đồng bộ." },
+        { success: false, error: "Yêu cầu Authorization: Bearer <accessToken|personalToken> hợp lệ để đồng bộ." },
         { status: 401 }
+      );
+    }
+
+    const authResult = await resolveExtensionBearerAuth(token, "/api/gpm/client-sync");
+    if (!authResult.ok) {
+      return NextResponse.json(
+        { success: false, error: authResult.error },
+        { status: authResult.status }
       );
     }
 
     const user = await prisma.user.findUnique({
-      where: { extensionToken: token },
+      where: { id: authResult.user.id },
     });
 
     if (!user) {
       return NextResponse.json(
-        { success: false, error: "Mã xác thực personalToken không hợp lệ hoặc đã bị thu hồi." },
+        { success: false, error: "Mã xác thực không hợp lệ hoặc đã bị thu hồi." },
         { status: 401 }
       );
     }
 
+    // Bearer (JWT / personalToken) already identifies the user. Optional userEmail in
+    // the body is informational only — do not 403 on mismatch (stale zip config /
+    // pasted token vs old email was marking clients as "revoked" incorrectly).
     if (userEmail && typeof userEmail === "string") {
       const trimmedEmail = userEmail.trim().toLowerCase();
       const userMailLower = user.email?.toLowerCase();
       const userNameLower = user.username?.toLowerCase();
-      if (userMailLower !== trimmedEmail && userNameLower !== trimmedEmail) {
-        return NextResponse.json(
-          { success: false, error: "Thông tin email/username không khớp với chủ sở hữu personalToken." },
-          { status: 403 }
+      if (
+        trimmedEmail &&
+        userMailLower !== trimmedEmail &&
+        userNameLower !== trimmedEmail
+      ) {
+        console.warn(
+          JSON.stringify({
+            event: "client_sync_userEmail_mismatch_ignored",
+            userId: user.id,
+            bodyEmail: trimmedEmail,
+          })
         );
       }
     }
@@ -234,7 +254,6 @@ export async function POST(req: Request) {
 
     const actorName = user.name || user.email || user.username || "Client Worker";
     const currentUserId = user.id;
-    const currentUserRole = user.role;
 
     let newCount = 0;
     let updatedCount = 0;
@@ -242,7 +261,9 @@ export async function POST(req: Request) {
     await pMap(
       profiles,
       async (p) => {
-        const realHandle = p.tiktokHandle || null;
+        const realHandle = p.tiktokHandle
+          ? String(p.tiktokHandle).replace(/^@/, "").trim().toLowerCase()
+          : null;
 
         let existing = await prisma.tiktokAccount.findFirst({
           where: {
@@ -279,7 +300,8 @@ export async function POST(req: Request) {
         // 1. INSERT IF NEW
         if (!existing) {
           try {
-            const assignedUserId = currentUserRole === "STAFF" && currentUserId ? currentUserId : null;
+            // Same as Extension: assign to the operator who discovered the account
+            const assignedUserId = currentUserId || null;
             const newAccount = await prisma.tiktokAccount.create({
               data: {
                 username: extractedUsername,
@@ -288,6 +310,7 @@ export async function POST(req: Request) {
                 gpmProfileId: p.id,
                 status: "ACTIVE",
                 assignedUserId,
+                isAssignmentLocked: false,
                 totalViews: BigInt(0),
                 totalFollowers: publicMetrics?.followersCount || 0,
                 totalVideos: publicMetrics?.videoCount || 0,
@@ -327,18 +350,17 @@ export async function POST(req: Request) {
           }
         }
 
-        // 2. ATOMIC CLAIM OR STATS UPDATE
-        const claimWhereCondition: any = {
-          id: existing.id,
-          ...(currentUserRole === "STAFF"
-            ? { assignedUserId: null }
-            : {}
-          ),
-        };
-
-        const updateData: any = {
+        // 2. UPDATE METRICS + fluid handover (same strategy as Extension /report)
+        const updateData: {
+          gpmProfileId: string;
+          groupName: string;
+          lastSyncedAt: Date;
+          totalFollowers?: number;
+          totalVideos?: number;
+          assignedUserId?: string;
+        } = {
           gpmProfileId: p.id,
-          groupName: p.group_id || existing.groupName,
+          groupName: p.group_id || existing.groupName || "GPM Fleet",
           lastSyncedAt: new Date(),
         };
 
@@ -347,47 +369,40 @@ export async function POST(req: Request) {
           updateData.totalVideos = publicMetrics.videoCount;
         }
 
-        if (currentUserRole === "STAFF" && !existing.assignedUserId && currentUserId) {
-          updateData.assignedUserId = currentUserId;
-        } else if ((currentUserRole === "ADMIN" || currentUserRole === "LEAD") && currentUserId) {
-          updateData.assignedUserId = currentUserId;
+        let didHandover = false;
+        if (currentUserId && currentUserId !== existing.assignedUserId) {
+          if (existing.isAssignmentLocked) {
+            console.log(
+              `[ClientSync] Account @${extractedUsername} is locked by Admin. Ownership remains with ${existing.assignedUser?.name || "current owner"}.`
+            );
+          } else {
+            updateData.assignedUserId = currentUserId;
+            didHandover = true;
+          }
         }
 
-        const claimResult = await prisma.tiktokAccount.updateMany({
-          where: claimWhereCondition,
+        await prisma.tiktokAccount.update({
+          where: { id: existing.id },
           data: updateData,
         });
 
-        if (claimResult.count > 0) {
-          const newlyAssigned = !existing.assignedUserId && updateData.assignedUserId;
-          const overridden = existing.assignedUserId && existing.assignedUserId !== updateData.assignedUserId;
-
-          if (newlyAssigned || overridden) {
-            await prisma.accountLog.create({
-              data: {
-                accountId: existing.id,
-                newStatus: existing.status,
-                logType: "STATUS_CHANGE",
-                message: overridden
-                  ? `[ADMIN OVERRIDE] Quản trị viên ${actorName} đã ghi đè quyền sở hữu tài khoản từ ${existing.assignedUser?.name || "thành viên khác"}.`
-                  : `Tự động gán quyền sở hữu cho nhân sự ${actorName} khi phát hiện profile cục bộ.`,
-                actorName,
-              },
-            });
-          }
-          updatedCount++;
-        } else {
-          // Fallback: update stats only without stealing ownership
-          await prisma.tiktokAccount.update({
-            where: { id: existing.id },
+        if (didHandover) {
+          const oldOwner =
+            existing.assignedUser?.name ||
+            existing.assignedUser?.username ||
+            "Chưa gán";
+          await prisma.accountLog.create({
             data: {
-              gpmProfileId: p.id,
-              groupName: p.group_id || existing.groupName,
-              lastSyncedAt: new Date(),
+              accountId: existing.id,
+              oldStatus: existing.status,
+              newStatus: existing.status,
+              logType: "HANDOVER",
+              message: `[BÀN GIAO CA] Quyền quản lý tài khoản @${extractedUsername} đã được chuyển giao từ ${oldOwner} sang ${actorName} khi đồng bộ Client Agent (profile "${p.name}").`,
+              actorName,
             },
           });
-          updatedCount++;
         }
+        updatedCount++;
       },
       6
     );

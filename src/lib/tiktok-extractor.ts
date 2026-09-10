@@ -3,6 +3,11 @@ import path from "path";
 import os from "os";
 import { chromium, type BrowserContext, type Page, type Response } from "playwright";
 import { gpmClient } from "./gpm-api";
+import {
+  matchUniqueGpmProfileByUsername,
+  scoreLoggedInHandleFromArtifacts,
+  scoreUsernameInArtifacts,
+} from "./tiktok-handle";
 
 export interface ExtractedTikTokData {
   username: string;
@@ -209,7 +214,10 @@ export function isValidGpmProfileId(profileId: string): boolean {
 
 /**
  * Inspects the GPM profile directory on disk (History, LevelDB)
- * to find the real logged-in or active TikTok username.
+ * to find the real logged-in TikTok username.
+ *
+ * IMPORTANT: Never return the first /@ URL from History — that is often a
+ * visited public profile, not the signed-in account.
  */
 export function findTikTokHandleInProfile(profileId: string): string | null {
   try {
@@ -225,56 +233,184 @@ export function findTikTokHandleInProfile(profileId: string): string | null {
       return null;
     }
 
-    // 1. Check Chrome History SQLite file
+    const chunks: string[] = [];
+
+    // 1. Chrome History SQLite (binary-safe latin1 dump)
     const historyPath = path.join(profileDir, "History");
     if (fs.existsSync(historyPath)) {
       try {
-        const histBuf = fs.readFileSync(historyPath);
-        const str = histBuf.toString("latin1");
-        const re = /https:\/\/www\.tiktok\.com\/@([a-zA-Z0-9_.-]+)/g;
-        let match;
-        while ((match = re.exec(str)) !== null) {
-          const raw = match[1].replace(/[^a-zA-Z0-9_.-]/g, "");
-          if (raw && !raw.includes("login") && !raw.includes("signup") && raw.length >= 3) {
-            console.log(`[TikTokExtractor] Detected handle from History: @${raw}`);
-            return raw;
-          }
-        }
-      } catch (e) {
-        // ignore parse errors on locked/binary history file
+        chunks.push(fs.readFileSync(historyPath).toString("latin1"));
+      } catch {
+        // ignore locked/binary history
       }
     }
 
-    // 2. Check Local Storage LevelDB
+    // 2. Local Storage LevelDB shards
     const levelDbDir = path.join(profileDir, "Local Storage", "leveldb");
     if (fs.existsSync(levelDbDir)) {
       try {
-        const files = fs.readdirSync(levelDbDir);
-        for (const f of files) {
-          if (f.endsWith(".log") || f.endsWith(".ldb")) {
-            try {
-              const buf = fs.readFileSync(path.join(levelDbDir, f));
-              const str = buf.toString("latin1");
-              const re = /refer_title":"\/@([a-zA-Z0-9_.-]+)"/;
-              const m = str.match(re);
-              if (m && m[1]) {
-                console.log(`[TikTokExtractor] Detected handle from LevelDB refer_title: @${m[1]}`);
-                return m[1];
-              }
-            } catch (e) {
-              // ignore unreadable leveldb shard
-            }
+        for (const f of fs.readdirSync(levelDbDir)) {
+          if (!f.endsWith(".log") && !f.endsWith(".ldb")) continue;
+          try {
+            chunks.push(fs.readFileSync(path.join(levelDbDir, f)).toString("latin1"));
+          } catch {
+            // ignore unreadable shard
           }
         }
-      } catch (e) {
+      } catch {
         // ignore readdir error
       }
+    }
+
+    // 3. Session Storage / Preferences often contain uniqueId for the signed-in user
+    for (const rel of ["Preferences", "Secure Preferences", "Network/Cookies"]) {
+      const p = path.join(profileDir, rel);
+      if (!fs.existsSync(p)) continue;
+      try {
+        const buf = fs.readFileSync(p);
+        // Cap huge cookie DBs
+        chunks.push(buf.toString("latin1", 0, Math.min(buf.length, 8 * 1024 * 1024)));
+      } catch {
+        // ignore
+      }
+    }
+
+    const { handle, scores } = scoreLoggedInHandleFromArtifacts(chunks.join("\n"));
+    if (handle) {
+      console.log(
+        `[TikTokExtractor] Resolved logged-in handle @${handle} from disk artifacts`,
+        scores
+      );
+      return handle;
     }
   } catch (err: any) {
     console.warn(`[TikTokExtractor] Disk inspection error for ${profileId}:`, err.message);
   }
 
   return null;
+}
+
+/**
+ * Read raw artifact blob for a GPM profile (History + LevelDB + Preferences).
+ */
+function readGpmProfileArtifactBlob(profileId: string): string {
+  if (!isValidGpmProfileId(profileId)) return "";
+  const storagePath = getGpmStoragePath();
+  const profileDir = path.join(storagePath, profileId, "Default");
+  if (!fs.existsSync(/*turbopackIgnore: true*/ profileDir)) return "";
+
+  const chunks: string[] = [];
+  const historyPath = path.join(profileDir, "History");
+  if (fs.existsSync(/*turbopackIgnore: true*/ historyPath)) {
+    try {
+      chunks.push(fs.readFileSync(/*turbopackIgnore: true*/ historyPath).toString("latin1"));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const levelDbDir = path.join(profileDir, "Local Storage", "leveldb");
+  if (fs.existsSync(/*turbopackIgnore: true*/ levelDbDir)) {
+    try {
+      for (const f of fs.readdirSync(/*turbopackIgnore: true*/ levelDbDir)) {
+        if (!f.endsWith(".log") && !f.endsWith(".ldb")) continue;
+        try {
+          chunks.push(
+            fs.readFileSync(/*turbopackIgnore: true*/ path.join(levelDbDir, f)).toString("latin1")
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  for (const rel of ["Preferences", "Secure Preferences", "Network/Cookies"]) {
+    const p = path.join(profileDir, rel);
+    if (!fs.existsSync(/*turbopackIgnore: true*/ p)) continue;
+    try {
+      const buf = fs.readFileSync(/*turbopackIgnore: true*/ p);
+      chunks.push(buf.toString("latin1", 0, Math.min(buf.length, 8 * 1024 * 1024)));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return chunks.join("\n");
+}
+
+/**
+ * Scan local GPM profile folders and return the unique profile whose
+ * logged-in TikTok handle matches `username`. Returns null on 0 or 2+ hits.
+ */
+export function resolveGpmProfileByUsername(username: string): {
+  id: string;
+  name: string | null;
+  matchedVia: "tiktokHandle" | "label";
+} | null {
+  try {
+    const storagePath = getGpmStoragePath();
+    if (!fs.existsSync(/*turbopackIgnore: true*/ storagePath)) return null;
+
+    const entries = fs.readdirSync(/*turbopackIgnore: true*/ storagePath, {
+      withFileTypes: true,
+    });
+    const profileIds = entries
+      .filter(
+        (e) =>
+          e.isDirectory() &&
+          !e.name.startsWith("_") &&
+          isValidGpmProfileId(e.name) &&
+          fs.existsSync(
+            /*turbopackIgnore: true*/ path.join(storagePath, e.name, "Default")
+          )
+      )
+      .map((e) => e.name);
+
+    // 1) Prefer classic unique handle/label match
+    const classic = matchUniqueGpmProfileByUsername(
+      username,
+      profileIds.map((id) => ({
+        id,
+        name: id,
+        tiktokHandle: findTikTokHandleInProfile(id),
+      }))
+    );
+    if (classic) return classic;
+
+    // 2) Score the *reported* username inside each profile's artifacts
+    const scored: Array<{ id: string; score: number }> = [];
+    for (const id of profileIds) {
+      const blob = readGpmProfileArtifactBlob(id);
+      const score = scoreUsernameInArtifacts(blob, username);
+      if (score >= 2) scored.push({ id, score });
+    }
+
+    if (scored.length === 0) return null;
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0];
+    const tied = scored.filter((s) => s.score === best.score);
+    if (tied.length !== 1) {
+      console.warn(
+        `[TikTokExtractor] Ambiguous GPM match for @${username}:`,
+        tied.map((t) => t.id)
+      );
+      return null;
+    }
+
+    console.log(
+      `[TikTokExtractor] Matched @${username} → GPM ${best.id} via disk score=${best.score}`
+    );
+    return { id: best.id, name: best.id, matchedVia: "tiktokHandle" };
+  } catch (err: any) {
+    console.warn(
+      `[TikTokExtractor] resolveGpmProfileByUsername failed for @${username}:`,
+      err?.message || err
+    );
+    return null;
+  }
 }
 
 /**
@@ -786,11 +922,41 @@ export async function fetchTikTokStudioFullData(
     let studioCurrency = "$";
     let studioCountry = "US";
     let studioVideos: any[] = [];
+    let studioUsername: string | null = null;
+    let studioNickname: string | null = null;
 
     // Attach Response Interceptor for all Studio API calls
     const studioResponseHandler = async (response: Response) => {
       const url = response.url();
       try {
+        // Logged-in creator identity (never confuse with a visited public profile)
+        if (
+          url.includes("/tiktokstudio/api/web/user") ||
+          url.includes("/api/creator/user") ||
+          (url.includes("/passport/web/account/info") && !url.includes("aid="))
+        ) {
+          const json = await safeJsonFromResponse(response);
+          if (json) {
+            const uniq =
+              json.userBaseInfo?.UserProfile?.UserBase?.UniqId ||
+              json.data?.username ||
+              json.data?.screen_name ||
+              json.user?.uniqueId ||
+              json.uniqueId;
+            const nick =
+              json.userBaseInfo?.UserProfile?.UserBase?.NickName ||
+              json.data?.nickname ||
+              json.user?.nickname;
+            if (typeof uniq === "string" && uniq.length >= 2) {
+              studioUsername = uniq;
+              console.log(`[TikTokExtractor] Intercepted Studio logged-in handle @${uniq}`);
+            }
+            if (typeof nick === "string" && nick.length > 0) {
+              studioNickname = nick;
+            }
+          }
+        }
+
         if (
           url.includes("/api/creator/overview") ||
           url.includes("/api/studio/overview") ||
@@ -869,6 +1035,50 @@ export async function fetchTikTokStudioFullData(
       console.warn(`[TikTokExtractor] TikTok Studio bounced to login for profile ${profileId}`);
       page.off("response", studioResponseHandler);
       return { isLoggedIn: false };
+    }
+
+    // Resolve logged-in handle from page context if API intercept missed it
+    if (!studioUsername) {
+      const pageIdentity = await safeEvaluate(
+        page,
+        () => {
+          try {
+            const creatorEl = document.getElementById("__Creator_Center_Context__");
+            if (creatorEl?.textContent) {
+              const raw = creatorEl.textContent
+                .replace(/&quot;/g, '"')
+                .replace(/&amp;/g, "&");
+              const parsed = JSON.parse(raw);
+              const uniq =
+                parsed?.user?.uniqueId ||
+                parsed?.userInfo?.user?.uniqueId ||
+                parsed?.userBaseInfo?.UserProfile?.UserBase?.UniqId;
+              if (uniq) return { username: String(uniq), nickname: null as string | null };
+            }
+          } catch { /* ignore */ }
+
+          try {
+            const scriptTag = document.getElementById("__UNIVERSAL_DATA_FOR_REHYDRATION__");
+            if (scriptTag?.textContent) {
+              const json = JSON.parse(scriptTag.textContent);
+              const appUser = json?.["__DEFAULT_SCOPE__"]?.["webapp.app-context"]?.user;
+              if (appUser?.uniqueId) {
+                return {
+                  username: String(appUser.uniqueId),
+                  nickname: appUser.nickname ? String(appUser.nickname) : null,
+                };
+              }
+            }
+          } catch { /* ignore */ }
+
+          return null;
+        },
+        null as { username: string; nickname: string | null } | null
+      );
+      if (pageIdentity?.username) {
+        studioUsername = pageIdentity.username;
+        if (pageIdentity.nickname) studioNickname = pageIdentity.nickname;
+      }
     }
 
     // 2. DOM Evaluation fallback for Lifetime Dashboard (10-Country Multi-Language Support)
@@ -1070,6 +1280,8 @@ export async function fetchTikTokStudioFullData(
           shares,
           liveRewards,
           tiktokShopRewards,
+          // Heuristic: unlabeled total → attribute to Creator Rewards when no stream
+          // cards matched. May mis-label Shop-only / LIVE-only UIs; prefer explicit cards.
           creatorRewards: creatorRewards || totalRewards,
           currency,
           country,
@@ -1259,7 +1471,9 @@ export async function fetchTikTokStudioFullData(
     console.log(`[TikTokExtractor] TikTok Studio full data extracted successfully for ${profileId}`);
 
     return {
-      username: username || undefined,
+      // Prefer live Studio identity over disk History guess
+      username: studioUsername || username || undefined,
+      nickname: studioNickname || undefined,
       followersCount: finalFollowers,
       followingCount: lifetimeDom.following,
       totalLikes: finalLikes,
@@ -1279,6 +1493,7 @@ export async function fetchTikTokStudioFullData(
       sharesCount: (lifetimeDom as any).shares || 0,
       totalRewardsUsd: finalRewards,
       liveRewardsUsd: (lifetimeDom as any).liveRewards || null,
+      // Same unlabeled-total heuristic as extension content.js (may be Shop/LIVE-only)
       creatorRewardsUsd: (lifetimeDom as any).creatorRewards || finalRewards,
       tiktokShopRewardsUsd: (lifetimeDom as any).tiktokShopRewards || null,
       videosList: studioVideos.map((item) => ({
@@ -1506,7 +1721,12 @@ export async function detectTikTokAccountFromGpm(
     studioData.isLoggedIn &&
     ((studioData.totalViews || 0) > 0 || (studioData.followersCount || 0) > 0)
   ) {
-    const finalHandle = handle || studioData.username || `user_${profileId.substring(0, 8)}`;
+    const finalHandle = studioData.username || handle || `user_${profileId.substring(0, 8)}`;
+    if (handle && studioData.username && handle.toLowerCase() !== studioData.username.toLowerCase()) {
+      console.warn(
+        `[TikTokExtractor] Disk handle @${handle} differs from Studio logged-in @${studioData.username} — using Studio identity`
+      );
+    }
     return {
       username: finalHandle,
       nickname: studioData.nickname || finalHandle,
@@ -1577,6 +1797,35 @@ export async function detectTikTokAccountFromGpm(
         console.warn(`[TikTokExtractor] Anonymous public stats fetch failed for ${targetUsername}:`, err.message);
       }
     } else {
+      // Prefer session-bound identity over any disk History guess before scraping public stats
+      try {
+        const idPage = await sharedContext.newPage();
+        await idPage.goto("https://www.tiktok.com/passport/web/account/info/?app_id=1233", {
+          waitUntil: "domcontentloaded",
+          timeout: 15000,
+        }).catch(() => { });
+        const sessionUser = await idPage.evaluate(() => {
+          try {
+            const text = document.body?.innerText || "";
+            const parsed = JSON.parse(text);
+            return parsed?.data?.username || parsed?.data?.screen_name || null;
+          } catch {
+            return null;
+          }
+        }).catch(() => null);
+        await idPage.close().catch(() => { });
+        if (sessionUser && typeof sessionUser === "string") {
+          if (targetUsername && targetUsername.toLowerCase() !== sessionUser.toLowerCase()) {
+            console.warn(
+              `[TikTokExtractor] Overriding disk handle @${targetUsername} with session @${sessionUser}`
+            );
+          }
+          targetUsername = sessionUser;
+        }
+      } catch (err: any) {
+        console.warn(`[TikTokExtractor] Session identity probe failed:`, err.message);
+      }
+
       try {
         stats = await fetchLiveTikTokStatsWithContext(targetUsername, sharedContext);
       } catch (err: any) {

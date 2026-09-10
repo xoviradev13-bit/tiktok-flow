@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createZipBuffer, ZipEntry } from "@/lib/zip";
+import { createPairingCodeForUser } from "@/lib/extension-auth";
 import fs from "fs";
 import path from "path";
-import crypto from "crypto";
 
 export async function GET(req: Request) {
   try {
@@ -32,7 +32,6 @@ export async function GET(req: Request) {
         name: true,
         username: true,
         email: true,
-        extensionToken: true,
         extensionAccessEnabled: true,
       },
     });
@@ -48,20 +47,12 @@ export async function GET(req: Request) {
       );
     }
 
-    // Auto-generate token if not present
-    let token = user.extensionToken;
-    if (!token) {
-      token = `ttf_sec_${crypto.randomBytes(16).toString("hex")}`;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { extensionToken: token, extensionAccessEnabled: true },
-      });
-    }
-
     // Determine current Server URL
     const host = req.headers.get("host") || "localhost:3000";
     const proto = req.headers.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
     const serverUrl = `${proto}://${host}`;
+
+    const pairingCode = await createPairingCodeForUser(user.id);
 
     // Read base files from extension/ folder
     const extensionDir = path.join(process.cwd(), "extension");
@@ -92,11 +83,11 @@ export async function GET(req: Request) {
 
     addDirRecursive(extensionDir);
 
-    // Injected Personalized config.json
+    // Pairing only — no long-lived personalToken in redistributable zip
     const configContent = JSON.stringify(
       {
         serverUrl,
-        personalToken: token,
+        pairingCode,
         memberName: user.name || user.username || user.email,
         userEmail: user.email,
         generatedAt: new Date().toISOString(),

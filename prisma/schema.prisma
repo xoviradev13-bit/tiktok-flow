@@ -102,10 +102,14 @@ model User {
   tiktokAccounts    TiktokAccount[]
   dailyChecklists        DailyChecklist[]
   sentInvitations        Invitation[]             @relation("SentInvitations")
-  extensionToken         String?                  @unique @map("extension_token")
-  extensionAccessEnabled Boolean                  @default(true) @map("extension_access_enabled")
-  extensionRevokedAt     DateTime?                @map("extension_revoked_at")
-  extensionInstallations ExtensionInstallation[]
+  extensionToken           String?                  @unique @map("extension_token")
+  extensionAccessEnabled   Boolean                  @default(true) @map("extension_access_enabled")
+  extensionRevokedAt       DateTime?                @map("extension_revoked_at")
+  extensionSessionVersion  Int                      @default(0) @map("extension_session_version")
+  extensionInstallations   ExtensionInstallation[]
+  extensionRefreshTokens   ExtensionRefreshToken[]
+  extensionPairingCodes    ExtensionPairingCode[]
+  extensionAuthEvents      ExtensionAuthEvent[]
 
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
@@ -385,5 +389,58 @@ enum VerificationLevel {
   IDENTITY_VERIFIED
   BUSINESS_VERIFIED
   PREMIUM_VERIFIED
+}
+
+// Extension / Client Agent short-lived session refresh tokens (hashed at rest)
+model ExtensionRefreshToken {
+  id               String    @id @default(cuid())
+  userId           String    @map("user_id")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash        String    @unique @map("token_hash")
+  familyId         String    @map("family_id")
+  replacedById     String?   @map("replaced_by_id")
+  expiresAt        DateTime  @map("expires_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  revokedAt        DateTime? @map("revoked_at")
+  lastUsedAt       DateTime? @map("last_used_at")
+  issuedUserAgent  String?   @map("issued_user_agent") @db.VarChar(200)
+  issuedIp         String?   @map("issued_ip") @db.VarChar(64)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("extension_refresh_tokens")
+}
+
+// One-time pairing codes embedded in download zips (hashed at rest)
+model ExtensionPairingCode {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @unique @map("code_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("extension_pairing_codes")
+}
+
+// Durable extension auth incidents (no secrets)
+model ExtensionAuthEvent {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType String   @map("event_type")
+  ip        String?  @db.VarChar(64)
+  userAgent String?  @map("user_agent") @db.VarChar(200)
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("extension_auth_events")
 }
 

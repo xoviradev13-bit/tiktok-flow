@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createZipBuffer, ZipEntry } from "@/lib/zip";
+import { createPairingCodeForUser } from "@/lib/extension-auth";
 import AdmZip from "adm-zip";
 import fs from "fs";
 import path from "path";
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
         name: true,
         username: true,
         email: true,
-        extensionToken: true,
+        extensionAccessEnabled: true,
       },
     });
 
@@ -31,22 +32,37 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Không tìm thấy người dùng." }, { status: 404 });
     }
 
+    if (user.extensionAccessEnabled === false) {
+      return NextResponse.json(
+        {
+          error:
+            "Quyền Extension/Client Agent đã bị thu hồi. Vui lòng liên hệ Quản trị viên để mở khóa và cấp Token mới trước khi tải lại.",
+        },
+        { status: 403 }
+      );
+    }
+
     // Determine current Server URL from host header
     const host = req.headers.get("host") || "localhost:3000";
     const proto = req.headers.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
     const serverUrl = `${proto}://${host}`;
 
+    const pairingCode = await createPairingCodeForUser(user.id);
+
     const sanitizedName = (user.username || user.name || "member")
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "_");
 
+    // Pairing only — no personalToken in redistributable zip
     const configContent = JSON.stringify(
       {
         serverUrl,
         memberEmail: user.email || user.username || "member@company.com",
-        personalToken: user.extensionToken || "",
+        pairingCode,
         concurrency: "auto",
         headless: true,
+        tokenRevoked: false,
+        tokenRevokedReason: "",
       },
       null,
       2

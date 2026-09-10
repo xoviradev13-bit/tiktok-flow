@@ -192,8 +192,8 @@ export default function ExtensionDetailPage() {
                 </a>
                 <div className="text-xs text-center text-slate-400">
                   {isClientAgent
-                    ? "Tự động cấu hình Token cá nhân & Endpoint đồng bộ"
-                    : "Đã tự động nhúng Token & Endpoint kết nối"}
+                    ? "Zip kèm mã pairing (~10 phút, dùng 1 lần); lần chạy đầu tự liên kết"
+                    : "Zip kèm mã pairing (~10 phút, dùng 1 lần); lần mở đầu tự liên kết"}
                 </div>
               </>
             )}
@@ -350,8 +350,8 @@ export default function ExtensionDetailPage() {
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             {isClientAgent
-              ? "File ZIP tải về đã tự động cấu hình Token & Email của bạn trong config.json. Chỉ cần giải nén và chạy ngay."
-              : "Không cần gõ lệnh hay thiết lập API phức tạp. File ZIP tải về đã được cấu hình sẵn cho tài khoản của bạn."}
+              ? "File ZIP chứa mã pairing dùng 1 lần (~10 phút). Lần chạy đầu tự liên kết tài khoản. Nếu hết hạn: dán Personal Token từ Settings (setup-agent.bat phím 3)."
+              : "File ZIP chứa mã pairing dùng 1 lần (~10 phút). Lần mở đầu tự liên kết. Nếu hết hạn: dán Personal Token từ Settings vào popup Extension."}
           </p>
         </div>
 
@@ -471,7 +471,7 @@ export default function ExtensionDetailPage() {
                     Tải Về Trực Tiếp Gói .ZIP
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Bấm nút tải phía trên để lưu file <code className="bg-pink-50 dark:bg-pink-950/50 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded text-xs font-mono font-bold border border-pink-200 dark:border-pink-800">extension.zip</code> về máy. Bạn <strong>KHÔNG CẦN</strong> giải nén.
+                    Bấm nút tải phía trên để lưu file <code className="bg-pink-50 dark:bg-pink-950/50 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded text-xs font-mono font-bold border border-pink-200 dark:border-pink-800">extension.zip</code> về máy. Zip có mã pairing (~10 phút). Bạn <strong>KHÔNG CẦN</strong> giải nén.
                   </p>
                 </div>
               </div>
@@ -501,7 +501,7 @@ export default function ExtensionDetailPage() {
                     Bắt Đầu Sử Dụng Tự Động
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Mở profile GPMLogin bất kỳ, popup <strong>TikTokFlow Companion</strong> đã tích hợp sẵn Personal Token định danh của bạn, tự động nhận diện tài khoản và đồng bộ số liệu Creator Rewards, lượt xem về web máy chủ!
+                    Mở profile GPMLogin bất kỳ — lần đầu Extension tự redeem pairing. Nếu pairing hết hạn, dán Personal Token từ Settings vào popup. Sau đó tự đồng bộ Creator Rewards / lượt xem về máy chủ.
                   </p>
                 </div>
               </div>

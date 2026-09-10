@@ -34,11 +34,11 @@ export default function PublicFooter() {
             </Link>
 
             <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-              Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Đồng bộ GPMLogin, tự động cào số liệu Creator Rewards, views và phân quyền nhân sự an toàn tuyệt đối.
+              Nền tảng quản lý và tự động hóa vận hành TikTok quy mô lớn. Đồng bộ GPMLogin, tự động cập nhật số liệu, quản lý nhân sự và theo dõi hiệu suất, doanh thu tập trung trên một hệ thống.
             </p>
 
             <div className="pt-1 text-xs text-slate-400 dark:text-slate-500 font-medium">
-              Chuyên biệt cho Studio & MCN vận hành tài khoản US, UK, DE, VN.
+              Chuyên biệt cho nhu cầu vận hành nội bộ của Studio & MCN.
             </div>
           </div>
 

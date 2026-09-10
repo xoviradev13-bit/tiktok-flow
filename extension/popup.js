@@ -10,9 +10,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const userAvatar = document.getElementById("userAvatar");
   const userHandle = document.getElementById("userHandle");
   const userNickname = document.getElementById("userNickname");
-  const statFollowers = document.getElementById("statFollowers");
-  const statVideos = document.getElementById("statVideos");
-  const statRevenue = document.getElementById("statRevenue");
 
   const gpmIndicator = document.getElementById("gpmIndicator");
   const gpmStatusText = document.getElementById("gpmStatusText");
@@ -21,17 +18,33 @@ document.addEventListener("DOMContentLoaded", async () => {
   const syncNowBtn = document.getElementById("syncNowBtn");
   const syncBtnText = document.getElementById("syncBtnText");
   const lastSyncText = document.getElementById("lastSyncText");
+  const fleetSyncBar = document.getElementById("fleetSyncBar");
+  const fleetSyncText = document.getElementById("fleetSyncText");
 
-  function formatNumber(num) {
-    if (!num || isNaN(num)) return "0";
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
-    if (num >= 1000) return (num / 1000).toFixed(1) + "K";
-    return num.toLocaleString();
+  function setSyncBar(barEl, textEl, status, message) {
+    if (!barEl || !textEl) return;
+    const st = status || "idle";
+    barEl.className = `sync-status-bar status-${st}`;
+    textEl.textContent = message || (
+      st === "syncing" ? "Đang đồng bộ…" :
+      st === "ok" ? "Đã đồng bộ" :
+      st === "error" ? "Đồng bộ lỗi" :
+      "Chưa đồng bộ"
+    );
   }
 
-  function formatMoney(amount) {
-    if (!amount || isNaN(amount)) return "$0.00";
-    return `$${Number(amount).toFixed(2)}`;
+  function renderAccountIdentity(acc) {
+    if (!acc) return;
+    userHandle.textContent = acc.username ? `@${acc.username}` : "@chua_phat_hien";
+    userNickname.textContent = acc.nickname || (acc.isLoggedIn ? "Đã xác minh phiên" : "Chưa đăng nhập");
+    if (acc.avatarUrl) userAvatar.src = acc.avatarUrl;
+    if (acc.isLoggedIn) {
+      statusPill.className = "status-pill status-active";
+      statusPillText.textContent = "Đã đăng nhập";
+    } else {
+      statusPill.className = "status-pill status-idle";
+      statusPillText.textContent = "Chưa đăng nhập";
+    }
   }
 
   // 1. Load config from config.json if storage is empty
@@ -43,18 +56,65 @@ document.addEventListener("DOMContentLoaded", async () => {
     "latestAccount",
     "lastFleetSyncTime",
     "gpmProfileCount",
+    "tokenRevoked",
+    "tokenRevokedReason",
+    "authRequired",
   ]);
 
-  if (!data.memberName || !data.personalToken) {
-    try {
-      const resp = await fetch(chrome.runtime.getURL("config.json"));
-      if (resp.ok) {
-        const fileCfg = await resp.json();
+  // Clear stuck banner from the old email-mismatch 403 (server no longer returns it)
+  const staleReason = String(data.tokenRevokedReason || "");
+  if (data.tokenRevoked && /không khớp|khong khop|personalToken/i.test(staleReason)) {
+    await chrome.storage.local.set({
+      tokenRevoked: false,
+      tokenRevokedReason: "",
+      tokenRevokedAt: null,
+      authRequired: !data.personalToken,
+    });
+    data = {
+      ...data,
+      tokenRevoked: false,
+      tokenRevokedReason: "",
+      authRequired: !data.personalToken,
+    };
+  }
+
+  // Seed from bundled config.json. Fresh pairing zip clears a stuck re-auth banner
+  // left by older false 403 "email mismatch" errors.
+  try {
+    const resp = await fetch(chrome.runtime.getURL("config.json"));
+    if (resp.ok) {
+      const fileCfg = await resp.json();
+      const freshPairing =
+        typeof fileCfg.pairingCode === "string" &&
+        fileCfg.pairingCode.startsWith("ttf_pair_");
+
+      if (freshPairing && (data.tokenRevoked || !data.personalToken)) {
+        await chrome.storage.local.set({
+          ...fileCfg,
+          tokenRevoked: false,
+          tokenRevokedReason: "",
+          tokenRevokedAt: null,
+          authRequired: false,
+          personalToken: data.tokenRevoked ? "" : data.personalToken || "",
+          accessToken: "",
+          accessExpiresAt: 0,
+          refreshToken: "",
+        });
+        data = {
+          ...data,
+          ...fileCfg,
+          tokenRevoked: false,
+          tokenRevokedReason: "",
+          authRequired: false,
+          personalToken: data.tokenRevoked ? "" : data.personalToken || "",
+        };
+        chrome.runtime.sendMessage({ type: "FORCE_PAIR_REDEEM" }).catch(() => {});
+      } else if (!data.tokenRevoked && (!data.memberName || !data.personalToken)) {
         await chrome.storage.local.set(fileCfg);
         data = { ...data, ...fileCfg };
       }
-    } catch (e) {}
-  }
+    }
+  } catch (e) {}
 
   // Populate Identity Badge
   memberNameText.textContent = data.memberName || data.userEmail || "Nhân sự hệ thống";
@@ -65,9 +125,41 @@ document.addEventListener("DOMContentLoaded", async () => {
   const testTokenBtn = document.getElementById("testTokenBtn");
   const saveTokenBtn = document.getElementById("saveTokenBtn");
   const tokenSaveMsg = document.getElementById("tokenSaveMsg");
+  const authBanner = document.getElementById("authBanner");
+  const authBannerText = document.getElementById("authBannerText");
+  const identityCard = document.querySelector(".identity-card");
+
+  function setReauthUi(show, reason) {
+    if (authBanner) {
+      authBanner.style.display = show ? "block" : "none";
+    }
+    if (show && authBannerText) {
+      authBannerText.textContent =
+        reason ||
+        "Personal Token đã bị thu hồi hoặc vô hiệu hóa. Dán token mới từ trang Cài đặt rồi bấm Lưu.";
+    }
+    if (personalTokenInput) {
+      personalTokenInput.classList.toggle("needs-reauth", !!show);
+    }
+    if (identityCard) {
+      identityCard.classList.toggle("needs-reauth", !!show);
+    }
+    if (show && statusPill && statusPillText) {
+      statusPill.className = "status-pill status-idle";
+      statusPillText.textContent = "Cần xác thực";
+    }
+  }
 
   if (data.personalToken && personalTokenInput) {
     personalTokenInput.value = data.personalToken;
+  }
+
+  if (data.tokenRevoked || data.authRequired) {
+    setReauthUi(true, data.tokenRevokedReason);
+    if (personalTokenInput) {
+      personalTokenInput.value = "";
+      personalTokenInput.focus();
+    }
   }
 
   function showTokenMsg(text, isSuccess) {
@@ -78,8 +170,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   async function verifyTokenOnline(tokenToVerify) {
+    // Local format checks first (cheap reject). Well-formed but revoked tokens
+    // still require the network call below — that is intentional, not a gap.
     if (!tokenToVerify) {
-      return { ok: false, error: "Vui lòng nhập mã Token." };
+      return { ok: false, error: "Vui lòng nhập mã Token.", authRequired: true };
     }
     if (!tokenToVerify.startsWith("ttf_sec_")) {
       return {
@@ -97,7 +191,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${tokenToVerify}`,
+          Authorization: `Bearer ${tokenToVerify}`,
         },
         body: JSON.stringify({ token: tokenToVerify }),
       });
@@ -105,9 +199,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (resp.ok && resData.valid) {
         return { ok: true, user: resData.user };
       }
+      const revoked = resp.status === 401 || resp.status === 403;
       return {
         ok: false,
-        error: resData.error || "Mã Token không tồn tại hoặc đã bị vô hiệu hóa!",
+        authRequired: revoked,
+        error:
+          resData.error ||
+          (revoked
+            ? "Mã Token không tồn tại hoặc đã bị thu hồi!"
+            : "Mã Token không hợp lệ!"),
       };
     } catch (err) {
       return {
@@ -129,6 +229,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       showTokenMsg(`✓ Token hợp lệ! Nhân sự: ${result.user?.name || result.user?.email}`, true);
     } else {
       showTokenMsg(`✕ ${result.error}`, false);
+      if (result.authRequired) setReauthUi(true, result.error);
     }
   });
 
@@ -142,6 +243,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (!result.ok) {
       showTokenMsg(`✕ Không thể lưu: ${result.error}`, false);
+      if (result.authRequired) setReauthUi(true, result.error);
       return;
     }
 
@@ -149,37 +251,74 @@ document.addEventListener("DOMContentLoaded", async () => {
       personalToken: candidate,
       memberName: result.user?.name || data.memberName,
       userEmail: result.user?.email || data.userEmail,
+      tokenRevoked: false,
+      tokenRevokedReason: "",
+      tokenRevokedAt: null,
+      authRequired: false,
+      // Force fresh session after token paste
+      accessToken: "",
+      accessExpiresAt: 0,
+      refreshToken: "",
+    });
+
+    chrome.runtime.sendMessage({
+      type: "CLEAR_TOKEN_REVOKED",
+      updates: {
+        personalToken: candidate,
+        memberName: result.user?.name || data.memberName,
+        userEmail: result.user?.email || data.userEmail,
+      },
     });
 
     if (result.user?.name) {
       memberNameText.textContent = result.user.name;
     }
+    setReauthUi(false);
     showTokenMsg(`✓ Đã lưu token thành công cho: ${result.user?.name || "Nhân sự"}`, true);
     setTimeout(() => {
       if (tokenSaveMsg) tokenSaveMsg.style.display = "none";
     }, 4000);
   });
 
-  // Populate Account Card
-  if (data.latestAccount) {
-    const acc = data.latestAccount;
-    userHandle.textContent = acc.username ? `@${acc.username}` : "@chua_phat_hien";
-    userNickname.textContent = acc.nickname || (acc.isLoggedIn ? "Đã xác minh phiên" : "Chưa đăng nhập");
-    if (acc.avatarUrl) {
-      userAvatar.src = acc.avatarUrl;
+  // Live updates when background marks token revoked mid-session / sync progress
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes.tokenRevoked?.newValue === true || changes.authRequired?.newValue === true) {
+      setReauthUi(true, changes.tokenRevokedReason?.newValue || data.tokenRevokedReason);
+      if (personalTokenInput) personalTokenInput.value = "";
     }
-    statFollowers.textContent = formatNumber(acc.followersCount);
-    statVideos.textContent = formatNumber(acc.videoCount);
-    statRevenue.textContent = formatMoney(acc.totalRevenue);
+    if (changes.fleetSyncStatus || changes.fleetSyncMessage) {
+      setSyncBar(
+        fleetSyncBar,
+        fleetSyncText,
+        changes.fleetSyncStatus?.newValue || data.fleetSyncStatus,
+        changes.fleetSyncMessage?.newValue || data.fleetSyncMessage
+      );
+    }
+    if (changes.latestAccount?.newValue) {
+      renderAccountIdentity(changes.latestAccount.newValue);
+    }
+    if (changes.gpmApiPort || changes.gpmApiOnline) {
+      const port = changes.gpmApiPort?.newValue;
+      const online = changes.gpmApiOnline?.newValue;
+      if (online && port) {
+        gpmIndicator.className = "gpm-indicator online";
+        gpmStatusText.textContent = `localhost:${port} Online`;
+      } else if (online === false) {
+        gpmIndicator.className = "gpm-indicator offline";
+        gpmStatusText.textContent = "GPM Offline";
+      }
+    }
+  });
 
-    if (acc.isLoggedIn) {
-      statusPill.className = "status-pill status-active";
-      statusPillText.textContent = "Đã đăng nhập";
-    } else {
-      statusPill.className = "status-pill status-idle";
-      statusPillText.textContent = "Chưa đăng nhập";
-    }
+  // Populate Account Card (identity only — metrics live on web / Client Agent)
+  if (data.latestAccount) {
+    renderAccountIdentity(data.latestAccount);
   }
+
+  chrome.storage.local.get(["fleetSyncStatus", "fleetSyncMessage"], (syncData) => {
+    setSyncBar(fleetSyncBar, fleetSyncText, syncData.fleetSyncStatus, syncData.fleetSyncMessage);
+  });
 
   if (data.gpmProfileCount) {
     gpmProfileCount.textContent = `${data.gpmProfileCount} profiles`;
@@ -216,56 +355,76 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // 2. Check Live GPM API Status
-  async function checkGpmHealth() {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
-      let res = await fetch("http://127.0.0.1:9495/api/v1/profiles?page=1&per_page=1", {
-        signal: controller.signal,
-      }).catch(() => null);
-
-      if (!res || !res.ok) {
-        res = await fetch("http://127.0.0.1:9495/api/v3/profiles?page=1&per_page=1", {
-          signal: controller.signal,
-        }).catch(() => null);
-      }
-      clearTimeout(timeoutId);
-
-      if (res && res.ok) {
-        gpmIndicator.className = "gpm-indicator online";
-        gpmStatusText.textContent = "localhost:9495 Online";
-      } else {
-        throw new Error("GPM API responded with error");
-      }
-    } catch {
+  // 2. Auto-detect GPM API port (9495 / 19995 / 19996 / …)
+  function applyGpmProbe(res) {
+    if (res && res.online) {
+      gpmIndicator.className = "gpm-indicator online";
+      gpmStatusText.textContent = `localhost:${res.port || "?"} Online`;
+    } else {
       gpmIndicator.className = "gpm-indicator offline";
-      gpmStatusText.textContent = "localhost:9495 Offline";
+      gpmStatusText.textContent = "GPM Offline (đã dò cổng)";
     }
   }
 
-  checkGpmHealth();
+  chrome.runtime.sendMessage({ type: "PROBE_GPM" }, (res) => {
+    if (chrome.runtime.lastError) {
+      gpmIndicator.className = "gpm-indicator offline";
+      gpmStatusText.textContent = "GPM Offline";
+      return;
+    }
+    applyGpmProbe(res);
+  });
 
   // 3. Trigger Manual Sync Action
   syncNowBtn.addEventListener("click", () => {
     syncNowBtn.disabled = true;
     syncNowBtn.classList.add("spinning");
     syncBtnText.textContent = "Đang quét GPM...";
+    setSyncBar(fleetSyncBar, fleetSyncText, "syncing", "Đang quét GPMLogin…");
 
     chrome.runtime.sendMessage({ type: "TRIGGER_MANUAL_SYNC" }, (response) => {
       syncNowBtn.disabled = false;
       syncNowBtn.classList.remove("spinning");
       syncBtnText.textContent = "Đồng bộ GPM ngay";
 
+      if (chrome.runtime.lastError) {
+        setSyncBar(fleetSyncBar, fleetSyncText, "error", chrome.runtime.lastError.message);
+        alert(`Lỗi extension: ${chrome.runtime.lastError.message}`);
+        return;
+      }
+
       if (response && response.success) {
         gpmProfileCount.textContent = `${response.count} profiles`;
         const now = new Date();
         lastSyncText.textContent = `Đồng bộ lần cuối: ${now.toLocaleTimeString("vi-VN")}`;
-        alert(`Đã đồng bộ thành công ${response.count} profiles về TikTokFlow Server!`);
+        setSyncBar(fleetSyncBar, fleetSyncText, "ok", `Đã đồng bộ ${response.count} profiles lên server.`);
+        chrome.runtime.sendMessage({ type: "PROBE_GPM" }, applyGpmProbe);
+      } else if (response && response.authRequired) {
+        setReauthUi(true, response.error);
+        setSyncBar(fleetSyncBar, fleetSyncText, "error", response.error || "Cần xác thực lại");
+        if (personalTokenInput) {
+          personalTokenInput.value = "";
+          personalTokenInput.focus();
+        }
+        alert(
+          response.error ||
+            "Token đã bị thu hồi. Vui lòng nhập Personal Token mới từ trang Cài đặt."
+        );
       } else if (response && response.skipped) {
-        alert(`Bỏ qua: ${response.reason}`);
+        const reason = response.reason || "unknown";
+        if (reason === "GPMLogin offline") {
+          setSyncBar(fleetSyncBar, fleetSyncText, "error", "GPMLogin offline");
+          alert("Không thể kết nối đến GPMLogin. Hãy chắc chắn GPMLogin đang mở (extension tự dò cổng 9495/19995/19996…).");
+        } else {
+          setSyncBar(fleetSyncBar, fleetSyncText, "idle", `Bỏ qua: ${reason}`);
+          alert(`Bỏ qua: ${reason}`);
+        }
       } else {
-        alert("Không thể kết nối đến GPMLogin (localhost:9495). Hãy chắc chắn GPMLogin đang mở.");
+        setSyncBar(fleetSyncBar, fleetSyncText, "error", response?.error || "Đồng bộ thất bại");
+        alert(
+          response?.error ||
+            "Đồng bộ thất bại. Kiểm tra Personal Token và máy chủ TikTokFlow."
+        );
       }
     });
   });

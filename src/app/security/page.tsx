@@ -44,8 +44,8 @@ export default function SecurityPage() {
     {
       icon: Key,
       title: "Cơ Chế Khóa Token Định Danh Phân Lập",
-      desc: "Extension và Client Agent giao tiếp thông qua Personal Token riêng biệt cho từng nhân sự (Scoped Tokens). Không bao giờ lưu trữ mật khẩu tài khoản TikTok trên hệ thống trung tâm.",
-      tags: ["Personal Token", "Scoped Permissions", "No Plaintext Passwords", "Zero-Knowledge Storage"],
+      desc: "Gói tải về chỉ chứa mã pairing dùng một lần (~10 phút). Extension/Client Agent đổi mã đó lấy phiên JWT ngắn hạn (15 phút) kèm refresh có xoay vòng và phát hiện tái sử dụng. Personal Token riêng từng nhân sự chỉ dùng để khôi phục khi regenerate/revoke — không lưu mật khẩu tài khoản TikTok trên máy chủ.",
+      tags: ["One-time Pairing", "Short-lived JWT", "Refresh Rotation", "Per-user Revoke"],
     },
     {
       icon: Server,
@@ -75,7 +75,7 @@ export default function SecurityPage() {
         </h1>
 
         <p className="mt-4 text-sm sm:text-base text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed font-medium">
-          Cam kết bảo vệ dữ liệu dàn tài khoản, doanh thu TikTok Creator Rewards và thông tin cá nhân của bạn với các tiêu chuẩn mã hóa và bảo mật nghiêm ngặt nhất.
+          Cam kết bảo vệ dữ liệu dàn tài khoản, doanh thu TikTok và thông tin cá nhân của bạn với các tiêu chuẩn mã hóa và bảo mật nghiêm ngặt nhất.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">

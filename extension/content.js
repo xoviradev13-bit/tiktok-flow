@@ -166,7 +166,38 @@
     return "";
   }
 
-  // 1. Resolve Verified Authenticated Login State
+  function normalizeHandle(raw) {
+    if (!raw) return null;
+    const h = String(raw).replace(/^@/, "").trim();
+    if (!h || h.length < 2 || h.length > 30) return null;
+    if (!/^[a-zA-Z0-9._]+$/.test(h)) return null;
+    return h;
+  }
+
+  function handlesEqual(a, b) {
+    const na = normalizeHandle(a);
+    const nb = normalizeHandle(b);
+    return !!na && !!nb && na.toLowerCase() === nb.toLowerCase();
+  }
+
+  /** Profile handle from current URL path (/@user/...), or null on feed/studio/etc. */
+  function getViewedProfileHandleFromUrl() {
+    try {
+      const m = window.location.pathname.match(/^\/@([a-zA-Z0-9._]+)/);
+      return normalizeHandle(m?.[1] || null);
+    } catch {
+      return null;
+    }
+  }
+
+  function rememberHandle(uname) {
+    const n = normalizeHandle(uname);
+    if (!n) return;
+    cachedHandle = n;
+    try { chrome.storage.local.set({ cachedTikTokHandle: cachedHandle }); } catch (e) { }
+  }
+
+  // 1. Resolve Verified Authenticated Login State (never use the viewed /@profile as identity)
   async function checkAuthenticationState() {
     // A. Explicit login or passport redirection page -> Definitely Logged Out
     if (/login|passport/i.test(window.location.href)) {
@@ -179,91 +210,151 @@
       window.location.href.includes("creator-center");
 
     if (isStudio) {
-      const studioUserEl =
-        document.querySelector('[data-e2e="user-avatar"]') ||
-        document.querySelector('[class*="avatar"] img') ||
-        document.querySelector('[class*="userName"], [class*="username"], [class*="user-name"]');
       let studioHandle = null;
-      if (studioUserEl) {
-        const parent = studioUserEl.closest("header, [class*='header'], [class*='nav']") || studioUserEl.parentElement;
-        if (parent) {
-          const text = parent.innerText || "";
-          const m = text.match(/@([a-zA-Z0-9_.-]{3,30})/);
-          if (m && m[1]) studioHandle = m[1];
-          else {
-            const parts = text.split("|").map((p) => p.trim());
-            if (parts[0] && /^[a-zA-Z0-9_.-]{3,30}$/.test(parts[0])) studioHandle = parts[0];
+
+      // Prefer creator context JSON over DOM text
+      try {
+        const creatorEl = document.getElementById("__Creator_Center_Context__");
+        if (creatorEl?.textContent) {
+          const raw = creatorEl.textContent.replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+          const parsed = JSON.parse(raw);
+          studioHandle =
+            normalizeHandle(parsed?.user?.uniqueId) ||
+            normalizeHandle(parsed?.userInfo?.user?.uniqueId) ||
+            normalizeHandle(parsed?.userBaseInfo?.UserProfile?.UserBase?.UniqId);
+        }
+      } catch (e) { }
+
+      if (!studioHandle) {
+        const studioUserEl =
+          document.querySelector('[data-e2e="user-avatar"]') ||
+          document.querySelector('[class*="avatar"] img') ||
+          document.querySelector('[class*="userName"], [class*="username"], [class*="user-name"]');
+        if (studioUserEl) {
+          const parent = studioUserEl.closest("header, [class*='header'], [class*='nav']") || studioUserEl.parentElement;
+          if (parent) {
+            const text = parent.innerText || "";
+            const m = text.match(/@([a-zA-Z0-9_.-]{3,30})/);
+            if (m && m[1]) studioHandle = normalizeHandle(m[1]);
+            else {
+              const parts = text.split("|").map((p) => p.trim());
+              if (parts[0] && /^[a-zA-Z0-9_.-]{3,30}$/.test(parts[0])) studioHandle = normalizeHandle(parts[0]);
+            }
           }
         }
       }
-      if (studioHandle) {
-        cachedHandle = studioHandle;
-        try { chrome.storage.local.set({ cachedTikTokHandle: cachedHandle }); } catch (e) { }
-      }
-      return { isLoggedIn: true, username: studioHandle || cachedHandle || "creator" };
+
+      if (studioHandle) rememberHandle(studioHandle);
+      return { isLoggedIn: true, username: studioHandle || cachedHandle || null };
     }
 
-    // C. Explicit Guest Login Button is rendered in navbar (and no profile icon)
+    // C. Guest login button with no nav profile control
     const loginBtn = document.querySelector('[data-e2e="top-login-button"]');
+    // Only trust dedicated profile-icon controls — NEVER generic header @ links on a public profile page
+    // (those selectors often match the *viewed* profile, not the logged-in account).
     const profileIcon =
       document.querySelector('a[data-e2e="profile-icon"]') ||
-      document.querySelector('header a[href*="/@"]') ||
-      document.querySelector('nav a[href*="/@"]');
+      document.querySelector('a[data-e2e="nav-profile"]') ||
+      document.querySelector('[data-e2e="profile-icon"] a');
 
     if (loginBtn && !profileIcon) {
       return { isLoggedIn: false, username: null };
     }
 
     // D. Ground-Truth: Authenticated viewer in SSR hydration (__UNIVERSAL_DATA_FOR_REHYDRATION__)
-    // Notice: webapp.app-context.user is the AUTHENTICATED VIEWER (unlike webapp.user-detail which is the viewed profile)
+    // webapp.app-context.user = AUTHENTICATED VIEWER
+    // webapp.user-detail = VIEWED profile (must never be used as identity)
     try {
       const scriptTag = document.getElementById("__UNIVERSAL_DATA_FOR_REHYDRATION__");
       if (scriptTag && scriptTag.textContent) {
         const json = JSON.parse(scriptTag.textContent);
         const scope = json["__DEFAULT_SCOPE__"] || {};
         const appUser = scope["webapp.app-context"]?.user;
-        const region = scope["webapp.app-context"]?.appContext?.region || scope["webapp.user-detail"]?.userInfo?.user?.region;
+        const region =
+          scope["webapp.app-context"]?.appContext?.region ||
+          scope["webapp.app-context"]?.language ||
+          null;
         if (appUser && (appUser.uniqueId || appUser.id)) {
-          const uname = appUser.uniqueId || null;
-          if (uname) {
-            cachedHandle = uname;
-            try { chrome.storage.local.set({ cachedTikTokHandle: cachedHandle }); } catch (e) { }
-          }
+          const uname = normalizeHandle(appUser.uniqueId);
+          if (uname) rememberHandle(uname);
           return { isLoggedIn: true, username: uname, country: region || null };
         }
       }
     } catch (e) { }
 
-    // E. Authenticated Profile Avatar Icon in Navigation Bar
-    if (profileIcon) {
-      const href = profileIcon.getAttribute("href") || "";
-      const m = href.match(/\/@([a-zA-Z0-9_.-]+)/);
-      if (m && m[1]) {
-        cachedHandle = m[1];
-        try { chrome.storage.local.set({ cachedTikTokHandle: cachedHandle }); } catch (e) { }
-        return { isLoggedIn: true, username: m[1], country: null };
-      }
-    }
-
-    // F. Direct Official TikTok Passport API (Session Cookie Verification)
+    // E. Passport API (session cookie) — authoritative for logged-in identity
     try {
       const res = await fetch("https://www.tiktok.com/passport/web/account/info/?app_id=1233", {
         credentials: "include",
       });
       if (res.ok) {
         const info = await res.json();
-        const uname = info.data?.username || info.data?.screen_name;
+        const uname = normalizeHandle(info.data?.username || info.data?.screen_name);
         const cCode = info.data?.country_code || info.data?.country;
         if (uname && info.data?.user_id_str) {
-          cachedHandle = uname;
-          try { chrome.storage.local.set({ cachedTikTokHandle: cachedHandle }); } catch (e) { }
+          rememberHandle(uname);
           return { isLoggedIn: true, username: uname, country: cCode || null };
         }
       }
     } catch (e) { }
 
-    // If none of the authenticated proofs exist
+    // F. Nav profile icon only (safe) — after ground-truth probes
+    if (profileIcon) {
+      const href = profileIcon.getAttribute("href") || "";
+      const m = href.match(/\/@([a-zA-Z0-9_.-]+)/);
+      const uname = normalizeHandle(m?.[1]);
+      if (uname) {
+        rememberHandle(uname);
+        return { isLoggedIn: true, username: uname, country: null };
+      }
+      // Icon present but no href handle — still logged in; use cache if available
+      if (cachedHandle) {
+        return { isLoggedIn: true, username: cachedHandle, country: null };
+      }
+    }
+
     return { isLoggedIn: false, username: null, country: null };
+  }
+
+  async function hydrateOwnPublicStats(result) {
+    if (!result.username || result.username === "unknown") return;
+    try {
+      const profileRes = await fetch(`https://www.tiktok.com/@${result.username}`, {
+        credentials: "include",
+        headers: { Accept: "text/html,application/xhtml+xml" },
+      });
+      if (!profileRes.ok) return;
+      const html = await profileRes.text();
+      const rehydrationMatch = html.match(
+        /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/
+      );
+      if (!rehydrationMatch?.[1]) return;
+      const parsed = JSON.parse(rehydrationMatch[1]);
+      const userInfo = parsed?.["__DEFAULT_SCOPE__"]?.["webapp.user-detail"]?.userInfo;
+      // Guard: ensure hydrated profile is OUR account, not a redirect/mismatch
+      const hydratedId = normalizeHandle(userInfo?.user?.uniqueId);
+      if (hydratedId && !handlesEqual(hydratedId, result.username)) {
+        console.warn(
+          `[TikTokFlow] Skipping hydrate — page @${hydratedId} != logged-in @${result.username}`
+        );
+        return;
+      }
+      if (!userInfo) return;
+      const stats = userInfo.stats || {};
+      if (stats.followerCount) result.followersCount = Number(stats.followerCount);
+      if (stats.followingCount) result.followingCount = Number(stats.followingCount);
+      if (stats.heartCount) result.totalLikes = Number(stats.heartCount);
+      if (stats.videoCount) {
+        result.totalVideos = Number(stats.videoCount);
+        result.videoCount = Number(stats.videoCount);
+      }
+      if (userInfo.user?.nickname) result.nickname = userInfo.user.nickname;
+      if (userInfo.user?.avatarLarger || userInfo.user?.avatarThumb) {
+        result.avatarUrl = userInfo.user.avatarLarger || userInfo.user.avatarThumb;
+      }
+    } catch (e) {
+      // Non-blocking
+    }
   }
 
   // 2. Main Extractor
@@ -273,21 +364,39 @@
 
     try {
       const auth = await checkAuthenticationState();
-      const isLoggedIn = auth.isLoggedIn;
-      const username = auth.username || cachedHandle || "";
+      const isLoggedIn = auth.isLoggedIn === true;
+      // Identity MUST come from auth/session — never from the URL being viewed
+      const username = normalizeHandle(auth.username) || (isLoggedIn ? normalizeHandle(cachedHandle) : null) || "";
 
       const isStudio =
         window.location.href.includes("tiktokstudio") ||
         window.location.href.includes("creator-center");
+
+      const viewedHandle = getViewedProfileHandleFromUrl();
+      const isOwnProfilePage =
+        !!viewedHandle && !!username && handlesEqual(viewedHandle, username);
+      const isOtherProfilePage =
+        !!viewedHandle && !!username && !handlesEqual(viewedHandle, username);
+
+      if (isOtherProfilePage) {
+        console.log(
+          `[TikTokFlow] Viewing public profile @${viewedHandle} — extracting ONLY logged-in @${username}`
+        );
+      }
 
       // Metrics default container
       const result = {
         username: username || "unknown",
         nickname: "",
         avatarUrl: "",
-        country: auth.country ? auth.country.toUpperCase() : "US",
+        country: auth.country ? String(auth.country).toUpperCase() : "US",
         currency: "$",
         isLoggedIn: isLoggedIn,
+        viewedProfile: viewedHandle || null,
+        isOwnProfilePage: isOwnProfilePage,
+        isOtherProfilePage: isOtherProfilePage,
+        isStudio: isStudio,
+        metricsSource: isStudio ? "studio" : isOwnProfilePage ? "own_profile" : "hydrated",
 
         // 1. Views breakdown
         viewsToday: 0,
@@ -314,103 +423,80 @@
         rpm: 0,
       };
 
+      // Not logged in → never scrape a public profile and claim it as an account report
+      if (!isLoggedIn || !username) {
+        return {
+          ...result,
+          username: username || cachedHandle || "unknown",
+          isLoggedIn: false,
+        };
+      }
+
       // ----------------------------------------------------
-      // A. Extract from Standard Profile Page (/@username)
+      // A. Extract from Standard Profile Page ONLY when it is OUR profile
       // ----------------------------------------------------
-      const bodyText = document.body ? document.body.innerText : "";
+      if (isOwnProfilePage) {
+        const bodyText = document.body ? document.body.innerText : "";
 
-      const followersEl = document.querySelector('[data-e2e="followers-count"]');
-      const followingEl = document.querySelector('[data-e2e="following-count"]');
-      const likesEl = document.querySelector('[data-e2e="likes-count"]');
-      const titleEl = document.querySelector('[data-e2e="user-title"], h1');
+        const followersEl = document.querySelector('[data-e2e="followers-count"]');
+        const followingEl = document.querySelector('[data-e2e="following-count"]');
+        const likesEl = document.querySelector('[data-e2e="likes-count"]');
+        const titleEl = document.querySelector('[data-e2e="user-title"], h1');
 
-      if (titleEl && titleEl.textContent) result.nickname = titleEl.textContent.trim();
+        if (titleEl && titleEl.textContent) result.nickname = titleEl.textContent.trim();
 
-      if (followersEl) result.followersCount = parseNum(followersEl.textContent);
-      else {
-        const m =
-          bodyText.match(/([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)\s*(?:Follower|Followers|Người theo dõi|Pengikut|Seguidores|Подписчик|Подписчиков|المتابعون|متابع|ফলোয়ার|অনুসারী|Tagasubaybay|فالوورز)/iu) ||
-          bodyText.match(/(?:Follower|Followers|Người theo dõi|Pengikut|Seguidores|Подписчик|Подписчиков|المتابعون|متابع|ফলোয়ার|অনুসারী|Tagasubaybay|فالوورز)\s*([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)/iu);
-        if (m) result.followersCount = parseNum(m[1]);
-      }
-
-      if (followingEl) result.followingCount = parseNum(followingEl.textContent);
-      else {
-        const m =
-          bodyText.match(/([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)\s*(?:Following|Đã follow|Đang theo dõi|Mengikuti|Seguindo|Siguiendo|Подписки|Подписок|أتابعه|متابَعون|অনুসরণ|Sinusubaybayan|فالو)/iu) ||
-          bodyText.match(/(?:Following|Đã follow|Đang theo dõi|Mengikuti|Seguindo|Siguiendo|Подписки|Подписок|أتابعه|متابَعون|অনুসরণ|Sinusubaybayan|فالو)\s*([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)/iu);
-        if (m) result.followingCount = parseNum(m[1]);
-      }
-
-      if (likesEl) result.totalLikes = parseNum(likesEl.textContent);
-      else {
-        const m =
-          bodyText.match(/([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)\s*(?:Likes|Like|Lượt thích|Thích|Suka|Curtidas|Me gusta|Лайки|Лайков|Нравится|الإعجابات|إعجاب|পছন্দ|লাইক|پسندیدگیاں)/iu) ||
-          bodyText.match(/(?:Likes|Like|Lượt thích|Thích|Suka|Curtidas|Me gusta|Лайки|Лайков|Нравится|الإعجابات|إعجاب|পছন্দ|লাইক|پسندیدگیاں)\s*([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)/iu);
-        if (m) result.totalLikes = parseNum(m[1]);
-      }
-
-      // Count videos and sum views on profile page
-      const videoCards = Array.from(
-        document.querySelectorAll('[data-e2e="user-post-item"], a[href*="/video/"]')
-      );
-      if (videoCards.length > 0) {
-        result.totalVideos = videoCards.length;
-        result.videoCount = videoCards.length;
-
-        let viewsSum = 0;
-        for (const card of videoCards) {
-          const viewEl = card.querySelector('[data-e2e="video-views"], strong, span');
-          if (viewEl && viewEl.textContent) {
-            viewsSum += parseNum(viewEl.textContent);
-          }
+        if (followersEl) result.followersCount = parseNum(followersEl.textContent);
+        else {
+          const m =
+            bodyText.match(/([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)\s*(?:Follower|Followers|Người theo dõi|Pengikut|Seguidores|Подписчик|Подписчиков|المتابعون|متابع|ফলোয়ার|অনুসারী|Tagasubaybay|فالوورز)/iu) ||
+            bodyText.match(/(?:Follower|Followers|Người theo dõi|Pengikut|Seguidores|Подписчик|Подписчиков|المتابعون|متابع|ফলোয়ার|অনুসারী|Tagasubaybay|فالوورز)\s*([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)/iu);
+          if (m) result.followersCount = parseNum(m[1]);
         }
-        if (viewsSum > 0) result.totalViews = viewsSum;
-      }
 
-      // ----------------------------------------------------
-      // A2. Auto-Hydrate Profile Stats on Home Page (tiktok.com/)
-      // If user is just browsing For You/Home feed, fetch their public stats in the background
-      // ----------------------------------------------------
-      if (!isStudio && result.username && result.username !== "unknown" && (!result.followersCount || !result.totalLikes)) {
-        try {
-          const profileRes = await fetch(`https://www.tiktok.com/@${result.username}`, {
-            credentials: "include",
-            headers: { Accept: "text/html,application/xhtml+xml" },
-          });
-          if (profileRes.ok) {
-            const html = await profileRes.text();
-            const rehydrationMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
-            if (rehydrationMatch && rehydrationMatch[1]) {
-              const parsed = JSON.parse(rehydrationMatch[1]);
-              const userInfo = parsed?.["__DEFAULT_SCOPE__"]?.["webapp.user-detail"]?.userInfo;
-              if (userInfo) {
-                const stats = userInfo.stats || {};
-                if (stats.followerCount && !result.followersCount) {
-                  result.followersCount = Number(stats.followerCount);
-                }
-                if (stats.followingCount && !result.followingCount) {
-                  result.followingCount = Number(stats.followingCount);
-                }
-                if (stats.heartCount && !result.totalLikes) {
-                  result.totalLikes = Number(stats.heartCount);
-                }
-                if (stats.videoCount && !result.totalVideos) {
-                  result.totalVideos = Number(stats.videoCount);
-                  result.videoCount = Number(stats.videoCount);
-                }
-                if (userInfo.user?.nickname && !result.nickname) {
-                  result.nickname = userInfo.user.nickname;
-                }
-                if ((userInfo.user?.avatarLarger || userInfo.user?.avatarThumb) && !result.avatarUrl) {
-                  result.avatarUrl = userInfo.user.avatarLarger || userInfo.user.avatarThumb;
-                }
-              }
+        if (followingEl) result.followingCount = parseNum(followingEl.textContent);
+        else {
+          const m =
+            bodyText.match(/([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)\s*(?:Following|Đã follow|Đang theo dõi|Mengikuti|Seguindo|Siguiendo|Подписки|Подписок|أتابعه|متابَعون|অনুসরণ|Sinusubaybayan|فالو)/iu) ||
+            bodyText.match(/(?:Following|Đã follow|Đang theo dõi|Mengikuti|Seguindo|Siguiendo|Подписки|Подписок|أتابعه|متابَعون|অনুসরণ|Sinusubaybayan|فالو)\s*([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)/iu);
+          if (m) result.followingCount = parseNum(m[1]);
+        }
+
+        if (likesEl) result.totalLikes = parseNum(likesEl.textContent);
+        else {
+          const m =
+            bodyText.match(/([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)\s*(?:Likes|Like|Lượt thích|Thích|Suka|Curtidas|Me gusta|Лайки|Лайков|Нравится|الإعجابات|إعجاب|পছন্দ|লাইক|پسندیدگیاں)/iu) ||
+            bodyText.match(/(?:Likes|Like|Lượt thích|Thích|Suka|Curtidas|Me gusta|Лайки|Лайков|Нравится|الإعجابات|إعجاب|পছন্দ|লাইক|پسندیدگیاں)\s*([0-9.,\u0660-\u0669\u09e6-\u09efKMBkmbмлнтысrbjttr]+)/iu);
+          if (m) result.totalLikes = parseNum(m[1]);
+        }
+
+        const videoCards = Array.from(
+          document.querySelectorAll('[data-e2e="user-post-item"], a[href*="/video/"]')
+        );
+        if (videoCards.length > 0) {
+          result.totalVideos = videoCards.length;
+          result.videoCount = videoCards.length;
+
+          let viewsSum = 0;
+          for (const card of videoCards) {
+            const viewEl = card.querySelector('[data-e2e="video-views"], strong, span');
+            if (viewEl && viewEl.textContent) {
+              viewsSum += parseNum(viewEl.textContent);
             }
           }
-        } catch (e) {
-          // Non-blocking background fetch
+          if (viewsSum > 0) result.totalViews = viewsSum;
         }
+      }
+
+      // ----------------------------------------------------
+      // A2. Always hydrate OUR public stats when missing, or when viewing someone else / home feed
+      // ----------------------------------------------------
+      if (
+        !isStudio &&
+        result.username &&
+        result.username !== "unknown" &&
+        (isOtherProfilePage || !isOwnProfilePage || !result.followersCount || !result.totalLikes)
+      ) {
+        await hydrateOwnPublicStats(result);
       }
 
       // ----------------------------------------------------
@@ -712,11 +798,15 @@
         } catch (cardScanErr) { }
 
         // 3. Mathematical Consistency & Reconciliation
+        // Heuristic only: when Studio exposes a single total with no LIVE/Shop/Creator
+        // breakdown, we attribute the whole amount to Creator Rewards. That matches the
+        // common "Est. Rewards" Key Metrics card, but it is NOT always true — some UI
+        // locales/layouts show Shop-only (or LIVE-only) totals without labeling the stream.
+        // Prefer explicit component cards when present; do not invent split ratios.
         const sumComponents = (result.creatorRewardsRevenue || 0) + (result.liveRewardsRevenue || 0) + (result.tiktokShopRevenue || 0);
         if (result.totalRevenue === 0 && sumComponents > 0) {
           result.totalRevenue = sumComponents;
         } else if (result.totalRevenue > 0 && result.creatorRewardsRevenue === 0 && result.liveRewardsRevenue === 0 && result.tiktokShopRevenue === 0) {
-          // If total exists (e.g. from Key Metrics Est. Rewards) without separate LIVE or Shop streams, it belongs to Creator Rewards
           result.creatorRewardsRevenue = result.totalRevenue;
         }
 
@@ -927,6 +1017,32 @@
       const data = await extractAllMetrics();
       if (!data || !data.username || data.username === "unknown") return;
 
+      // Never report metrics scraped while logged out / unidentified
+      if (!data.isLoggedIn) {
+        console.log("[TikTokFlow] Skipping report — not logged in");
+        return;
+      }
+
+      // Public profile of someone else → do not touch popup metrics / server stats
+      if (data.isOtherProfilePage) {
+        console.log(
+          `[TikTokFlow] Skipping report — viewing public @${data.viewedProfile} (logged-in @${data.username} unchanged)`
+        );
+        try {
+          chrome.runtime.sendMessage({
+            type: "TIKTOK_STATUS_DETECTED",
+            data: {
+              username: data.username,
+              isLoggedIn: true,
+              isOtherProfilePage: true,
+              viewedProfile: data.viewedProfile,
+              metricsSource: "identity_only",
+            },
+          });
+        } catch (e) {}
+        return;
+      }
+
       // Hash to avoid duplicate network reports
       const currentHash = JSON.stringify({
         u: data.username,
@@ -935,17 +1051,20 @@
         rev: data.totalRevenue,
         views: data.totalViews,
         vt: data.viewsToday,
+        src: data.metricsSource || "",
       });
 
       if (currentHash !== lastReportedDataHash) {
         lastReportedDataHash = currentHash;
 
-        console.log("[TikTokFlow] Reporting live stats:", data.username, {
+        console.log("[TikTokFlow] Reporting live stats for logged-in account:", data.username, {
           followers: data.followersCount,
           videos: data.totalVideos,
           revenue: data.totalRevenue,
           views: data.totalViews,
           viewsToday: data.viewsToday,
+          viewedProfile: data.viewedProfile || null,
+          isOwnProfilePage: !!data.isOwnProfilePage,
         });
 
         try {

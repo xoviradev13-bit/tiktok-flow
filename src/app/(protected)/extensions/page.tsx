@@ -133,7 +133,7 @@ export default function ExtensionsListPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
               <div className="flex items-center gap-2 text-slate-200">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Tự điền Email & Token cá nhân</span>
+                <span>Zip kèm mã pairing dùng 1 lần (~10 phút)</span>
               </div>
               <div className="flex items-center gap-2 text-slate-200">
                 <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
@@ -361,8 +361,8 @@ export default function ExtensionsListPage() {
                   download
                   title={
                     ext.slug === "tiktokflow-client-agent"
-                      ? "Tải nhanh Client Agent (.zip) đã cấu hình sẵn Token cá nhân"
-                      : "Tải nhanh Extension (.zip) đã cấu hình sẵn Token cá nhân"
+                      ? "Tải Client Agent (.zip) với mã pairing dùng 1 lần (~10 phút)"
+                      : "Tải Extension (.zip) với mã pairing dùng 1 lần (~10 phút)"
                   }
                   className={`p-2.5 rounded-xl ${
                     ext.slug === "tiktokflow-client-agent"

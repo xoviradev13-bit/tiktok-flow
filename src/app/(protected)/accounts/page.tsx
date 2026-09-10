@@ -36,7 +36,10 @@ import {
   List,
   DollarSign,
   Video,
+  Lock,
+  Unlock,
 } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -84,6 +87,10 @@ function AccountsPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  const { data: session } = useSession();
+  const isLeadOrAdmin =
+    (session?.user as any)?.role === "ADMIN" || (session?.user as any)?.role === "LEAD";
 
   // View Mode: read initial value from URL Search Params ("grid" | "list")
   const urlViewMode = (searchParams?.get("view") === "list" ? "list" : "grid") as "grid" | "list";
@@ -247,6 +254,34 @@ function AccountsPageContent() {
 
   const accounts = accountsData?.items || [];
   const stats = accountsData?.stats;
+
+  const getAssigneeLabel = (acc: any) => {
+    if (!acc?.assignedUserId) return "-- Chưa gán --";
+    const fromList = users.find((u: any) => u.id === acc.assignedUserId);
+    if (fromList?.fullName) return fromList.fullName;
+    const u = acc.assignedUser;
+    if (!u) return "-- Chưa gán --";
+    return (
+      u.fullName ||
+      u.name ||
+      [u.firstName, u.lastName].filter(Boolean).join(" ") ||
+      u.username ||
+      "-- Chưa gán --"
+    );
+  };
+
+  const toggleLockMutation = trpc.accounts.toggleLockAssignment.useMutation({
+    onSuccess: (res) => {
+      setActionMsg(
+        res.isAssignmentLocked
+          ? "🔒 Đã khóa phân công — Extension/Agent không tự bàn giao ca."
+          : "🔓 Đã mở khóa phân công — đổi ca tự do."
+      );
+      utils.accounts.list.invalidate();
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onError: (err: any) => alert(err.message),
+  });
 
   // tRPC Mutations
   const createMutation = trpc.accounts.create.useMutation({
@@ -597,7 +632,12 @@ function AccountsPageContent() {
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
               <Users className="w-6 h-6 text-pink-500" />
-              Quản Lý Dàn Tài Khoản TikTok ({accounts.length})
+              <span>Quản Lý Dàn Tài Khoản TikTok</span>
+              {loading ? (
+                <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle" />
+              ) : (
+                <span>({accounts.length})</span>
+              )}
             </h1>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
               Theo dõi trạng thái, phân công nhân sự, quản lý cảnh báo và đồng bộ số liệu qua GPM-Login.
@@ -622,7 +662,42 @@ function AccountsPageContent() {
         )}
 
         {/* KPI Stats Bar */}
-        {stats && (
+        {loading || !stats ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tổng Số Acc</div>
+              <div className="h-7 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-1" />
+            </div>
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <CheckCircle className="w-3.5 h-3.5" /> Hoạt Động (Active)
+              </div>
+              <div className="h-7 w-14 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-1" />
+            </div>
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+              <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <Flame className="w-3.5 h-3.5" /> Nuôi Acc (Warming)
+              </div>
+              <div className="h-7 w-14 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-1" />
+            </div>
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+              <div className="text-xs font-semibold text-orange-600 dark:text-orange-400 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" /> Hạn Chế (Restricted)
+              </div>
+              <div className="h-7 w-14 bg-orange-100 dark:bg-orange-950/60 rounded-lg animate-pulse mt-1" />
+            </div>
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+              <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                <XCircle className="w-3.5 h-3.5" /> Bị Khóa (Banned)
+              </div>
+              <div className="h-7 w-14 bg-rose-100 dark:bg-rose-950/60 rounded-lg animate-pulse mt-1" />
+            </div>
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400">Doanh Thu Toàn Dàn</div>
+              <div className="h-7 w-20 bg-pink-100 dark:bg-pink-950/60 rounded-lg animate-pulse mt-1" />
+            </div>
+          </div>
+        ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
               <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tổng Số Acc</div>
@@ -1419,16 +1494,19 @@ function AccountsPageContent() {
                       </div>
 
                       {/* Assigned Staff Row */}
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
-                        <span className="text-xs text-slate-400">Phụ trách:</span>
-                        <div className="max-w-[140px]">
+                      <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+                        <span className="text-xs text-slate-400 shrink-0">Phụ trách:</span>
+                        <div className="flex items-center gap-1 min-w-0 flex-1 justify-end">
                           <Select
                             value={acc.assignedUserId || "UNASSIGNED"}
-                            onValueChange={(val) => handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)}
+                            onValueChange={(val) =>
+                              handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)
+                            }
+                            disabled={!!acc.isAssignmentLocked && !isLeadOrAdmin}
                           >
-                            <SelectTrigger className="h-6.5 px-2 text-xs font-normal rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                            <SelectTrigger className="h-6.5 px-2 text-xs font-normal rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer max-w-[140px]">
                               <SelectValue placeholder="-- Chưa gán --">
-                                <span className="truncate">{acc.assignedUser ? acc.assignedUser.fullName : "-- Chưa gán --"}</span>
+                                <span className="truncate">{getAssigneeLabel(acc)}</span>
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
@@ -1442,6 +1520,52 @@ function AccountsPageContent() {
                               ))}
                             </SelectContent>
                           </Select>
+                          {isLeadOrAdmin ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleLockMutation.mutate({
+                                      id: acc.id,
+                                      isLocked: !acc.isAssignmentLocked,
+                                    })
+                                  }
+                                  disabled={toggleLockMutation.isPending}
+                                  className={`shrink-0 p-1 rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${
+                                    acc.isAssignmentLocked
+                                      ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
+                                      : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                                  }`}
+                                  aria-label={
+                                    acc.isAssignmentLocked
+                                      ? "Mở khóa phân công"
+                                      : "Khóa phân công"
+                                  }
+                                >
+                                  {acc.isAssignmentLocked ? (
+                                    <Lock className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <Unlock className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                {acc.isAssignmentLocked
+                                  ? "Đã khóa — bấm để mở (cho phép bàn giao ca tự động)"
+                                  : "Bấm để khóa phân công (chặn Extension/Agent tự đổi người phụ trách)"}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : acc.isAssignmentLocked ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="shrink-0 p-1 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                                  <Lock className="w-3.5 h-3.5" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Phân công đã bị khóa bởi Admin/Lead</TooltipContent>
+                            </Tooltip>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -1757,26 +1881,77 @@ function AccountsPageContent() {
                             {/* Assigned Staff */}
                             {visibleColumns.assignedUser && (
                               <td className="px-4 py-3.5 whitespace-nowrap">
-                                <Select
-                                  value={acc.assignedUserId || "UNASSIGNED"}
-                                  onValueChange={(val) => handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)}
-                                >
-                                  <SelectTrigger className="h-7.5 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                                    <SelectValue placeholder="-- Chưa gán --">
-                                      {acc.assignedUser ? acc.assignedUser.fullName : "-- Chưa gán --"}
-                                    </SelectValue>
-                                  </SelectTrigger>
-                                  <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
-                                    <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
-                                      -- Chưa gán --
-                                    </SelectItem>
-                                    {users.map((u: any) => (
-                                      <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
-                                        {u.fullName}
+                                <div className="flex items-center gap-1.5">
+                                  <Select
+                                    value={acc.assignedUserId || "UNASSIGNED"}
+                                    onValueChange={(val) =>
+                                      handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)
+                                    }
+                                    disabled={!!acc.isAssignmentLocked && !isLeadOrAdmin}
+                                  >
+                                    <SelectTrigger className="h-7.5 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                      <SelectValue placeholder="-- Chưa gán --">
+                                        <span className="truncate">{getAssigneeLabel(acc)}</span>
+                                      </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
+                                      <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
+                                        -- Chưa gán --
                                       </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                      {users.map((u: any) => (
+                                        <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
+                                          {u.fullName}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  {isLeadOrAdmin ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            toggleLockMutation.mutate({
+                                              id: acc.id,
+                                              isLocked: !acc.isAssignmentLocked,
+                                            })
+                                          }
+                                          disabled={toggleLockMutation.isPending}
+                                          className={`shrink-0 p-1.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${
+                                            acc.isAssignmentLocked
+                                              ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
+                                              : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                                          }`}
+                                          aria-label={
+                                            acc.isAssignmentLocked
+                                              ? "Mở khóa phân công"
+                                              : "Khóa phân công"
+                                          }
+                                        >
+                                          {acc.isAssignmentLocked ? (
+                                            <Lock className="w-3.5 h-3.5" />
+                                          ) : (
+                                            <Unlock className="w-3.5 h-3.5" />
+                                          )}
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">
+                                        {acc.isAssignmentLocked
+                                          ? "Đã khóa — bấm để mở (cho phép bàn giao ca tự động)"
+                                          : "Bấm để khóa phân công (chặn Extension/Agent tự đổi người phụ trách)"}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : acc.isAssignmentLocked ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="shrink-0 p-1.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                                          <Lock className="w-3.5 h-3.5" />
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">Phân công đã bị khóa bởi Admin/Lead</TooltipContent>
+                                    </Tooltip>
+                                  ) : null}
+                                </div>
                               </td>
                             )}
 

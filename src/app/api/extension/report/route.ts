@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { resolveExtensionBearerAuth } from "@/lib/extension-auth";
+import { resolveGpmProfileByUsername } from "@/lib/tiktok-extractor";
 
 export interface VideoItemMetric {
   id?: string;
@@ -127,53 +129,73 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. Authenticate Member via Personal Token (or Authorization Bearer)
+    // 1. Authenticate via Authorization Bearer (access JWT preferred; legacy personalToken until sunset)
     const authHeader = req.headers.get("authorization");
     const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
-    const activeToken = (personalToken || bearerToken)?.trim();
+    const activeToken = (bearerToken || personalToken)?.trim();
 
     if (!activeToken) {
       return NextResponse.json(
-        { success: false, error: "Yêu cầu personalToken để gửi dữ liệu báo cáo Extension." },
+        { success: false, error: "Yêu cầu Authorization: Bearer <accessToken|personalToken> để gửi dữ liệu báo cáo Extension." },
         { status: 401 }
       );
     }
 
-    const memberUser = await prisma.user.findUnique({
-      where: { extensionToken: activeToken },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        username: true,
-        role: true,
-        isActive: true,
-        extensionAccessEnabled: true,
-      },
-    });
-
-    if (!memberUser) {
+    const authResult = await resolveExtensionBearerAuth(activeToken, "/api/extension/report");
+    if (!authResult.ok) {
       return NextResponse.json(
-        { success: false, error: "Mã personalToken không hợp lệ hoặc đã hết hạn." },
-        { status: 401 }
+        { success: false, error: authResult.error },
+        { status: authResult.status }
       );
     }
 
-    if (!memberUser.isActive || memberUser.extensionAccessEnabled === false) {
-      return NextResponse.json(
-        { success: false, error: "Quyền truy cập Extension của tài khoản đã bị vô hiệu hóa hoặc bị khóa." },
-        { status: 403 }
-      );
+    const memberUser = authResult.user;
+
+    const actorName =
+      memberUser.name || memberUser.email || memberUser.username || "Companion Extension";
+
+    // Auto-resolve GPM profile when Extension did not send one (disk scan on workstation)
+    let resolvedGpmProfileId =
+      typeof gpmProfileId === "string" && gpmProfileId.trim() ? gpmProfileId.trim() : null;
+    let resolvedGpmProfileName =
+      typeof gpmProfileName === "string" && gpmProfileName.trim()
+        ? gpmProfileName.trim()
+        : null;
+    let gpmMatchedVia: string | null = resolvedGpmProfileId ? "client" : null;
+
+    if (!resolvedGpmProfileId) {
+      const diskMatch = resolveGpmProfileByUsername(cleanUsername);
+      if (diskMatch) {
+        resolvedGpmProfileId = diskMatch.id;
+        resolvedGpmProfileName = diskMatch.name || resolvedGpmProfileName;
+        gpmMatchedVia = `disk:${diskMatch.matchedVia}`;
+      }
     }
 
-    const actorName = memberUser.name || memberUser.email || memberUser.username || "Companion Extension";
+    // If a GPM id is claimed, refuse to steal it from a different TikTok username
+    if (resolvedGpmProfileId) {
+      const conflict = await prisma.tiktokAccount.findFirst({
+        where: {
+          gpmProfileId: resolvedGpmProfileId,
+          NOT: { username: cleanUsername },
+        },
+        select: { id: true, username: true },
+      });
+      if (conflict) {
+        console.warn(
+          `[ExtensionReport] GPM ${resolvedGpmProfileId} already linked to @${conflict.username}; skipping attach for @${cleanUsername}`
+        );
+        resolvedGpmProfileId = null;
+        gpmMatchedVia = null;
+      }
+    }
 
     // 2. Find existing account by username or gpmProfileId
     let account = await prisma.tiktokAccount.findFirst({
       where: {
         OR: [
           { username: cleanUsername },
-          ...(gpmProfileId ? [{ gpmProfileId }] : []),
+          ...(resolvedGpmProfileId ? [{ gpmProfileId: resolvedGpmProfileId }] : []),
         ],
       },
       include: {
@@ -190,8 +212,8 @@ export async function POST(req: Request) {
       account = await prisma.tiktokAccount.create({
         data: {
           username: cleanUsername,
-          gpmProfileId: gpmProfileId || null,
-          groupName: gpmProfileName || "Extension Fleet",
+          gpmProfileId: resolvedGpmProfileId || null,
+          groupName: resolvedGpmProfileName || "Extension Fleet",
           status: targetStatus,
           country: country || "US",
           assignedUserId,
@@ -212,7 +234,11 @@ export async function POST(req: Request) {
           accountId: account.id,
           newStatus: targetStatus,
           logType: "STATUS_CHANGE",
-          message: `Tài khoản TikTok @${cleanUsername} được phát hiện trực tiếp qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.`,
+          message: `Tài khoản TikTok @${cleanUsername} được phát hiện trực tiếp qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${
+            resolvedGpmProfileId
+              ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
+              : ""
+          }`,
           actorName,
         },
       });
@@ -226,7 +252,12 @@ export async function POST(req: Request) {
       if (totalViews !== undefined && totalViews > 0) updateData.totalViews = BigInt(totalViews);
       if (totalRevenue !== undefined && totalRevenue > 0) updateData.totalRevenue = totalRevenue;
       if (country) updateData.country = country;
-      if (gpmProfileId && !account.gpmProfileId) updateData.gpmProfileId = gpmProfileId;
+      if (resolvedGpmProfileId && !account.gpmProfileId) {
+        updateData.gpmProfileId = resolvedGpmProfileId;
+        if (resolvedGpmProfileName && (!account.groupName || account.groupName === "Extension Fleet")) {
+          updateData.groupName = resolvedGpmProfileName;
+        }
+      }
       if (isLoggedIn && account.status !== "ACTIVE") updateData.status = "ACTIVE";
 
       // 3. Handover & Assignment Lock Logic
@@ -239,7 +270,8 @@ export async function POST(req: Request) {
         } else {
           // Fluid Handover: Transfer custody to the active operator
           const oldOwner = account.assignedUser?.name || account.assignedUser?.username || "Chưa gán";
-          const newOwner = memberUser.name || memberUser.username || memberUser.email;
+          const newOwner =
+            memberUser.name || memberUser.username || memberUser.email || "Companion Extension";
           updateData.assignedUserId = memberUser.id;
 
           await prisma.accountLog.create({
@@ -255,6 +287,9 @@ export async function POST(req: Request) {
         }
       }
 
+      const linkedGpmNow =
+        !!resolvedGpmProfileId && !account.gpmProfileId && !!updateData.gpmProfileId;
+
       account = await prisma.tiktokAccount.update({
         where: { id: account.id },
         data: updateData,
@@ -262,6 +297,19 @@ export async function POST(req: Request) {
           assignedUser: { select: { id: true, name: true, email: true, username: true } },
         },
       });
+
+      if (linkedGpmNow) {
+        await prisma.accountLog.create({
+          data: {
+            accountId: account.id,
+            oldStatus: account.status,
+            newStatus: account.status,
+            logType: "STATUS_CHANGE",
+            message: `Tự động gắn GPM Profile ${resolvedGpmProfileId} cho @${cleanUsername} (${gpmMatchedVia}).`,
+            actorName,
+          },
+        });
+      }
     }
 
     // 4. Record into DailyRevenue for each revenue stream
@@ -469,6 +517,8 @@ export async function POST(req: Request) {
         id: account.id,
         username: account.username,
         status: account.status,
+        gpmProfileId: account.gpmProfileId,
+        gpmMatchedVia,
         followers: account.totalFollowers,
         videos: account.totalVideos,
         revenue: account.totalRevenue,

@@ -202,7 +202,11 @@ export default function GpmHubPage() {
                 gpmStatus?.isOnline ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
               }`}
             />
-            <span>{gpmStatus?.isOnline ? "GPM Online (Port: 9495)" : "GPM Offline"}</span>
+            <span>
+              {gpmStatus?.isOnline
+                ? `GPM Online (Port: ${gpmStatus.port || "auto"})`
+                : "GPM Offline"}
+            </span>
             <button
               onClick={() => refetchStatus()}
               disabled={checkingGpm}
@@ -237,9 +241,13 @@ export default function GpmHubPage() {
               <Layers className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
-            {stats.total}
-          </div>
+          {loading ? (
+            <div className="h-8 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-3" />
+          ) : (
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+              {stats.total}
+            </div>
+          )}
           <div className="text-xs text-slate-400 mt-1 flex items-center gap-1 font-medium">
             <span>Dàn account TikTok trong hệ thống</span>
           </div>
@@ -255,9 +263,13 @@ export default function GpmHubPage() {
               <CheckCircle2 className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
-            {stats.linked}
-          </div>
+          {loading ? (
+            <div className="h-8 w-16 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-3" />
+          ) : (
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+              {stats.linked}
+            </div>
+          )}
           <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1 font-medium">
             <span>Sẵn sàng cào số liệu & mở profile</span>
           </div>
@@ -273,9 +285,13 @@ export default function GpmHubPage() {
               <Zap className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
-            {stats.active}
-          </div>
+          {loading ? (
+            <div className="h-8 w-16 bg-indigo-100 dark:bg-indigo-950/60 rounded-lg animate-pulse mt-3" />
+          ) : (
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+              {stats.active}
+            </div>
+          )}
           <div className="text-xs text-indigo-600 dark:text-indigo-400 mt-1 flex items-center gap-1 font-medium">
             <span>Trạng thái tài khoản chuẩn sạch</span>
           </div>
@@ -291,9 +307,13 @@ export default function GpmHubPage() {
               <Users className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
-            {stats.unassigned}
-          </div>
+          {loading ? (
+            <div className="h-8 w-16 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-3" />
+          ) : (
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+              {stats.unassigned}
+            </div>
+          )}
           <div className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1 font-medium">
             <span>Cần phân công nhân viên quản lý</span>
           </div>
@@ -312,13 +332,13 @@ export default function GpmHubPage() {
               setSearchQuery(e.target.value);
               setPage(1);
             }}
-            placeholder="Tìm theo @username, Profile ID, Nhóm..."
-            className="w-full pl-9 pr-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+            placeholder="Tìm theo username, Profile ID, nhóm..."
+            className="w-full h-10 pl-9 pr-4 rounded-xl text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all text-slate-900 dark:text-white placeholder:text-slate-400"
           />
         </div>
 
-        {/* Filter Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto scrollbar-none">
+        {/* Quick Filter Buttons */}
+        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 scrollbar-none">
           <button
             onClick={() => {
               setStatusFilter("ALL");
@@ -326,11 +346,11 @@ export default function GpmHubPage() {
             }}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               statusFilter === "ALL"
-                ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs"
+                ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs"
                 : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
-            Tất Cả ({accounts.length})
+            Tất Cả ({loading ? "..." : stats.total})
           </button>
 
           <button
@@ -344,7 +364,7 @@ export default function GpmHubPage() {
                 : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
-            Đã Gắn GPM ({stats.linked})
+            Đã Gắn GPM ({loading ? "..." : stats.linked})
           </button>
 
           <button
@@ -358,7 +378,7 @@ export default function GpmHubPage() {
                 : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
-            Đang Hoạt Động ({stats.active})
+            Đang Hoạt Động ({loading ? "..." : stats.active})
           </button>
 
           <button
@@ -372,7 +392,7 @@ export default function GpmHubPage() {
                 : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
           >
-            Chưa Gán ({stats.unassigned})
+            Chưa Gán ({loading ? "..." : stats.unassigned})
           </button>
         </div>
       </div>

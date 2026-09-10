@@ -25,13 +25,17 @@ import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 
 type EndpointId =
+  | "extension_pair"
+  | "extension_session"
   | "client_sync"
   | "extension_report"
+  | "verify_token"
   | "gpm_scan"
   | "gpm_sync"
   | "sweeper"
   | "cron_cutoff"
-  | "cron_sync";
+  | "cron_sync"
+  | "cron_extension_purge";
 
 interface ApiEndpoint {
   id: EndpointId;
@@ -39,9 +43,10 @@ interface ApiEndpoint {
   path: string;
   title: string;
   desc: string;
-  auth: "Personal Token" | "CRON_SECRET" | "Session / Secret";
+  auth: "Personal Token" | "Mã phiên" | "Mã kích hoạt" | "CRON_SECRET" | "Session / Secret";
   headers: { name: string; type: string; required: boolean; desc: string }[];
   bodyParams?: { name: string; type: string; required: boolean; desc: string }[];
+  errorNotes?: string[];
   snippets: {
     curl: string;
     typescript: string;
@@ -52,125 +57,261 @@ interface ApiEndpoint {
 
 const API_ENDPOINTS: ApiEndpoint[] = [
   {
-    id: "client_sync",
+    id: "extension_pair",
     method: "POST",
-    path: "/api/gpm/client-sync",
-    title: "Client Agent Profile Sync",
-    desc: "Được gọi từ TikTokFlow Client Agent Worker chạy ngầm trên máy trạm để đồng bộ danh sách profile GPMLogin lên máy chủ trung tâm.",
-    auth: "Personal Token",
+    path: "/api/extension/pair",
+    title: "Kích hoạt gói vừa tải",
+    desc: "Khi bạn tải Extension hoặc Client Agent, trong file cấu hình có một mã kích hoạt dùng một lần (khoảng 10 phút). Extension/Agent tự gọi API này lần đầu chạy để liên kết với tài khoản của bạn — bạn không cần dán mã thủ công nếu còn hạn.",
+    auth: "Mã kích hoạt",
     headers: [
-      { name: "Authorization", type: "string", required: true, desc: "Bearer <personalToken>" },
       { name: "Content-Type", type: "string", required: true, desc: "application/json" },
     ],
     bodyParams: [
-      { name: "profiles", type: "array", required: true, desc: "Danh sách profiles GPMLogin ({ id, name, rawGroup })" },
-      { name: "agentVersion", type: "string", required: false, desc: "Phiên bản Client Agent (VD: 1.0.0)" },
+      {
+        name: "pairingCode",
+        type: "string",
+        required: true,
+        desc: "Mã kích hoạt trong config.json (bắt đầu bằng ttf_pair_)",
+      },
+    ],
+    errorNotes: [
+      "401 — Mã sai, đã dùng, hoặc hết hạn — tải lại zip hoặc dán Personal Token trong Settings",
+      "403 — Admin đã khóa quyền Extension của bạn",
+      "429 — Thử quá nhiều lần, đợi rồi thử lại",
+    ],
+    snippets: {
+      curl: `curl -X POST "https://your-domain.com/api/extension/pair" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "pairingCode": "ttf_pair_xxxxxxxx" }'`,
+      typescript: `const res = await fetch("/api/extension/pair", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ pairingCode: "ttf_pair_xxxxxxxx" }),
+});`,
+      python: `import requests
+print(requests.post("https://your-domain.com/api/extension/pair", json={"pairingCode": "ttf_pair_xxxxxxxx"}).json())`,
+    },
+    responseExample: `{
+  "success": true,
+  "personalToken": "ttf_sec_...",
+  "accessToken": "<jwt>",
+  "expiresIn": 900,
+  "refreshToken": "ttf_rt_..."
+}`,
+  },
+  {
+    id: "extension_session",
+    method: "POST",
+    path: "/api/extension/session",
+    title: "Tạo / gia hạn phiên làm việc",
+    desc: "Đổi Personal Token thành mã phiên ngắn hạn (khoảng 15 phút) để gọi các API đồng bộ. Extension và Client Agent tự làm bước này; chỉ cần quan tâm khi tích hợp thủ công hoặc khi bị yêu cầu đăng nhập lại.",
+    auth: "Personal Token",
+    headers: [
+      {
+        name: "Authorization",
+        type: "string",
+        required: false,
+        desc: "Bearer kèm Personal Token khi tạo phiên mới",
+      },
+      { name: "Content-Type", type: "string", required: true, desc: "application/json" },
+    ],
+    bodyParams: [
+      {
+        name: "refreshToken",
+        type: "string",
+        required: false,
+        desc: "Mã làm mới phiên (khi phiên cũ sắp hết hạn)",
+      },
+    ],
+    errorNotes: [
+      "401 — Token sai hoặc phiên đã bị hủy — xác thực lại / tải gói mới",
+      "403 — Admin đã khóa quyền Extension",
+      "500 — Máy chủ chưa cấu hình secret phiên (môi trường production)",
+    ],
+    snippets: {
+      curl: `curl -X POST "https://your-domain.com/api/extension/session" \\
+  -H "Authorization: Bearer ttf_sec_..." \\
+  -H "Content-Type: application/json" -d '{}'`,
+      typescript: `await fetch("/api/extension/session", {
+  method: "POST",
+  headers: { Authorization: "Bearer ttf_sec_...", "Content-Type": "application/json" },
+  body: "{}",
+});`,
+      python: `import requests
+requests.post("https://your-domain.com/api/extension/session", headers={"Authorization": "Bearer ttf_sec_..."}, json={})`,
+    },
+    responseExample: `{ "success": true, "accessToken": "<jwt>", "expiresIn": 900, "refreshToken": "ttf_rt_..." }`,
+  },
+  {
+    id: "client_sync",
+    method: "POST",
+    path: "/api/gpm/client-sync",
+    title: "Đồng bộ profile GPMLogin",
+    desc: "Client Agent gửi danh sách profile GPMLogin trên máy lên hệ thống. Cần mã phiên hợp lệ (lấy từ bước tạo phiên ở trên).",
+    auth: "Mã phiên",
+    headers: [
+      {
+        name: "Authorization",
+        type: "string",
+        required: true,
+        desc: "Bearer kèm mã phiên (access token)",
+      },
+      { name: "Content-Type", type: "string", required: true, desc: "application/json" },
+    ],
+    bodyParams: [
+      {
+        name: "profiles",
+        type: "array",
+        required: true,
+        desc: "Danh sách profile GPM (id, tên, nhóm…). Chỉ gửi tài khoản đã xác minh, không lấy handle từ lịch sử duyệt web.",
+      },
+      {
+        name: "userEmail",
+        type: "string",
+        required: false,
+        desc: "Email/username nhân sự (tuỳ chọn). Nếu gửi phải đúng chủ token.",
+      },
+    ],
+    errorNotes: [
+      "401 — Chưa đăng nhập / phiên hết hạn / token đã bị thu hồi",
+      "403 — Quyền bị khóa, hoặc email không khớp tài khoản",
     ],
     snippets: {
       curl: `curl -X POST "https://your-domain.com/api/gpm/client-sync" \\
-  -H "Authorization: Bearer ttf_sec_9876543210abcdef" \\
+  -H "Authorization: Bearer <accessToken>" \\
   -H "Content-Type: application/json" \\
   -d '{
+    "userEmail": "staff@company.com",
     "profiles": [
-      { "id": "uuid-1234", "name": "tiktok_us_01", "rawGroup": "TeamA" }
-    ],
-    "agentVersion": "1.0.0"
+      { "id": "uuid-1234", "name": "tiktok_us_01", "group_id": "TeamA" }
+    ]
   }'`,
       typescript: `const response = await fetch("https://your-domain.com/api/gpm/client-sync", {
   method: "POST",
   headers: {
-    "Authorization": "Bearer ttf_sec_9876543210abcdef",
+    "Authorization": "Bearer <accessToken>",
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
+    userEmail: "staff@company.com",
     profiles: [
-      { id: "uuid-1234", name: "tiktok_us_01", rawGroup: "TeamA" }
+      { id: "uuid-1234", name: "tiktok_us_01", group_id: "TeamA" }
     ],
-    agentVersion: "1.0.0"
   }),
 });
+if (response.status === 401 || response.status === 403) {
+  // Token revoked — Client Agent clears local token and requires re-auth
+}
 const data = await response.json();
 console.log(data);`,
       python: `import requests
 
 url = "https://your-domain.com/api/gpm/client-sync"
 headers = {
-    "Authorization": "Bearer ttf_sec_9876543210abcdef",
+    "Authorization": "Bearer <accessToken>",
     "Content-Type": "application/json"
 }
 payload = {
+    "userEmail": "staff@company.com",
     "profiles": [
-        {"id": "uuid-1234", "name": "tiktok_us_01", "rawGroup": "TeamA"}
-    ],
-    "agentVersion": "1.0.0"
+        {"id": "uuid-1234", "name": "tiktok_us_01", "group_id": "TeamA"}
+    ]
 }
 
 res = requests.post(url, json=payload, headers=headers)
-print(res.json())`,
+print(res.status_code, res.json())`,
     },
     responseExample: `{
   "success": true,
-  "synced": 1,
-  "message": "Đã đồng bộ 1 profile GPMLogin thành công."
+  "message": "Đồng bộ hoàn tất cho Staff Name: 1 tạo mới, 0 cập nhật.",
+  "totalScanned": 1,
+  "newImportedCount": 1,
+  "updatedCount": 0
 }`,
   },
   {
     id: "extension_report",
     method: "POST",
     path: "/api/extension/report",
-    title: "Extension Revenue & Metrics Report",
-    desc: "Được gọi tự động từ TikTokFlow Companion Extension để đẩy dữ liệu doanh thu Creator Rewards, lượt xem và RPM về máy chủ.",
-    auth: "Personal Token",
+    title: "Gửi số liệu TikTok",
+    desc: "Extension gửi doanh thu, lượt xem, RPM… của tài khoản đang đăng nhập về máy chủ. Cần mã phiên hợp lệ. Không gửi Personal Token trong nội dung JSON.",
+    auth: "Mã phiên",
     headers: [
-      { name: "Authorization", type: "string", required: true, desc: "Bearer <personalToken>" },
+      {
+        name: "Authorization",
+        type: "string",
+        required: true,
+        desc: "Bearer kèm mã phiên (access token)",
+      },
       { name: "Content-Type", type: "string", required: true, desc: "application/json" },
     ],
     bodyParams: [
-      { name: "username", type: "string", required: true, desc: "Handle TikTok không kèm ký tự @" },
-      { name: "totalRevenue", type: "number", required: false, desc: "Tổng doanh thu tích lũy (USD)" },
-      { name: "totalViews", type: "number", required: false, desc: "Tổng số lượt xem video hợp lệ" },
-      { name: "rpm", type: "number", required: false, desc: "Chỉ số RPM trung bình" },
-      { name: "date", type: "string", required: false, desc: "Ngày báo cáo (YYYY-MM-DD)" },
+      { name: "username", type: "string", required: true, desc: "Handle TikTok đang đăng nhập (không lấy từ profile đang xem trên web)" },
+      { name: "isLoggedIn", type: "boolean", required: true, desc: "true nếu đã đăng nhập TikTok" },
+      { name: "totalRevenue", type: "number", required: false, desc: "Tổng doanh thu ước tính" },
+      { name: "currency", type: "string", required: false, desc: "Đơn vị tiền ($, £, €, ₫, …)" },
+      { name: "totalViews", type: "number", required: false, desc: "Tổng lượt xem" },
+      { name: "followersCount", type: "number", required: false, desc: "Số followers" },
+      { name: "rpm", type: "number", required: false, desc: "RPM trung bình" },
+      { name: "creatorRewardsRevenue", type: "number", required: false, desc: "Doanh thu Creator Rewards" },
+      { name: "liveRewardsRevenue", type: "number", required: false, desc: "Doanh thu LIVE Rewards" },
+      { name: "tiktokShopRevenue", type: "number", required: false, desc: "Doanh thu TikTok Shop" },
+    ],
+    errorNotes: [
+      "401 — Phiên hết hạn hoặc token bị thu hồi — Extension hiện banner đăng nhập lại",
+      "403 — Admin đã tắt quyền Extension",
     ],
     snippets: {
       curl: `curl -X POST "https://your-domain.com/api/extension/report" \\
-  -H "Authorization: Bearer ttf_sec_9876543210abcdef" \\
+  -H "Authorization: Bearer <accessToken>" \\
   -H "Content-Type: application/json" \\
   -d '{
     "username": "creator_studio_us",
+    "isLoggedIn": true,
     "totalRevenue": 1250.50,
+    "currency": "$",
     "totalViews": 2400000,
+    "followersCount": 18500,
     "rpm": 0.85
   }'`,
       typescript: `const response = await fetch("https://your-domain.com/api/extension/report", {
   method: "POST",
   headers: {
-    "Authorization": "Bearer ttf_sec_9876543210abcdef",
+    "Authorization": "Bearer <accessToken>",
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
     username: "creator_studio_us",
+    isLoggedIn: true,
     totalRevenue: 1250.50,
+    currency: "$",
     totalViews: 2400000,
-    rpm: 0.85
+    followersCount: 18500,
+    rpm: 0.85,
   }),
 });
+if (response.status === 401 || response.status === 403) {
+  // Clear local token and show re-auth UI
+}
 const data = await response.json();`,
       python: `import requests
 
 url = "https://your-domain.com/api/extension/report"
 headers = {
-    "Authorization": "Bearer ttf_sec_9876543210abcdef",
+    "Authorization": "Bearer <accessToken>",
     "Content-Type": "application/json"
 }
 data = {
     "username": "creator_studio_us",
+    "isLoggedIn": True,
     "totalRevenue": 1250.50,
+    "currency": "$",
     "totalViews": 2400000,
+    "followersCount": 18500,
     "rpm": 0.85
 }
 res = requests.post(url, json=data, headers=headers)
-print(res.json())`,
+print(res.status_code, res.json())`,
     },
     responseExample: `{
   "success": true,
@@ -180,11 +321,79 @@ print(res.json())`,
 }`,
   },
   {
+    id: "verify_token",
+    method: "POST",
+    path: "/api/extension/verify-token",
+    title: "Kiểm tra Personal Token",
+    desc: "Kiểm tra Personal Token còn dùng được trước khi lưu vào popup Extension hoặc Client Agent (setup-agent.bat phím 3). Hữu ích sau khi Admin thu hồi hoặc cấp lại token.",
+    auth: "Personal Token",
+    headers: [
+      {
+        name: "Authorization",
+        type: "string",
+        required: false,
+        desc: "Bearer kèm Personal Token (khuyến nghị)",
+      },
+      { name: "Content-Type", type: "string", required: true, desc: "application/json" },
+    ],
+    bodyParams: [
+      {
+        name: "token",
+        type: "string",
+        required: true,
+        desc: "Personal Token cần kiểm tra (bắt đầu bằng ttf_sec_)",
+      },
+    ],
+    errorNotes: [
+      "400 — Sai định dạng token",
+      "401 — Token không tồn tại hoặc đã bị thay bằng token mới",
+      "403 — Tài khoản bị khóa / quyền Extension bị tắt",
+    ],
+    snippets: {
+      curl: `curl -X POST "https://your-domain.com/api/extension/verify-token" \\
+  -H "Authorization: Bearer ttf_sec_9876543210abcdef" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "token": "ttf_sec_9876543210abcdef" }'`,
+      typescript: `const response = await fetch("https://your-domain.com/api/extension/verify-token", {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer ttf_sec_9876543210abcdef",
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ token: "ttf_sec_9876543210abcdef" }),
+});
+const data = await response.json();
+// { valid: true, user: { name, email, role } }`,
+      python: `import requests
+
+res = requests.post(
+    "https://your-domain.com/api/extension/verify-token",
+    headers={
+        "Authorization": "Bearer ttf_sec_9876543210abcdef",
+        "Content-Type": "application/json",
+    },
+    json={"token": "ttf_sec_9876543210abcdef"},
+)
+print(res.json())`,
+    },
+    responseExample: `{
+  "success": true,
+  "valid": true,
+  "user": {
+    "id": "cluser123",
+    "name": "Dat Nguyen",
+    "email": "staff@company.com",
+    "role": "STAFF"
+  },
+  "message": "Xác thực thành công cho nhân sự: Dat Nguyen"
+}`,
+  },
+  {
     id: "gpm_scan",
     method: "GET",
     path: "/api/gpm/scan",
-    title: "GPMLogin Port 9495 Health & Discovery",
-    desc: "Kiểm tra tình trạng hoạt động của API local GPM-Login và phát hiện danh sách profile hiện có trên máy tính.",
+    title: "Kiểm tra GPMLogin trên máy",
+    desc: "Xem GPMLogin trên máy có đang chạy không và có bao nhiêu profile.",
     auth: "Session / Secret",
     headers: [
       { name: "Content-Type", type: "string", required: true, desc: "application/json" },
@@ -208,11 +417,11 @@ print(res.json())`,
     id: "cron_cutoff",
     method: "POST",
     path: "/api/cron/cutoff",
-    title: "10:00 AM KPI Workday Cutoff",
-    desc: "Job tự động hóa kích hoạt chốt sổ chấm công lúc 10:00 sáng hàng ngày để đánh giá tỷ lệ hoàn thành checklist của từng nhân sự.",
+    title: "Chốt sổ chấm công 10:00",
+    desc: "Job tự động chốt checklist ngày công lúc 10:00 sáng (chỉ dành cho hệ thống / lịch chạy nội bộ).",
     auth: "CRON_SECRET",
     headers: [
-      { name: "Authorization", type: "string", required: true, desc: "Bearer <CRON_SECRET>" },
+      { name: "Authorization", type: "string", required: true, desc: "Bearer kèm mã bí mật cron của máy chủ" },
     ],
     snippets: {
       curl: `curl -X POST "https://your-domain.com/api/cron/cutoff" \\
@@ -234,6 +443,28 @@ print(res.json())`,
   "evaluatedUsers": 12,
   "message": "Chốt sổ ngày công 10:00 AM thành công."
 }`,
+  },
+  {
+    id: "cron_extension_purge",
+    method: "POST",
+    path: "/api/cron/extension-auth-purge",
+    title: "Dọn dữ liệu phiên cũ",
+    desc: "Job nội bộ xóa mã phiên / mã kích hoạt đã hết hạn và nhật ký sự cố xác thực cũ (chỉ dành cho lịch chạy máy chủ).",
+    auth: "CRON_SECRET",
+    headers: [
+      { name: "Authorization", type: "string", required: true, desc: "Bearer kèm mã bí mật cron của máy chủ" },
+    ],
+    snippets: {
+      curl: `curl -X POST "https://your-domain.com/api/cron/extension-auth-purge" \\
+  -H "Authorization: Bearer my_cron_secret_key"`,
+      typescript: `await fetch("/api/cron/extension-auth-purge", {
+  method: "POST",
+  headers: { Authorization: "Bearer my_cron_secret_key" },
+});`,
+      python: `import requests
+print(requests.post("https://your-domain.com/api/cron/extension-auth-purge", headers={"Authorization": "Bearer my_cron_secret_key"}).json())`,
+    },
+    responseExample: `{ "success": true, "refreshDeleted": 3, "eventsDeleted": 0, "pairingDeleted": 1 }`,
   },
 ];
 
@@ -300,20 +531,23 @@ export default function ApiDocsPage() {
               <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5 shadow-xs">
                 <div className="flex items-center gap-2 text-pink-600 dark:text-pink-400 font-bold text-sm">
                   <Key className="w-4 h-4" />
-                  <span>Personal Token</span>
+                  <span>Cách Extension / Agent kết nối</span>
                 </div>
-                <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Lấy token trong mục <em>Cài Đặt ➔ Tab Personal Token</em> và gửi qua Header:
+                <ol className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed list-decimal pl-4 space-y-1.5">
+                  <li>Tải zip từ Settings — trong gói có mã kích hoạt dùng một lần (~10 phút).</li>
+                  <li>Cài / chạy lần đầu: tự liên kết tài khoản, không cần copy token.</li>
+                  <li>Sau đó hệ thống dùng mã phiên ngắn hạn để gửi số liệu và đồng bộ GPM.</li>
+                  <li>Mã hết hạn hoặc Admin thu hồi? Tải lại zip, hoặc copy Personal Token trong Settings rồi dán vào popup / setup-agent.</li>
+                </ol>
+                <p className="text-xs text-slate-500 dark:text-slate-500 leading-relaxed">
+                  Giữ bí mật zip và Personal Token. Không đăng lên chat công khai.
                 </p>
-                <code className="text-xs bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2 rounded-lg block font-mono text-slate-800 dark:text-slate-300 select-all">
-                  Authorization: Bearer ttf_sec_...
-                </code>
               </div>
             </div>
 
             <div className="space-y-1 pt-2">
               <div className="px-3 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
-                RESTful Endpoints
+                Danh sách API
               </div>
               <div className="space-y-1 bg-white dark:bg-slate-900/60 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-xs">
                 {API_ENDPOINTS.map((ep) => {
@@ -379,7 +613,7 @@ export default function ApiDocsPage() {
             {/* Request Headers */}
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                Request Headers
+                Headers yêu cầu
               </h3>
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50 dark:bg-slate-950/60 shadow-xs">
                 <table className="w-full text-left">
@@ -415,7 +649,7 @@ export default function ApiDocsPage() {
             {selectedEndpoint.bodyParams && (
               <div className="space-y-3">
                 <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  Request Body JSON
+                  Tham số body (JSON)
                 </h3>
                 <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50 dark:bg-slate-950/60 shadow-xs">
                   <table className="w-full text-left">
@@ -448,11 +682,28 @@ export default function ApiDocsPage() {
               </div>
             )}
 
+            {/* Auth / revoke error notes */}
+            {selectedEndpoint.errorNotes && selectedEndpoint.errorNotes.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  Lỗi Xác Thực Thường Gặp
+                </h3>
+                <ul className="rounded-2xl border border-rose-200/80 dark:border-rose-900/40 bg-rose-50/80 dark:bg-rose-950/20 p-4 space-y-2 text-sm text-rose-800 dark:text-rose-300">
+                  {selectedEndpoint.errorNotes.map((note, i) => (
+                    <li key={i} className="leading-relaxed flex gap-2">
+                      <span className="font-bold shrink-0">•</span>
+                      <span>{note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {/* Code Samples with Multi-Language Switcher */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  Mã Nguồn Mẫu (Code Snippet)
+                  Ví dụ gọi API
                 </h3>
 
                 <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
@@ -505,7 +756,7 @@ export default function ApiDocsPage() {
             {/* Response Example */}
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Response Mẫu (200 OK)
+                Ví dụ phản hồi thành công
               </h3>
               <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 font-mono text-xs sm:text-sm text-emerald-400 overflow-x-auto leading-relaxed">
                 <pre>{selectedEndpoint.responseExample}</pre>

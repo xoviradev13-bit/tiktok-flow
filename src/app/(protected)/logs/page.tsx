@@ -163,9 +163,13 @@ export default function LogsPage() {
               <FileText className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
-            {stats.total.toLocaleString()}
-          </div>
+          {logsLoading ? (
+            <div className="h-8 w-20 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-3" />
+          ) : (
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+              {stats.total.toLocaleString()}
+            </div>
+          )}
           <div className="text-xs text-slate-400 mt-1 flex items-center gap-1 font-medium">
             <span>Sự kiện ghi nhận trên hệ thống</span>
           </div>
@@ -181,9 +185,13 @@ export default function LogsPage() {
               <Layers className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
-            {stats.statusChanges.toLocaleString()}
-          </div>
+          {logsLoading ? (
+            <div className="h-8 w-16 bg-blue-100 dark:bg-blue-950/60 rounded-lg animate-pulse mt-3" />
+          ) : (
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+              {stats.statusChanges.toLocaleString()}
+            </div>
+          )}
           <div className="text-xs text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1 font-medium">
             <span>Warming, Active, Banned, v.v.</span>
           </div>
@@ -199,9 +207,13 @@ export default function LogsPage() {
               <RefreshCw className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
-            {stats.syncEvents.toLocaleString()}
-          </div>
+          {logsLoading ? (
+            <div className="h-8 w-16 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-3" />
+          ) : (
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+              {stats.syncEvents.toLocaleString()}
+            </div>
+          )}
           <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1 font-medium">
             <span>GPM Fleet & Extension Reports</span>
           </div>
@@ -217,11 +229,19 @@ export default function LogsPage() {
               <Bug className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
-            {bugReports.length}
-          </div>
+          {bugsLoading ? (
+            <div className="h-8 w-14 bg-rose-100 dark:bg-rose-950/60 rounded-lg animate-pulse mt-3" />
+          ) : (
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+              {bugReports.length}
+            </div>
+          )}
           <div className="text-xs text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1 font-medium">
-            <span>{bugsData?.openCount || 0} sự cố đang chờ xử lý</span>
+            {bugsLoading ? (
+              <span className="inline-block w-28 h-3 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
+            ) : (
+              <span>{bugsData?.openCount || 0} sự cố đang chờ xử lý</span>
+            )}
           </div>
         </div>
       </div>

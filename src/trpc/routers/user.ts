@@ -35,6 +35,7 @@ export const userRouter = router({
         lastActiveAt: true,
         extensionToken: true,
         extensionAccessEnabled: true,
+        extensionRevokedAt: true,
         groupId: true,
         group: {
           select: { id: true, name: true, color: true },

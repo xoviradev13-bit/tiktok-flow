@@ -371,7 +371,12 @@ export default function RevenueDetailsPage() {
             <div>
               <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <DollarSign className="w-6 h-6 text-amber-500" />
-                Chi Tiết Bản Ghi Doanh Thu Từng Account ({records.length})
+                <span>Chi Tiết Bản Ghi Doanh Thu Từng Account</span>
+                {loading ? (
+                  <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle" />
+                ) : (
+                  <span>({records.length})</span>
+                )}
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Bảng tra cứu chi tiết từng ngày, hỗ trợ lọc nguồn thu, khoảng ngày, sắp xếp và thao tác hàng loạt.
@@ -398,7 +403,7 @@ export default function RevenueDetailsPage() {
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-emerald-600 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs active:scale-95"
             >
               <Download className="w-4 h-4" />
-              <span>Xuất Excel ({filteredAndSortedRecords.length})</span>
+              <span>Xuất Excel {loading ? "(...)" : `(${filteredAndSortedRecords.length})`}</span>
             </button>
           </div>
         </div>
@@ -413,21 +418,33 @@ export default function RevenueDetailsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Tổng Doanh Thu (Bộ lọc hiện tại)</div>
-            <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-              ${filteredTotalRevenue.toFixed(2)}
-            </div>
+            {loading ? (
+              <div className="h-8 w-24 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-1" />
+            ) : (
+              <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
+                ${filteredTotalRevenue.toFixed(2)}
+              </div>
+            )}
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Tổng Views Đủ ĐK</div>
-            <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1">
-              {filteredTotalViews.toLocaleString()}
-            </div>
+            {loading ? (
+              <div className="h-8 w-24 bg-cyan-100 dark:bg-cyan-950/60 rounded-lg animate-pulse mt-1" />
+            ) : (
+              <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1">
+                {filteredTotalViews.toLocaleString()}
+              </div>
+            )}
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Số Bản Ghi Phù Hợp</div>
-            <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1">
-              {filteredAndSortedRecords.length}
-            </div>
+            {loading ? (
+              <div className="h-8 w-16 bg-pink-100 dark:bg-pink-950/60 rounded-lg animate-pulse mt-1" />
+            ) : (
+              <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1">
+                {filteredAndSortedRecords.length}
+              </div>
+            )}
           </div>
         </div>
 
@@ -464,11 +481,10 @@ export default function RevenueDetailsPage() {
                     key={p.value}
                     type="button"
                     onClick={() => applyPresetRange(p.value)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                      active
-                        ? "bg-amber-500 text-slate-950 shadow-xs"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                    }`}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${active
+                      ? "bg-amber-500 text-slate-950 shadow-xs"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
                   >
                     {p.label}
                   </button>
@@ -548,11 +564,10 @@ export default function RevenueDetailsPage() {
                             key={p.value}
                             type="button"
                             onClick={() => applyPresetRange(p.value)}
-                            className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
-                              active
-                                ? "bg-amber-500 text-slate-950 border-amber-500 font-bold"
-                                : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
-                            }`}
+                            className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${active
+                              ? "bg-amber-500 text-slate-950 border-amber-500 font-bold"
+                              : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
+                              }`}
                           >
                             {p.label}
                           </button>
@@ -753,9 +768,8 @@ export default function RevenueDetailsPage() {
                     ].map((col) => (
                       <label
                         key={col.key}
-                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${
-                          col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
-                        }`}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
+                          }`}
                       >
                         <Checkbox
                           checked={visibleColumns[col.key as keyof typeof visibleColumns]}

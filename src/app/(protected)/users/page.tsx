@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
+import { UsersPageSkeleton } from "@/components/skeletons/PageSkeletons";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -663,11 +664,7 @@ function UsersManagementContent() {
   };
 
   if (status === "loading" || !isAdmin) {
-    return (
-      <div className="space-y-6 w-full pb-20">
-        <DataTableSkeleton columns={6} rows={8} />
-      </div>
-    );
+    return <UsersPageSkeleton />;
   }
 
   return (
@@ -679,7 +676,12 @@ function UsersManagementContent() {
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
               <UserCog className="w-7 h-7 text-pink-500" />
-              Quản Lý Nhân Sự & Phân Quyền ({totalCount})
+              <span>Quản Lý Nhân Sự & Phân Quyền</span>
+              {loading ? (
+                <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle" />
+              ) : (
+                <span>({totalCount})</span>
+              )}
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Quản trị tài khoản thành viên, phân nhóm Team/Group, phân quyền Lead/Staff và theo dõi số lượng tài khoản TikTok phụ trách.
@@ -720,7 +722,7 @@ function UsersManagementContent() {
               }`}
           >
             <Users className="w-3.5 h-3.5" />
-            <span>Thành Viên Hệ Thống ({totalCount})</span>
+            <span>Thành Viên Hệ Thống {loading ? "(...)" : `(${totalCount})`}</span>
           </button>
           <button
             onClick={() => setActiveTab("INVITATIONS")}
@@ -730,7 +732,7 @@ function UsersManagementContent() {
               }`}
           >
             <Mail className="w-3.5 h-3.5" />
-            <span>Lời Mời Đang Chờ ({invitations.filter((i: any) => i.status === "PENDING").length})</span>
+            <span>Lời Mời Đang Chờ {loadingInvites ? "(...)" : `(${invitations.filter((i: any) => i.status === "PENDING").length})`}</span>
             {invitations.filter((i: any) => i.status === "PENDING").length > 0 && (
               <span className={`w-2 h-2 rounded-full ${activeTab === "INVITATIONS" ? "bg-white" : "bg-pink-500 animate-pulse"}`} />
             )}
@@ -742,25 +744,41 @@ function UsersManagementContent() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
               <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Tổng Thành Viên</div>
-              <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">{totalCount}</div>
+              {loading ? (
+                <div className="h-8 w-14 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-1" />
+              ) : (
+                <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">{totalCount}</div>
+              )}
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
               <div className="text-xs font-medium text-pink-600 dark:text-pink-400 flex items-center gap-1">
                 <Shield className="w-3.5 h-3.5" /> Quản Trị Viên (Admin)
               </div>
-              <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1">{adminCount}</div>
+              {loading ? (
+                <div className="h-8 w-12 bg-pink-100 dark:bg-pink-950/60 rounded-lg animate-pulse mt-1" />
+              ) : (
+                <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1">{adminCount}</div>
+              )}
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
               <div className="text-xs font-medium text-cyan-600 dark:text-cyan-400 flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5" /> Trưởng Nhóm (Lead)
               </div>
-              <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1">{leadCount}</div>
+              {loading ? (
+                <div className="h-8 w-12 bg-cyan-100 dark:bg-cyan-950/60 rounded-lg animate-pulse mt-1" />
+              ) : (
+                <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1">{leadCount}</div>
+              )}
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
               <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                 <UserCheck className="w-3.5 h-3.5" /> Nhân Viên (Staff)
               </div>
-              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{staffCount}</div>
+              {loading ? (
+                <div className="h-8 w-12 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-1" />
+              ) : (
+                <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{staffCount}</div>
+              )}
             </div>
           </div>
         )}
@@ -1837,31 +1855,47 @@ function UsersManagementContent() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
               <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Tổng Số Lời Mời</div>
-              <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">{invitations.length}</div>
+              {loadingInvites ? (
+                <div className="h-8 w-14 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-1" />
+              ) : (
+                <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">{invitations.length}</div>
+              )}
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
               <div className="text-xs font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5" /> Đang Chờ Kích Hoạt
               </div>
-              <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                {invitations.filter((i: any) => i.status === "PENDING").length}
-              </div>
+              {loadingInvites ? (
+                <div className="h-8 w-12 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-1" />
+              ) : (
+                <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
+                  {invitations.filter((i: any) => i.status === "PENDING").length}
+                </div>
+              )}
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
               <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Đã Kích Hoạt Thành Công
               </div>
-              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                {invitations.filter((i: any) => i.status === "ACCEPTED").length}
-              </div>
+              {loadingInvites ? (
+                <div className="h-8 w-12 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-1" />
+              ) : (
+                <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                  {invitations.filter((i: any) => i.status === "ACCEPTED").length}
+                </div>
+              )}
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
               <div className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1">
                 <Ban className="w-3.5 h-3.5" /> Đã Thu Hồi / Hết Hạn
               </div>
-              <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
-                {invitations.filter((i: any) => i.status === "EXPIRED" || i.status === "REVOKED").length}
-              </div>
+              {loadingInvites ? (
+                <div className="h-8 w-12 bg-rose-100 dark:bg-rose-950/60 rounded-lg animate-pulse mt-1" />
+              ) : (
+                <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
+                  {invitations.filter((i: any) => i.status === "EXPIRED" || i.status === "REVOKED").length}
+                </div>
+              )}
             </div>
           </div>
 
@@ -2705,7 +2739,7 @@ function UsersManagementContent() {
                 <span>💡 Cơ chế Machine-Wide Token</span>
               </div>
               <p>
-                Token này được mã hóa bảo mật dùng để xác thực Extension của nhân sự này trên tất cả các profile GPMLogin của máy họ. Nhân viên không cần nhớ hay tự gõ token vì token đã được tự động nhúng vào file ZIP khi tải về.
+                Token xác thực Extension/Agent của nhân sự. Zip tải về chỉ chứa mã pairing dùng 1 lần (~10 phút) — không còn nhúng Personal Token. Sau thu hồi/cấp lại: nhân sự tải zip mới hoặc dán token từ đây.
               </p>
             </div>
 
@@ -2855,7 +2889,7 @@ function UsersManagementContent() {
                   }`}
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Tải Extension hộ (ZIP)</span>
+                <span>Tải Extension hộ (ZIP pairing)</span>
               </a>
             </div>
           </div>

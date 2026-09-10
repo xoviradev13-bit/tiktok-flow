@@ -8,6 +8,7 @@ import {
   AUTH_ERROR_CODES,
   ERROR_CODE_TO_STATUS
 } from "@/features/auth/types/apiResponse";
+import { rejectIfExtAccessTyp } from "@/lib/extension-auth";
 
 const JWT_SECRET = process.env.AUTH_SECRET!;
 
@@ -50,9 +51,9 @@ export async function POST(req: Request) {
     }
 
     // Verify token
-    let decoded: { email: string };
+    let decoded: { email: string; typ?: string };
     try {
-      decoded = jwt.verify(token, JWT_SECRET) as { email: string };
+      decoded = jwt.verify(token, JWT_SECRET) as { email: string; typ?: string };
     } catch (jwtError) {
       if (jwtError instanceof TokenExpiredError) {
         const response = createErrorResponse(
@@ -64,6 +65,16 @@ export async function POST(req: Request) {
         });
       }
 
+      const response = createErrorResponse(
+        AUTH_ERROR_CODES.TOKEN_INVALID,
+        "Liên kết đặt lại mật khẩu không hợp lệ. Vui lòng yêu cầu liên kết mới."
+      );
+      return NextResponse.json(response, {
+        status: ERROR_CODE_TO_STATUS[AUTH_ERROR_CODES.TOKEN_INVALID]
+      });
+    }
+
+    if (rejectIfExtAccessTyp(decoded)) {
       const response = createErrorResponse(
         AUTH_ERROR_CODES.TOKEN_INVALID,
         "Liên kết đặt lại mật khẩu không hợp lệ. Vui lòng yêu cầu liên kết mới."

@@ -43,7 +43,8 @@ Write-Host " [*] Dang ket noi may chu tai: $srv ..." -ForegroundColor Cyan
 
 try {
     $body = @{ token = $tok } | ConvertTo-Json
-    $res = Invoke-RestMethod -Uri ($srv + "/api/extension/verify-token") -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10
+    $headers = @{ Authorization = "Bearer $tok" }
+    $res = Invoke-RestMethod -Uri ($srv + "/api/extension/verify-token") -Method Post -Body $body -ContentType "application/json" -Headers $headers -TimeoutSec 10
 
     Write-Host ""
     Write-Host (" [XAC THUC THANH CONG] " + $res.message) -ForegroundColor Green
@@ -51,14 +52,18 @@ try {
         Write-Host (" [+] Nhan vien so huu: " + $res.user.email) -ForegroundColor Green
     }
 
-    # 4. Save to config.json
+    # 4. Save to config.json and clear any prior revoke flags (re-auth complete)
     $cfg.personalToken = $tok
+    $cfg.tokenRevoked = $false
+    $cfg.tokenRevokedReason = ""
+    $cfg.tokenRevokedAt = $null
     if ($res.user.email) {
         $cfg.memberEmail = $res.user.email
     }
 
     $cfg | ConvertTo-Json -Depth 5 | Set-Content $configFile -Encoding UTF8
     Write-Host " [+] Da luu ma Token moi vao config.json an toan." -ForegroundColor Green
+    Write-Host " [+] Da xoa trang thai 'token thu hoi' — Agent co the dong bo lai." -ForegroundColor Green
 
     # 5. Restart background agent if running
     Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*agent.js*' } | ForEach-Object {

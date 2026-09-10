@@ -37,42 +37,35 @@ export default function LandingPage() {
     setMounted(true);
   }, []);
 
-  const stats = [
-    { label: "Accounts Vận Hành", value: "2,500+", change: "+18% tháng này" },
-    { label: "Lượt View Tạo Ra", value: "150M+", change: "30 ngày qua" },
-    { label: "Doanh Thu Đạt Được", value: "$180,000+", change: "Creator Rewards" },
-    { label: "Tỉ Lệ Chấm Công", value: "99.4%", change: "Hoàn thành KPI" },
-  ];
-
   const features = [
     {
       icon: Users,
       title: "Quản Trị Dàn Account Quy Mô Lớn",
-      desc: "Theo dõi trạng thái Live/Die, phân quyền nhân sự, gắn thẻ Group và quản lý hàng nghìn tài khoản TikTok US/UK/VN tập trung trên một giao diện duy nhất.",
+      desc: "Theo dõi trạng thái Live/Die, phân quyền nhân sự, gắn thẻ Group và quản lý hàng nghìn tài khoản TikTok tập trung trên một giao diện duy nhất.",
       color: "from-cyan-500/20 to-blue-500/20 text-cyan-600 dark:text-cyan-400 border-cyan-500/30",
     },
     {
       icon: Bot,
-      title: "GPM-Login Hub Tự Động Hóa (Port 9495)",
-      desc: "Kết nối trực tiếp local API GPM-Login. 1-click mở profile, tự động đồng bộ cookie, check fingerprint sạch và kiểm tra trạng thái login real-time.",
+      title: "GPM-Login Hub Tự Động Hóa",
+      desc: "Kết nối trực tiếp với GPM-Login. Tự động đồng bộ cookie, kiểm tra fingerprint sạch và xác thực trạng thái đăng nhập theo thời gian thực.",
       color: "from-pink-500/20 to-rose-500/20 text-pink-600 dark:text-pink-400 border-pink-500/30",
     },
     {
       icon: CheckSquare,
       title: "Checklist Chấm Công & KPI Vận Hành",
-      desc: "Tự động phân bổ ca làm việc, checklist đăng video hàng ngày trước 10:00 AM, tính điểm công chuẩn xác (1.0 - 0.5 - 0.0) và chống gian lận.",
+      desc: "Tự động phân bổ ca làm việc, quản lý checklist đăng video hàng ngày, tính điểm công chính xác theo cấu hình và hỗ trợ chống gian lận.",
       color: "from-emerald-500/20 to-teal-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
     },
     {
       icon: BarChart3,
       title: "Phân Tích Doanh Thu & Biến Động RPM",
-      desc: "Thống kê Creator Rewards Program và Affiliate chi tiết theo từng ngày, từng kênh. Biểu đồ trực quan giúp tối ưu RPM và phát hiện kênh tăng trưởng.",
+      desc: "Thống kê doanh thu chi tiết theo từng ngày, từng kênh. Biểu đồ trực quan giúp theo dõi hiệu suất, tối ưu RPM và phát hiện các kênh có tiềm năng tăng trưởng.",
       color: "from-amber-500/20 to-orange-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30",
     },
     {
       icon: Trophy,
       title: "Bảng Xếp Hạng Leaderboard Nhân Sự",
-      desc: "Vinh danh những Operator xuất sắc nhất tuần, tháng theo tỷ lệ hoàn thành checklist và tổng views/revenue đem lại cho Studio.",
+      desc: "Vinh danh những nhân sự xuất sắc nhất theo tuần và tháng dựa trên tỷ lệ hoàn thành checklist, tổng lượt xem và doanh thu mang lại.",
       color: "from-purple-500/20 to-indigo-500/20 text-purple-600 dark:text-purple-400 border-purple-500/30",
     },
     {
@@ -99,7 +92,7 @@ export default function LandingPage() {
       <PublicHeader badge="Studio Enterprise" />
 
       {/* Hero Section */}
-      <section className="relative pt-16 pb-20 md:pt-24 md:pb-32 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
+      <section className="relative pt-16 pb-10 md:pt-24 md:pb-14 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
         {/* Top Tag Pill */}
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/90 dark:bg-slate-900/90 border border-slate-200/90 dark:border-slate-700/80 shadow-xs dark:shadow-inner mb-6 backdrop-blur-md text-slate-700 dark:text-slate-300">
           <span className="flex h-2 w-2 relative">
@@ -118,7 +111,7 @@ export default function LandingPage() {
 
         {/* Subtitle */}
         <p className="mt-6 text-lg sm:text-xl text-slate-600 dark:text-slate-400 max-w-3xl mx-auto leading-relaxed">
-          Đột phá hiệu suất MMO TikTok Beta / Creator Rewards. Đồng bộ tự động với <strong className="text-slate-900 dark:text-white">GPMLogin</strong>, chấm công checklist nhân sự, kiểm soát RPM và thống kê doanh thu realtime.
+          Tối ưu vận hành TikTok với hệ thống quản lý tập trung. Đồng bộ tài khoản, chấm công nhân sự, theo dõi hiệu suất, RPM và doanh thu theo thời gian thực.
         </p>
 
         {/* CTA Buttons */}
@@ -189,23 +182,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Metrics Section */}
-      <section id="stats" className="border-y border-slate-200/80 dark:border-slate-800/80 bg-slate-100/70 dark:bg-slate-900/40 backdrop-blur-md py-14 px-4 sm:px-6 lg:px-8 transition-colors">
-        <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-          {stats.map((s, idx) => (
-            <div key={idx} className="space-y-1">
-              <div className="text-3xl sm:text-5xl font-black bg-gradient-to-r from-slate-900 via-slate-800 to-pink-600 dark:from-white dark:via-slate-100 dark:to-pink-300 bg-clip-text text-transparent">
-                {s.value}
-              </div>
-              <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{s.label}</div>
-              <div className="text-xs text-pink-600 dark:text-pink-400 font-medium">{s.change}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* Core Features Grid */}
-      <section id="features" className="py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+      <section id="features" className="pt-16 pb-24 md:pt-14 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         <div className="text-center max-w-3xl mx-auto mb-16">
           <h2 className="text-xs font-bold tracking-widest text-pink-600 dark:text-pink-500 uppercase">
             Giải Pháp Toàn Diện
@@ -256,10 +234,10 @@ export default function LandingPage() {
               <span>GPM-Login Integration Engine</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white leading-tight">
-              Tự Động Mở Trình Duyệt & Đồng Bộ Profile Chống Gậy Real-time
+              Tự Động Đồng Bộ Profile Chống Gậy Real-time
             </h2>
             <p className="mt-4 text-slate-600 dark:text-slate-400 text-base leading-relaxed">
-              Không cần sao chép thủ công ID hoặc lo ngại nhầm lẫn proxy. Hệ thống kết nối thẳng vào cổng REST API nội bộ <strong className="text-slate-900 dark:text-white">localhost:9495</strong> của GPM-Login để quản trị dàn profile mượt mà.
+              Không cần sao chép thủ công ID hay lo ngại nhầm lẫn proxy. Hệ thống kết nối trực tiếp với GPM-Login, giúp quản lý và đồng bộ toàn bộ profile nhanh chóng, chính xác.
             </p>
 
             <div className="mt-6 space-y-3">
@@ -267,7 +245,7 @@ export default function LandingPage() {
                 "Tự động quét và import danh sách Profile từ GPM vào Dàn Account",
                 "1-Click khởi động trình duyệt chống fingerprint detection",
                 "Tự động trích xuất TikTok handle, followers, views và trạng thái login",
-                "Hỗ trợ phân nhóm Group Name theo Team hoặc Country (US, UK, VN...)",
+                "Hỗ trợ phân nhóm Group Name theo Team hoặc Country",
               ].map((text, i) => (
                 <div key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
                   <div className="mt-0.5 w-5 h-5 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">
@@ -331,7 +309,7 @@ export default function LandingPage() {
             Sẵn Sàng Nâng Tầm Vận Hành TikTok Studio?
           </h2>
           <p className="mt-4 text-slate-600 dark:text-slate-300 text-base sm:text-lg max-w-2xl mx-auto">
-            Hệ thống hóa toàn bộ dàn kênh, kiểm soát nhân sự chặt chẽ và bứt phá doanh thu Creator Rewards ngay hôm nay.
+            Hệ thống hóa toàn bộ dàn kênh, kiểm soát nhân sự chặt chẽ và bứt phá doanh thu ngay hôm nay.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row justify-center gap-4">
             <Link
