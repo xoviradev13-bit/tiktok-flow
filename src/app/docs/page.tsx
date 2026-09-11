@@ -49,7 +49,7 @@ const DOC_SECTIONS: DocNavSection[] = [
   { id: "client_agent", title: "Client Agent Tự Động", icon: Laptop, desc: "Cách cài, chạy ngầm, đổi Token & gỡ bỏ" },
   { id: "extension", title: "TikTokFlow Extension", icon: Puzzle, desc: "Cách cài đặt, sử dụng & gỡ bỏ tiện ích" },
   { id: "accounts", title: "Quản Trị Dàn Account", icon: Users, desc: "Vòng đời kênh, gán nhân sự & trạng thái" },
-  { id: "gpm", title: "GPMLogin Fleet Hub", icon: Bot, desc: "Cổng 9495 (Dành cho Quản Trị Viên)" },
+  { id: "gpm", title: "GPMLogin Fleet Hub", icon: Bot, desc: "Tự động nhận diện API (Quản Trị Viên)" },
   { id: "troubleshooting", title: "Xử Lý Sự Cố & FAQ", icon: AlertTriangle, desc: "Khắc phục các vấn đề thường gặp" },
 ];
 

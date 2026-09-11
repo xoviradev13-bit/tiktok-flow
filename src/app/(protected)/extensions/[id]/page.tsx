@@ -165,7 +165,7 @@ export default function ExtensionDetailPage() {
           </div>
 
           {/* Download Action Box */}
-          <div className="flex flex-col gap-2 shrink-0 sm:w-64">
+          <div className="flex flex-col gap-2.5 shrink-0 sm:w-72">
             {isAccessRevoked ? (
               <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-center space-y-1.5">
                 <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-rose-600 dark:text-rose-400">
@@ -181,19 +181,26 @@ export default function ExtensionDetailPage() {
                 <a
                   href={isClientAgent ? "/api/client-agent/download" : "/api/extension/download"}
                   download
-                  className={`flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl text-xs font-bold ${
+                  className={`flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl text-xs sm:text-sm font-bold ${
                     isClientAgent
                       ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-indigo-600/25"
                       : "bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-pink-600/25"
-                  } text-white shadow-xl active:scale-95 transition-all cursor-pointer text-center`}
+                  } text-white shadow-lg active:scale-95 transition-all cursor-pointer text-center`}
                 >
-                  <Download className="w-4 h-4" />
+                  <Download className="w-4 h-4 shrink-0" />
                   <span>{isClientAgent ? "Tải Client Agent (.zip cá nhân)" : "Tải Extension (ZIP cá nhân)"}</span>
                 </a>
-                <div className="text-xs text-center text-slate-400">
-                  {isClientAgent
-                    ? "Zip kèm mã pairing (~10 phút, dùng 1 lần); lần chạy đầu tự liên kết"
-                    : "Zip kèm mã pairing (~10 phút, dùng 1 lần); lần mở đầu tự liên kết"}
+
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 space-y-1.5 text-center">
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    {isClientAgent
+                      ? "Gói ZIP tự động gán tài khoản khi chạy lần đầu (mã có hạn ~10 phút)."
+                      : "Gói ZIP tự động gán tài khoản khi mở lần đầu (mã có hạn ~10 phút)."}
+                  </p>
+                  <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span>Không chia sẻ file ZIP & Personal Token</span>
+                  </p>
                 </div>
               </>
             )}
@@ -210,7 +217,8 @@ export default function ExtensionDetailPage() {
               <span>Token Xác Thực Cá Nhân & Chẩn Đoán Kết Nối</span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Token định danh duy nhất của bạn trên máy trạm để đồng bộ tài khoản TikTok về dashboard.
+              Mã cá nhân của bạn trên máy này.{" "}
+              <span className="font-bold text-rose-600 dark:text-rose-400">Tuyệt đối không chia sẻ công khai</span>.
             </p>
           </div>
 
@@ -240,7 +248,7 @@ export default function ExtensionDetailPage() {
               Personal Sync Token:
             </label>
             <span className="text-xs text-slate-400">
-              (Bảo mật: Không chia sẻ mã này cho người khác)
+              (Tuyệt đối không chia sẻ công khai Personal Token)
             </span>
           </div>
 
@@ -311,7 +319,7 @@ export default function ExtensionDetailPage() {
         {/* Action button to roll token */}
         <div className="pt-2 flex items-center justify-between">
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Nếu nghi ngờ bị lộ hoặc đổi máy, bạn có thể tạo lại Token mới (các Extension cũ sẽ ngừng đồng bộ).
+            Nếu nghi ngờ bị lộ hoặc đổi máy, bạn có thể tạo lại Token mới (Extension/Agent cũ sẽ ngừng hoạt động cho đến khi cập nhật token).
           </p>
           <button
             type="button"
@@ -319,7 +327,7 @@ export default function ExtensionDetailPage() {
             onClick={() => {
               if (
                 confirm(
-                  "Xác nhận tạo Token mới?\n\nExtension đang chạy trên trình duyệt sẽ cần cập nhật Token mới để tiếp tục đồng bộ!"
+                  "Xác nhận tạo Token mới?\n\nExtension và Client Agent đang chạy sẽ cần cập nhật Token mới để tiếp tục hoạt động!"
                 )
               ) {
                 regenerateTokenMutation.mutate();
@@ -350,13 +358,17 @@ export default function ExtensionDetailPage() {
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             {isClientAgent
-              ? "File ZIP chứa mã pairing dùng 1 lần (~10 phút). Lần chạy đầu tự liên kết tài khoản. Nếu hết hạn: dán Personal Token từ Settings (setup-agent.bat phím 3)."
-              : "File ZIP chứa mã pairing dùng 1 lần (~10 phút). Lần mở đầu tự liên kết. Nếu hết hạn: dán Personal Token từ Settings vào popup Extension."}
+              ? "Mỗi máy chỉ mở một Agent. Tải file ZIP về, giải nén và làm theo các bước dưới. Nếu mã liên kết hết hạn, lấy Personal Token ở trang Cài đặt rồi chạy setup-agent.bat (phím 3)."
+              : "Trên mỗi máy nên cài cả Extension và Client Agent. Extension giúp nhận biết tài khoản đang đăng nhập; Agent giúp cập nhật số liệu. Tải ZIP và làm theo các bước dưới."}
           </p>
         </div>
 
         {isClientAgent ? (
           <div className="space-y-6">
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-xs text-amber-800 dark:text-amber-200 leading-relaxed">
+              <strong className="font-bold">Lưu ý:</strong> Nếu Agent đang chạy rồi mà bạn mở thêm lần nữa, hệ thống sẽ báo đang bận.
+              Hãy chạy file <code className="font-mono bg-amber-100 dark:bg-amber-950/50 px-1 rounded">stop-agent.bat</code> để dừng, rồi mới mở lại.
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               {/* Step 1 for Client Agent */}
               <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/60 dark:border-slate-800 space-y-3 relative flex flex-col justify-between">
@@ -395,10 +407,11 @@ export default function ExtensionDetailPage() {
                     3
                   </div>
                   <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                    Quét Ngay Lập Tức (Thủ Công)
+                    Quét ngay hoặc dừng an toàn
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Giải nén file ZIP vào thư mục cố định trên ổ đĩa. Nhấp đúp chuột vào file <code className="bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded text-xs font-mono font-bold border border-purple-200 dark:border-purple-800">run-agent.bat</code> để cào số liệu Studio đẩy lên hệ thống ngay lập tức khi cần.
+                    Muốn lấy số liệu ngay: mở <code className="bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded text-xs font-mono font-bold border border-purple-200 dark:border-purple-800">run-agent.bat</code>.
+                    Muốn dừng Agent: mở <code className="bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 px-1.5 py-0.5 rounded text-xs font-mono font-bold border border-rose-200 dark:border-rose-800">stop-agent.bat</code>.
                   </p>
                 </div>
               </div>
@@ -460,6 +473,11 @@ export default function ExtensionDetailPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            <div className="p-4 rounded-2xl bg-pink-50 dark:bg-pink-500/10 border border-pink-200 dark:border-pink-500/30 text-xs text-pink-900 dark:text-pink-100 leading-relaxed">
+              <strong className="font-bold">Dễ nhớ:</strong> Extension giúp nhận biết bạn đang đăng nhập tài khoản nào;
+              Client Agent giúp cập nhật số liệu (lượt xem, doanh thu…). Cài cả hai trên máy của bạn.
+              <span className="font-bold text-rose-700 dark:text-rose-300"> Tuyệt đối không chia sẻ công khai</span> file ZIP hoặc Personal Token.
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               {/* Step 1 */}
               <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/60 dark:border-slate-800 space-y-3 relative flex flex-col justify-between">
@@ -498,10 +516,11 @@ export default function ExtensionDetailPage() {
                     3
                   </div>
                   <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                    Bắt Đầu Sử Dụng Tự Động
+                    Mở TikTok và kiểm tra
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Mở profile GPMLogin bất kỳ — lần đầu Extension tự redeem pairing. Nếu pairing hết hạn, dán Personal Token từ Settings vào popup. Sau đó tự đồng bộ Creator Rewards / lượt xem về máy chủ.
+                    Mở profile GPM và đăng nhập TikTok. Extension sẽ tự nhận diện tài khoản.
+                    Nếu cần, dán Personal Token từ trang Cài đặt vào cửa sổ Extension. Số liệu chi tiết (lượt xem, doanh thu…) do Client Agent cập nhật khi Agent chạy trên máy.
                   </p>
                 </div>
               </div>
@@ -580,43 +599,53 @@ export default function ExtensionDetailPage() {
           {isClientAgent ? (
             <ul className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300">
               <li className="flex items-start gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 mt-1.5" />
+                <span>
+                  <strong className="text-slate-800 dark:text-slate-200">Một Agent trên một máy:</strong> Không mở hai Agent cùng lúc. Muốn chạy lại thì dừng Agent cũ trước (file stop-agent.bat).
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 mt-1.5" />
                 <span>
-                  <strong className="text-slate-800 dark:text-slate-200">Strict Read-Only:</strong> Tuyệt đối chỉ đọc cookie và storage để kiểm tra trạng thái phiên, không bao giờ sửa hoặc xóa tệp tin trong thư mục GPMLogin gốc của bạn.
+                  <strong className="text-slate-800 dark:text-slate-200">An toàn với GPM:</strong> Chỉ đọc dữ liệu cần thiết, không sửa hay xóa thư mục profile GPM của bạn.
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0 mt-1.5" />
                 <span>
-                  <strong className="text-slate-800 dark:text-slate-200">Snapshot Cách Ly:</strong> Sao chép tạm vào %TEMP% và loại bỏ file khóa, chạy ngầm an toàn 100% không lo xung đột khi trình duyệt GPM đang mở.
+                  <strong className="text-slate-800 dark:text-slate-200">Chạy riêng biệt:</strong> Làm việc trên bản sao tạm, không làm treo trình duyệt GPM đang mở.
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 shrink-0 mt-1.5" />
                 <span>
-                  <strong className="text-slate-800 dark:text-slate-200">Ironclad Temp Guard:</strong> Bộ dọn dẹp xác thực nghiêm ngặt chỉ dọn thư mục tạm của agent, chặn đứng mọi hành vi xóa ra ngoài %TEMP%.
+                  <strong className="text-slate-800 dark:text-slate-200">Tự dọn sạch:</strong> Khi dừng, Agent tự xóa file tạm của mình, không đụng file khác trên máy.
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0 mt-1.5" />
                 <span>
-                  <strong className="text-slate-800 dark:text-slate-200">Anti-Zombie & Tiết Kiệm RAM:</strong> Tự động giải phóng tiến trình Chrome ngầm khi dừng; khử tải hình ảnh/video giúp tiết kiệm 85% băng thông và chỉ tốn ~60MB RAM.
+                  <strong className="text-slate-800 dark:text-slate-200">Nhẹ máy:</strong> Chạy êm, tiết kiệm bộ nhớ và mạng; tắt là giải phóng sạch sẽ.
                 </span>
               </li>
             </ul>
           ) : (
             <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
               <li className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                <span><strong className="text-slate-800 dark:text-slate-200">storage:</strong> Lưu cấu hình token và endpoint cục bộ trên trình duyệt.</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-pink-500 shrink-0" />
+                <span><strong className="text-slate-800 dark:text-slate-200">Việc của Extension:</strong> Nhận biết tài khoản đang đăng nhập và hỗ trợ gắn / bàn giao tài khoản.</span>
               </li>
               <li className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                <span><strong className="text-slate-800 dark:text-slate-200">cookies / tabs:</strong> Đọc session đăng nhập TikTok để kiểm tra tài khoản còn sống hay die.</span>
+                <span><strong className="text-slate-800 dark:text-slate-200">Lưu cấu hình:</strong> Nhớ token và địa chỉ máy chủ trên trình duyệt của bạn.</span>
               </li>
               <li className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                <span><strong className="text-slate-800 dark:text-slate-200">alarms:</strong> Lên lịch chạy quét định kỳ ngầm (heartbeat) để tự động báo cáo video đã đăng.</span>
+                <span><strong className="text-slate-800 dark:text-slate-200">Kiểm tra đăng nhập:</strong> Biết tài khoản TikTok còn phiên hay đã thoát.</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <span><strong className="text-slate-800 dark:text-slate-200">Đồng bộ GPM:</strong> Cập nhật danh sách profile trên máy; cửa sổ Extension cũng cho biết Agent đang chạy hay chưa.</span>
               </li>
             </ul>
           )}

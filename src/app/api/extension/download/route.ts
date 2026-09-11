@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createZipBuffer, ZipEntry } from "@/lib/zip";
-import { createPairingCodeForUser } from "@/lib/extension-auth";
+import { createPairingCodeForUser, resolvePublicAppUrl } from "@/lib/extension-auth";
 import fs from "fs";
 import path from "path";
 
@@ -47,10 +47,7 @@ export async function GET(req: Request) {
       );
     }
 
-    // Determine current Server URL
-    const host = req.headers.get("host") || "localhost:3000";
-    const proto = req.headers.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
-    const serverUrl = `${proto}://${host}`;
+    const serverUrl = resolvePublicAppUrl(req);
 
     const pairingCode = await createPairingCodeForUser(user.id);
 

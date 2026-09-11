@@ -2,8 +2,12 @@ import { router, publicProcedure, protectedProcedure, leadProcedure } from "@/tr
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
 import { clearUserCache } from "@/lib/auth";
+import {
+  generatePersonalToken,
+  persistPersonalTokenValue,
+  revealPersonalToken,
+} from "@/lib/extension-auth";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -54,6 +58,8 @@ export const userRouter = router({
     const { password, ...safeUser } = user;
     return {
       ...safeUser,
+      extensionToken: revealPersonalToken(user.extensionToken),
+      hasExtensionToken: Boolean(user.extensionToken),
       hasPassword: Boolean(password),
     };
   }),
@@ -186,10 +192,22 @@ export const userRouter = router({
       });
     }
 
-    const newToken = `ttf_sec_${crypto.randomBytes(16).toString("hex")}`;
-    await ctx.prisma.user.update({
-      where: { id: user.id },
-      data: { extensionToken: newToken },
+    const newToken = generatePersonalToken();
+    await ctx.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          extensionToken: persistPersonalTokenValue(newToken),
+          extensionSessionVersion: { increment: 1 },
+        },
+      });
+      await tx.extensionRefreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await tx.extensionPairingCode.deleteMany({
+        where: { userId: user.id, usedAt: null },
+      });
     });
 
     return { token: newToken };

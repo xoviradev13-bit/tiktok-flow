@@ -165,20 +165,20 @@ export default function RevenuePage() {
 
       {/* Chart & Period Filter */}
       <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm dark:shadow-xl space-y-4 min-w-0">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          <div className="shrink-0">
             <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-amber-500" />
               Biến Động Dữ Liệu ({getPeriodLabel()})
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Biểu đồ trực quan theo ngày thực tế từ TikTok Creator Rewards & Affiliate
+              Biểu đồ theo ngày từ Creator Rewards & Affiliate
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-2.5 overflow-x-auto max-w-full scrollbar-none pb-1 xl:pb-0">
             {/* Metric Mode Toggle */}
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none">
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
               <button
                 onClick={() => setChartMetric("REVENUE")}
                 className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
@@ -212,7 +212,7 @@ export default function RevenuePage() {
             </div>
 
             {/* Date range chips & Custom Range Popover */}
-            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none">
+            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
               {periodOptions.map((opt) => (
                 <button
                   key={opt.value}

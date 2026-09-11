@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { TRPCProvider } from "./TRPCProvider";
 import { ReduxProvider } from "./ReduxProvider";
 import { ThemeProvider } from "./ThemeProvider";
+import { ColorThemeProvider } from "@/components/theme/ColorThemeProvider";
 import { SidebarProvider } from "./SidebarProvider";
 import { type Session } from "next-auth";
 
@@ -17,17 +18,19 @@ export default function Providers({
   return (
     <>
       <ThemeProvider>
-        <SidebarProvider>
-          <SessionProvider
-            refetchInterval={0}
-            refetchOnWindowFocus={false}
-            session={session}
-          >
-            <ReduxProvider>
-              <TRPCProvider>{children}</TRPCProvider>
-            </ReduxProvider>
-          </SessionProvider>
-        </SidebarProvider>
+        <ColorThemeProvider>
+          <SidebarProvider>
+            <SessionProvider
+              refetchInterval={0}
+              refetchOnWindowFocus={false}
+              session={session}
+            >
+              <ReduxProvider>
+                <TRPCProvider>{children}</TRPCProvider>
+              </ReduxProvider>
+            </SessionProvider>
+          </SidebarProvider>
+        </ColorThemeProvider>
       </ThemeProvider>
       <Toaster position="bottom-center" />
     </>

@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { resolveExtensionBearerAuth } from "@/lib/extension-auth";
+import {
+  checkRateLimit,
+  getClientIp,
+  resolveExtensionBearerAuth,
+} from "@/lib/extension-auth";
 import { resolveGpmProfileByUsername } from "@/lib/tiktok-extractor";
 
 export interface VideoItemMetric {
@@ -51,6 +55,9 @@ export interface ExtensionReportPayload {
   memberEmail?: string;
   gpmProfileId?: string;
   gpmProfileName?: string;
+  /** Explicit client origin: extension = identity only; agent = full metrics */
+  source?: "extension" | "agent";
+  metricsSource?: string;
 
   // Key Metrics
   profileViews?: number;
@@ -76,6 +83,15 @@ export interface ExtensionReportPayload {
 
 export async function POST(req: Request) {
   try {
+    const ip = getClientIp(req) || "unknown";
+    const ipLimit = checkRateLimit(`report:ip:${ip}`, 180);
+    if (!ipLimit.ok) {
+      return NextResponse.json(
+        { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
+        { status: 429, headers: { "Retry-After": String(ipLimit.retryAfterSec) } }
+      );
+    }
+
     const body = (await req.json()) as ExtensionReportPayload;
     const {
       username,
@@ -104,6 +120,8 @@ export async function POST(req: Request) {
       memberEmail,
       gpmProfileId,
       gpmProfileName,
+      source,
+      metricsSource,
       profileViews,
       commentsCount,
       sharesCount,
@@ -113,6 +131,20 @@ export async function POST(req: Request) {
       tiktokShopRevenue,
       creatorRewardsRevenue,
     } = body;
+
+    // Extension = identity/GPM/assignment only. Agent writes metrics. Legacy payloads with numbers still apply.
+    const isIdentityOnly =
+      source === "extension" || metricsSource === "identity";
+    const applyMetrics =
+      !isIdentityOnly &&
+      (source === "agent" ||
+        metricsSource === "agent" ||
+        metricsSource === "studio" ||
+        followersCount > 0 ||
+        (totalRevenue !== undefined && totalRevenue > 0) ||
+        (viewsToday !== undefined && viewsToday > 0) ||
+        (totalViews !== undefined && totalViews > 0) ||
+        !!(videosList && videosList.length));
 
     if (!username || typeof username !== "string") {
       return NextResponse.json(
@@ -150,6 +182,14 @@ export async function POST(req: Request) {
     }
 
     const memberUser = authResult.user;
+
+    const userLimit = checkRateLimit(`report:user:${memberUser.id}`, 120);
+    if (!userLimit.ok) {
+      return NextResponse.json(
+        { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
+        { status: 429, headers: { "Retry-After": String(userLimit.retryAfterSec) } }
+      );
+    }
 
     const actorName =
       memberUser.name || memberUser.email || memberUser.username || "Companion Extension";
@@ -218,10 +258,13 @@ export async function POST(req: Request) {
           country: country || "US",
           assignedUserId,
           isAssignmentLocked: false,
-          totalFollowers: followersCount,
-          totalVideos: totalVideos || videoCount,
-          totalViews: totalViews ? BigInt(totalViews) : BigInt(0),
-          totalRevenue: totalRevenue !== undefined && totalRevenue > 0 ? totalRevenue : 0,
+          totalFollowers: applyMetrics ? followersCount : 0,
+          totalVideos: applyMetrics ? totalVideos || videoCount : 0,
+          totalViews: applyMetrics && totalViews ? BigInt(totalViews) : BigInt(0),
+          totalRevenue:
+            applyMetrics && totalRevenue !== undefined && totalRevenue > 0
+              ? totalRevenue
+              : 0,
           lastSyncedAt: new Date(),
         },
         include: {
@@ -234,11 +277,17 @@ export async function POST(req: Request) {
           accountId: account.id,
           newStatus: targetStatus,
           logType: "STATUS_CHANGE",
-          message: `Tài khoản TikTok @${cleanUsername} được phát hiện trực tiếp qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${
-            resolvedGpmProfileId
-              ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
-              : ""
-          }`,
+          message: isIdentityOnly
+            ? `Tài khoản TikTok @${cleanUsername} được phát hiện qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${
+                resolvedGpmProfileId
+                  ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
+                  : ""
+              } Số liệu sẽ do Client Agent cập nhật.`
+            : `Tài khoản TikTok @${cleanUsername} được phát hiện trực tiếp qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${
+                resolvedGpmProfileId
+                  ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
+                  : ""
+              }`,
           actorName,
         },
       });
@@ -247,10 +296,12 @@ export async function POST(req: Request) {
         lastSyncedAt: new Date(),
       };
 
-      if (followersCount > 0) updateData.totalFollowers = followersCount;
-      if (totalVideos || videoCount > 0) updateData.totalVideos = totalVideos || videoCount;
-      if (totalViews !== undefined && totalViews > 0) updateData.totalViews = BigInt(totalViews);
-      if (totalRevenue !== undefined && totalRevenue > 0) updateData.totalRevenue = totalRevenue;
+      if (applyMetrics) {
+        if (followersCount > 0) updateData.totalFollowers = followersCount;
+        if (totalVideos || videoCount > 0) updateData.totalVideos = totalVideos || videoCount;
+        if (totalViews !== undefined && totalViews > 0) updateData.totalViews = BigInt(totalViews);
+        if (totalRevenue !== undefined && totalRevenue > 0) updateData.totalRevenue = totalRevenue;
+      }
       if (country) updateData.country = country;
       if (resolvedGpmProfileId && !account.gpmProfileId) {
         updateData.gpmProfileId = resolvedGpmProfileId;
@@ -312,10 +363,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. Record into DailyRevenue for each revenue stream
+    // 4. Record into DailyRevenue for each revenue stream (Agent metrics only)
     const effectiveTotalRevenue = totalRevenue || (creatorRewardsRevenue || 0) + (liveRewardsRevenue || 0) + (tiktokShopRevenue || 0);
 
-    if (effectiveTotalRevenue > 0 || (viewsToday && viewsToday > 0) || rpm) {
+    if (
+      applyMetrics &&
+      (effectiveTotalRevenue > 0 || (viewsToday && viewsToday > 0) || rpm)
+    ) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
@@ -407,8 +461,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // 5. Persist comprehensive analytics snapshot (Key metrics, Video breakdown, Top videos, Revenue breakdown)
-    const analyticsSnapshot = {
+    // 5. Persist comprehensive analytics snapshot (Agent metrics only — never zero out from Extension)
+    let analyticsSnapshot: Record<string, unknown> | null = null;
+    if (applyMetrics) {
+    analyticsSnapshot = {
       username: cleanUsername,
       updatedAt: new Date().toISOString(),
       keyMetrics: {
@@ -460,6 +516,7 @@ export async function POST(req: Request) {
       });
     } catch (cfgErr: any) {
       console.warn("[ExtensionReport] Failed to save analytics snapshot:", cfgErr.message);
+    }
     }
 
     // Handle alerts based on login state
@@ -550,17 +607,26 @@ export async function GET(req: Request) {
       );
     }
 
+    let callerId: string | null = session?.user?.id || null;
+    let callerRole: string | null = (session?.user as { role?: string } | undefined)?.role || null;
+
     if (bearerToken) {
-      const validUser = await prisma.user.findUnique({
-        where: { extensionToken: bearerToken },
-        select: { id: true, isActive: true },
-      });
-      if (!validUser || !validUser.isActive) {
+      const authResult = await resolveExtensionBearerAuth(bearerToken, "/api/extension/report:GET");
+      if (!authResult.ok) {
         return NextResponse.json(
-          { success: false, error: "Mã token không hợp lệ hoặc tài khoản đã bị khóa." },
-          { status: 401 }
+          { success: false, error: authResult.error },
+          { status: authResult.status }
         );
       }
+      callerId = authResult.user.id;
+      callerRole = authResult.user.role || null;
+    }
+
+    if (!callerId) {
+      return NextResponse.json(
+        { success: false, error: "Yêu cầu đăng nhập hoặc token hợp lệ để xem số liệu phân tích." },
+        { status: 401 }
+      );
     }
 
     const url = new URL(req.url);
@@ -568,6 +634,22 @@ export async function GET(req: Request) {
 
     if (!username) {
       return NextResponse.json({ success: false, error: "Missing 'username' query parameter" }, { status: 400 });
+    }
+
+    const account = await prisma.tiktokAccount.findUnique({
+      where: { username },
+      select: { id: true, assignedUserId: true },
+    });
+
+    const isPrivileged = callerRole === "ADMIN" || callerRole === "LEAD";
+    const canAccess =
+      isPrivileged ||
+      (account != null && account.assignedUserId === callerId);
+    if (!canAccess) {
+      return NextResponse.json(
+        { success: false, error: "Bạn không có quyền xem số liệu của tài khoản này." },
+        { status: 403 }
+      );
     }
 
     const config = await prisma.systemConfig.findUnique({

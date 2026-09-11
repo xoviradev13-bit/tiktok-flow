@@ -146,6 +146,8 @@ export default async function RootLayout({
                     document.documentElement.style.colorScheme = 'dark';
                   }
                 }
+                var colorTheme = localStorage.getItem('tiktokflow_color_theme') || 'pink';
+                document.documentElement.setAttribute('data-color-theme', colorTheme);
               } catch (e) {}
             `,
           }}

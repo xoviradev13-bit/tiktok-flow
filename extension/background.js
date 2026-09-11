@@ -5,6 +5,70 @@ const DEFAULT_SERVER_URL = "http://localhost:3000";
 const GPM_PORT_CANDIDATES = [9495, 19995, 19996, 19994, 8848];
 const GPM_API_VERSIONS = ["v1", "v3"];
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5-minute cooldown between fleet syncs
+/** Same port as Client Agent singleton lock in agent.js */
+const AGENT_LOCK_PORT = 39741;
+
+/** Short-lived access JWT prefers session storage (cleared when browser closes). */
+async function setAccessSession(accessToken, accessExpiresAt) {
+  const payload = {
+    accessToken: accessToken || "",
+    accessExpiresAt: accessExpiresAt || 0,
+  };
+  if (chrome.storage.session) {
+    await chrome.storage.session.set(payload);
+    await chrome.storage.local.remove(["accessToken", "accessExpiresAt"]);
+  } else {
+    await chrome.storage.local.set(payload);
+  }
+}
+
+async function getAccessSession() {
+  if (chrome.storage.session) {
+    const session = await chrome.storage.session.get(["accessToken", "accessExpiresAt"]);
+    if (session.accessToken) return session;
+  }
+  return chrome.storage.local.get(["accessToken", "accessExpiresAt"]);
+}
+
+/** Probe Client Agent singleton status HTTP on localhost:39741 */
+async function probeClientAgent() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 1200);
+  try {
+    const resp = await fetch(`http://127.0.0.1:${AGENT_LOCK_PORT}/`, {
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      await chrome.storage.local.set({
+        agentOnline: false,
+        agentProbedAt: Date.now(),
+      });
+      return { online: false, port: AGENT_LOCK_PORT };
+    }
+    const data = await resp.json().catch(() => ({}));
+    const online = data?.ok === true && data?.role === "tiktokflow-agent";
+    await chrome.storage.local.set({
+      agentOnline: online,
+      agentPid: data?.pid || null,
+      agentHostname: data?.hostname || null,
+      agentProbedAt: Date.now(),
+    });
+    return {
+      online,
+      port: AGENT_LOCK_PORT,
+      pid: data?.pid || null,
+      hostname: data?.hostname || null,
+    };
+  } catch {
+    await chrome.storage.local.set({
+      agentOnline: false,
+      agentProbedAt: Date.now(),
+    });
+    return { online: false, port: AGENT_LOCK_PORT };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 /** Probe local GPMLogin API ports; cache the first that responds. */
 async function discoverGpmApiBase(force = false) {
@@ -99,6 +163,9 @@ async function markTokenRevoked(reason, httpStatus) {
     tokenRevokedAt: new Date().toISOString(),
     authRequired: true,
   });
+  if (chrome.storage.session) {
+    await chrome.storage.session.remove(["accessToken", "accessExpiresAt"]);
+  }
   setBadge("AUTH", "#ef4444");
   console.warn("[TikTokFlow] Token revoked / auth required:", message);
   return { authRequired: true, error: message, httpStatus: httpStatus || 401 };
@@ -215,8 +282,6 @@ async function redeemPairingIfNeeded() {
     const expiresIn = Number(json.expiresIn) || 900;
     const updates = {
       personalToken: json.personalToken,
-      accessToken: json.accessToken || "",
-      accessExpiresAt: json.accessToken ? Date.now() + expiresIn * 1000 - 30_000 : 0,
       refreshToken: json.refreshToken || "",
       pairingCode: "",
       serverUrl: json.serverUrl || serverUrl,
@@ -229,6 +294,9 @@ async function redeemPairingIfNeeded() {
       updates.memberName = json.user.name || json.user.username;
     }
     await chrome.storage.local.set(updates);
+    if (json.accessToken) {
+      await setAccessSession(json.accessToken, Date.now() + expiresIn * 1000 - 30_000);
+    }
     console.log("[TikTokFlow] Pairing redeemed successfully.");
   } catch (err) {
     console.warn("[TikTokFlow] Pairing redeem error:", err.message);
@@ -250,10 +318,9 @@ async function exchangeSessionFromPersonalToken(serverUrl, personalToken) {
   }
   const expiresIn = Number(json.expiresIn) || 900;
   await chrome.storage.local.set({
-    accessToken: json.accessToken,
-    accessExpiresAt: Date.now() + expiresIn * 1000 - 30_000,
     refreshToken: json.refreshToken,
   });
+  await setAccessSession(json.accessToken, Date.now() + expiresIn * 1000 - 30_000);
   return { ok: true };
 }
 
@@ -274,10 +341,9 @@ async function refreshSession(serverUrl, refreshToken) {
   }
   const expiresIn = Number(json.expiresIn) || 900;
   await chrome.storage.local.set({
-    accessToken: json.accessToken,
-    accessExpiresAt: Date.now() + expiresIn * 1000 - 30_000,
     refreshToken: json.refreshToken,
   });
+  await setAccessSession(json.accessToken, Date.now() + expiresIn * 1000 - 30_000);
   return { ok: true };
 }
 
@@ -287,32 +353,31 @@ async function ensureAccessToken() {
   const data = await chrome.storage.local.get([
     "serverUrl",
     "personalToken",
-    "accessToken",
-    "accessExpiresAt",
     "refreshToken",
     "tokenRevoked",
   ]);
+  const access = await getAccessSession();
   const serverUrl = (data.serverUrl || DEFAULT_SERVER_URL).replace(/\/$/, "");
 
   if (data.tokenRevoked || !data.personalToken) {
     return { ok: false, bearer: null, authRequired: true };
   }
 
-  if (data.accessToken && data.accessExpiresAt && Date.now() < data.accessExpiresAt) {
-    return { ok: true, bearer: data.accessToken };
+  if (access.accessToken && access.accessExpiresAt && Date.now() < access.accessExpiresAt) {
+    return { ok: true, bearer: access.accessToken };
   }
 
   if (data.refreshToken) {
     const refreshed = await refreshSession(serverUrl, data.refreshToken);
     if (refreshed.ok) {
-      const again = await chrome.storage.local.get(["accessToken"]);
+      const again = await getAccessSession();
       return { ok: true, bearer: again.accessToken };
     }
     if (refreshed.reuseDetected || refreshed.status === 401) {
       // Re-exchange if personalToken still present (detection ≠ lockout)
       const exchanged = await exchangeSessionFromPersonalToken(serverUrl, data.personalToken);
       if (exchanged.ok) {
-        const again = await chrome.storage.local.get(["accessToken"]);
+        const again = await getAccessSession();
         return { ok: true, bearer: again.accessToken };
       }
       if (exchanged.status === 401 || exchanged.status === 403) {
@@ -324,7 +389,7 @@ async function ensureAccessToken() {
 
   const exchanged = await exchangeSessionFromPersonalToken(serverUrl, data.personalToken);
   if (exchanged.ok) {
-    const again = await chrome.storage.local.get(["accessToken"]);
+    const again = await getAccessSession();
     return { ok: true, bearer: again.accessToken };
   }
   if (exchanged.status === 401 || exchanged.status === 403) {
@@ -350,7 +415,7 @@ async function authorizedFetch(url, options = {}, retried = false) {
 
   if ((resp.status === 401 || resp.status === 403) && !retried) {
     // One refresh/re-exchange attempt
-    await chrome.storage.local.set({ accessExpiresAt: 0 });
+    await setAccessSession("", 0);
     return authorizedFetch(url, options, true);
   }
 
@@ -506,14 +571,14 @@ async function reportTikTokStatus(payload) {
     const config = await getConfig();
     if (!config.serverUrl) return;
 
-    // Viewing someone else's public profile must never overwrite stored metrics / UI
+    // Viewing someone else's public profile must never overwrite stored identity / UI
     if (payload.isOtherProfilePage) {
       console.log(
-        `[TikTokFlow] Skip metric report — viewing public @${payload.viewedProfile}, keeping logged-in @${payload.username}`
+        `[TikTokFlow] Skip identity report — viewing public @${payload.viewedProfile}, keeping logged-in @${payload.username}`
       );
       await chrome.storage.local.set({
         reportSyncStatus: "idle",
-        reportSyncMessage: `Đang xem trang công khai @${payload.viewedProfile} — số liệu tài khoản của bạn không đổi.`,
+        reportSyncMessage: `Đang xem trang công khai @${payload.viewedProfile} — danh tính tài khoản của bạn không đổi.`,
         lastPageContext: {
           type: "other_profile",
           viewedProfile: payload.viewedProfile,
@@ -526,55 +591,18 @@ async function reportTikTokStatus(payload) {
     const username = payload.username || "";
     const gpmMatch = await resolveGpmProfileForUsername(username);
 
+    // Identity-only — Client Agent owns followers / revenue / views
     const body = {
       username,
       nickname: payload.nickname || "",
       avatarUrl: payload.avatarUrl || "",
-      followersCount: payload.followersCount || payload.totalFollowers || 0,
-      followingCount: payload.followingCount || payload.totalFollowing || 0,
-      totalLikes: payload.totalLikes || 0,
-      videoCount: payload.totalVideos || payload.videoCount || 0,
-      totalRevenue: payload.totalRevenue || 0,
-      currency: payload.currency || "$",
       isLoggedIn: payload.isLoggedIn === true,
       memberEmail: config.userEmail || undefined,
       gpmProfileId: gpmMatch?.id || undefined,
       gpmProfileName: gpmMatch?.name || undefined,
-      metricsSource: payload.metricsSource || (payload.isStudio ? "studio" : "page"),
-      isStudio: !!payload.isStudio,
-      isOwnProfilePage: !!payload.isOwnProfilePage,
-
-      // 1. Views Breakdown
-      viewsToday: payload.viewsToday || 0,
-      views7d: payload.views7d || 0,
-      views14d: payload.views14d || 0,
-      views30d: payload.views30d || 0,
-      totalViews: payload.totalViews || 0,
-
-      // 2. Videos Breakdown
-      videosToday: payload.videosToday || 0,
-      videos7d: payload.videos7d || 0,
-      videos14d: payload.videos14d || 0,
-      videos30d: payload.videos30d || 0,
-      totalVideos: payload.totalVideos || payload.videoCount || 0,
-
-      // 3. Channel Info & Key Metrics
-      totalFollowers: payload.totalFollowers || payload.followersCount || 0,
-      totalFollowing: payload.totalFollowing || payload.followingCount || 0,
-      profileViews: payload.profileViews || 0,
-      commentsCount: payload.commentsCount || 0,
-      sharesCount: payload.sharesCount || 0,
-
-      // 4. Monetization & Economics Breakdown
-      rpm: payload.rpm || 0,
+      source: "extension",
+      metricsSource: "identity",
       country: payload.country || "US",
-      liveRewardsRevenue: payload.liveRewardsRevenue || 0,
-      tiktokShopRevenue: payload.tiktokShopRevenue || 0,
-      creatorRewardsRevenue: payload.creatorRewardsRevenue || 0,
-
-      // 5. Per-Video & Top-Videos Data
-      videosList: payload.videosList || [],
-      topVideos: payload.topVideos || {},
     };
 
     if (!config.personalToken) {
@@ -588,20 +616,14 @@ async function reportTikTokStatus(payload) {
 
     await chrome.storage.local.set({
       reportSyncStatus: "syncing",
-      reportSyncMessage: `Đang đồng bộ @${body.username}…`,
+      reportSyncMessage: `Đang xác minh @${body.username}…`,
       reportSyncAt: Date.now(),
     });
 
-    console.log("[TikTokFlow] Reporting account status to server:", body.username, {
+    console.log("[TikTokFlow] Reporting identity to server:", body.username, {
       isLoggedIn: body.isLoggedIn,
       gpmProfileId: body.gpmProfileId || null,
       gpmMatchedVia: gpmMatch?.matchedVia || null,
-      metricsSource: body.metricsSource,
-      revenue: body.totalRevenue,
-      viewsToday: body.viewsToday,
-      totalViews: body.totalViews,
-      videosToday: body.videosToday,
-      rpm: body.rpm,
     });
 
     const { resp, authRequired, error } = await authorizedFetch(
@@ -634,9 +656,9 @@ async function reportTikTokStatus(payload) {
 
     if (resp.ok) {
       if (body.isLoggedIn) {
-        setBadge("OK", "#10b981"); // Emerald green
+        setBadge("OK", "#10b981");
       } else {
-        setBadge("OFF", "#6b7280"); // Gray
+        setBadge("OFF", "#6b7280");
       }
 
       const result = await resp.json().catch(() => ({}));
@@ -648,45 +670,25 @@ async function reportTikTokStatus(payload) {
 
       const prevStore = await chrome.storage.local.get(["latestAccount"]);
       const prev = prevStore.latestAccount || {};
-      const trustZeros = body.isStudio || body.isOwnProfilePage;
-      const pickNum = (key, incoming) => {
-        const next = Number(incoming);
-        const old = Number(prev[key] || 0);
-        if (!Number.isFinite(next)) return old;
-        if (!trustZeros && next === 0 && old > 0) return old;
-        return next;
-      };
 
       const merged = {
         ...prev,
-        ...body,
         username: body.username || prev.username,
         nickname: body.nickname || prev.nickname || "",
         avatarUrl: body.avatarUrl || prev.avatarUrl || "",
-        followersCount: pickNum("followersCount", body.followersCount),
-        videoCount: pickNum("videoCount", body.videoCount),
-        totalVideos: pickNum("totalVideos", body.totalVideos),
-        totalViews: pickNum("totalViews", body.totalViews),
-        totalRevenue: pickNum("totalRevenue", body.totalRevenue),
+        isLoggedIn: body.isLoggedIn,
         gpmProfileId: linkedId || prev.gpmProfileId || null,
         lastReportedAt: new Date().toISOString(),
-        metricsSource: body.metricsSource,
+        metricsSource: "identity",
+        source: "extension",
       };
 
       const storageUpdate = {
         latestAccount: merged,
         reportSyncStatus: "ok",
-        reportSyncMessage: body.isStudio
-          ? `Đã đồng bộ từ TikTok Studio · @${cleanUser}`
-          : `Đã đồng bộ · @${cleanUser}`,
+        reportSyncMessage: `Đã xác minh · @${cleanUser}`,
         reportSyncAt: Date.now(),
-        hasStudioData: !!(body.isStudio || prev.hasStudioData),
       };
-      if (body.isStudio) {
-        storageUpdate.hasStudioData = true;
-        merged.hasStudioData = true;
-        storageUpdate.latestAccount = merged;
-      }
 
       if (linkedId && cleanUser) {
         storageUpdate.linkedGpmProfileId = linkedId;
@@ -1021,6 +1023,8 @@ chrome.cookies.onChanged.addListener((changeInfo) => {
           reportTikTokStatus({
             username: cfg.latestAccount.username,
             isLoggedIn: false,
+            source: "extension",
+            metricsSource: "identity",
           });
         }
       });
@@ -1046,6 +1050,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "PROBE_GPM") {
     discoverGpmApiBase(true).then((res) => {
+      sendResponse(res);
+    });
+    return true;
+  }
+
+  if (message.type === "PROBE_AGENT") {
+    probeClientAgent().then((res) => {
       sendResponse(res);
     });
     return true;

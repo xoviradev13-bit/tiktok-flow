@@ -393,6 +393,13 @@ body {
   background: #ef4444;
 }
 
+.agent-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #64748b;
+}
+
 .gpm-details {
   display: flex;
   justify-content: space-between;

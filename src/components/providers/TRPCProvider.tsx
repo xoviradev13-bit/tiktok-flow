@@ -16,13 +16,13 @@ let browserQueryClient: QueryClient | undefined = undefined;
 
 /**
  * Handles a 401/UNAUTHORIZED response from any API layer.
- * Signs the user out and redirects to /login with the current path as callbackUrl,
+ * Signs the user out and redirects to /signin with the current path as callbackUrl,
  * so they return to the same page after re-authenticating.
  */
 async function handleUnauthorized() {
   const callbackUrl = encodeURIComponent(window.location.pathname + window.location.search);
   await signOut({ redirect: false });
-  window.location.href = `/login?callbackUrl=${callbackUrl}`;
+  window.location.href = `/signin?callbackUrl=${callbackUrl}`;
 }
 
 export function getQueryClient() {

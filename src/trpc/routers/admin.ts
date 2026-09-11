@@ -4,7 +4,12 @@ import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { clearUserCache } from "@/lib/auth";
-import { revokeExtensionCredentials } from "@/lib/extension-auth";
+import {
+  generatePersonalToken,
+  persistPersonalTokenValue,
+  revealPersonalToken,
+  revokeExtensionCredentials,
+} from "@/lib/extension-auth";
 
 export const adminRouter = router({
   // 1. List all users with fleet stats & Group info (ADMIN)
@@ -1014,7 +1019,7 @@ export const adminRouter = router({
       if (user.extensionToken) {
         return {
           userId: user.id,
-          token: user.extensionToken,
+          token: revealPersonalToken(user.extensionToken),
           accessEnabled: user.extensionAccessEnabled,
           revokedAt: user.extensionRevokedAt,
           isNew: false,
@@ -1033,10 +1038,13 @@ export const adminRouter = router({
       }
 
       // Generate new token
-      const newToken = `ttf_sec_${crypto.randomBytes(16).toString("hex")}`;
+      const newToken = generatePersonalToken();
       await ctx.prisma.user.update({
         where: { id: user.id },
-        data: { extensionToken: newToken, extensionAccessEnabled: true },
+        data: {
+          extensionToken: persistPersonalTokenValue(newToken),
+          extensionAccessEnabled: true,
+        },
       });
 
       return {
@@ -1058,14 +1066,24 @@ export const adminRouter = router({
       if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
       // If access was previously revoked, re-enable it when Admin regenerates
-      const newToken = `ttf_sec_${crypto.randomBytes(16).toString("hex")}`;
-      await ctx.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          extensionToken: newToken,
-          extensionAccessEnabled: true,
-          extensionRevokedAt: null,
-        },
+      const newToken = generatePersonalToken();
+      await ctx.prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            extensionToken: persistPersonalTokenValue(newToken),
+            extensionAccessEnabled: true,
+            extensionRevokedAt: null,
+            extensionSessionVersion: { increment: 1 },
+          },
+        });
+        await tx.extensionRefreshToken.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        await tx.extensionPairingCode.deleteMany({
+          where: { userId: user.id, usedAt: null },
+        });
       });
 
       return {

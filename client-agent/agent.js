@@ -1,8 +1,136 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import http from "http";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright-core";
+
+// ==========================================
+// 0. MACHINE-WIDE SINGLETON (1 Agent / PC)
+// ==========================================
+const AGENT_LOCK_PORT = 39741;
+const AGENT_LOCK_DIR = path.join(process.env.LOCALAPPDATA || os.tmpdir(), "TikTokFlow");
+const AGENT_LOCK_FILE = path.join(AGENT_LOCK_DIR, "agent.lock");
+
+let lockServer = null;
+let lockHeld = false;
+
+function writeAgentLockFile() {
+  try {
+    fs.mkdirSync(AGENT_LOCK_DIR, { recursive: true });
+    fs.writeFileSync(
+      AGENT_LOCK_FILE,
+      JSON.stringify(
+        {
+          pid: process.pid,
+          startedAt: new Date().toISOString(),
+          cwd: process.cwd(),
+          hostname: os.hostname(),
+          port: AGENT_LOCK_PORT,
+        },
+        null,
+        2
+      ),
+      "utf-8"
+    );
+  } catch (err) {
+    console.warn("[!] Khong the ghi agent.lock:", err.message);
+  }
+}
+
+function releaseAgentLock() {
+  if (lockServer) {
+    try {
+      lockServer.close();
+    } catch {
+      /* ignore */
+    }
+    lockServer = null;
+  }
+  if (lockHeld) {
+    try {
+      if (fs.existsSync(AGENT_LOCK_FILE)) {
+        const raw = JSON.parse(fs.readFileSync(AGENT_LOCK_FILE, "utf-8"));
+        if (raw.pid === process.pid) fs.unlinkSync(AGENT_LOCK_FILE);
+      }
+    } catch {
+      /* ignore */
+    }
+    lockHeld = false;
+  }
+}
+
+/** Exclusive bind on 127.0.0.1:39741 — second Agent exits. Port free ⇒ stale lock ignored. */
+function acquireAgentLock() {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      const origin = String(req.headers.origin || "");
+      const allowOrigin =
+        origin.startsWith("chrome-extension://") ||
+        origin.startsWith("moz-extension://") ||
+        origin === "null"
+          ? origin
+          : "";
+      const headers = {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      };
+      if (allowOrigin) {
+        headers["Access-Control-Allow-Origin"] = allowOrigin;
+        headers["Vary"] = "Origin";
+      }
+      // Only status probe — no secrets
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+          ...headers,
+          "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Max-Age": "600",
+        });
+        res.end();
+        return;
+      }
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        res.writeHead(405, headers);
+        res.end(JSON.stringify({ ok: false, error: "method_not_allowed" }));
+        return;
+      }
+      res.writeHead(200, headers);
+      res.end(
+        JSON.stringify({
+          ok: true,
+          role: "tiktokflow-agent",
+          pid: process.pid,
+          hostname: os.hostname(),
+        })
+      );
+    });
+
+    server.on("error", (err) => {
+      if (err.code === "EADDRINUSE") {
+        console.error("\n========================================================");
+        console.error("   [CHAN] CLIENT AGENT DA DANG CHAY TREN MAY NAY");
+        console.error("========================================================");
+        console.error(`   Cong khoa 127.0.0.1:${AGENT_LOCK_PORT} dang bi chiem.`);
+        console.error("   Chi cho phep 1 Agent / may. Hay dung stop-agent.bat");
+        console.error("   truoc khi mo Agent khac.");
+        console.error("========================================================\n");
+        resolve(false);
+      } else {
+        console.error("[!] Loi khoa Agent:", err.message);
+        resolve(false);
+      }
+    });
+
+    server.listen(AGENT_LOCK_PORT, "127.0.0.1", () => {
+      lockServer = server;
+      lockHeld = true;
+      writeAgentLockFile();
+      console.log(`[*] Agent singleton: dang giu khoa localhost:${AGENT_LOCK_PORT}`);
+      resolve(true);
+    });
+  });
+}
 
 // ==========================================
 // 1. CONFIGURATION & CREDENTIALS
@@ -31,7 +159,15 @@ config.serverUrl = (config.serverUrl || "http://localhost:3000").replace(/\/+$/,
 
 function persistConfig() {
   try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+    try {
+      fs.chmodSync(CONFIG_FILE, 0o600);
+    } catch {
+      /* Windows may ignore mode; best-effort */
+    }
   } catch (err) {
     console.warn("[!] Khong the ghi config.json:", err.message);
   }
@@ -337,7 +473,12 @@ async function emergencyCleanup() {
   for (const dir of activeTempDirs) {
     cleanupTempDir(dir);
   }
+  releaseAgentLock();
 }
+
+process.on("exit", () => {
+  releaseAgentLock();
+});
 
 process.on("SIGINT", async () => {
   console.log("\n[*] Nhan tin hieu dung (Ctrl+C). Dang giai phong RAM va don dep an toan...");
@@ -1101,6 +1242,8 @@ async function performFullSweep() {
             headers: authHeaders,
             body: JSON.stringify({
               ...d,
+              source: "agent",
+              metricsSource: "agent",
               // Prefer Bearer session identity — avoid stale zip email mismatch
               memberEmail: undefined,
             }),
@@ -1250,15 +1393,24 @@ async function runDaemon() {
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 
 if (isMain) {
-  if (isDaemon) {
-    runDaemon().catch(async (err) => {
-      console.error("[LOI] Loi Daemon:", err);
+  (async () => {
+    const locked = await acquireAgentLock();
+    if (!locked) {
+      process.exit(1);
+    }
+
+    try {
+      if (isDaemon) {
+        await runDaemon();
+      } else {
+        await performFullSweep();
+        // One-shot sweep: release lock so another Agent can run later
+        releaseAgentLock();
+      }
+    } catch (err) {
+      console.error(isDaemon ? "[LOI] Loi Daemon:" : "[LOI] Loi nghiem trong:", err);
       await emergencyCleanup();
-    });
-  } else {
-    performFullSweep().catch(async (err) => {
-      console.error("[LOI] Loi nghiem trong:", err);
-      await emergencyCleanup();
-    });
-  }
+      process.exit(1);
+    }
+  })();
 }

@@ -1,8 +1,21 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import {
+  checkRateLimit,
+  findUserByPersonalToken,
+  getClientIp,
+} from "@/lib/extension-auth";
 
 export async function POST(req: Request) {
   try {
+    const ip = getClientIp(req) || "unknown";
+    const ipLimit = checkRateLimit(`verify-token:ip:${ip}`, 60);
+    if (!ipLimit.ok) {
+      return NextResponse.json(
+        { success: false, valid: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
+        { status: 429, headers: { "Retry-After": String(ipLimit.retryAfterSec) } }
+      );
+    }
+
     let token = "";
 
     // 1. Check body first
@@ -46,19 +59,16 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4. Database Lookup
-    const user = await prisma.user.findUnique({
-      where: { extensionToken: token },
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        email: true,
-        role: true,
-        isActive: true,
-        extensionAccessEnabled: true,
-      },
-    });
+    const tokenLimit = checkRateLimit(`verify-token:tok:${token.slice(0, 20)}`, 30);
+    if (!tokenLimit.ok) {
+      return NextResponse.json(
+        { success: false, valid: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
+        { status: 429, headers: { "Retry-After": String(tokenLimit.retryAfterSec) } }
+      );
+    }
+
+    // 4. Database Lookup (supports sealed-at-rest tokens)
+    const user = await findUserByPersonalToken(token);
 
     if (!user) {
       return NextResponse.json(
@@ -120,21 +130,20 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  // Allow simple GET check via query param or headers
-  const { searchParams } = new URL(req.url);
-  const token =
-    searchParams.get("token")?.trim() ||
-    req.headers.get("x-extension-token")?.trim() ||
-    "";
+  // Do not accept tokens in query strings (leak via logs, Referer, history).
+  const token = req.headers.get("x-extension-token")?.trim() || "";
 
   if (!token) {
     return NextResponse.json(
-      { success: false, valid: false, error: "Vui lòng cung cấp param ?token=" },
+      {
+        success: false,
+        valid: false,
+        error: "Gửi token qua header x-extension-token hoặc POST JSON { token }.",
+      },
       { status: 400 }
     );
   }
 
-  // Delegate to POST logic
   return POST(
     new Request(req.url, {
       method: "POST",

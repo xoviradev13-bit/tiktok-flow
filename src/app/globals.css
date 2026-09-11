@@ -125,3 +125,132 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* ========================================================= */
+/* DYNAMIC ACCENT COLOR THEMES                               */
+/* ========================================================= */
+
+/* Purple / Cyber Violet */
+html[data-color-theme="purple"],
+html[data-color-theme="purple"] body {
+  --primary: #9333ea;
+  --ring: #9333ea;
+  --color-pink-50: #faf5ff;
+  --color-pink-100: #f3e8ff;
+  --color-pink-200: #e9d5ff;
+  --color-pink-300: #d8b4fe;
+  --color-pink-400: #c084fc;
+  --color-pink-500: #a855f7;
+  --color-pink-600: #9333ea;
+  --color-pink-700: #7e22ce;
+  --color-pink-800: #6b21a8;
+  --color-pink-900: #581c87;
+  --color-pink-950: #3b0764;
+  --color-rose-500: #8b5cf6;
+  --color-rose-600: #7c3aed;
+  --color-rose-700: #6d28d9;
+}
+html[data-color-theme="purple"] ::selection {
+  background-color: rgba(168, 85, 247, 0.3);
+  color: #c084fc;
+}
+
+/* Blue / Electric Ocean */
+html[data-color-theme="blue"],
+html[data-color-theme="blue"] body {
+  --primary: #0284c7;
+  --ring: #0284c7;
+  --color-pink-50: #f0f9ff;
+  --color-pink-100: #e0f2fe;
+  --color-pink-200: #bae6fd;
+  --color-pink-300: #7dd3fc;
+  --color-pink-400: #38bdf8;
+  --color-pink-500: #0ea5e9;
+  --color-pink-600: #0284c7;
+  --color-pink-700: #0369a1;
+  --color-pink-800: #075985;
+  --color-pink-900: #0c4a6e;
+  --color-pink-950: #082f49;
+  --color-rose-500: #3b82f6;
+  --color-rose-600: #2563eb;
+  --color-rose-700: #1d4ed8;
+}
+html[data-color-theme="blue"] ::selection {
+  background-color: rgba(14, 165, 233, 0.3);
+  color: #38bdf8;
+}
+
+/* Emerald / Matrix Mint */
+html[data-color-theme="emerald"],
+html[data-color-theme="emerald"] body {
+  --primary: #059669;
+  --ring: #059669;
+  --color-pink-50: #ecfdf5;
+  --color-pink-100: #d1fae5;
+  --color-pink-200: #a7f3d0;
+  --color-pink-300: #6ee7b7;
+  --color-pink-400: #34d399;
+  --color-pink-500: #10b981;
+  --color-pink-600: #059669;
+  --color-pink-700: #047857;
+  --color-pink-800: #065f46;
+  --color-pink-900: #064e3b;
+  --color-pink-950: #022c22;
+  --color-rose-500: #14b8a6;
+  --color-rose-600: #0d9488;
+  --color-rose-700: #0f766e;
+}
+html[data-color-theme="emerald"] ::selection {
+  background-color: rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+/* Amber / Electric Gold */
+html[data-color-theme="amber"],
+html[data-color-theme="amber"] body {
+  --primary: #d97706;
+  --ring: #d97706;
+  --color-pink-50: #fffbeb;
+  --color-pink-100: #fef3c7;
+  --color-pink-200: #fde68a;
+  --color-pink-300: #fcd34d;
+  --color-pink-400: #fbbf24;
+  --color-pink-500: #f59e0b;
+  --color-pink-600: #d97706;
+  --color-pink-700: #b45309;
+  --color-pink-800: #92400e;
+  --color-pink-900: #78350f;
+  --color-pink-950: #451a03;
+  --color-rose-500: #f97316;
+  --color-rose-600: #ea580c;
+  --color-rose-700: #c2410c;
+}
+html[data-color-theme="amber"] ::selection {
+  background-color: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+/* Rose / Crimson Flame */
+html[data-color-theme="rose"],
+html[data-color-theme="rose"] body {
+  --primary: #e11d48;
+  --ring: #e11d48;
+  --color-pink-50: #fff1f2;
+  --color-pink-100: #ffe4e6;
+  --color-pink-200: #fecdd3;
+  --color-pink-300: #fda4af;
+  --color-pink-400: #fb7185;
+  --color-pink-500: #f43f5e;
+  --color-pink-600: #e11d48;
+  --color-pink-700: #be123c;
+  --color-pink-800: #9f1239;
+  --color-pink-900: #881337;
+  --color-pink-950: #4c0519;
+  --color-rose-500: #ef4444;
+  --color-rose-600: #dc2626;
+  --color-rose-700: #b91c1c;
+}
+html[data-color-theme="rose"] ::selection {
+  background-color: rgba(225, 29, 72, 0.3);
+  color: #fb7185;
+}

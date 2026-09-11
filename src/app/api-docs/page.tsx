@@ -75,7 +75,7 @@ const API_ENDPOINTS: ApiEndpoint[] = [
       },
     ],
     errorNotes: [
-      "401 — Mã sai, đã dùng, hoặc hết hạn — tải lại zip hoặc dán Personal Token trong Settings",
+      "401 — Mã sai, đã dùng, hoặc hết hạn — tải lại file Zip hoặc dán Personal Token trong Settings",
       "403 — Admin đã khóa quyền Extension của bạn",
       "429 — Thử quá nhiều lần, đợi rồi thử lại",
     ],
@@ -233,8 +233,8 @@ print(res.status_code, res.json())`,
     id: "extension_report",
     method: "POST",
     path: "/api/extension/report",
-    title: "Gửi số liệu TikTok",
-    desc: "Extension gửi doanh thu, lượt xem, RPM… của tài khoản đang đăng nhập về máy chủ. Cần mã phiên hợp lệ. Không gửi Personal Token trong nội dung JSON.",
+    title: "Gửi báo cáo tài khoản TikTok",
+    desc: "Extension hoặc Client Agent gửi thông tin tài khoản về máy chủ (cần mã phiên hợp lệ). Extension thường chỉ gửi danh tính / đăng nhập / gắn GPM (source: extension). Client Agent gửi số liệu đầy đủ như lượt xem, doanh thu (source: agent). Không gửi Personal Token trong nội dung JSON.",
     auth: "Mã phiên",
     headers: [
       {
@@ -246,20 +246,22 @@ print(res.status_code, res.json())`,
       { name: "Content-Type", type: "string", required: true, desc: "application/json" },
     ],
     bodyParams: [
-      { name: "username", type: "string", required: true, desc: "Handle TikTok đang đăng nhập (không lấy từ profile đang xem trên web)" },
+      { name: "username", type: "string", required: true, desc: "Handle TikTok đang đăng nhập" },
       { name: "isLoggedIn", type: "boolean", required: true, desc: "true nếu đã đăng nhập TikTok" },
-      { name: "totalRevenue", type: "number", required: false, desc: "Tổng doanh thu ước tính" },
+      { name: "source", type: "string", required: false, desc: "\"extension\" (chỉ danh tính) hoặc \"agent\" (có số liệu)" },
+      { name: "gpmProfileId", type: "string", required: false, desc: "ID profile GPM gắn với tài khoản (nếu có)" },
+      { name: "totalRevenue", type: "number", required: false, desc: "Tổng doanh thu (thường từ Client Agent)" },
       { name: "currency", type: "string", required: false, desc: "Đơn vị tiền ($, £, €, ₫, …)" },
-      { name: "totalViews", type: "number", required: false, desc: "Tổng lượt xem" },
-      { name: "followersCount", type: "number", required: false, desc: "Số followers" },
-      { name: "rpm", type: "number", required: false, desc: "RPM trung bình" },
+      { name: "totalViews", type: "number", required: false, desc: "Tổng lượt xem (thường từ Client Agent)" },
+      { name: "followersCount", type: "number", required: false, desc: "Số người theo dõi (thường từ Client Agent)" },
+      { name: "rpm", type: "number", required: false, desc: "RPM trung bình (thường từ Client Agent)" },
       { name: "creatorRewardsRevenue", type: "number", required: false, desc: "Doanh thu Creator Rewards" },
       { name: "liveRewardsRevenue", type: "number", required: false, desc: "Doanh thu LIVE Rewards" },
       { name: "tiktokShopRevenue", type: "number", required: false, desc: "Doanh thu TikTok Shop" },
     ],
     errorNotes: [
-      "401 — Phiên hết hạn hoặc token bị thu hồi — Extension hiện banner đăng nhập lại",
-      "403 — Admin đã tắt quyền Extension",
+      "401 — Phiên hết hạn hoặc token bị thu hồi — Extension hiện yêu cầu đăng nhập lại",
+      "403 — Admin đã tắt quyền Extension / Agent",
     ],
     snippets: {
       curl: `curl -X POST "https://your-domain.com/api/extension/report" \\
@@ -268,6 +270,7 @@ print(res.status_code, res.json())`,
   -d '{
     "username": "creator_studio_us",
     "isLoggedIn": true,
+    "source": "agent",
     "totalRevenue": 1250.50,
     "currency": "$",
     "totalViews": 2400000,
@@ -283,6 +286,7 @@ print(res.status_code, res.json())`,
   body: JSON.stringify({
     username: "creator_studio_us",
     isLoggedIn: true,
+    source: "agent",
     totalRevenue: 1250.50,
     currency: "$",
     totalViews: 2400000,
@@ -304,6 +308,7 @@ headers = {
 data = {
     "username": "creator_studio_us",
     "isLoggedIn": True,
+    "source": "agent",
     "totalRevenue": 1250.50,
     "currency": "$",
     "totalViews": 2400000,
@@ -534,14 +539,11 @@ export default function ApiDocsPage() {
                   <span>Cách Extension / Agent kết nối</span>
                 </div>
                 <ol className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed list-decimal pl-4 space-y-1.5">
-                  <li>Tải zip từ Settings — trong gói có mã kích hoạt dùng một lần (~10 phút).</li>
-                  <li>Cài / chạy lần đầu: tự liên kết tài khoản, không cần copy token.</li>
-                  <li>Sau đó hệ thống dùng mã phiên ngắn hạn để gửi số liệu và đồng bộ GPM.</li>
-                  <li>Mã hết hạn hoặc Admin thu hồi? Tải lại zip, hoặc copy Personal Token trong Settings rồi dán vào popup / setup-agent.</li>
+                  <li>Tải file ZIP từ Cài đặt — trong gói có mã liên kết dùng một lần (khoảng 10 phút).</li>
+                  <li>Cài / chạy lần đầu: tự gắn với tài khoản của bạn.</li>
+                  <li>Extension nhận biết tài khoản đang đăng nhập; Client Agent gửi số liệu TikTok về hệ thống.</li>
+                  <li>Mã hết hạn hoặc Admin thu hồi? Tải lại file Zip, hoặc copy Personal Token trong Cài đặt rồi dán vào cửa sổ Extension / setup-agent.</li>
                 </ol>
-                <p className="text-xs text-slate-500 dark:text-slate-500 leading-relaxed">
-                  Giữ bí mật zip và Personal Token. Không đăng lên chat công khai.
-                </p>
               </div>
             </div>
 

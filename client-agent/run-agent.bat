@@ -34,7 +34,22 @@ pause
 exit /b 1
 
 :found_node
-:: 3. Chay Agent
+:: 3. Chan Agent thu 2 neu cong khoa 39741 dang duoc giu
+powershell -NoProfile -Command "try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect('127.0.0.1', 39741); $c.Close(); exit 0 } catch { exit 1 }" >nul 2>nul
+if %errorlevel% equ 0 (
+    color 0c
+    echo ========================================================
+    echo   [CHAN] CLIENT AGENT DA DANG CHAY TREN MAY NAY
+    echo ========================================================
+    echo   Cong khoa localhost:39741 dang bi chiem.
+    echo   Chi cho phep 1 Agent / may.
+    echo   Hay chay stop-agent.bat truoc khi mo Agent khac.
+    echo ========================================================
+    if not "%1"=="--daemon" pause
+    exit /b 1
+)
+
+:: 4. Chay Agent
 if "%1"=="--daemon" goto :run_daemon
 
 title TikTokFlow Client Agent - Quet Ngam TikTok Studio

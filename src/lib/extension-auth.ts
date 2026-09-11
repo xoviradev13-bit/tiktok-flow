@@ -73,6 +73,85 @@ export function generatePersonalToken(): string {
   return `ttf_sec_${crypto.randomBytes(16).toString("hex")}`;
 }
 
+/** AES-GCM sealed personal tokens at rest: e1.<hmac>.<iv>.<cipher>.<tag> */
+function getPersonalTokenCryptoKey(): Buffer {
+  return crypto.createHash("sha256").update(getExtensionSessionSecret(), "utf8").digest();
+}
+
+export function isSealedPersonalToken(stored: string): boolean {
+  return stored.startsWith("e1.");
+}
+
+export function isLegacyPlainPersonalToken(stored: string): boolean {
+  return /^ttf_sec_[a-f0-9]{16,64}$/i.test(stored);
+}
+
+export function sealPersonalToken(plain: string): string {
+  if (!isLegacyPlainPersonalToken(plain)) {
+    throw new Error("Invalid personal token format for sealing");
+  }
+  const key = getPersonalTokenCryptoKey();
+  const hmac = crypto.createHmac("sha256", key).update(plain, "utf8").digest("hex");
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `e1.${hmac}.${iv.toString("hex")}.${enc.toString("hex")}.${tag.toString("hex")}`;
+}
+
+/** Value to persist in User.extensionToken (never store raw ttf_sec_ going forward). */
+export function persistPersonalTokenValue(plain: string): string {
+  return sealPersonalToken(plain);
+}
+
+/** Reveal plaintext for pairing / Settings / admin when sealed or legacy plaintext. */
+export function revealPersonalToken(stored: string | null | undefined): string | null {
+  if (!stored) return null;
+  if (isLegacyPlainPersonalToken(stored)) return stored;
+  if (!isSealedPersonalToken(stored)) return null;
+  const parts = stored.split(".");
+  if (parts.length !== 5 || parts[0] !== "e1") return null;
+  const [, , ivHex, encHex, tagHex] = parts;
+  try {
+    const key = getPersonalTokenCryptoKey();
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      key,
+      Buffer.from(ivHex!, "hex")
+    );
+    decipher.setAuthTag(Buffer.from(tagHex!, "hex"));
+    const plain = Buffer.concat([
+      decipher.update(Buffer.from(encHex!, "hex")),
+      decipher.final(),
+    ]).toString("utf8");
+    return isLegacyPlainPersonalToken(plain) ? plain : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolvePublicAppUrl(req?: Request): string {
+  const configured = (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    process.env.APP_URL ||
+    ""
+  )
+    .trim()
+    .replace(/\/$/, "");
+  if (configured) return configured;
+
+  if (req) {
+    const host = req.headers.get("host") || "localhost:3000";
+    const proto =
+      req.headers.get("x-forwarded-proto") ||
+      (host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
+    return `${proto}://${host}`;
+  }
+
+  return "http://localhost:3000";
+}
+
 export function generateRefreshTokenPlaintext(): string {
   return `ttf_rt_${crypto.randomBytes(32).toString("base64url")}`;
 }
@@ -612,21 +691,7 @@ export async function resolveExtensionBearerAuth(
       };
     }
 
-    const user = await prisma.user.findUnique({
-      where: { extensionToken: token },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        username: true,
-        role: true,
-        isActive: true,
-        extensionAccessEnabled: true,
-        extensionToken: true,
-        extensionSessionVersion: true,
-        deletedAt: true,
-      },
-    });
+    const user = await findUserByPersonalToken(token);
 
     if (!user || user.deletedAt) {
       return {
@@ -694,22 +759,48 @@ export async function resolveExtensionBearerAuth(
   return { ok: false, status: 401, error: "Authorization Bearer không hợp lệ." };
 }
 
+const personalTokenUserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  username: true,
+  role: true,
+  isActive: true,
+  extensionAccessEnabled: true,
+  extensionToken: true,
+  extensionSessionVersion: true,
+  deletedAt: true,
+} as const;
+
 export async function findUserByPersonalToken(personalToken: string) {
-  return prisma.user.findUnique({
-    where: { extensionToken: personalToken },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      username: true,
-      role: true,
-      isActive: true,
-      extensionAccessEnabled: true,
-      extensionToken: true,
-      extensionSessionVersion: true,
-      deletedAt: true,
-    },
+  const plain = personalToken.trim();
+  if (!isLegacyPlainPersonalToken(plain)) return null;
+
+  const key = getPersonalTokenCryptoKey();
+  const hmac = crypto.createHmac("sha256", key).update(plain, "utf8").digest("hex");
+  const sealed = await prisma.user.findFirst({
+    where: { extensionToken: { startsWith: `e1.${hmac}.` } },
+    select: personalTokenUserSelect,
   });
+  if (sealed) return sealed;
+
+  const legacy = await prisma.user.findUnique({
+    where: { extensionToken: plain },
+    select: personalTokenUserSelect,
+  });
+  if (!legacy) return null;
+
+  // Lazy upgrade plaintext → sealed at rest
+  try {
+    const sealedValue = sealPersonalToken(plain);
+    await prisma.user.update({
+      where: { id: legacy.id },
+      data: { extensionToken: sealedValue },
+    });
+    return { ...legacy, extensionToken: sealedValue };
+  } catch {
+    return legacy;
+  }
 }
 
 export async function purgeExpiredExtensionAuthData(): Promise<{

@@ -35,7 +35,13 @@ import {
   Camera,
   Upload,
   Loader2,
+  Puzzle,
+  ArrowRight,
+  ShieldAlert,
+  X,
+  ZoomIn,
 } from "lucide-react";
+import Link from "next/link";
 import { trpc } from "@/lib/trpc";
 import ScheduleModal, {
   SyncScheduleConfig,
@@ -43,6 +49,7 @@ import ScheduleModal, {
 } from "@/features/schedule/ScheduleModal";
 import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
+import { useColorTheme, COLOR_THEMES } from "@/components/theme/ColorThemeProvider";
 import { toast } from "sonner";
 import {
   Tooltip,
@@ -69,6 +76,7 @@ export default function SettingsPage() {
   const rawRole = (session?.user as any)?.role || (session?.user as any)?.userType || "STAFF";
   const isAdmin = String(rawRole).toUpperCase() === "ADMIN";
   const { theme, setTheme } = useTheme();
+  const { colorTheme, setColorTheme, activeConfig } = useColorTheme();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
 
@@ -183,6 +191,7 @@ export default function SettingsPage() {
   const [copiedToken, setCopiedToken] = useState(false);
   const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
 
   // Sync profile data into local states
   useEffect(() => {
@@ -513,7 +522,7 @@ export default function SettingsPage() {
           }`}
         >
           <Key className="w-4 h-4" />
-          <span>Personal Token & Tải Gói</span>
+          <span>Personal Token</span>
         </button>
 
         {isAdmin && (
@@ -1052,6 +1061,144 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+
+          {/* ========================================================= */}
+          {/* BRAND COLOR THEME SELECTION                               */}
+          {/* ========================================================= */}
+          <div className="border-t border-slate-100 dark:border-slate-800/80 pt-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-pink-500" />
+                  <span>Màu Sắc Nhận Diện Chủ Đạo (Accent Color Theme)</span>
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                  Tùy chỉnh tông màu chính của hệ thống. Màu đã chọn sẽ tự động điều chỉnh toàn bộ nút bấm, thanh điều hướng, huy hiệu và các điểm nhấn giao diện.
+                </p>
+              </div>
+
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 self-start sm:self-auto shrink-0">
+                <span className="w-2 h-2 rounded-full bg-pink-500 animate-pulse" />
+                <span>Đang chọn: {activeConfig.name}</span>
+              </span>
+            </div>
+
+            {/* Color Cards Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {COLOR_THEMES.map((themeOpt) => {
+                const isSelected = colorTheme === themeOpt.id;
+                return (
+                  <div
+                    key={themeOpt.id}
+                    onClick={() => {
+                      setColorTheme(themeOpt.id);
+                      toast.success(`Đã áp dụng màu chủ đạo: ${themeOpt.name}`, {
+                        description: "Giao diện và phong cách nút bấm đã được cập nhật đồng bộ.",
+                      });
+                    }}
+                    className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between group active:scale-[0.98] ${
+                      isSelected
+                        ? "border-pink-600 bg-pink-50/25 dark:bg-pink-950/25 shadow-lg shadow-pink-500/10 scale-[1.01]"
+                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-sm"
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      {/* Swatch & Indicator */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className="w-7 h-7 rounded-xl shadow-md border border-white/20 flex items-center justify-center shrink-0"
+                            style={{
+                              background: `linear-gradient(135deg, ${themeOpt.primaryColor}, ${themeOpt.secondaryColor})`,
+                            }}
+                          >
+                            <div className="w-2 h-2 rounded-full bg-white/90 shadow-xs" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                              {themeOpt.name}
+                            </span>
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">
+                              {themeOpt.subName}
+                            </span>
+                          </div>
+                        </div>
+
+                        {isSelected ? (
+                          <div className="w-6 h-6 rounded-full bg-pink-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                            <Check className="w-3.5 h-3.5" />
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-slate-700 group-hover:border-slate-400 shrink-0" />
+                        )}
+                      </div>
+
+                      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                        {themeOpt.description}
+                      </p>
+                    </div>
+
+                    {/* Mini Button Preview inside Card */}
+                    <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800/80">
+                      <div
+                        className="w-full py-2 px-3 rounded-xl text-xs font-bold text-white shadow-xs flex items-center justify-center gap-1.5 transition-transform group-hover:scale-[1.02]"
+                        style={{
+                          background: `linear-gradient(135deg, ${themeOpt.primaryColor}, ${themeOpt.secondaryColor})`,
+                        }}
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Xem mẫu nút</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Live Interactive UI Components Preview */}
+            <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 space-y-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Palette className="w-4 h-4 text-pink-500" />
+                  Trực Quan Phong Cách Sau Khi Đổi Màu (Live Preview)
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Tự động đồng bộ toàn bộ trang
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                {/* Primary Button */}
+                <button
+                  type="button"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md shadow-pink-600/25 active:scale-95 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>Nút Bấm Chính (Primary Button)</span>
+                </button>
+
+                {/* Secondary Button */}
+                <button
+                  type="button"
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                >
+                  <span>Nút Phụ (Outline)</span>
+                </button>
+
+                {/* Badge */}
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Huy Hiệu Trạng Thái (Badge)</span>
+                </span>
+
+                {/* Ring / Input demo */}
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-pink-500/40 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  <span className="w-2 h-2 rounded-full bg-pink-500" />
+                  <span>Đường viền viền sáng (Focus Ring)</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1069,24 +1216,25 @@ export default function SettingsPage() {
                   Mã Khóa Định Danh Cá Nhân (Personal Token)
                 </h2>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                  Mã khóa bí mật dùng để định danh tài khoản của bạn trên máy tính. Cả <strong>Extension trên GPMLogin</strong> và <strong>Client Agent</strong> đều dùng mã này để tự động gửi số liệu về đúng tài khoản của bạn.
+                  Mã riêng của bạn trên máy tính — giống chìa khóa. Extension và Client Agent dùng mã này để biết dữ liệu thuộc về ai.
+                  Đừng gửi cho người khác.
                 </p>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 self-start sm:self-auto">
+              <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
                 {userProfile?.extensionAccessEnabled === false ? (
-                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    Đã thu hồi — cần xác thực lại
+                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 whitespace-nowrap shrink-0">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>Đã thu hồi — cần xác thực lại</span>
                   </span>
                 ) : userProfile?.extensionToken ? (
-                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Đang hoạt động
+                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap shrink-0">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>Đang hoạt động</span>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
-                    Chưa có token
+                  <span className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 whitespace-nowrap shrink-0">
+                    <span>Chưa có token</span>
                   </span>
                 )}
                 <button
@@ -1100,9 +1248,9 @@ export default function SettingsPage() {
                     }
                     setShowRegenConfirm(true);
                   }}
-                  className="px-3.5 py-2 rounded-xl text-sm font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5"
+                  className="px-3.5 py-2 rounded-xl text-sm font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-3.5 h-3.5 shrink-0" />
                   <span>
                     {userProfile?.extensionAccessEnabled === false
                       ? "Cần Admin mở khóa"
@@ -1161,89 +1309,174 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Guide & Note on Token Usage */}
-            <div className="mt-4 p-5 sm:p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 text-sm text-slate-700 dark:text-slate-300 space-y-3 leading-relaxed">
-              <div className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-pink-500 shrink-0" />
-                <span>Hướng dẫn sử dụng & Quy trình đổi Token:</span>
+            {/* Prominent Security Alert Banner */}
+            <div className="mt-4 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-rose-500/15 via-rose-500/10 to-amber-500/10 border-2 border-rose-500/50 dark:border-rose-500/40 shadow-sm flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
+                <ShieldAlert className="w-5 h-5 text-rose-600 dark:text-rose-400" />
               </div>
-              <ul className="list-disc pl-5 space-y-2.5 text-slate-700 dark:text-slate-300 text-sm">
-                <li>
-                  <strong className="text-slate-900 dark:text-white">Cài đặt (khuyên dùng):</strong> Tải Extension hoặc Client Agent bên dưới — zip chứa mã <strong>pairing dùng 1 lần (~10 phút)</strong>. Lần chạy đầu tiên tự liên kết tài khoản (không cần copy Personal Token). Extension vẫn nạp trực tiếp file <code className="font-mono text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs font-bold">.zip</code> lên GPMLogin.
-                </li>
-                <li>
-                  <strong className="text-slate-900 dark:text-white">Khi cấp lại Token, thu hồi, hoặc mã pairing hết hạn:</strong> Token cũ vô hiệu hóa. Cập nhật theo 1 trong 2 cách:
-                  <div className="pl-0 sm:pl-3 pt-2 space-y-2 text-slate-700 dark:text-slate-300 text-sm">
-                    <div className="p-3 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-sm">
-                      ➔ <strong className="text-pink-600 dark:text-pink-400">Cách 1 (Khuyên dùng):</strong> Tải lại zip mới (mã pairing mới).
+              <div className="space-y-1.5 text-sm leading-relaxed flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-black text-rose-700 dark:text-rose-300 uppercase text-[11px] tracking-wider px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950/80 border border-rose-200 dark:border-rose-800">
+                    Bảo Mật Nghiêm Ngặt
+                  </span>
+                  <strong className="text-slate-900 dark:text-white font-bold text-sm sm:text-base">
+                    Tuyệt đối không chia sẻ công khai file ZIP hoặc Personal Token
+                  </strong>
+                </div>
+                <p className="text-slate-700 dark:text-slate-300 text-xs sm:text-sm">
+                  Không gửi mã qua chat, email hoặc nhóm làm việc chung. Mỗi người chỉ dùng gói tải về của chính mình để tránh xung đột dữ liệu tài khoản.{" "}
+                  <strong className="text-rose-600 dark:text-rose-400 font-bold">Nếu nghi bị lộ, hãy bấm &quot;Cấp Lại Token Mới&quot; ngay lập tức.</strong>
+                </p>
+              </div>
+            </div>
+
+            {/* Hướng Dẫn Vận Hành & Quy Trình Đổi Token */}
+            <div className="mt-5 p-5 sm:p-6 rounded-3xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/60 dark:border-slate-800 pb-3.5">
+                <div className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-pink-500 shrink-0" />
+                  <span>Hướng dẫn sử dụng & Quy trình cập nhật Token</span>
+                </div>
+                <Link
+                  href="/docs"
+                  className="text-xs font-bold text-pink-600 dark:text-pink-400 hover:underline flex items-center gap-1 self-start sm:self-auto"
+                >
+                  <span>Xem tài liệu chi tiết</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+
+              {/* Vai trò của 2 công cụ */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs sm:text-sm">
+                <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-1 shadow-2xs">
+                  <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Puzzle className="w-4 h-4 text-pink-500 shrink-0" />
+                    <span>Extension (Cài trên GPMLogin)</span>
+                  </div>
+                  <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
+                    Chạy ngầm để nhận diện tài khoản TikTok đang đăng nhập trên từng profile trình duyệt và hỗ trợ liên kết dàn kênh.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-1 shadow-2xs">
+                  <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Bot className="w-4 h-4 text-cyan-500 shrink-0" />
+                    <span>Client Agent (Chạy trên máy Windows)</span>
+                  </div>
+                  <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
+                    Chạy ngầm theo lịch định kỳ để cập nhật số liệu (view, doanh thu). Mỗi máy trạm chỉ mở duy nhất một Agent.
+                  </p>
+                </div>
+              </div>
+
+              {/* Hướng dẫn khi cấp lại Token mới */}
+              <div className="space-y-3 pt-1">
+                <div className="text-sm font-bold text-slate-900 dark:text-white">
+                  Khi bạn bấm &quot;Cấp Lại Token Mới&quot;, chọn 1 trong 2 cách cập nhật:
+                </div>
+
+                {/* Cách 1: Tải file ZIP mới */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-900/50 space-y-1.5 shadow-2xs">
+                  <div className="font-bold text-emerald-700 dark:text-emerald-400 text-sm flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 flex items-center justify-center text-xs font-black">1</span>
+                    <span>Cách 1 (Khuyên dùng): Tải lại file ZIP mới</span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed pl-7">
+                    Vào <Link href="/extensions" className="font-bold text-pink-600 dark:text-pink-400 hover:underline">Kho Tiện Ích (/extensions)</Link> để tải gói mới. Hệ thống đã tích hợp sẵn cơ chế xác thực và trao đổi Token tự động, bạn chỉ cần nạp lại file vào GPMLogin hoặc mở file <code className="font-mono text-xs font-bold text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">setup-agent.bat</code> là xong.
+                  </p>
+                </div>
+
+                {/* Cách 2: Nhập Token thủ công kèm 2 ảnh */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/50 space-y-4 shadow-2xs">
+                  <div className="font-bold text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-300 flex items-center justify-center text-xs font-black">2</span>
+                    <span>Cách 2: Nhập Token thủ công (Sao chép mã ở trên)</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Cửa sổ Extension */}
+                    <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-2.5 flex flex-col justify-between">
+                      <div className="space-y-1">
+                        <div className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm flex items-center gap-1.5">
+                          <Puzzle className="w-3.5 h-3.5 text-pink-500" />
+                          <span>Dán vào Extension trên trình duyệt</span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                          Mở popup Extension trên trình duyệt ➔ Dán mã Personal Token mới vào ô <strong>Personal Token</strong> ➔ Bấm <strong>Lưu</strong> (hoặc Kiểm tra).
+                        </p>
+                      </div>
+
+                      <div
+                        onClick={() => setPreviewImage({ src: "/images/docs/extensions/anh-3.png", alt: "Giao diện popup Extension dán mã Personal Token mới" })}
+                        className="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-black max-w-sm mx-auto shadow-xs cursor-pointer"
+                        title="Nhấp để phóng to ảnh"
+                      >
+                        <img
+                          src="/images/docs/extensions/anh-3.png"
+                          alt="Giao diện popup Extension dán mã Personal Token mới"
+                          className="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-200"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-bold">
+                          <ZoomIn className="w-4 h-4" />
+                          <span>Phóng to ảnh</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="p-3 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-sm space-y-1">
-                      <div>➔ <strong className="text-cyan-600 dark:text-cyan-400">Cách 2 (Nhập tay — phục hồi):</strong></div>
-                      <div className="pl-4 space-y-1 text-sm">
-                        <div>• <strong>Extension:</strong> Hiện/Sao chép Personal Token → dán vào popup → <strong>Kiểm tra</strong> hoặc <strong>Lưu</strong>.</div>
-                        <div>• <strong>Client Agent:</strong> <code className="font-mono text-cyan-600 dark:text-cyan-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs font-bold">setup-agent.bat</code> phím <strong>3</strong>.</div>
+
+                    {/* Cửa sổ Client Agent (Phím 3) */}
+                    <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-2.5 flex flex-col justify-between">
+                      <div className="space-y-1">
+                        <div className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm flex items-center gap-1.5">
+                          <Bot className="w-3.5 h-3.5 text-cyan-500" />
+                          <span>Dán vào Client Agent (Phím 3)</span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                          Nhấp đúp file <code className="font-mono text-cyan-600 dark:text-cyan-400 font-bold bg-cyan-50 dark:bg-cyan-950/60 px-1 py-0.5 rounded">setup-agent.bat</code> ➔ Nhấn phím <strong className="text-amber-600 dark:text-amber-400 font-bold">3</strong> ➔ Dán mã Token mới và nhấn Enter.
+                        </p>
+                      </div>
+
+                      <div
+                        onClick={() => setPreviewImage({ src: "/images/docs/clientagent/anh-3.png", alt: "Màn hình CMD setup-agent.bat phím 3 để cập nhật Token" })}
+                        className="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-black max-w-sm mx-auto shadow-xs cursor-pointer"
+                        title="Nhấp để phóng to ảnh"
+                      >
+                        <img
+                          src="/images/docs/clientagent/anh-3.png"
+                          alt="Màn hình CMD setup-agent.bat phím 3 để cập nhật Token"
+                          className="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-200"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-bold">
+                          <ZoomIn className="w-4 h-4" />
+                          <span>Phóng to ảnh</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </li>
-                <li>
-                  <strong className="text-slate-900 dark:text-white">Bảo mật:</strong> Không gửi zip/token công khai. Personal Token chỉ dùng khi cần nhập tay. Bearer legacy trên API báo cáo sẽ sunset <strong>2026-11-10</strong> (client mới dùng session JWT).
-                </li>
-              </ul>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Quick Downloads */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Extension Download */}
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="w-11 h-11 rounded-2xl bg-pink-500/10 text-pink-600 dark:text-pink-400 flex items-center justify-center mb-3">
-                  <Sparkles className="w-6 h-6" />
-                </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">TikTokFlow Extension (TikTokFlow Companion)</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                  Cài đặt trực tiếp vào tiện ích Extensions của GPMLogin, tự động thu thập và đồng bộ các số liệu quan trọng như doanh thu từ nhiều nguồn, lượt xem, dữ liệu video và các chỉ số liên quan mỗi khi mở profile và đăng nhập tài khoản TikTok. Dữ liệu sau đó được gửi về máy chủ để tổng hợp, phân tích và quản lý tập trung.
-                </p>
+          {/* Extension & Client Agent Download Redirect Banner */}
+          <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-indigo-500/10 border border-pink-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+            <div className="space-y-1">
+              <div className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                <Puzzle className="w-5 h-5 text-pink-500 shrink-0" />
+                <span>Cần tải gói Extension hoặc Client Agent?</span>
               </div>
-
-              <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-400">Mã pairing dùng 1 lần (~10 phút)</span>
-                <a
-                  href="/api/extension/download"
-                  download
-                  className="px-4 py-2 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white transition-all shadow-md shadow-pink-600/20 flex items-center gap-1.5"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Tải Extension (.zip)</span>
-                </a>
-              </div>
+              <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
+                Tất cả gói cài đặt được đóng gói sẵn và quản lý tập trung tại <strong>Kho Thiết Bị Mở Rộng</strong>.
+                File tải về đã được tích hợp sẵn cơ chế xác thực tự động với tài khoản của bạn.
+              </p>
             </div>
-
-            {/* Client Agent Download */}
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="w-11 h-11 rounded-2xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center mb-3">
-                  <Bot className="w-6 h-6" />
-                </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">TikTokFlow Client Agent Worker</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                  Phần mềm hoạt động nền trên Windows, tự động quét và đồng bộ dữ liệu theo lịch định kỳ hoặc ngay khi hệ thống khởi động. Quá trình vận hành hoàn toàn tự động, không chiếm quyền điều khiển chuột và không yêu cầu mở hoặc thao tác trình duyệt thủ công.
-                </p>
-              </div>
-
-              <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-400">Mã pairing dùng 1 lần (~10 phút)</span>
-                <a
-                  href="/api/client-agent/download"
-                  download
-                  className="px-4 py-2 rounded-xl text-sm font-bold bg-cyan-600 hover:bg-cyan-500 text-white transition-all shadow-md shadow-cyan-600/20 flex items-center gap-1.5"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Tải Client Agent (.zip)</span>
-                </a>
-              </div>
-            </div>
+            <Link
+              href="/extensions"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl text-sm font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-md shadow-pink-600/20 transition-all shrink-0 cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>Đến Kho Thiết Bị Mở Rộng</span>
+              <ArrowRight className="w-4 h-4" />
+            </Link>
           </div>
         </div>
       )}
@@ -1551,6 +1784,39 @@ export default function SettingsPage() {
           toast.success("Lưu cấu hình lịch trình thành công!");
         }}
       />
+
+      {/* Image Preview Lightbox Modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div
+            className="relative max-w-4xl w-full bg-slate-900 border border-slate-700 rounded-3xl overflow-hidden shadow-2xl p-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-3 py-2 text-white">
+              <span className="text-xs sm:text-sm font-semibold text-slate-200 truncate pr-4">
+                {previewImage.alt}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPreviewImage(null)}
+                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="rounded-2xl overflow-hidden bg-black flex items-center justify-center p-1">
+              <img
+                src={previewImage.src}
+                alt={previewImage.alt}
+                className="max-h-[82vh] w-auto object-contain rounded-xl shadow-inner"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

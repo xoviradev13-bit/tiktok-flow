@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fetchTikTokPublicProfileHttp } from "@/lib/tiktok-extractor";
 import { pMap } from "@/lib/concurrency";
-import { resolveExtensionBearerAuth } from "@/lib/extension-auth";
+import {
+  checkRateLimit,
+  getClientIp,
+  resolveExtensionBearerAuth,
+} from "@/lib/extension-auth";
 
 export interface ClientProfilePayload {
   id: string;
@@ -14,10 +18,36 @@ export interface ClientProfilePayload {
 
 /**
  * GET /api/gpm/client-sync
- * Allows zero-dependency client daemons to poll their active sync schedule
+ * Allows authenticated Client Agents to poll their active sync schedule.
+ * Requires Bearer personalToken / session JWT (schedule is tenant ops data).
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const authHeader = req.headers.get("authorization");
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    if (!token) {
+      return NextResponse.json(
+        { success: false, error: "Yêu cầu Authorization Bearer token." },
+        { status: 401 }
+      );
+    }
+
+    const authResult = await resolveExtensionBearerAuth(token, "/api/gpm/client-sync:GET");
+    if (!authResult.ok) {
+      return NextResponse.json(
+        { success: false, error: authResult.error },
+        { status: authResult.status }
+      );
+    }
+
+    const schedLimit = checkRateLimit(`client-sync-get:user:${authResult.user.id}`, 120);
+    if (!schedLimit.ok) {
+      return NextResponse.json(
+        { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
+        { status: 429, headers: { "Retry-After": String(schedLimit.retryAfterSec) } }
+      );
+    }
+
     const configRecord = await prisma.systemConfig.findUnique({
       where: { key: "sync_schedule" },
     });
@@ -191,6 +221,15 @@ export async function POST(req: Request) {
       );
     }
 
+    const ip = getClientIp(req) || "unknown";
+    const ipLimit = checkRateLimit(`client-sync:ip:${ip}`, 60);
+    if (!ipLimit.ok) {
+      return NextResponse.json(
+        { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
+        { status: 429, headers: { "Retry-After": String(ipLimit.retryAfterSec) } }
+      );
+    }
+
     const authResult = await resolveExtensionBearerAuth(token, "/api/gpm/client-sync");
     if (!authResult.ok) {
       return NextResponse.json(
@@ -294,7 +333,7 @@ export async function POST(req: Request) {
         else if (lowerName.includes("de")) country = "DE";
         else if (lowerName.includes("fr")) country = "FR";
 
-        // Query live public TikTok metrics (followers, videos)
+        // Seed metrics only for brand-new accounts. Never overwrite Agent/Studio metrics on update.
         const publicMetrics = await fetchTikTokPublicProfileHttp(extractedUsername).catch(() => null);
 
         // 1. INSERT IF NEW
@@ -350,24 +389,17 @@ export async function POST(req: Request) {
           }
         }
 
-        // 2. UPDATE METRICS + fluid handover (same strategy as Extension /report)
+        // 2. Link GPM + fluid handover only (metrics owned by Client Agent / Studio reports)
         const updateData: {
           gpmProfileId: string;
           groupName: string;
           lastSyncedAt: Date;
-          totalFollowers?: number;
-          totalVideos?: number;
           assignedUserId?: string;
         } = {
           gpmProfileId: p.id,
           groupName: p.group_id || existing.groupName || "GPM Fleet",
           lastSyncedAt: new Date(),
         };
-
-        if (publicMetrics) {
-          updateData.totalFollowers = publicMetrics.followersCount;
-          updateData.totalVideos = publicMetrics.videoCount;
-        }
 
         let didHandover = false;
         if (currentUserId && currentUserId !== existing.assignedUserId) {

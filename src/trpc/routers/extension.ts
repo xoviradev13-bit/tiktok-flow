@@ -1,7 +1,11 @@
 import { router, protectedProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import crypto from "crypto";
+import {
+  generatePersonalToken,
+  persistPersonalTokenValue,
+  revealPersonalToken,
+} from "@/lib/extension-auth";
 
 export const extensionRouter = router({
   // 1. List all available extensions (all logged in users)
@@ -102,7 +106,8 @@ export const extensionRouter = router({
         ...extension,
         totalInstalls: extension._count.installations,
         userInstallation: extension.installations[0] || null,
-        userToken: user?.extensionToken || null,
+        userToken: revealPersonalToken(user?.extensionToken || null),
+        hasExtensionToken: Boolean(user?.extensionToken),
         accessEnabled: user?.extensionAccessEnabled ?? true,
         revokedAt: user?.extensionRevokedAt || null,
         lastActiveAt: user?.lastActiveAt || null,
@@ -135,13 +140,23 @@ export const extensionRouter = router({
       });
     }
 
-    const newToken = `ttf_sec_${crypto.randomBytes(16).toString("hex")}`;
-    await ctx.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        extensionToken: newToken,
-        extensionAccessEnabled: true,
-      },
+    const newToken = generatePersonalToken();
+    await ctx.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          extensionToken: persistPersonalTokenValue(newToken),
+          extensionAccessEnabled: true,
+          extensionSessionVersion: { increment: 1 },
+        },
+      });
+      await tx.extensionRefreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await tx.extensionPairingCode.deleteMany({
+        where: { userId: user.id, usedAt: null },
+      });
     });
 
     return {

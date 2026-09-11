@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import { withSentryConfig } from "@sentry/nextjs";
+import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 
 // Increase default max listeners to suppress dev-server close listener warnings
@@ -7,6 +7,15 @@ import type { NextConfig } from "next";
 EventEmitter.defaultMaxListeners = 30;
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      {
+        source: "/login",
+        destination: "/signin",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

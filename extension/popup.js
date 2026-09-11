@@ -20,6 +20,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const lastSyncText = document.getElementById("lastSyncText");
   const fleetSyncBar = document.getElementById("fleetSyncBar");
   const fleetSyncText = document.getElementById("fleetSyncText");
+  const agentIndicator = document.getElementById("agentIndicator");
+  const agentStatusText = document.getElementById("agentStatusText");
+  const agentHintText = document.getElementById("agentHintText");
 
   function setSyncBar(barEl, textEl, status, message) {
     if (!barEl || !textEl) return;
@@ -309,7 +312,29 @@ document.addEventListener("DOMContentLoaded", async () => {
         gpmStatusText.textContent = "GPM Offline";
       }
     }
+    if (changes.agentOnline) {
+      applyAgentProbe({ online: !!changes.agentOnline.newValue });
+    }
   });
+
+  function applyAgentProbe(res) {
+    if (!agentIndicator || !agentStatusText) return;
+    if (res && res.online) {
+      agentIndicator.className = "gpm-indicator online";
+      agentStatusText.textContent = "Online · 1 Agent đang chạy";
+      if (agentHintText) {
+        agentHintText.textContent =
+          "OK — 1 Extension + 1 Agent trên máy này. Số liệu do Agent cập nhật.";
+      }
+    } else {
+      agentIndicator.className = "gpm-indicator offline";
+      agentStatusText.textContent = "Offline — chạy run-agent.bat";
+      if (agentHintText) {
+        agentHintText.textContent =
+          "Mỗi máy: 1 Extension + 1 Agent. Bật Agent để đồng bộ số liệu TikTok.";
+      }
+    }
+  }
 
   // Populate Account Card (identity only — metrics live on web / Client Agent)
   if (data.latestAccount) {
@@ -373,6 +398,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     applyGpmProbe(res);
+  });
+
+  chrome.runtime.sendMessage({ type: "PROBE_AGENT" }, (res) => {
+    if (chrome.runtime.lastError) {
+      applyAgentProbe({ online: false });
+      return;
+    }
+    applyAgentProbe(res);
   });
 
   // 3. Trigger Manual Sync Action

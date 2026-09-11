@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 
 export function TroubleshootingSection() {
@@ -19,33 +20,63 @@ export function TroubleshootingSection() {
       </div>
 
       <div className="space-y-4">
-        <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-2">
+        <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-3">
           <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
             <span>Lỗi: Extension báo &quot;Chưa xác thực&quot; hoặc không gửi được số liệu</span>
           </h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            <strong className="text-slate-800 dark:text-slate-200">Khắc phục:</strong> Kiểm tra xem bạn có bấm cấp lại Token mới gần đây không. Khi Token đổi mới, token cũ bị vô hiệu hóa. Bạn chỉ cần tải lại bộ Extension và Client Agent mới từ trang web (đã tự động nhúng Token mới), gỡ tiện ích cũ và nạp lại vào GPMLogin.
-          </p>
+          <div className="text-sm text-slate-600 dark:text-slate-400 space-y-2 leading-relaxed">
+            <p>
+              <strong className="text-slate-800 dark:text-slate-200">Nguyên nhân:</strong> Do Token trên trình duyệt đã cũ, bị thu hồi hoặc bạn vừa bấm cấp lại Token mới trong Cài Đặt.
+            </p>
+            <p>
+              <strong className="text-slate-800 dark:text-slate-200">Cách khắc phục (chọn 1 trong 2 cách):</strong>
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 text-xs sm:text-sm">
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1 shadow-xs">
+                <span className="font-bold text-pink-600 dark:text-pink-400 block">Cách 1 (Khuyên dùng):</span>
+                <span>Tải lại file <code className="font-mono text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-bold">extension.zip</code> mới từ trang <Link href="/extensions" className="font-bold text-pink-600 dark:text-pink-400 hover:underline">Kho Tiện Ích (/extensions)</Link> (hệ thống đã tích hợp sẵn cơ chế xác thực và trao đổi Token tự động) và nạp lại vào GPMLogin.</span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1 shadow-xs">
+                <span className="font-bold text-cyan-600 dark:text-cyan-400 block">Cách 2 (Nhập thủ công):</span>
+                <span>Vào <strong>Cài Đặt ➔ Personal Token</strong> sao chép mã mới ➔ Mở popup Extension trên trình duyệt ➔ Dán vào ô <strong>Personal Token</strong> và bấm <strong>Lưu</strong>.</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-2">
+        <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-3">
           <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
             <span>Client Agent báo &quot;Authentication Failed / 401&quot;</span>
           </h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            <strong className="text-slate-800 dark:text-slate-200">Khắc phục:</strong> Do Personal Token trên máy trạm đã cũ hoặc bị vô hiệu hóa sau khi cấp mới trên web. Chỉ cần tải lại file <code className="text-cyan-600 dark:text-cyan-400 font-mono text-xs font-bold">client-agent.zip</code> mới từ trang web (hệ thống đã tự điền sẵn Token mới), giải nén và nhấp đúp file <code className="font-mono text-slate-800 dark:text-slate-200 text-xs font-bold bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">setup-agent.bat</code> là hoạt động bình thường ngay lập tức.
-          </p>
+          <div className="text-sm text-slate-600 dark:text-slate-400 space-y-2 leading-relaxed">
+            <p>
+              <strong className="text-slate-800 dark:text-slate-200">Nguyên nhân:</strong> Do Personal Token lưu trên máy trạm đã cũ hoặc bị vô hiệu hóa sau khi cấp mới trên web.
+            </p>
+            <p>
+              <strong className="text-slate-800 dark:text-slate-200">Cách khắc phục (chọn 1 trong 2 cách):</strong>
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 text-xs sm:text-sm">
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1 shadow-xs">
+                <span className="font-bold text-cyan-600 dark:text-cyan-400 block">Cách 1 (Khuyên dùng):</span>
+                <span>Tải lại file <code className="text-cyan-600 dark:text-cyan-400 font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">client-agent.zip</code> mới từ trang <Link href="/extensions" className="font-bold text-cyan-600 dark:text-cyan-400 hover:underline">Kho Tiện Ích (/extensions)</Link> (hệ thống đã tích hợp sẵn cơ chế xác thực và trao đổi Token tự động), giải nén và nhấp đúp file <code className="font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">setup-agent.bat</code>.</span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1 shadow-xs">
+                <span className="font-bold text-amber-600 dark:text-amber-400 block">Cách 2 (Nhập thủ công):</span>
+                <span>Vào <strong>Cài Đặt ➔ Personal Token</strong> sao chép mã mới ➔ Nhấp đúp file <code className="font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">setup-agent.bat</code> ➔ Nhấn phím <strong className="font-bold text-amber-600 dark:text-amber-400">3</strong> để dán mã Token mới.</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-2">
           <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-            <span>Lỗi: Không kết nối được GPMLogin (Port 9495 trên Server)</span>
+            <span>Lỗi: GPMLogin báo Offline / Không nhận diện được cổng API</span>
           </h3>
           <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            <strong className="text-slate-800 dark:text-slate-200">Khắc phục:</strong> Chỉ áp dụng cho Admin máy chủ: Kiểm tra phần mềm GPMLogin có đang bật không, tường lửa Windows có chặn port 9495 không. Hãy thử mở <code className="text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-800 font-mono text-xs">http://127.0.0.1:9495/api/v3/profiles</code> trên trình duyệt server để kiểm tra.
+            <strong className="text-slate-800 dark:text-slate-200">Khắc phục:</strong> Chỉ áp dụng cho Admin máy chủ: Hệ thống đã tích hợp cơ chế tự động nhận diện cổng API của GPMLogin. Hãy kiểm tra xem phần mềm GPMLogin đã mở chưa và mục <strong>Settings ➔ API Setting</strong> trong GPMLogin đã được <strong>Enable</strong> chưa. Ngoài ra kiểm tra tường lửa Windows có chặn kết nối local hay không. Bạn có thể kiểm tra trực tiếp trên trình duyệt máy chủ bằng cách truy cập <code className="text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-800 font-mono text-xs">http://127.0.0.1:9495/api/v3/profiles</code> (hoặc cổng mà GPMLogin đang hiển thị).
           </p>
         </div>
       </div>

@@ -59,7 +59,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
             <div className="flex items-center gap-2.5 text-amber-800 dark:text-amber-300">
               <Lock className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <span>
-                <strong>Yêu cầu đăng nhập:</strong> Chỉ nhân sự nội bộ trong hệ thống mới có thể tải công cụ (mỗi gói tải về sẽ được hệ thống tự động tích hợp mã Personal Token định danh cá nhân của bạn).
+                <strong>Yêu cầu đăng nhập:</strong> Chỉ nhân sự nội bộ trong hệ thống mới có thể tải công cụ (hệ thống đã tích hợp sẵn cơ chế xác thực và trao đổi Token tự động giữa Extension / Client Agent và hệ thống).
               </span>
             </div>
             <Link
@@ -89,11 +89,14 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
                 TikTokFlow Extension (TikTokFlow Companion)
               </h4>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                Cài đặt trực tiếp vào tiện ích Extensions của GPMLogin, tự động thu thập và đồng bộ các số liệu quan trọng như doanh thu từ nhiều nguồn, lượt xem, dữ liệu video và các chỉ số liên quan mỗi khi mở profile và đăng nhập tài khoản TikTok. Dữ liệu sau đó được gửi về máy chủ để tổng hợp, phân tích và quản lý tập trung.
+                Tích hợp trực tiếp với GPMLogin thông qua tính năng Extension, tự động kích hoạt khi mở profile để nhận diện tài khoản TikTok đang đăng nhập trên từng profile. Hệ thống hỗ trợ tự động liên kết và bàn giao tài khoản giữa các nhân sự. Mỗi máy chỉ cài đặt một Extension, được cấu hình riêng cho từng nhân sự vận hành, nhằm đảm bảo dữ liệu được xử lý ổn định, chính xác và tránh xung đột trong quá trình vận hành.
               </p>
             </div>
 
             <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800/80 space-y-3">
+              <p className="text-xs font-bold text-rose-600 dark:text-rose-400 leading-snug text-center">
+                File cài đặt là tài nguyên nội bộ, được cấp riêng cho từng nhân sự và chỉ sử dụng theo cấu hình được phân công.
+              </p>
               {session ? (
                 <a
                   href="/api/extension/download"
@@ -140,11 +143,14 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
                 TikTokFlow Client Agent Worker
               </h4>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                Phần mềm hoạt động nền trên Windows, tự động quét và đồng bộ dữ liệu theo lịch định kỳ hoặc ngay khi hệ thống khởi động. Quá trình vận hành hoàn toàn tự động, không chiếm quyền điều khiển chuột và không yêu cầu mở hoặc thao tác trình duyệt thủ công.
+                Phần mềm Agent chạy trên máy Windows, tự động thu thập các số liệu TikTok như lượt xem, doanh thu và các dữ liệu liên quan, sau đó đồng bộ về hệ thống. Agent hoạt động nền theo lịch cấu hình sẵn, hạn chế tối đa việc chiếm dụng chuột và ảnh hưởng đến thao tác của người dùng. Mỗi máy chỉ chạy một Agent, được cấu hình riêng cho từng nhân sự vận hành, nhằm đảm bảo dữ liệu được xử lý ổn định, chính xác và tránh xung đột trong quá trình vận hành.
               </p>
             </div>
 
             <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800/80 space-y-3">
+              <p className="text-xs font-bold text-rose-600 dark:text-rose-400 leading-snug text-center">
+                File cài đặt là tài nguyên nội bộ, được cấp riêng cho từng nhân sự và chỉ sử dụng theo cấu hình được phân công.              
+              </p>
               {session ? (
                 <a
                   href="/api/client-agent/download"
@@ -244,7 +250,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
         </div>
       </div>
 
-      {/* IMPORTANT NOTES SECTION (Personal Token & Port 9495) */}
+      {/* IMPORTANT NOTES SECTION (Personal Token & GPMLogin API) */}
       <div className="space-y-4 pt-2">
         {/* Note 1: Personal Token Note */}
         <div className="p-5 sm:p-6 rounded-3xl bg-pink-50/70 dark:bg-pink-950/20 border border-pink-200 dark:border-pink-900/40 space-y-3">
@@ -265,7 +271,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
 
           <div className="text-sm text-slate-700 dark:text-slate-300 space-y-3 leading-relaxed">
             <p>
-              • <strong>Tự động cấu hình:</strong> Cả hai gói tải về (Extension & Client Agent) ở Bước 1 khi bạn tải từ tài khoản của mình <strong>đều đã được hệ thống tự động tích hợp sẵn Personal Token định danh cá nhân của bạn</strong>. Bạn chỉ cần tải về và khởi chạy mà không cần cấu hình thủ công!
+              • <strong>Tự động cấu hình:</strong> Cả hai gói tải về (Extension & Client Agent) ở Bước 1 <strong>đều đã được hệ thống tích hợp sẵn cơ chế xác thực và trao đổi Token tự động giữa Extension / Client Agent và hệ thống</strong>. Bạn chỉ cần tải về và khởi chạy mà không cần cấu hình thủ công!
             </p>
             <p>
               • <strong>Khi đổi máy tính hoặc cần cấp lại Token:</strong> Bạn có thể chọn 1 trong 2 cách linh hoạt dưới đây:
@@ -276,10 +282,10 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
               <div className="p-4 sm:p-5 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-pink-200 dark:border-pink-900/60 space-y-2 shadow-xs">
                 <div className="font-bold text-pink-700 dark:text-pink-400 text-sm sm:text-base flex items-center gap-2">
                   <span className="w-6 h-6 rounded-lg bg-pink-100 dark:bg-pink-950 text-pink-600 dark:text-pink-300 flex items-center justify-center text-xs font-black">1</span>
-                  <span>Cách 1 (Tải lại bản mới đã tự nhúng Token):</span>
+                  <span>Cách 1 (Tải lại file mới - Khuyên dùng):</span>
                 </div>
                 <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed pl-8">
-                  Tải lại gói Extension & Client Agent từ trang web. Với Extension thì nạp trực tiếp file zip mới vào GPMLogin (<em>+ Thêm extension ➔ Từ thiết bị .zip</em>); với Client Agent thì giải nén và nhấp đúp file <code className="font-mono text-xs font-bold text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">setup-agent.bat</code> là xong!
+                  Tải lại gói Extension & Client Agent từ trang <Link href="/extensions" className="font-bold text-pink-600 dark:text-pink-400 hover:underline">Kho Tiện Ích (/extensions)</Link> (hệ thống đã tích hợp sẵn cơ chế xác thực và trao đổi Token tự động). Với Extension thì nạp trực tiếp file zip mới vào GPMLogin (<em>+ Thêm extension ➔ Từ thiết bị .zip</em>); với Client Agent thì giải nén và nhấp đúp file <code className="font-mono text-xs font-bold text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">setup-agent.bat</code> là xong!
                 </p>
               </div>
 
@@ -336,18 +342,18 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
           </div>
         </div>
 
-        {/* Note 2: Clarification on Port 9495 */}
+        {/* Note 2: Clarification on Port / Auto-detect API */}
         <div className="p-5 sm:p-6 rounded-3xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 space-y-2.5">
           <div className="flex items-center gap-2.5 text-emerald-800 dark:text-emerald-400 text-base font-bold">
             <CheckCircle2 className="w-5 h-5 shrink-0" />
-            <span>Cơ Chế Đồng Bộ Hoàn Toàn Tự Động & Không Cần Mở Port 9495</span>
+            <span>Cơ Chế Đồng Bộ Hoàn Toàn Tự Động</span>
           </div>
           <div className="text-sm text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed">
             <p>
-              • <strong>Nhân viên máy trạm:</strong> Khi bạn dùng Extension hoặc Client Agent, dữ liệu sẽ tự động đẩy lên Cloud qua Token của bạn. Bạn <strong>KHÔNG CẦN</strong> phải bật cổng API 9495 hay quét thủ công trên web!
+              • <strong>Nhân viên máy trạm:</strong> Khi sử dụng Extension hoặc Client Agent, dữ liệu thu thập được sẽ tự động đồng bộ và gửi về hệ thống trung tâm để quản lý, xử lý và cập nhật theo phân quyền.
             </p>
             <p>
-              • <strong>Cổng API 9495:</strong> Là tính năng nâng cao chỉ dành riêng cho <strong>Quản Trị Viên (Admin)</strong> khi thiết lập server trung tâm.
+              • <strong>Cổng API GPMLogin:</strong> Hệ thống tự động nhận diện cổng hoạt động. Tính năng kết nối trực tiếp này chỉ dành riêng cho <strong>Quản Trị Viên (Admin)</strong> khi thiết lập server trung tâm.
             </p>
           </div>
         </div>

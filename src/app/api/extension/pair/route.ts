@@ -11,6 +11,9 @@ import {
   getClientUserAgent,
   hashOpaqueToken,
   issueSessionBundle,
+  persistPersonalTokenValue,
+  revealPersonalToken,
+  resolvePublicAppUrl,
 } from "@/lib/extension-auth";
 import { prisma } from "@/lib/prisma";
 
@@ -124,27 +127,32 @@ export async function POST(req: Request) {
       );
     }
 
-    let personalToken = row.user.extensionToken;
+    let personalToken = revealPersonalToken(row.user.extensionToken);
     if (!personalToken) {
       personalToken = generatePersonalToken();
       await prisma.user.update({
         where: { id: row.user.id },
-        data: { extensionToken: personalToken, extensionAccessEnabled: true },
+        data: {
+          extensionToken: persistPersonalTokenValue(personalToken),
+          extensionAccessEnabled: true,
+        },
+      });
+    } else if (row.user.extensionToken && !row.user.extensionToken.startsWith("e1.")) {
+      // Legacy plaintext in DB — seal on successful pair
+      await prisma.user.update({
+        where: { id: row.user.id },
+        data: { extensionToken: persistPersonalTokenValue(personalToken) },
       });
     }
 
     const freshUser = {
       ...row.user,
-      extensionToken: personalToken,
+      extensionToken: persistPersonalTokenValue(personalToken),
     };
 
     const session = await issueSessionBundle(freshUser, { ip, userAgent });
 
-    const host = req.headers.get("host") || "localhost:3000";
-    const proto =
-      req.headers.get("x-forwarded-proto") ||
-      (host.startsWith("localhost") ? "http" : "https");
-    const serverUrl = `${proto}://${host}`;
+    const serverUrl = resolvePublicAppUrl(req);
 
     console.info(
       JSON.stringify({ event: "pair_redeem", outcome: "ok", userId: row.user.id, ip })

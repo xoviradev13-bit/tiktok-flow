@@ -14,8 +14,10 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     if (status === "loading") return;
 
     if (status === "unauthenticated") {
-      // Session truly expired or user is logged out — redirect to login
-      router.push("/login");
+      // Session truly expired or user is logged out — redirect to signin
+      const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search : "";
+      const callbackUrl = currentPath ? `?callbackUrl=${encodeURIComponent(currentPath)}` : "";
+      router.push(`/signin${callbackUrl}`);
       return;
     }
 

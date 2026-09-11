@@ -41,7 +41,7 @@ export function ClientAgentSection() {
             <span>Zero-Dependency Windows Portable</span>
           </div>
           <div className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-            TikTokFlow Client Agent (Đã Tích Hợp Token Của Bạn)
+            TikTokFlow Client Agent
           </div>
           <p className="text-sm text-slate-600 dark:text-slate-400 max-w-xl">
             Đã bao gồm sẵn mọi thành phần chạy ngầm dạng Portable. Bạn <strong>KHÔNG CẦN</strong> cài thêm bất kỳ phần mềm nào trên máy.
@@ -67,7 +67,6 @@ export function ClientAgentSection() {
           </Link>
         )}
       </div>
-
       {/* Visual Folder & Terminal Mockup */}
       <div className="space-y-4">
         <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -82,11 +81,6 @@ export function ClientAgentSection() {
           </div>
 
           <div className="space-y-2.5">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500">├──</span>
-              <code className="text-amber-400 font-bold">config.json</code>
-              <span className="text-slate-400 text-xs">➔ Tự động điền sẵn Server URL & Token của bạn</span>
-            </div>
             <div className="flex items-center gap-2">
               <span className="text-slate-500">├──</span>
               <code className="text-emerald-400 font-bold">run-agent.bat</code>
@@ -123,7 +117,7 @@ export function ClientAgentSection() {
               Nhấp đúp vào file <code className="text-cyan-600 dark:text-cyan-400 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded font-mono text-xs font-bold border border-slate-200 dark:border-slate-800">setup-agent.bat</code> ➔ Nhấn phím <strong className="text-cyan-600 dark:text-cyan-400 font-bold">1</strong> và bấm Enter.
             </p>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Xong! Agent sẽ tự động chạy ngầm 100% vô hình mỗi khi bạn bật máy tính Windows. Số liệu sẽ định kỳ tự động đồng bộ theo lịch trình trong Settings mà không làm phiền bạn làm việc.
+              Xong! Agent sẽ tự động khởi chạy cùng Windows và hoạt động nền trong quá trình vận hành. Dữ liệu được định kỳ thu thập và đồng bộ về hệ thống trung tâm theo lịch trình cấu hình sẵn, không làm gián đoạn công việc của bạn.            
             </p>
 
             {/* Real Screenshot for setup-agent.bat */}
@@ -157,7 +151,7 @@ export function ClientAgentSection() {
               Nhấp đúp vào file <code className="text-emerald-600 dark:text-emerald-400 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded font-mono text-xs font-bold border border-slate-200 dark:border-slate-800">run-agent.bat</code>.
             </p>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Cửa sổ đen sẽ hiện ra và hiển thị tiến trình quét tự động từng profile GPMLogin trên máy bạn. Sau khi cào xong, số liệu sẽ đẩy về web và cửa sổ tự động đóng.
+              Cửa sổ tiến trình sẽ hiển thị trong quá trình Agent tự động quét lần lượt các profile GPMLogin trên máy. Sau khi hoàn tất, dữ liệu sẽ được tự động đồng bộ về hệ thống trung tâm và cửa sổ sẽ tự động đóng.            
             </p>
 
             {/* Real Screenshot for run-agent.bat */}
@@ -182,17 +176,86 @@ export function ClientAgentSection() {
       </div>
 
       {/* How to Update Token */}
-      <div className="p-6 sm:p-7 rounded-3xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 space-y-4">
-        <div className="flex items-center gap-2.5 text-amber-700 dark:text-amber-400 text-base font-bold">
-          <Key className="w-5 h-5 shrink-0" />
-          <span>Cách Cập Nhật & Đổi Personal Token Mới (Phím 3)</span>
+      <div className="p-6 sm:p-7 rounded-3xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-amber-800 dark:text-amber-400 text-base sm:text-lg font-bold">
+            <Key className="w-5 h-5 shrink-0" />
+            <span>Cách Cấp Lại & Cập Nhật Personal Token Mới (Phím 3)</span>
+          </div>
+          <Link
+            href="/settings"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-xs transition-all self-start sm:self-auto"
+          >
+            <Key className="w-3.5 h-3.5" />
+            <span>Mở Trang Cài Đặt (Settings)</span>
+          </Link>
         </div>
 
-        <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-          Khi bạn đổi máy tính hoặc bấm cấp lại Token mới trong trang Settings, bạn không cần phải tải lại cả thư mục:
-        </p>
+        {/* Step-by-step intro & Settings Screenshot */}
+        <div className="space-y-3">
+          <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+            Khi đổi sang máy tính mới hoặc cần cấp lại Personal Token, bạn vào <strong>Cài Đặt (Settings) ➔ tab Personal Token</strong> và bấm nút <strong className="text-amber-700 dark:text-amber-400">Cấp Lại Token Mới</strong> (hoặc xem/sao chép mã). Để tải file cài đặt Client Agent, bạn truy cập trang <Link href="/extensions" className="font-bold text-cyan-600 dark:text-cyan-400 hover:underline">Kho Tiện Ích (/extensions)</Link>.
+          </p>
 
-        <div className="p-5 rounded-2xl bg-white dark:bg-slate-950/80 border border-amber-200 dark:border-amber-900/40 space-y-3 text-sm">
+          {/* Screenshot of Settings token card */}
+          <div className="max-w-3xl">
+            <div className="rounded-2xl overflow-hidden border border-amber-200 dark:border-amber-900/60 bg-slate-900 shadow-lg group">
+              <div className="bg-slate-950 px-4 py-2 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                <span className="font-semibold text-slate-200">Giao diện Cài Đặt ➔ Thẻ Quản Lý Personal Token</span>
+                <span className="text-[11px] text-emerald-400 font-mono">Đang hoạt động</span>
+              </div>
+              <ZoomableImage
+                src="/images/docs/token.png"
+                alt="Giao diện Cài Đặt cá nhân hóa với Personal Token và nút Cấp Lại Token Mới"
+                onZoom={(src, alt) => setZoomImage({ src, alt })}
+              />
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center italic mt-2">
+              Hình 3: Giao diện thẻ Personal Token trong Cài Đặt — vị trí cấp lại Token mới
+            </p>
+          </div>
+        </div>
+
+        {/* 2 Options */}
+        <div className="space-y-3">
+          <div className="text-sm font-bold text-slate-900 dark:text-white">
+            Sau khi tạo Token mới, bạn có thể lựa chọn một trong hai cách:
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Option 1 */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-emerald-200 dark:border-emerald-900/60 space-y-2 shadow-xs">
+              <div className="font-bold text-emerald-700 dark:text-emerald-400 text-sm sm:text-base flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 flex items-center justify-center text-xs font-black">1</span>
+                <span>Tải file ZIP mới (Khuyên dùng):</span>
+              </div>
+              <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed pl-8">
+                File cài đặt tải từ trang <Link href="/extensions" className="font-bold text-cyan-600 dark:text-cyan-400 hover:underline">Kho Tiện Ích (/extensions)</Link> <strong>đã tích hợp sẵn cơ chế xác thực và trao đổi Token tự động giữa Extension / Client Agent và hệ thống</strong>. Chỉ cần tải về, giải nén và nhấp đúp file <code className="text-cyan-600 dark:text-cyan-400 font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">setup-agent.bat</code> là xong, không cần nhập mã thủ công!
+              </p>
+            </div>
+
+            {/* Option 2 */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-amber-200 dark:border-amber-900/60 space-y-2 shadow-xs">
+              <div className="font-bold text-amber-700 dark:text-amber-400 text-sm sm:text-base flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-300 flex items-center justify-center text-xs font-black">2</span>
+                <span>Sử dụng Token thủ công (Phím 3):</span>
+              </div>
+              <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed pl-8">
+                Bấm nút <strong>Sao chép</strong> Personal Token mới từ mục Cài đặt và thực hiện cập nhật trực tiếp theo các bước bên dưới.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Steps for Option 2 */}
+        <div className="p-5 rounded-2xl bg-white dark:bg-slate-950/80 border border-amber-200 dark:border-amber-900/40 space-y-3.5 text-sm">
+          <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+              Thao tác Cách 2
+            </span>
+            <span>Các bước cấu hình Token trực tiếp trên Client Agent:</span>
+          </div>
+
           <ol className="list-decimal list-inside text-sm text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed pl-1">
             <li>Nhấp đúp vào file <code className="text-cyan-600 dark:text-cyan-400 font-mono text-xs font-bold bg-cyan-50 dark:bg-cyan-950/50 px-1.5 py-0.5 rounded">setup-agent.bat</code>.</li>
             <li>Nhấn phím <strong className="text-amber-600 dark:text-amber-400 font-bold">3</strong> và bấm Enter để chọn chức năng <strong>DOI TOKEN</strong>.</li>
@@ -200,7 +263,7 @@ export function ClientAgentSection() {
           </ol>
 
           <div className="pl-0 sm:pl-4 max-w-2xl pt-1">
-            <div className="rounded-none overflow-hidden border border-slate-200 dark:border-slate-800 bg-black shadow-lg group">
+            <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-black shadow-lg group">
               <div className="bg-slate-950 px-3.5 py-2 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400">
                 <span className="font-semibold text-slate-200">Giao diện cập nhật Token Client Agent</span>
                 <span className="text-[11px] text-amber-400 font-mono">setup-agent.bat phím 3</span>
@@ -212,7 +275,7 @@ export function ClientAgentSection() {
               />
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 text-center italic mt-1.5">
-              Hình 3: Cửa sổ cập nhật Personal Token mới và test kết nối trực tiếp với máy chủ
+              Hình 4: Cửa sổ cập nhật Personal Token mới và test kết nối trực tiếp với máy chủ
             </p>
           </div>
         </div>
@@ -238,7 +301,7 @@ export function ClientAgentSection() {
               <div>
                 <div className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">Dừng Ngay Lập Tức (1-Click Stop)</div>
                 <p className="text-slate-600 dark:text-slate-400 mt-1 leading-relaxed text-sm">
-                  Nhấp đúp vào file <code className="text-rose-600 dark:text-rose-400 font-mono text-xs font-bold bg-rose-50 dark:bg-rose-950/50 px-1.5 py-0.5 rounded">stop-agent.bat</code> trong thư mục. File này sẽ tự động tìm và tắt sạch mọi tiến trình ngầm, giải phóng 100% RAM và dọn sạch các tệp tạm trong thư mục <code className="text-slate-800 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded font-mono text-xs">%TEMP%</code>.
+                  Nhấp đúp vào file <code className="text-rose-600 dark:text-rose-400 font-mono text-xs font-bold bg-rose-50 dark:bg-rose-950/50 px-1.5 py-0.5 rounded">stop-agent.bat</code> trong thư mục. File sẽ tự động dừng các tiến trình của Agent đang chạy, giải phóng tài nguyên hệ thống và xóa các tệp tạm do Agent tạo trong quá trình hoạt động.
                 </p>
               </div>
             </div>
