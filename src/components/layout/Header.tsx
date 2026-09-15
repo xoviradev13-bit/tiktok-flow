@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import ThemeToggle from "./ThemeToggle";
@@ -59,9 +59,15 @@ export default function Header() {
     ? lastRunDate.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
     : null;
 
+  const rawScoring = (configData as any)?.["scoring_rules"];
+  const cutOffHour = typeof rawScoring?.cutOffHour === "number" ? rawScoring.cutOffHour : 10;
+  const cutOffMinute = typeof rawScoring?.cutOffMinute === "number" ? rawScoring.cutOffMinute : 0;
+  const cutoffTimeStr = `${String(cutOffHour).padStart(2, "0")}:${String(cutOffMinute).padStart(2, "0")}`;
+
   const [timeInfo, setTimeInfo] = useState({
     time: "--:--:--",
     remaining: "--:--:--",
+    remainingNext: "--:--:--",
     isPast: false,
   });
 
@@ -76,7 +82,7 @@ export default function Header() {
     },
     "/checklist": {
       title: "Checklist Chấm Công Hàng Ngày",
-      subtitle: "Hệ thống tự động chấm công trước 10:00 sáng theo KPI hoàn thành",
+      subtitle: `Hệ thống tự động chấm công trước ${cutoffTimeStr} sáng theo KPI hoàn thành`,
     },
     "/revenue": {
       title: "Báo Cáo & Phân Tích Doanh Thu",
@@ -119,10 +125,11 @@ export default function Header() {
       const vnDate = new Date(vnString);
 
       const cutoff = new Date(vnDate);
-      cutoff.setHours(10, 0, 0, 0);
+      cutoff.setHours(cutOffHour, cutOffMinute, 0, 0);
 
       const isPast = vnDate.getTime() >= cutoff.getTime();
       let remaining = "00:00:00";
+      let remainingNext = "00:00:00";
 
       if (!isPast) {
         const diffMs = cutoff.getTime() - vnDate.getTime();
@@ -133,11 +140,23 @@ export default function Header() {
           2,
           "0"
         )}:${String(s).padStart(2, "0")}`;
+      } else {
+        const cutoffTomorrow = new Date(cutoff);
+        cutoffTomorrow.setDate(cutoffTomorrow.getDate() + 1);
+        const diffNextMs = Math.max(0, cutoffTomorrow.getTime() - vnDate.getTime());
+        const nh = Math.floor(diffNextMs / (1000 * 60 * 60));
+        const nm = Math.floor((diffNextMs % (1000 * 60 * 60)) / (1000 * 60));
+        const ns = Math.floor((diffNextMs % (1000 * 60)) / 1000);
+        remainingNext = `${String(nh).padStart(2, "0")}:${String(nm).padStart(
+          2,
+          "0"
+        )}:${String(ns).padStart(2, "0")}`;
       }
 
       setTimeInfo({
         time: vnDate.toLocaleTimeString("vi-VN", { hour12: false }),
         remaining,
+        remainingNext,
         isPast,
       });
     };
@@ -145,7 +164,7 @@ export default function Header() {
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [cutOffHour, cutOffMinute]);
 
   // Close user dropdown when clicking outside
   useEffect(() => {
@@ -166,10 +185,74 @@ export default function Header() {
     setUserDropdownOpen(false);
   }, [pathname]);
 
+  // Sync Queue status tracking & live polling
+  const prevSyncingRef = useRef(false);
+
+  const checkSyncStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/gpm/sync");
+      if (res.ok) {
+        const data = await res.json();
+        const isRunning = Boolean(data.isSyncing);
+
+        if (isRunning) {
+          setSyncing(true);
+          if (data.activeJob?.status === "PROCESSING") {
+            setSyncMessage(`⏳ Agent (${data.activeJob.machineName || "máy trạm"}) đang quét GPMLogin...`);
+          } else {
+            setSyncMessage("⏳ Đang chờ Client Agent nhận lệnh...");
+          }
+        } else if (prevSyncingRef.current && !isRunning) {
+          // Sync just completed!
+          setSyncing(false);
+          if (data.lastCompletedJob) {
+            setSyncMessage(`✅ Đồng bộ hoàn tất! (${data.lastCompletedJob.resultSummary || "Dữ liệu đã cập nhật"})`);
+          } else {
+            setSyncMessage("✅ Đồng bộ hoàn tất!");
+          }
+          window.dispatchEvent(new Event("refreshData"));
+          refetchConfig();
+          setTimeout(() => setSyncMessage(null), 6000);
+        }
+        prevSyncingRef.current = isRunning;
+      }
+    } catch {
+      /* ignore transient network issues */
+    }
+  }, [refetchConfig]);
+
+  useEffect(() => {
+    checkSyncStatus();
+    const interval = setInterval(() => {
+      checkSyncStatus();
+    }, syncing ? 2500 : 12000);
+    return () => clearInterval(interval);
+  }, [checkSyncStatus, syncing]);
+
   const handleGlobalSync = async () => {
+    if (syncing) return; // Prevent spamming while sync is already active
+
     try {
       setSyncing(true);
-      setSyncMessage("Đang quét & đồng bộ toàn bộ tài khoản...");
+      setSyncMessage("Đang đưa lệnh vào hàng đợi đồng bộ...");
+
+      // 1. Try to trigger local Client Agent on this machine directly (port 39741)
+      let localAgentTriggered = false;
+      try {
+        const localRes = await fetch("http://127.0.0.1:39741/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(1200),
+        });
+        if (localRes.ok) {
+          localAgentTriggered = true;
+          setSyncMessage("✅ Đã kích hoạt Client Agent trên máy của bạn đang quét GPMLogin...");
+        }
+      } catch {
+        /* local agent port not responding or blocked by CORS */
+      }
+
+      // 2. Enqueue job on server via POST /api/gpm/sync
       const res = await fetch("/api/gpm/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -177,17 +260,23 @@ export default function Header() {
       });
       const json = await res.json();
       if (json.success) {
-        setSyncMessage(`✅ ${json.message}`);
-        window.dispatchEvent(new Event("refreshData"));
+        if (!localAgentTriggered) {
+          setSyncMessage(`⏳ ${json.message}`);
+        }
+        // Button stays disabled; checkSyncStatus polling will automatically detect completion!
       } else {
-        setSyncMessage(`❌ ${json.error || "Lỗi đồng bộ"}`);
+        if (json.inProgress) {
+          setSyncMessage(`⏳ ${json.message}`);
+        } else {
+          setSyncMessage(`❌ ${json.error || json.message || "Lỗi đồng bộ"}`);
+          setSyncing(false);
+          setTimeout(() => setSyncMessage(null), 5000);
+        }
       }
     } catch (err: any) {
       setSyncMessage(`❌ ${err.message}`);
-    } finally {
       setSyncing(false);
-      refetchConfig();
-      setTimeout(() => setSyncMessage(null), 4000);
+      setTimeout(() => setSyncMessage(null), 5000);
     }
   };
 
@@ -217,7 +306,8 @@ export default function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors shadow-xs">
+    <>
+      <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors shadow-xs">
       <div className="max-w-[1850px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
           {/* Page Title & Breadcrumb + Mobile Menu Toggle */}
@@ -257,15 +347,16 @@ export default function Header() {
               <div className="h-4 w-px bg-slate-300 dark:bg-slate-800 mx-1" />
               <div suppressHydrationWarning>
                 <span className="text-slate-500 dark:text-slate-400 text-xs block leading-none">
-                  Chốt 10:00:
+                  Chốt {cutoffTimeStr}:
                 </span>
                 <span
-                  className={`font-bold ${timeInfo.isPast
+                  className={`font-bold font-mono ${timeInfo.isPast
                     ? "text-amber-600 dark:text-amber-400"
                     : "text-emerald-600 dark:text-emerald-400"
                     }`}
+                  title={timeInfo.isPast ? `Đã chốt hôm nay (${cutoffTimeStr}). Đếm ngược tới mốc chốt ${cutoffTimeStr} ngày mai: ${timeInfo.remainingNext}` : `Còn ${timeInfo.remaining} đến mốc chốt công (${cutoffTimeStr})`}
                 >
-                  {mounted ? (timeInfo.isPast ? "Đã chốt" : timeInfo.remaining) : "--:--:--"}
+                  {mounted ? (timeInfo.isPast ? `Đã chốt • Mai: ${timeInfo.remainingNext}` : `Còn: ${timeInfo.remaining}`) : "--:--:--"}
                 </span>
               </div>
             </div>
@@ -411,7 +502,7 @@ export default function Header() {
                     <Link
                       href="/settings"
                       onClick={() => setUserDropdownOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-normal transition-colors"
                     >
                       <Settings className="w-4 h-4 text-slate-500" />
                       <span>Cài Đặt & Cấu Hình</span>
@@ -419,7 +510,7 @@ export default function Header() {
                     <Link
                       href="/logs"
                       onClick={() => setUserDropdownOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-normal transition-colors"
                     >
                       <Activity className="w-4 h-4 text-slate-500" />
                       <span>Nhật Ký & Hoạt Động</span>
@@ -427,7 +518,7 @@ export default function Header() {
                     <Link
                       href="/docs"
                       onClick={() => setUserDropdownOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-normal transition-colors"
                     >
                       <BookOpen className="w-4 h-4 text-slate-500" />
                       <span>Hướng Dẫn (Docs)</span>
@@ -435,7 +526,7 @@ export default function Header() {
                     <Link
                       href="/api-docs"
                       onClick={() => setUserDropdownOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-normal transition-colors"
                     >
                       <Code2 className="w-4 h-4 text-slate-500" />
                       <span>API Reference</span>
@@ -446,15 +537,15 @@ export default function Header() {
                         setUserDropdownOpen(false);
                         setIsBugModalOpen(true);
                       }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 font-semibold transition-colors cursor-pointer text-left"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-normal transition-colors cursor-pointer text-left"
                     >
-                      <Bug className="w-4 h-4 text-pink-500" />
+                      <Bug className="w-4 h-4 text-slate-500" />
                       <span>Báo Cáo Sự Cố Kỹ Thuật</span>
                     </button>
                     <Link
                       href="/accounts"
                       onClick={() => setUserDropdownOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-normal transition-colors"
                     >
                       <Users className="w-4 h-4 text-slate-500" />
                       <span>Quản Lý Dàn Account</span>
@@ -462,7 +553,7 @@ export default function Header() {
                     <Link
                       href="/checklist"
                       onClick={() => setUserDropdownOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-normal transition-colors"
                     >
                       <CheckSquare className="w-4 h-4 text-slate-500" />
                       <span>Checklist Chấm Công</span>
@@ -471,9 +562,9 @@ export default function Header() {
                     <Link
                       href="/extensions"
                       onClick={() => setUserDropdownOpen(false)}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 font-semibold transition-colors"
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-normal transition-colors"
                     >
-                      <Download className="w-4 h-4 text-pink-500" />
+                      <Download className="w-4 h-4 text-slate-500" />
                       <span>Trung Tâm Tiện Ích (Extensions)</span>
                     </Link>
                   </div>
@@ -482,7 +573,7 @@ export default function Header() {
                   <div className="border-t border-slate-100 dark:border-slate-800 pt-1.5 px-2">
                     <button
                       onClick={handleLogout}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                     >
                       <LogOut className="w-4 h-4 text-rose-500" />
                       <span>Đăng Xuất (Logout)</span>
@@ -493,20 +584,21 @@ export default function Header() {
             </div>
           </div>
         </div>
-
-        {/* Global Sync Notification Banner */}
-        {syncMessage && (
-          <div className="py-1.5 px-4 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 text-xs text-pink-600 dark:text-cyan-300 text-center flex items-center justify-center gap-2 animate-fadeIn">
-            <span>{syncMessage}</span>
-          </div>
-        )}
       </div>
 
-      {/* Header Bug Report Modal */}
-      <BugReportModal
-        isOpen={isBugModalOpen}
-        onClose={() => setIsBugModalOpen(false)}
-      />
+      {/* Global Sync Notification Banner - spans 100% full screen width */}
+      {syncMessage && (
+        <div className="w-full py-1.5 px-4 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 text-xs text-pink-600 dark:text-cyan-300 text-center flex items-center justify-center gap-2 animate-fadeIn">
+          <span>{syncMessage}</span>
+        </div>
+      )}
     </header>
-  );
+
+    {/* Header Bug Report Modal */}
+    <BugReportModal
+      isOpen={isBugModalOpen}
+      onClose={() => setIsBugModalOpen(false)}
+    />
+  </>
+);
 }

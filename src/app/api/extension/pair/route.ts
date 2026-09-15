@@ -4,7 +4,10 @@
  * Do NOT log request/response bodies — they carry personalToken + session secrets.
  */
 import { NextResponse } from "next/server";
+import { appendFileSync } from "fs";
+import { join } from "path";
 import {
+  checkAndBindMachine,
   checkRateLimit,
   generatePersonalToken,
   getClientIp,
@@ -17,6 +20,27 @@ import {
 } from "@/lib/extension-auth";
 import { prisma } from "@/lib/prisma";
 
+// #region agent log
+function dbgPair(message: string, data: Record<string, unknown>, hypothesisId = "A") {
+  try {
+    appendFileSync(
+      join(process.cwd(), "debug-1d815d.log"),
+      `${JSON.stringify({
+        sessionId: "1d815d",
+        runId: "multi-pre",
+        hypothesisId,
+        location: "api/extension/pair/route.ts",
+        message,
+        data,
+        timestamp: Date.now(),
+      })}\n`
+    );
+  } catch {
+    /* ignore */
+  }
+}
+// #endregion
+
 function isDbConnectivityError(err: unknown): boolean {
   const msg = String((err as Error)?.message || err || "");
   return /timeout|terminat|ECONNRESET|ECONNREFUSED|Can't reach database|Connection/i.test(
@@ -25,7 +49,6 @@ function isDbConnectivityError(err: unknown): boolean {
 }
 
 export async function POST(req: Request) {
-  // Intentionally no body logging on this route (secrets in JSON response).
   const ip = getClientIp(req) || "unknown";
   const userAgent = getClientUserAgent(req);
 
@@ -38,9 +61,25 @@ export async function POST(req: Request) {
   }
 
   let pairingCode: string | undefined;
+  let machineId: string | undefined;
+  let machineName: string | undefined;
+  let osUsername: string | undefined;
+  let nonce: string | undefined;
+  let ts: number | string | undefined;
+  let sig: string | undefined;
   try {
     const body = await req.json();
-    pairingCode = typeof body?.pairingCode === "string" ? body.pairingCode.trim() : undefined;
+    pairingCode =
+      typeof body?.pairingCode === "string" ? body.pairingCode.trim() : undefined;
+    machineId =
+      typeof body?.machineId === "string" ? body.machineId.trim() : undefined;
+    machineName =
+      typeof body?.machineName === "string" ? body.machineName.trim() : undefined;
+    osUsername =
+      typeof body?.osUsername === "string" ? body.osUsername.trim() : undefined;
+    nonce = typeof body?.nonce === "string" ? body.nonce.trim() : undefined;
+    ts = body?.ts;
+    sig = typeof body?.sig === "string" ? body.sig.trim() : undefined;
   } catch {
     return NextResponse.json(
       { success: false, error: "Body JSON không hợp lệ." },
@@ -83,36 +122,52 @@ export async function POST(req: Request) {
       data: { usedAt: now },
     });
 
-    if (claimed.count !== 1) {
-      checkRateLimit(`pair:failip:${ip}`, 30);
-      console.info(JSON.stringify({ event: "pair_redeem", outcome: "expired_or_used", ip }));
-      return NextResponse.json(
-        { success: false, error: "Mã pairing không hợp lệ hoặc đã hết hạn." },
-        { status: 401 }
-      );
-    }
+    const userSelect = {
+      id: true,
+      name: true,
+      email: true,
+      username: true,
+      isActive: true,
+      extensionAccessEnabled: true,
+      extensionToken: true,
+      extensionSessionVersion: true,
+      deletedAt: true,
+    } as const;
 
-    const row = await prisma.extensionPairingCode.findUnique({
+    let redeemMode: "first" | "rebootstrap" = "first";
+    let row = await prisma.extensionPairingCode.findUnique({
       where: { codeHash },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            username: true,
-            isActive: true,
-            extensionAccessEnabled: true,
-            extensionToken: true,
-            extensionSessionVersion: true,
-            deletedAt: true,
-          },
-        },
-      },
+      include: { user: { select: userSelect } },
     });
 
+    if (claimed.count !== 1) {
+      // One-time claim lost the race or code was already used. Allow additional
+      // GPM browser profiles on the same machine to re-bootstrap the same
+      // personalToken when the code was previously redeemed successfully.
+      if (row?.usedAt) {
+        redeemMode = "rebootstrap";
+        // #region agent log
+        dbgPair("rebootstrap path", { claimed: claimed.count, hasUsedAt: true, codePrefix: pairingCode.slice(0, 12) }, "A");
+        // #endregion
+      } else {
+        checkRateLimit(`pair:failip:${ip}`, 30);
+        console.info(
+          JSON.stringify({ event: "pair_redeem", outcome: "expired_or_used", ip })
+        );
+        // #region agent log
+        dbgPair("reject no usedAt", { claimed: claimed.count, hasRow: !!row, codePrefix: pairingCode.slice(0, 12) }, "A");
+        // #endregion
+        return NextResponse.json(
+          { success: false, error: "Mã pairing không hợp lệ hoặc đã hết hạn." },
+          { status: 401 }
+        );
+      }
+    }
+
     if (!row?.user || row.user.deletedAt || !row.user.isActive) {
-      console.info(JSON.stringify({ event: "pair_redeem", outcome: "user_blocked", ip }));
+      console.info(
+        JSON.stringify({ event: "pair_redeem", outcome: "user_blocked", ip })
+      );
       return NextResponse.json(
         { success: false, error: "Mã pairing không hợp lệ hoặc đã hết hạn." },
         { status: 401 }
@@ -120,15 +175,53 @@ export async function POST(req: Request) {
     }
 
     if (row.user.extensionAccessEnabled === false) {
-      console.info(JSON.stringify({ event: "pair_redeem", outcome: "user_blocked", ip }));
+      console.info(
+        JSON.stringify({ event: "pair_redeem", outcome: "user_blocked", ip })
+      );
       return NextResponse.json(
-        { success: false, error: "Quyền Extension đã bị thu hồi. Liên hệ Quản trị viên." },
+        {
+          success: false,
+          error: "Quyền Extension đã bị thu hồi. Liên hệ Quản trị viên.",
+        },
         { status: 403 }
+      );
+    }
+
+    const machineCheck = await checkAndBindMachine(
+      row.user.id,
+      { machineId, machineName, osUsername, nonce, ts, sig },
+      { ip, rlPrefix: "pair" }
+    );
+    if (!machineCheck.ok) {
+      // #region agent log
+      dbgPair("machineCheck failed", { redeemMode, status: machineCheck.status, reason: machineCheck.reason || null, error: machineCheck.error || null }, "A");
+      // #endregion
+      const headers =
+        machineCheck.status === 429
+          ? { "Retry-After": String(machineCheck.retryAfterSec ?? 60) }
+          : undefined;
+      return NextResponse.json(
+        {
+          success: false,
+          error: machineCheck.error,
+          reason: machineCheck.reason,
+        },
+        { status: machineCheck.status, headers }
       );
     }
 
     let personalToken = revealPersonalToken(row.user.extensionToken);
     if (!personalToken) {
+      // Rebootstrap requires an existing token; first redeem may mint one.
+      if (redeemMode === "rebootstrap") {
+        // #region agent log
+        dbgPair("rebootstrap no token", { userId: row.user.id }, "A");
+        // #endregion
+        return NextResponse.json(
+          { success: false, error: "Mã pairing không hợp lệ hoặc đã hết hạn." },
+          { status: 401 }
+        );
+      }
       personalToken = generatePersonalToken();
       await prisma.user.update({
         where: { id: row.user.id },
@@ -137,8 +230,10 @@ export async function POST(req: Request) {
           extensionAccessEnabled: true,
         },
       });
-    } else if (row.user.extensionToken && !row.user.extensionToken.startsWith("e1.")) {
-      // Legacy plaintext in DB — seal on successful pair
+    } else if (
+      row.user.extensionToken &&
+      !row.user.extensionToken.startsWith("e1.")
+    ) {
       await prisma.user.update({
         where: { id: row.user.id },
         data: { extensionToken: persistPersonalTokenValue(personalToken) },
@@ -151,12 +246,19 @@ export async function POST(req: Request) {
     };
 
     const session = await issueSessionBundle(freshUser, { ip, userAgent });
-
     const serverUrl = resolvePublicAppUrl(req);
 
     console.info(
-      JSON.stringify({ event: "pair_redeem", outcome: "ok", userId: row.user.id, ip })
+      JSON.stringify({
+        event: "pair_redeem",
+        outcome: redeemMode === "rebootstrap" ? "rebootstrap_ok" : "ok",
+        userId: row.user.id,
+        ip,
+      })
     );
+    // #region agent log
+    dbgPair("pair ok", { redeemMode, userId: row.user.id, codePrefix: pairingCode!.slice(0, 12) }, "A");
+    // #endregion
 
     return NextResponse.json({
       success: true,

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TikTokFlow Companion",
-  "version": "1.0.14",
+  "version": "1.0.30",
   "description": "Tự động phát hiện phiên đăng nhập TikTok và đồng bộ GPMLogin với TikTokFlow",
   "icons": {
     "16": "icons/icon16.png",

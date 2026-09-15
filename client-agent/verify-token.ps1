@@ -1,5 +1,7 @@
 param (
-    [string]$Token
+    [Parameter(Mandatory = $true)]
+    [string]$Token,
+    [string]$ConfigPath
 )
 
 # Set UTF-8 output encoding for PowerShell
@@ -20,12 +22,22 @@ if (-not ($tok -match '^ttf_sec_[a-f0-9]{16,64}$')) {
     exit 1
 }
 
-# 2. Read config.json
-$configFile = Join-Path $PSScriptRoot "config.json"
+# 2. Resolve config.json — prefer installed Program Files path when provided
+$pfConfig = Join-Path $env:ProgramFiles "TikTokFlow\ClientAgent\config.json"
+if ($ConfigPath -and (Test-Path $ConfigPath)) {
+    $configFile = $ConfigPath
+} elseif (Test-Path $pfConfig) {
+    $configFile = $pfConfig
+} else {
+    $configFile = Join-Path $PSScriptRoot "config.json"
+}
+
 if (-not (Test-Path $configFile)) {
-    Write-Host " [LOI] Khong tim thay file config.json trong thu muc." -ForegroundColor Red
+    Write-Host " [LOI] Khong tim thay file config.json: $configFile" -ForegroundColor Red
     exit 1
 }
+
+Write-Host " [*] Config: $configFile" -ForegroundColor DarkGray
 
 try {
     $cfg = Get-Content $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -52,11 +64,12 @@ try {
         Write-Host (" [+] Nhan vien so huu: " + $res.user.email) -ForegroundColor Green
     }
 
-    # 4. Save to config.json and clear any prior revoke flags (re-auth complete)
+    # 4. Save to the LIVE Agent config and clear revoke flags
     $cfg.personalToken = $tok
     $cfg.tokenRevoked = $false
     $cfg.tokenRevokedReason = ""
     $cfg.tokenRevokedAt = $null
+    $cfg.pairingCode = ""
     if ($res.user.email) {
         $cfg.memberEmail = $res.user.email
     }
@@ -65,13 +78,27 @@ try {
     Write-Host " [+] Da luu ma Token moi vao config.json an toan." -ForegroundColor Green
     Write-Host " [+] Da xoa trang thai 'token thu hoi' — Agent co the dong bo lai." -ForegroundColor Green
 
-    # 5. Restart background agent if running
-    Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*agent.js*' } | ForEach-Object {
-        Stop-Process -Id $_.ProcessId -Force
-    } 2>$null
+    # 5. Restart background agent
+    $svc = Get-Service -Name "TikTokFlowAgent" -ErrorAction SilentlyContinue
+    if ($svc) {
+        Restart-Service -Name "TikTokFlowAgent" -Force -ErrorAction SilentlyContinue
+        Write-Host " [+] Da khoi dong lai Windows Service TikTokFlowAgent." -ForegroundColor Green
+    } else {
+        Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*agent.js*' } | ForEach-Object {
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        } 2>$null
 
-    schtasks /run /tn "TikTokFlow_Agent_Daemon" 2>$null
-    Write-Host " [+] Da kich hoat lai Agent chay ngam voi Token moi!" -ForegroundColor Green
+        Start-Sleep -Seconds 1
+        $agentDir = Split-Path -Parent $configFile
+        $node = Join-Path $agentDir "bin\node.exe"
+        if (-not (Test-Path $node)) { $node = "node" }
+        $agentJs = Join-Path $agentDir "agent.js"
+        if (Test-Path $agentJs) {
+            Start-Process -FilePath $node -ArgumentList "`"$agentJs`"","--daemon" -WorkingDirectory $agentDir -WindowStyle Hidden
+            Write-Host " [+] Da khoi dong lai Agent tu: $agentDir" -ForegroundColor Green
+        }
+    }
+
     Write-Host ""
     Write-Host "========================================================" -ForegroundColor Green
     Write-Host "   HOAN TAT! AGENT DA SAN SANG DONG BO SO LIEU          " -ForegroundColor Green

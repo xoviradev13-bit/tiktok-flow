@@ -114,10 +114,10 @@ export function ClientAgentSection() {
               </span>
             </div>
             <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-              Nhấp đúp vào file <code className="text-cyan-600 dark:text-cyan-400 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded font-mono text-xs font-bold border border-slate-200 dark:border-slate-800">setup-agent.bat</code> ➔ Nhấn phím <strong className="text-cyan-600 dark:text-cyan-400 font-bold">1</strong> và bấm Enter.
+              Nhấp đúp vào file <code className="text-cyan-600 dark:text-cyan-400 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded font-mono text-xs font-bold border border-slate-200 dark:border-slate-800">setup-agent.bat</code> ➔ Nhấn phím <strong className="text-cyan-600 dark:text-cyan-400 font-bold">1</strong> và bấm Enter. Nếu Windows hỏi quyền quản trị (UAC), chọn <strong>Cho phép</strong>.
             </p>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Xong! Agent sẽ tự động khởi chạy cùng Windows và hoạt động nền trong quá trình vận hành. Dữ liệu được định kỳ thu thập và đồng bộ về hệ thống trung tâm theo lịch trình cấu hình sẵn, không làm gián đoạn công việc của bạn.            
+              Xong! Agent chạy ngầm cùng Windows. Dữ liệu được thu thập và đồng bộ về hệ thống theo lịch cấu hình sẵn, không làm gián đoạn công việc. Nên hoàn tất bước này <strong>trước</strong> khi nạp Extension vào GPMLogin.
             </p>
 
             {/* Real Screenshot for setup-agent.bat */}
@@ -330,9 +330,9 @@ export function ClientAgentSection() {
               2
             </span>
             <div>
-              <div className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">Hủy Tác Vụ Khởi Động Cùng Windows</div>
+              <div className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">Gỡ Chạy Ngầm Khỏi Máy</div>
               <p className="text-slate-600 dark:text-slate-400 mt-1 leading-relaxed text-sm">
-                Nhấp đúp vào file <code className="text-cyan-600 dark:text-cyan-400 font-mono text-xs font-bold bg-cyan-50 dark:bg-cyan-950/50 px-1.5 py-0.5 rounded">setup-agent.bat</code> ➔ Nhấn phím <strong className="text-rose-600 dark:text-rose-400">2</strong> và bấm Enter. Hệ thống sẽ gỡ bỏ hoàn toàn tác vụ ngầm khỏi Windows Task Scheduler.
+                Nhấp đúp vào file <code className="text-cyan-600 dark:text-cyan-400 font-mono text-xs font-bold bg-cyan-50 dark:bg-cyan-950/50 px-1.5 py-0.5 rounded">setup-agent.bat</code> ➔ Nhấn phím <strong className="text-rose-600 dark:text-rose-400">2</strong> và bấm Enter. Hệ thống sẽ dừng và gỡ cài đặt Agent khỏi máy (có thể cần Cho phép UAC).
               </p>
             </div>
           </div>

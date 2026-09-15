@@ -5,6 +5,7 @@ import { createZipBuffer, ZipEntry } from "@/lib/zip";
 import { createPairingCodeForUser, resolvePublicAppUrl } from "@/lib/extension-auth";
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
 
 export async function GET(req: Request) {
   try {
@@ -99,15 +100,13 @@ export async function GET(req: Request) {
     });
 
     const zipBuffer = createZipBuffer(entries);
-    const sanitizedName = (user.username || user.name || "member")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "_");
+    const downloadId = randomUUID();
 
     return new Response(new Uint8Array(zipBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="TikTokFlow-Extension-${sanitizedName}.zip"`,
+        "Content-Disposition": `attachment; filename="TikTokFlow-Extension-${downloadId}.zip"`,
         "Content-Length": zipBuffer.length.toString(),
         "Cache-Control": "no-store, no-cache, must-revalidate",
       },

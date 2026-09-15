@@ -84,29 +84,15 @@ export default function ExtensionsListPage() {
   return (
     <div className="space-y-6 w-full pb-24 animate-fadeIn">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-bold text-pink-600 dark:text-pink-400 uppercase tracking-wider mb-1">
-            <Puzzle className="w-4 h-4" />
-            <span>Kho Tiện Ích Mở Rộng (Extension Directory)</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
-            TikTokFlow Extensions & Plugins
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
+            <Puzzle className="w-6 h-6 text-pink-500 shrink-0" />
+            <span className="truncate">Kho Tiện Ích & Extensions</span>
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
-            Trên mỗi máy, cài cả <strong className="font-semibold text-slate-700 dark:text-slate-300">Extension</strong> và{" "}
-            <strong className="font-semibold text-slate-700 dark:text-slate-300">Client Agent</strong>:
-            Extension giúp nhận diện tài khoản đang đăng nhập; Agent giúp cập nhật số liệu TikTok về hệ thống.
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+            Trên mỗi máy tính, cài cả Extension và Client Agent để đồng bộ tự động tài khoản và số liệu TikTok về hệ thống.
           </p>
-        </div>
-
-        <div className="flex items-center gap-2.5 self-start sm:self-auto">
-          <Link
-            href="/accounts"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
-          >
-            <span>Dàn Account</span>
-          </Link>
         </div>
       </div>
 

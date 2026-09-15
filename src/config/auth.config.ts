@@ -14,7 +14,7 @@ export const authConfig: NextAuthConfig = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-      allowDangerousEmailAccountLinking: false,
+      allowDangerousEmailAccountLinking: true,
       authorization: {
         params: {
           access_type: 'offline',
@@ -27,7 +27,7 @@ export const authConfig: NextAuthConfig = {
     GitHubProvider({
       clientId: process.env.GITHUB_CLIENT_ID || "",
       clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
-      allowDangerousEmailAccountLinking: false,
+      allowDangerousEmailAccountLinking: true,
     }),
 
     ...(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET
@@ -35,7 +35,7 @@ export const authConfig: NextAuthConfig = {
         SlackProvider({
           clientId: process.env.SLACK_CLIENT_ID,
           clientSecret: process.env.SLACK_CLIENT_SECRET,
-          allowDangerousEmailAccountLinking: false,
+          allowDangerousEmailAccountLinking: true,
         }),
       ]
       : []),

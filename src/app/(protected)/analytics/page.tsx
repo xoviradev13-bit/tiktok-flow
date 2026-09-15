@@ -31,7 +31,7 @@ type TabKey = "OVERVIEW" | "REVENUE" | "FLEET" | "OPERATIONS" | "RISK";
 export default function AnalyticsPage() {
   const { data: session } = useSession();
   const [activeTab, setActiveTab] = useState<TabKey>("OVERVIEW");
-  const [period, setPeriod] = useState<PeriodType>("30D");
+  const [period, setPeriod] = useState<PeriodType>("28D");
   const [startDate, setStartDate] = useState<string | undefined>(undefined);
   const [endDate, setEndDate] = useState<string | undefined>(undefined);
   const [operatorId, setOperatorId] = useState<string | null>(null);
@@ -103,20 +103,16 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6 animate-fadeIn pb-16">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-md shadow-pink-500/20">
-              <BarChart3 className="w-5 h-5" />
-            </div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-              Trung Tâm Phân Tích & Báo Cáo
-            </h1>
-            <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-xs font-extrabold uppercase bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
+            <BarChart3 className="w-6 h-6 text-pink-500 shrink-0" />
+            <span className="truncate">Trung Tâm Phân Tích & Báo Cáo</span>
+            <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-xs font-extrabold uppercase bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shrink-0">
               Enterprise Hub
             </span>
-          </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
             Hệ thống phân tích thông minh hợp nhất toàn bộ dữ liệu tài khoản, doanh thu, KPI chấm công và cảnh báo rủi ro.
           </p>
         </div>

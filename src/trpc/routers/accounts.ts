@@ -1,7 +1,6 @@
 import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
 import { calculateWorkdayScore } from "@/lib/scoring-engine";
 
 function serializeBigInt<T>(obj: T): T {
@@ -19,6 +18,7 @@ export const accountsRouter = router({
       z.object({
         search: z.string().optional(),
         status: z.enum(["ALL", "ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"]).optional(),
+        onlineStatus: z.enum(["ALL", "ONLINE", "OFFLINE"]).optional(),
         country: z.string().optional(),
         assignedUserId: z.string().optional(),
       }).optional()
@@ -45,11 +45,15 @@ export const accountsRouter = router({
         where.status = input.status;
       }
 
+      if (input?.onlineStatus && input.onlineStatus !== "ALL") {
+        where.isOnline = input.onlineStatus === "ONLINE";
+      }
+
       if (input?.country && input.country !== "ALL") {
         where.country = input.country;
       }
 
-      const [accounts, statusGroups] = await Promise.all([
+      const [accounts, statusGroups, onlineCount] = await Promise.all([
         ctx.prisma.tiktokAccount.findMany({
           where,
           include: {
@@ -72,7 +76,14 @@ export const accountsRouter = router({
         }),
         ctx.prisma.tiktokAccount.groupBy({
           by: ["status"],
+          where,
           _count: { id: true },
+        }),
+        ctx.prisma.tiktokAccount.count({
+          where: {
+            ...where,
+            isOnline: true,
+          },
         }),
       ]);
 
@@ -100,6 +111,7 @@ export const accountsRouter = router({
           restricted: restrictedCount,
           banned: bannedCount,
           warming: warmingCount,
+          online: onlineCount,
           totalRevenue: Math.round(totalFleetRevenue * 100) / 100,
         },
       };
@@ -162,6 +174,7 @@ export const accountsRouter = router({
         username: z.string().min(1),
         country: z.string().default("US"),
         gpmProfileId: z.string().optional().nullable(),
+        gpmPort: z.number().optional().nullable(),
         groupName: z.string().optional().nullable(),
         status: z.enum(["ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"]).default("ACTIVE"),
         assignedUserId: z.string().optional().nullable(),
@@ -186,6 +199,7 @@ export const accountsRouter = router({
           username: cleanUsername,
           country: input.country,
           gpmProfileId: input.gpmProfileId,
+          gpmPort: input.gpmPort,
           groupName: input.groupName,
           status: input.status,
           assignedUserId: input.assignedUserId || null,
@@ -218,6 +232,7 @@ export const accountsRouter = router({
         id: z.string(),
         country: z.string().optional(),
         gpmProfileId: z.string().optional().nullable(),
+        gpmPort: z.number().optional().nullable(),
         groupName: z.string().optional().nullable(),
         status: z.enum(["ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"]).optional(),
         assignedUserId: z.string().optional().nullable(),
@@ -258,6 +273,7 @@ export const accountsRouter = router({
         data: {
           country: input.country,
           gpmProfileId: input.gpmProfileId,
+          gpmPort: input.gpmPort !== undefined ? input.gpmPort : undefined,
           groupName: input.groupName,
           status: input.status,
           assignedUserId: ctx.session.user.role !== "STAFF" ? input.assignedUserId : undefined,
@@ -370,36 +386,26 @@ export const accountsRouter = router({
         });
       }
 
-      let detectedData: any = null;
-      if (account.gpmProfileId) {
-        try {
-          detectedData = await detectTikTokAccountFromGpm(account.gpmProfileId);
-        } catch (e: any) {
-          console.warn("[syncAccount] Extraction error:", e);
-        }
-      }
-
-      const updateData: any = {
-        lastSyncedAt: new Date(),
-      };
-
-      if (detectedData) {
-        if (detectedData.totalViews > 0) updateData.totalViews = BigInt(detectedData.totalViews);
-        if (detectedData.followersCount > 0) updateData.totalFollowers = detectedData.followersCount;
-        if ((detectedData.totalVideos || detectedData.videoCount) > 0) {
-          updateData.totalVideos = detectedData.totalVideos || detectedData.videoCount;
-        }
-        if (detectedData.totalRewardsUsd !== null && detectedData.totalRewardsUsd !== undefined) {
-          updateData.totalRevenue = detectedData.totalRewardsUsd;
-        }
-        if (detectedData.country && (!account.country || account.country === "US")) {
-          updateData.country = detectedData.country;
-        }
+      // Enqueue sync job in SyncQueue for Client Agent to sweep on the member's machine
+      const targetUserId = account.assignedUserId || ctx.session.user.id;
+      try {
+        await ctx.prisma.syncQueue.create({
+          data: {
+            requestedById: ctx.session.user.id,
+            status: "PENDING",
+            targetScope: targetUserId,
+            requestedAt: new Date(),
+          },
+        });
+      } catch (e: any) {
+        console.warn("[syncAccount] SyncQueue enqueue error:", e);
       }
 
       const updated = await ctx.prisma.tiktokAccount.update({
         where: { id: input.accountId },
-        data: updateData,
+        data: {
+          lastSyncedAt: new Date(),
+        },
         include: {
           assignedUser: true,
           alerts: { orderBy: { createdAt: "desc" } },
@@ -422,18 +428,13 @@ export const accountsRouter = router({
         });
 
         if (openChecklistItem) {
-          const hasRecentVideo =
-            (detectedData?.videosToday !== undefined && detectedData.videosToday > 0) ||
-            (detectedData?.videos7d !== undefined && detectedData.videos7d > 0) ||
-            (detectedData?.totalVideos !== undefined && detectedData.totalVideos > 0);
-
-          const isPosted = hasRecentVideo || openChecklistItem.isPosted;
           const isSynced = true;
+          const isPosted = openChecklistItem.isPosted;
           const isCompleted = isPosted && isSynced;
 
           await ctx.prisma.dailyChecklistItem.update({
             where: { id: openChecklistItem.id },
-            data: { isPosted, isSynced, isCompleted },
+            data: { isSynced, isCompleted },
           });
 
           // Recalculate score for that checklist
@@ -455,7 +456,7 @@ export const accountsRouter = router({
 
       return {
         account: serializeBigInt(updated),
-        liveData: detectedData,
+        queued: true,
       };
     }),
 

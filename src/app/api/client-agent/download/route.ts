@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { createZipBuffer, ZipEntry } from "@/lib/zip";
-import { createPairingCodeForUser } from "@/lib/extension-auth";
+import {
+  createPairingCodeForUser,
+  ensureAgentAttestSecretPlain,
+} from "@/lib/extension-auth";
 import AdmZip from "adm-zip";
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
 
 export async function GET(req: Request) {
   try {
@@ -25,11 +28,15 @@ export async function GET(req: Request) {
         username: true,
         email: true,
         extensionAccessEnabled: true,
+        role: true,
       },
     });
 
     if (!user) {
-      return NextResponse.json({ error: "Không tìm thấy người dùng." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Không tìm thấy người dùng." },
+        { status: 404 }
+      );
     }
 
     if (user.extensionAccessEnabled === false) {
@@ -42,23 +49,29 @@ export async function GET(req: Request) {
       );
     }
 
-    // Determine current Server URL from host header
     const host = req.headers.get("host") || "localhost:3000";
-    const proto = req.headers.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
+    const proto =
+      req.headers.get("x-forwarded-proto") ||
+      (host.startsWith("localhost") ? "http" : "https");
     const serverUrl = `${proto}://${host}`;
 
+    const url = new URL(req.url);
+    const rotateAttest =
+      url.searchParams.get("rotateAttest") === "1" && user.role === "ADMIN";
+
     const pairingCode = await createPairingCodeForUser(user.id);
+    const agentAttestSecret = await ensureAgentAttestSecretPlain(user.id, {
+      rotate: rotateAttest,
+    });
 
-    const sanitizedName = (user.username || user.name || "member")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "_");
+    const downloadId = randomUUID();
 
-    // Pairing only — no personalToken in redistributable zip
     const configContent = JSON.stringify(
       {
         serverUrl,
         memberEmail: user.email || user.username || "member@company.com",
         pairingCode,
+        agentAttestSecret,
         concurrency: "auto",
         headless: true,
         tokenRevoked: false,
@@ -68,77 +81,45 @@ export async function GET(req: Request) {
       2
     );
 
-    // 1. FAST PATH: Check pre-packaged base zip containing portable Node.js & Playwright-core
     const baseZipPath = path.join(process.cwd(), "client-agent-base.zip");
-    if (fs.existsSync(baseZipPath)) {
-      try {
-        const zip = new AdmZip(baseZipPath);
-        // Replace or add personalized config.json
-        zip.addFile("config.json", Buffer.from(configContent, "utf-8"));
-        const zipBuffer = zip.toBuffer();
-
-        return new Response(new Uint8Array(zipBuffer), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/zip",
-            "Content-Disposition": `attachment; filename="TikTokFlow-ClientAgent-${sanitizedName}.zip"`,
-            "Content-Length": zipBuffer.length.toString(),
-            "Cache-Control": "no-store, no-cache, must-revalidate",
-          },
-        });
-      } catch (zipErr) {
-        console.warn("[ClientAgentDownload] Fallback to directory packing:", zipErr);
-      }
-    }
-
-    // 2. FALLBACK PATH: Directory packing
-    const agentDir = path.join(process.cwd(), "client-agent");
-    if (!fs.existsSync(agentDir)) {
+    if (!fs.existsSync(baseZipPath)) {
       return NextResponse.json(
-        { error: "Thư mục Client Agent không tồn tại trên server." },
+        {
+          error:
+            "client-agent-base.zip chưa được pack trên server. Chạy scripts/pack-client-agent-base.ps1 rồi deploy lại.",
+        },
         { status: 500 }
       );
     }
 
-    const entries: ZipEntry[] = [];
-    function addDirRecursive(dir: string, prefix = "") {
-      const files = fs.readdirSync(dir);
-      for (const f of files) {
-        if (f.startsWith(".")) continue;
-        const fullPath = path.join(dir, f);
-        const relPath = prefix ? `${prefix}/${f}` : f;
-        const stat = fs.statSync(fullPath);
-        if (stat.isDirectory()) {
-          addDirRecursive(fullPath, relPath);
-        } else {
-          if (relPath === "config.json") continue;
-          entries.push({
-            name: relPath,
-            data: fs.readFileSync(fullPath),
-          });
-        }
-      }
+    try {
+      const zip = new AdmZip(baseZipPath);
+      zip.addFile("config.json", Buffer.from(configContent, "utf-8"));
+      const zipBuffer = zip.toBuffer();
+
+      return new Response(new Uint8Array(zipBuffer), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="TikTokFlow-ClientAgent-${downloadId}.zip"`,
+          "Content-Length": zipBuffer.length.toString(),
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      });
+    } catch (zipErr) {
+      console.error("[ClientAgentDownload] base zip corrupt:", zipErr);
+      return NextResponse.json(
+        {
+          error:
+            "client-agent-base.zip lỗi hoặc không đọc được. Pack lại trước khi tải.",
+        },
+        { status: 500 }
+      );
     }
-
-    addDirRecursive(agentDir);
-    entries.push({
-      name: "config.json",
-      data: Buffer.from(configContent, "utf-8"),
-    });
-
-    const zipBuffer = createZipBuffer(entries);
-
-    return new Response(new Uint8Array(zipBuffer), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="TikTokFlow-ClientAgent-${sanitizedName}.zip"`,
-        "Content-Length": zipBuffer.length.toString(),
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-      },
-    });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Lỗi tải Client Agent";
     console.error("[ClientAgentDownload] Error generating zip:", err);
-    return NextResponse.json({ error: err.message || "Lỗi tải Client Agent" }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

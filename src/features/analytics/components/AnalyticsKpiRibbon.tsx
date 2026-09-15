@@ -119,12 +119,12 @@ export default function AnalyticsKpiRibbon({ kpi, isStaff }: AnalyticsKpiRibbonP
               className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-br ${card.gradient} rounded-full blur-2xl pointer-events-none -mr-10 -mt-10 group-hover:scale-125 transition-transform duration-500`}
             />
 
-            <div className="relative flex items-start justify-between gap-2 mb-2">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 line-clamp-1">
+            <div className="relative flex items-center justify-between gap-2 mb-2 min-w-0">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate flex-1 min-w-0" title={card.label}>
                 {card.label}
               </span>
-              <div className={`p-1.5 rounded-xl border ${card.accent} shrink-0`}>
-                <Icon className="w-4 h-4" />
+              <div className={`w-7 h-7 rounded-xl border flex items-center justify-center ${card.accent} shrink-0`}>
+                <Icon className="w-3.5 h-3.5" />
               </div>
             </div>
 

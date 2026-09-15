@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateWorkdayScore, DEFAULT_SCORING_CONFIG, ScoringRuleConfig } from "@/lib/scoring-engine";
-import { detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
 import { auth } from "@/lib/auth";
 
 function getTodayDateOnly(): Date {
@@ -50,75 +49,24 @@ export async function GET(req: Request) {
     const results: any[] = [];
 
     for (const checklist of checklists) {
-      // Auto-scan uncompleted items
+      // Check synced status from database for each item
       for (const item of checklist.items) {
-        if (!item.isCompleted && item.account.gpmProfileId) {
-          try {
-            const detected = await detectTikTokAccountFromGpm(item.account.gpmProfileId);
-            if (detected) {
-              const hasRecentVideo =
-                (detected.videosToday !== undefined && detected.videosToday > 0) ||
-                (detected.videos7d !== undefined && detected.videos7d > 0) ||
-                (detected.totalVideos !== undefined && detected.totalVideos > 0);
+        const isSyncedToday = Boolean(
+          item.account.lastSyncedAt &&
+          new Date(item.account.lastSyncedAt).getTime() >= today.getTime()
+        );
+        const isSynced = item.isSynced || isSyncedToday;
+        const isPosted = item.isPosted;
+        const isCompleted = item.isCompleted || (isPosted && isSynced);
 
-              const isPosted = hasRecentVideo || item.isPosted;
-              const isSynced = true;
-              const isCompleted = isPosted && isSynced;
-
-              await prisma.dailyChecklistItem.update({
-                where: { id: item.id },
-                data: { isPosted, isSynced, isCompleted },
-              });
-
-              if (isCompleted) totalItemsAutoChecked++;
-
-              // Update account stats
-              const updateData: any = { lastSyncedAt: new Date() };
-              if (detected.totalViews > 0) updateData.totalViews = BigInt(detected.totalViews);
-              if (detected.followersCount > 0) updateData.totalFollowers = detected.followersCount;
-              if ((detected.totalVideos || detected.videoCount) > 0) {
-                updateData.totalVideos = detected.totalVideos || detected.videoCount;
-              }
-              if (detected.totalRewardsUsd !== null && detected.totalRewardsUsd !== undefined) {
-                updateData.totalRevenue = detected.totalRewardsUsd;
-              }
-
-              await prisma.tiktokAccount.update({
-                where: { id: item.account.id },
-                data: updateData,
-              });
-
-              // Upsert DailyRevenue for today
-              if (detected.totalViews > 0 || (detected.totalRewardsUsd !== null && detected.totalRewardsUsd !== undefined)) {
-                const revNum = detected.totalRewardsUsd || 0;
-                const viewsNum = detected.viewsToday || detected.totalViews || 0;
-                const rpmNum = detected.rpm || (viewsNum > 0 && revNum > 0 ? (revNum * 1000) / viewsNum : 0);
-
-                await prisma.dailyRevenue.upsert({
-                  where: {
-                    accountId_date_sourceType: {
-                      accountId: item.account.id,
-                      date: today,
-                      sourceType: "CREATOR_REWARDS",
-                    },
-                  },
-                  create: {
-                    accountId: item.account.id,
-                    date: today,
-                    views: BigInt(viewsNum),
-                    revenue: revNum,
-                    rpm: rpmNum,
-                    sourceType: "CREATOR_REWARDS",
-                  },
-                  update: {
-                    views: BigInt(viewsNum),
-                    revenue: revNum,
-                    rpm: rpmNum,
-                  },
-                });
-              }
-            }
-          } catch (e) {}
+        if (isSynced !== item.isSynced || isCompleted !== item.isCompleted) {
+          await prisma.dailyChecklistItem.update({
+            where: { id: item.id },
+            data: { isSynced, isCompleted },
+          });
+          if (isCompleted && !item.isCompleted) {
+            totalItemsAutoChecked++;
+          }
         }
       }
 

@@ -2,7 +2,6 @@ import { router, protectedProcedure, leadProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { gpmClient } from "@/lib/gpm-api";
-import { findTikTokHandleInProfile, detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -12,8 +11,48 @@ function serializeBigInt<T>(obj: T): T {
   );
 }
 
-async function syncGpmConfig(prisma: any) {
+async function getResolvedGpmPort(
+  prisma: any,
+  userId?: string,
+  gpmProfileId?: string,
+  explicitPort?: number | null
+): Promise<number | null> {
+  if (explicitPort && Number.isFinite(explicitPort) && explicitPort > 0) {
+    return explicitPort;
+  }
+  if (gpmProfileId) {
+    const acc = await prisma.tiktokAccount.findFirst({
+      where: { gpmProfileId },
+      select: { gpmPort: true, assignedUser: { select: { gpmPort: true } } },
+    });
+    if (acc?.gpmPort) return acc.gpmPort;
+    if (acc?.assignedUser?.gpmPort) return acc.assignedUser.gpmPort;
+  }
+  if (userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { gpmPort: true },
+    });
+    if (user?.gpmPort) return user.gpmPort;
+  }
   try {
+    const cfg = await prisma.systemConfig.findUnique({
+      where: { key: "gpm_config" },
+    });
+    if (cfg?.value) {
+      const parsed = JSON.parse(cfg.value);
+      if (parsed?.port) return Number(parsed.port);
+    }
+  } catch {}
+  return null;
+}
+
+async function syncGpmConfig(prisma: any, targetPort?: number | null) {
+  try {
+    if (targetPort && Number.isFinite(targetPort) && targetPort > 0) {
+      gpmClient.setBaseUrl(`http://127.0.0.1:${targetPort}/api/v1`);
+      return;
+    }
     const cfg = await prisma.systemConfig.findUnique({
       where: { key: "gpm_config" },
     });
@@ -29,22 +68,52 @@ async function syncGpmConfig(prisma: any) {
 }
 
 export const gpmRouter = router({
-  // 1. Check GPM-Login Connection
+  // 1. Check GPM-Login Connection (With User & DB Fallback)
   checkStatus: protectedProcedure.query(async ({ ctx }) => {
-    await syncGpmConfig(ctx.prisma);
-    return await gpmClient.checkConnection();
+    const user = await ctx.prisma.user.findUnique({
+      where: { id: ctx.session.user.id },
+      select: { gpmPort: true, gpmIsOnline: true, gpmLastSeenAt: true },
+    });
+    const resolvedPort = await getResolvedGpmPort(ctx.prisma, ctx.session.user.id);
+    await syncGpmConfig(ctx.prisma, resolvedPort);
+    const status = await gpmClient.checkConnection(resolvedPort);
+
+    const isFresh =
+      user?.gpmLastSeenAt &&
+      Date.now() - user.gpmLastSeenAt.getTime() < 5 * 60 * 1000;
+    const dbOnline = !!user?.gpmIsOnline && !!isFresh;
+
+    if (!status.isOnline && dbOnline && resolvedPort) {
+      return {
+        isOnline: true,
+        message: `GPMLogin online qua Client Agent (cổng ${resolvedPort})`,
+        baseUrl: `http://127.0.0.1:${resolvedPort}/api/v1`,
+        port: resolvedPort,
+        viaClientAgent: true,
+      };
+    }
+
+    return {
+      ...status,
+      port: status.port || resolvedPort || null,
+    };
   }),
 
   // 2. List GPM Profiles
   listProfiles: protectedProcedure
     .input(
-      z.object({
-        page: z.number().default(1),
-        pageSize: z.number().default(100),
-        search: z.string().optional(),
-      }).optional()
+      z
+        .object({
+          page: z.number().default(1),
+          pageSize: z.number().default(100),
+          search: z.string().optional(),
+          port: z.number().optional(),
+        })
+        .optional()
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      const targetPort = await getResolvedGpmPort(ctx.prisma, ctx.session.user.id, undefined, input?.port);
+      await syncGpmConfig(ctx.prisma, targetPort);
       const res = await gpmClient.listProfiles(
         input?.page || 1,
         input?.pageSize || 100,
@@ -59,42 +128,67 @@ export const gpmRouter = router({
       z.object({
         gpmProfileId: z.string(),
         url: z.string().optional(),
+        port: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (ctx.session.user.role === "STAFF") {
-        const hasAccess = await ctx.prisma.tiktokAccount.findFirst({
-          where: {
-            gpmProfileId: input.gpmProfileId,
-            assignedUserId: ctx.session.user.id,
-          },
-          select: { id: true },
-        });
-        if (!hasAccess) {
+      const account = await ctx.prisma.tiktokAccount.findFirst({
+        where: { gpmProfileId: input.gpmProfileId },
+        select: { id: true, assignedUserId: true, gpmPort: true },
+      });
+
+      if (ctx.session.user.role === "STAFF" && account) {
+        if (account.assignedUserId !== ctx.session.user.id) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "Bạn không có quyền khởi động profile này. Profile chưa được gán cho bạn.",
           });
         }
       }
-      await syncGpmConfig(ctx.prisma);
+
+      const targetPort = await getResolvedGpmPort(
+        ctx.prisma,
+        ctx.session.user.id,
+        input.gpmProfileId,
+        input.port
+      );
+      await syncGpmConfig(ctx.prisma, targetPort);
+
       const targetUrl = input.url || "https://www.tiktok.com/tiktokstudio";
       const res = await gpmClient.startProfile(input.gpmProfileId, {
         additionArgs: targetUrl,
         url: targetUrl,
+        port: targetPort,
       });
+
       if (!res) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Không thể kết nối đến GPMLogin (đã dò cổng 9495/19995/19996…). Hãy chắc chắn ứng dụng GPMLogin đang mở trên máy tính và bật API Setting!",
-        });
+        // Fallback flag for browser / client-agent to open locally on user PC
+        return {
+          success: false,
+          fallbackToLocal: true,
+          port: targetPort || 9495,
+          gpmProfileId: input.gpmProfileId,
+          targetUrl,
+          message: `Không thể kết nối trực tiếp từ server tới GPMLogin (cổng ${targetPort || "9495"}). Sẽ mở qua Client Agent trên máy tính của bạn!`,
+        };
       }
-      return res;
+
+      return {
+        success: true,
+        fallbackToLocal: false,
+        port: targetPort || (res as any)?.remote_debugging_port || null,
+        ...res,
+      };
     }),
 
   // 4. Stop Profile (Verified for assigned Staff, or Lead/Admin)
   stopProfile: protectedProcedure
-    .input(z.object({ gpmProfileId: z.string() }))
+    .input(
+      z.object({
+        gpmProfileId: z.string(),
+        port: z.number().optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       if (ctx.session.user.role === "STAFF") {
         const hasAccess = await ctx.prisma.tiktokAccount.findFirst({
@@ -111,8 +205,35 @@ export const gpmRouter = router({
           });
         }
       }
-      const res = await gpmClient.stopProfile(input.gpmProfileId);
-      return { success: res };
+      const targetPort = await getResolvedGpmPort(
+        ctx.prisma,
+        ctx.session.user.id,
+        input.gpmProfileId,
+        input.port
+      );
+      const res = await gpmClient.stopProfile(input.gpmProfileId, { port: targetPort });
+      return {
+        success: res,
+        fallbackToLocal: !res,
+        port: targetPort || 9495,
+        gpmProfileId: input.gpmProfileId,
+      };
+    }),
+
+  // 4b. Update Account Port
+  updateAccountPort: protectedProcedure
+    .input(
+      z.object({
+        accountId: z.string(),
+        port: z.number().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const account = await ctx.prisma.tiktokAccount.update({
+        where: { id: input.accountId },
+        data: { gpmPort: input.port },
+      });
+      return serializeBigInt(account);
     }),
 
   // 5. Scan & Import Profiles into Fleet
@@ -123,6 +244,28 @@ export const gpmRouter = router({
       }).optional()
     )
     .mutation(async ({ ctx, input }) => {
+      const health = await gpmClient.checkConnection();
+      if (!health.isOnline) {
+        // Remote VPS Mode: Web server is on cloud/VPS and cannot reach local GPM directly.
+        const syncJob = await ctx.prisma.syncQueue.create({
+          data: {
+            requestedById: ctx.session.user.id,
+            status: "PENDING",
+            targetScope: input?.autoAssignUserId || ctx.session.user.id,
+            requestedAt: new Date(),
+          },
+        });
+        return {
+          totalScanned: 0,
+          newImportedCount: 0,
+          updatedCount: 0,
+          imported: [],
+          isRemoteSignal: true,
+          syncJobId: syncJob.id,
+          message: "Đã tạo yêu cầu đồng bộ. Client Agent trên máy tính cá nhân sẽ tự động nhận và bắt đầu quét ngay!",
+        };
+      }
+
       const gpmResult = await gpmClient.listProfiles(1, 200);
       const profiles = gpmResult?.data || [];
 
@@ -132,7 +275,7 @@ export const gpmRouter = router({
           newImportedCount: 0,
           updatedCount: 0,
           imported: [],
-          message: "No profiles found in GPMLogin software.",
+          message: "Không tìm thấy profile nào trong phần mềm GPMLogin.",
         };
       }
 
@@ -143,11 +286,15 @@ export const gpmRouter = router({
       const currentUserRole = ctx.session.user.role;
       const actorName = ctx.session.user.name || ctx.session.user.email || "GPM Auto-Scanner";
 
-      // Pre-extract handles and batch query existing accounts using gpmProfileId & username indexes
-      const profileData = profiles.map((p) => ({
-        profile: p,
-        realHandle: findTikTokHandleInProfile(p.id),
-      }));
+      // Parse handle from profile name (e.g. "@channel_name")
+      const profileData = profiles.map((p) => {
+        const cleanName = (p.name || "").trim();
+        const handleMatch = cleanName.match(/@([a-zA-Z0-9_.]+)/);
+        return {
+          profile: p,
+          realHandle: handleMatch ? handleMatch[1].toLowerCase() : null,
+        };
+      });
 
       const allProfileIds = profiles.map((p) => p.id);
       const allHandles = profileData

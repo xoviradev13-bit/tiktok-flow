@@ -143,8 +143,9 @@ export function scoreLoggedInHandleFromArtifacts(blob: string): {
   const outScores: Record<string, number> = {};
   for (const [key, val] of scores) {
     outScores[key] = val.score;
-    if (!best || val.score > best.score) {
-      if (best) second = Math.max(second, best.score);
+    if (!best || val.score >= best.score) {
+      if (best && val.score > best.score) second = Math.max(second, best.score);
+      else if (best && val.score === best.score) second = best.score;
       best = val;
     } else if (val.score > second) {
       second = val.score;
@@ -161,8 +162,16 @@ export function scoreLoggedInHandleFromArtifacts(blob: string): {
     return { handle: best.casing, scores: outScores };
   }
 
-  // History-only: require a clear margin (visited public profiles often cluster)
-  if (best.score - second >= 3 && best.score >= 5) {
+  // History-only: accept clear margin or reasonable confidence
+  if (best.score - second >= 2 && best.score >= 3) {
+    return { handle: best.casing, scores: outScores };
+  }
+
+  if (best.score >= 4) {
+    return { handle: best.casing, scores: outScores };
+  }
+
+  if (!second && best.score >= 2) {
     return { handle: best.casing, scores: outScores };
   }
 

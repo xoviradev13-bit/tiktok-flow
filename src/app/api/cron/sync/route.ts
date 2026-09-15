@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { gpmClient } from "@/lib/gpm-api";
-import { findTikTokHandleInProfile, detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
 import { auth } from "@/lib/auth";
 
 export async function GET(req: Request) {
   try {
     const session = await auth();
-    const url = new URL(req.url);
     const authHeader = req.headers.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
     const isCronAuthorized = Boolean(cronSecret && authHeader === `Bearer ${cronSecret}`);
@@ -19,9 +17,35 @@ export async function GET(req: Request) {
 
     const health = await gpmClient.checkConnection();
     if (!health.isOnline) {
+      // VPS mode: GPMLogin is on local staff machines. Delegate via SyncQueue
+      const activeUsers = await prisma.user.findMany({
+        select: { id: true },
+      });
+
+      let queuedCount = 0;
+      for (const u of activeUsers) {
+        const existingJob = await prisma.syncQueue.findFirst({
+          where: {
+            targetScope: u.id,
+            status: { in: ["PENDING", "PROCESSING"] },
+          },
+        });
+        if (!existingJob) {
+          await prisma.syncQueue.create({
+            data: {
+              requestedById: u.id,
+              targetScope: u.id,
+              status: "PENDING",
+            },
+          });
+          queuedCount++;
+        }
+      }
+
       return NextResponse.json({
-        success: false,
-        message: "GPMLogin is currently offline",
+        success: true,
+        mode: "SYNC_QUEUE_DELEGATED",
+        message: `GPMLogin không kết nối trực tiếp trên server VPS. Đã giao ${queuedCount} tác vụ vào SyncQueue cho các Client Agent.`,
       });
     }
 
@@ -32,8 +56,7 @@ export async function GET(req: Request) {
     let updatedCount = 0;
 
     for (const p of profiles) {
-      const realHandle = findTikTokHandleInProfile(p.id);
-      let extractedUsername = realHandle || p.name.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
+      let extractedUsername = p.name.toLowerCase().replace(/[^a-z0-9_.]/g, "_");
       if (extractedUsername.startsWith("tiktok_")) {
         extractedUsername = extractedUsername.replace(/^tiktok_/, "");
       }
@@ -56,30 +79,17 @@ export async function GET(req: Request) {
         else if (lowerName.includes("de")) country = "DE";
         else if (lowerName.includes("fr")) country = "FR";
 
-        let followers = 0;
-        let videos = 0;
-        let views = 0;
-        if (realHandle) {
-          try {
-            const detected = await detectTikTokAccountFromGpm(p.id);
-            if (detected) {
-              followers = detected.followersCount;
-              videos = detected.videoCount;
-              views = detected.totalViews;
-            }
-          } catch (e) { }
-        }
-
         const newAccount = await prisma.tiktokAccount.create({
           data: {
             username: extractedUsername,
             country,
-            groupName: p.group_id || "GPM Fleet",
+            gpmProfileName: p.name || null,
+            groupName: await gpmClient.resolveGroupName(p.group_id),
             gpmProfileId: p.id,
             status: "ACTIVE",
-            totalViews: BigInt(views),
-            totalFollowers: followers,
-            totalVideos: videos,
+            totalViews: BigInt(0),
+            totalFollowers: 0,
+            totalVideos: 0,
             totalRevenue: 0,
             lastSyncedAt: new Date(),
           },
@@ -99,12 +109,10 @@ export async function GET(req: Request) {
       } else {
         const updateData: any = {
           gpmProfileId: p.id,
-          groupName: p.group_id || existing.groupName,
+          gpmProfileName: p.name || existing.gpmProfileName || null,
+          groupName: (await gpmClient.resolveGroupName(p.group_id)) || existing.groupName,
           lastSyncedAt: new Date(),
         };
-        if (realHandle && existing.username !== realHandle) {
-          updateData.username = realHandle;
-        }
 
         await prisma.tiktokAccount.update({
           where: { id: existing.id },

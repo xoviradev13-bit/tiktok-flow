@@ -23,6 +23,24 @@ export function TroubleshootingSection() {
         <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-3">
           <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+            <span>Extension không kích hoạt / báo thiếu Agent hoặc không kết nối được</span>
+          </h3>
+          <div className="text-sm text-slate-600 dark:text-slate-400 space-y-2 leading-relaxed">
+            <p>
+              <strong className="text-slate-800 dark:text-slate-200">Nguyên nhân:</strong> Client Agent chưa chạy trên máy, hoặc chưa cài xong bước{" "}
+              <code className="font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">setup-agent.bat</code> phím <strong>1</strong>.
+            </p>
+            <p>
+              <strong className="text-slate-800 dark:text-slate-200">Cách khắc phục:</strong> Chạy lại{" "}
+              <code className="font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">setup-agent.bat</code> ➔ phím <strong>1</strong>{" "}
+              (Cho phép UAC nếu được hỏi) ➔ mở lại profile GPMLogin. Extension chỉ kích hoạt được khi Agent đang chạy trên cùng máy.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-3">
+          <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
             <span>Lỗi: Extension báo &quot;Chưa xác thực&quot; hoặc không gửi được số liệu</span>
           </h3>
           <div className="text-sm text-slate-600 dark:text-slate-400 space-y-2 leading-relaxed">

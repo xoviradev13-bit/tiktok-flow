@@ -25,6 +25,7 @@ import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 
 type EndpointId =
+  | "extension_challenge"
   | "extension_pair"
   | "extension_session"
   | "client_sync"
@@ -43,7 +44,7 @@ interface ApiEndpoint {
   path: string;
   title: string;
   desc: string;
-  auth: "Personal Token" | "Mã phiên" | "Mã kích hoạt" | "CRON_SECRET" | "Session / Secret";
+  auth: "Personal Token" | "Mã phiên" | "Mã kích hoạt" | "CRON_SECRET" | "Session / Secret" | "Không cần";
   headers: { name: string; type: string; required: boolean; desc: string }[];
   bodyParams?: { name: string; type: string; required: boolean; desc: string }[];
   errorNotes?: string[];
@@ -57,11 +58,31 @@ interface ApiEndpoint {
 
 const API_ENDPOINTS: ApiEndpoint[] = [
   {
+    id: "extension_challenge",
+    method: "GET",
+    path: "/api/extension/challenge",
+    title: "Lấy mốc thời gian kích hoạt",
+    desc: "Extension/Agent gọi API này để lấy mốc thời gian trước khi kích hoạt gói hoặc tạo phiên. Không cần token. Đảm bảo Client Agent đang chạy trên máy trước khi Extension kích hoạt lần đầu.",
+    auth: "Không cần",
+    headers: [],
+    errorNotes: [
+      "429 — Gọi quá nhiều từ cùng IP, đợi rồi thử lại",
+    ],
+    snippets: {
+      curl: `curl "https://your-domain.com/api/extension/challenge"`,
+      typescript: `const res = await fetch("/api/extension/challenge");
+const { challengeTs } = await res.json();`,
+      python: `import requests
+print(requests.get("https://your-domain.com/api/extension/challenge").json())`,
+    },
+    responseExample: `{ "challengeTs": 1735689600000 }`,
+  },
+  {
     id: "extension_pair",
     method: "POST",
     path: "/api/extension/pair",
     title: "Kích hoạt gói vừa tải",
-    desc: "Khi bạn tải Extension hoặc Client Agent, trong file cấu hình có một mã kích hoạt dùng một lần (khoảng 10 phút). Extension/Agent tự gọi API này lần đầu chạy để liên kết với tài khoản của bạn — bạn không cần dán mã thủ công nếu còn hạn.",
+    desc: "Khi bạn tải Extension hoặc Client Agent, trong file cấu hình có một mã kích hoạt dùng một lần (khoảng 10 phút). Extension/Agent tự gọi API này lần đầu để liên kết với tài khoản — bạn không cần dán mã thủ công nếu còn hạn. Extension cần Client Agent đang chạy trên cùng máy khi kích hoạt lần đầu.",
     auth: "Mã kích hoạt",
     headers: [
       { name: "Content-Type", type: "string", required: true, desc: "application/json" },
@@ -76,7 +97,7 @@ const API_ENDPOINTS: ApiEndpoint[] = [
     ],
     errorNotes: [
       "401 — Mã sai, đã dùng, hoặc hết hạn — tải lại file Zip hoặc dán Personal Token trong Settings",
-      "403 — Admin đã khóa quyền Extension của bạn",
+      "403 — Admin đã khóa quyền Extension, hoặc thiếu Client Agent đang chạy trên máy",
       "429 — Thử quá nhiều lần, đợi rồi thử lại",
     ],
     snippets: {
@@ -104,7 +125,7 @@ print(requests.post("https://your-domain.com/api/extension/pair", json={"pairing
     method: "POST",
     path: "/api/extension/session",
     title: "Tạo / gia hạn phiên làm việc",
-    desc: "Đổi Personal Token thành mã phiên ngắn hạn (khoảng 15 phút) để gọi các API đồng bộ. Extension và Client Agent tự làm bước này; chỉ cần quan tâm khi tích hợp thủ công hoặc khi bị yêu cầu đăng nhập lại.",
+    desc: "Đổi Personal Token thành mã phiên ngắn hạn (khoảng 15 phút) để gọi các API đồng bộ. Extension và Client Agent tự làm bước này. Lần tạo phiên mới (Personal Token) cần Client Agent đang chạy trên máy; gia hạn bằng refreshToken thì không cần.",
     auth: "Personal Token",
     headers: [
       {
@@ -125,7 +146,7 @@ print(requests.post("https://your-domain.com/api/extension/pair", json={"pairing
     ],
     errorNotes: [
       "401 — Token sai hoặc phiên đã bị hủy — xác thực lại / tải gói mới",
-      "403 — Admin đã khóa quyền Extension",
+      "403 — Admin đã khóa quyền Extension, hoặc thiếu Client Agent đang chạy (khi tạo phiên mới)",
       "500 — Máy chủ chưa cấu hình secret phiên (môi trường production)",
     ],
     snippets: {
@@ -539,10 +560,11 @@ export default function ApiDocsPage() {
                   <span>Cách Extension / Agent kết nối</span>
                 </div>
                 <ol className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed list-decimal pl-4 space-y-1.5">
-                  <li>Tải file ZIP từ Cài đặt — trong gói có mã liên kết dùng một lần (khoảng 10 phút).</li>
-                  <li>Cài / chạy lần đầu: tự gắn với tài khoản của bạn.</li>
+                  <li>Tải file ZIP từ Kho Tiện Ích — trong gói có mã liên kết dùng một lần (khoảng 10 phút).</li>
+                  <li>Chạy Client Agent trước (<code className="font-mono text-xs">setup-agent.bat</code> phím 1), rồi nạp Extension vào GPMLogin.</li>
+                  <li>Lần đầu kích hoạt: tự gắn với tài khoản của bạn (Agent phải đang chạy trên máy).</li>
                   <li>Extension nhận biết tài khoản đang đăng nhập; Client Agent gửi số liệu TikTok về hệ thống.</li>
-                  <li>Mã hết hạn hoặc Admin thu hồi? Tải lại file Zip, hoặc copy Personal Token trong Cài đặt rồi dán vào cửa sổ Extension / setup-agent.</li>
+                  <li>Mã hết hạn hoặc Admin thu hồi? Tải lại Zip, hoặc copy Personal Token trong Cài đặt rồi dán vào Extension / setup-agent phím 3.</li>
                 </ol>
               </div>
             </div>

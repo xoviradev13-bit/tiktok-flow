@@ -70,10 +70,7 @@ export const authOptions: NextAuthConfig = {
 
       // Handle explicit session updates
       if (trigger === "update" && session && typeof session === "object") {
-        const { user: _user, expires: _expires, ...sessionFields } = session as Record<
-          string,
-          unknown
-        >;
+        const { user: _user, expires: _expires, ...sessionFields } = session as Record<string, unknown>;
         Object.assign(token, sessionFields);
         if (!token.id && token.sub) {
           token.id = token.sub;
@@ -118,6 +115,7 @@ export const authOptions: NextAuthConfig = {
             };
           }
           token.isActive = true;
+          token.error = undefined;
           token.name = dbUser.name || dbUser.username || (dbUser.email ? dbUser.email.split("@")[0] : token.name);
           token.role = dbUser.role ?? "STAFF";
           token.userType = dbUser.role ?? "STAFF";
@@ -129,9 +127,22 @@ export const authOptions: NextAuthConfig = {
     },
 
     async session({ session, token }) {
-      if ((token as any)?.isActive === false || !(token?.id || token?.sub)) {
+      // Account locked: return a minimal session carrying the error instead of
+      // null, so the client (ProtectedLayout) can distinguish "locked" from a
+      // plain logged-out state and redirect to /auth/error with an explanation
+      // rather than silently bouncing to /signin.
+      if ((token as any)?.error === "ACCOUNT_LOCKED") {
+        return {
+          ...session,
+          user: undefined,
+          error: "ACCOUNT_LOCKED",
+        };
+      }
+
+      if (!(token?.id || token?.sub)) {
         return null as any;
       }
+
       if (token && session.user) {
         session.user.id = (token.id ?? token.sub) as string;
         session.user.name = (token.name as string) || session.user.name || (session.user.email ? session.user.email.split("@")[0] : "User");

@@ -5,6 +5,7 @@
  */
 import { NextResponse } from "next/server";
 import {
+  checkAndBindMachine,
   checkRateLimit,
   findUserByPersonalToken,
   getClientIp,
@@ -15,7 +16,6 @@ import {
 } from "@/lib/extension-auth";
 
 export async function POST(req: Request) {
-  // Intentionally no body logging on this route (secrets in JSON).
   const ip = getClientIp(req) || "unknown";
   const userAgent = getClientUserAgent(req);
 
@@ -27,7 +27,15 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { refreshToken?: string } = {};
+  let body: {
+    refreshToken?: string;
+    machineId?: string;
+    machineName?: string;
+    osUsername?: string;
+    nonce?: string;
+    ts?: number | string;
+    sig?: string;
+  } = {};
   try {
     body = await req.json().catch(() => ({}));
   } catch {
@@ -36,8 +44,9 @@ export async function POST(req: Request) {
 
   try {
     getExtensionSessionSecret();
-  } catch (err: any) {
-    console.error("[extension/session]", err?.message || err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[extension/session]", message);
     return NextResponse.json(
       { success: false, error: "Cấu hình phiên Extension chưa sẵn sàng." },
       { status: 500 }
@@ -48,11 +57,14 @@ export async function POST(req: Request) {
     typeof body.refreshToken === "string" ? body.refreshToken.trim() : "";
 
   if (refreshToken) {
-    // Need userId for per-user limit — hash-based lookup happens inside rotate
     const result = await rotateRefreshToken(refreshToken, { ip, userAgent });
     if (!result.ok) {
       return NextResponse.json(
-        { success: false, error: result.error, reuseDetected: result.reuseDetected || false },
+        {
+          success: false,
+          error: result.error,
+          reuseDetected: result.reuseDetected || false,
+        },
         { status: result.status }
       );
     }
@@ -61,7 +73,10 @@ export async function POST(req: Request) {
     if (!userLimit.ok) {
       return NextResponse.json(
         { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
-        { status: 429, headers: { "Retry-After": String(userLimit.retryAfterSec) } }
+        {
+          status: 429,
+          headers: { "Retry-After": String(userLimit.retryAfterSec) },
+        }
       );
     }
 
@@ -73,9 +88,10 @@ export async function POST(req: Request) {
     });
   }
 
-  // Exchange: Bearer ttf_sec_…
   const authHeader = req.headers.get("authorization");
-  const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const bearer = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
   if (!bearer.startsWith("ttf_sec_")) {
     return NextResponse.json(
       {
@@ -90,7 +106,10 @@ export async function POST(req: Request) {
   const user = await findUserByPersonalToken(bearer);
   if (!user || user.deletedAt) {
     return NextResponse.json(
-      { success: false, error: "Personal Token không hợp lệ hoặc đã bị thu hồi." },
+      {
+        success: false,
+        error: "Personal Token không hợp lệ hoặc đã bị thu hồi.",
+      },
       { status: 401 }
     );
   }
@@ -99,7 +118,10 @@ export async function POST(req: Request) {
   if (!userLimit.ok) {
     return NextResponse.json(
       { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
-      { status: 429, headers: { "Retry-After": String(userLimit.retryAfterSec) } }
+      {
+        status: 429,
+        headers: { "Retry-After": String(userLimit.retryAfterSec) },
+      }
     );
   }
 
@@ -107,6 +129,33 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { success: false, error: "Quyền Extension đã bị vô hiệu hóa." },
       { status: 403 }
+    );
+  }
+
+  const machineCheck = await checkAndBindMachine(
+    user.id,
+    {
+      machineId: body.machineId,
+      machineName: body.machineName,
+      osUsername: body.osUsername,
+      nonce: body.nonce,
+      ts: body.ts,
+      sig: body.sig,
+    },
+    { ip, rlPrefix: "session" }
+  );
+  if (!machineCheck.ok) {
+    const headers =
+      machineCheck.status === 429
+        ? { "Retry-After": String(machineCheck.retryAfterSec ?? 60) }
+        : undefined;
+    return NextResponse.json(
+      {
+        success: false,
+        error: machineCheck.error,
+        reason: machineCheck.reason,
+      },
+      { status: machineCheck.status, headers }
     );
   }
 

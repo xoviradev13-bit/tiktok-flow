@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Bug,
   X,
@@ -59,12 +60,40 @@ export default function BugReportModal({
   const { data: session } = useSession();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [mounted, setMounted] = useState(false);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<any>(defaultCategory);
   const [severity, setSeverity] = useState<any>("MEDIUM");
   const [description, setDescription] = useState("");
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Lock body scroll while modal is open
+  useEffect(() => {
+    if (isOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isOpen]);
+
+  // Close on Escape key press
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   const [systemInfo, setSystemInfo] = useState<{
     url: string;
@@ -158,7 +187,7 @@ export default function BugReportModal({
     setUploadedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,9 +207,16 @@ export default function BugReportModal({
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full shadow-2xl relative max-h-[92vh] flex flex-col overflow-hidden">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div className="my-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full shadow-2xl relative max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header - Always pinned at top */}
         <div className="p-5 sm:p-6 pb-3 sm:pb-4 border-b border-slate-100 dark:border-slate-800 shrink-0 flex items-start justify-between">
           <div className="flex items-center gap-3">
@@ -431,6 +467,7 @@ export default function BugReportModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

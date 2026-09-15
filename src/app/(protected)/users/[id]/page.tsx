@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
+import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 import { UserDetailSkeleton } from "@/components/skeletons/PageSkeletons";
 import {
   Tooltip,
@@ -52,6 +53,111 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+
+const COUNTRY_MAP: Record<string, string> = {
+  us: "US", "united states": "US", usa: "US", "u.s.": "US", "u.s.a.": "US", america: "US",
+  gb: "UK", uk: "UK", "united kingdom": "UK", britain: "UK", england: "UK",
+  vn: "VN", vietnam: "VN", "viet nam": "VN", "việt nam": "VN",
+  de: "DE", germany: "DE", german: "DE", "đức": "DE",
+  fr: "FR", france: "FR", "pháp": "FR",
+  be: "BE", belgium: "BE", "bỉ": "BE",
+  nl: "NL", netherlands: "NL", holland: "NL", "hà lan": "NL",
+  id: "ID", indonesia: "ID",
+  th: "TH", thailand: "TH", "thái lan": "TH",
+  my: "MY", malaysia: "MY",
+  ph: "PH", philippines: "PH",
+  sg: "SG", singapore: "SG",
+  jp: "JP", japan: "JP", "nhật bản": "JP",
+  kr: "KR", "south korea": "KR", korea: "KR", "hàn quốc": "KR",
+  br: "BR", brazil: "BR",
+  mx: "MX", mexico: "MX",
+  ca: "CA", canada: "CA",
+  au: "AU", australia: "AU", "úc": "AU",
+  in: "IN", india: "IN", "ấn độ": "IN",
+  pk: "PK", pakistan: "PK",
+  bd: "BD", bangladesh: "BD",
+  eg: "EG", egypt: "EG", "ai cập": "EG",
+  tr: "TR", turkey: "TR", "thổ nhĩ kỳ": "TR",
+  ru: "RU", russia: "RU", "nga": "RU",
+  es: "ES", spain: "ES", "tây ban nha": "ES",
+  it: "IT", italy: "IT", "ý": "IT",
+  pt: "PT", portugal: "PT", "bồ đào nha": "PT",
+  pl: "PL", poland: "PL", "ba lan": "PL",
+  se: "SE", sweden: "SE", "thụy điển": "SE",
+  ch: "CH", switzerland: "CH", "thụy sĩ": "CH",
+  at: "AT", austria: "AT", "áo": "AT",
+  ie: "IE", ireland: "IE",
+  tw: "TW", taiwan: "TW", "đài loan": "TW",
+  hk: "HK", "hong kong": "HK",
+  kh: "KH", cambodia: "KH", "campuchia": "KH",
+  mm: "MM", myanmar: "MM",
+  la: "LA", laos: "LA", "lào": "LA",
+};
+
+const COUNTRY_OPTIONS = [
+  // Tier 1 / Common markets
+  { value: "US", label: "🇺🇸 US - United States (Mỹ)" },
+  { value: "VN", label: "🇻🇳 VN - Vietnam (Việt Nam)" },
+  { value: "UK", label: "🇬🇧 UK - United Kingdom (Anh)" },
+  { value: "DE", label: "🇩🇪 DE - Germany (Đức)" },
+  { value: "FR", label: "🇫🇷 FR - France (Pháp)" },
+
+  // Southeast Asia & East Asia
+  { value: "TH", label: "🇹🇭 TH - Thailand (Thái Lan)" },
+  { value: "ID", label: "🇮🇩 ID - Indonesia" },
+  { value: "MY", label: "🇲🇾 MY - Malaysia" },
+  { value: "PH", label: "🇵🇭 PH - Philippines" },
+  { value: "SG", label: "🇸🇬 SG - Singapore" },
+  { value: "JP", label: "🇯🇵 JP - Japan (Nhật Bản)" },
+  { value: "KR", label: "🇰🇷 KR - South Korea (Hàn Quốc)" },
+  { value: "TW", label: "🇹🇼 TW - Taiwan (Đài Loan)" },
+  { value: "HK", label: "🇭🇰 HK - Hong Kong" },
+  { value: "KH", label: "🇰🇭 KH - Cambodia (Campuchia)" },
+  { value: "MM", label: "🇲🇲 MM - Myanmar" },
+  { value: "LA", label: "🇱🇦 LA - Laos (Lào)" },
+
+  // Europe
+  { value: "BE", label: "🇧🇪 BE - Belgium (Bỉ)" },
+  { value: "NL", label: "🇳🇱 NL - Netherlands (Hà Lan)" },
+  { value: "ES", label: "🇪🇸 ES - Spain (Tây Ban Nha)" },
+  { value: "IT", label: "🇮🇹 IT - Italy (Ý)" },
+  { value: "PT", label: "🇵🇹 PT - Portugal (Bồ Đào Nha)" },
+  { value: "PL", label: "🇵🇱 PL - Poland (Ba Lan)" },
+  { value: "SE", label: "🇸🇪 SE - Sweden (Thụy Điển)" },
+  { value: "CH", label: "🇨🇭 CH - Switzerland (Thụy Sĩ)" },
+  { value: "AT", label: "🇦🇹 AT - Austria (Áo)" },
+  { value: "IE", label: "🇮🇪 IE - Ireland" },
+  { value: "RU", label: "🇷🇺 RU - Russia (Nga)" },
+  { value: "TR", label: "🇹🇷 TR - Turkey (Thổ Nhĩ Kỳ)" },
+
+  // Americas & Oceania & Others
+  { value: "CA", label: "🇨🇦 CA - Canada" },
+  { value: "AU", label: "🇦🇺 AU - Australia (Úc)" },
+  { value: "BR", label: "🇧🇷 BR - Brazil" },
+  { value: "MX", label: "🇲🇽 MX - Mexico" },
+  { value: "IN", label: "🇮🇳 IN - India (Ấn Độ)" },
+  { value: "PK", label: "🇵🇰 PK - Pakistan" },
+  { value: "BD", label: "🇧🇩 BD - Bangladesh" },
+  { value: "EG", label: "🇪🇬 EG - Egypt (Ai Cập)" },
+];
+
+const FLAG_MAP: Record<string, string> = {
+  US: "🇺🇸", VN: "🇻🇳", UK: "🇬🇧", GB: "🇬🇧", DE: "🇩🇪", FR: "🇫🇷",
+  TH: "🇹🇭", ID: "🇮🇩", MY: "🇲🇾", PH: "🇵🇭", SG: "🇸🇬", JP: "🇯🇵",
+  KR: "🇰🇷", TW: "🇹🇼", HK: "🇭🇰", KH: "🇰🇭", MM: "🇲🇲", LA: "🇱🇦",
+  BE: "🇧🇪", NL: "🇳🇱", ES: "🇪🇸", IT: "🇮🇹", PT: "🇵🇹", PL: "🇵🇱",
+  SE: "🇸🇪", CH: "🇨🇭", AT: "🇦🇹", IE: "🇮🇪", RU: "🇷🇺", TR: "🇹🇷",
+  CA: "🇨🇦", AU: "🇦🇺", BR: "🇧🇷", MX: "🇲🇽", IN: "🇮🇳", PK: "🇵🇰",
+  BD: "🇧🇩", EG: "🇪🇬",
+};
+
+const normalizeCountry = (country?: string | null): string => {
+  if (!country) return "US";
+  const trimmed = country.trim().toLowerCase();
+  if (COUNTRY_MAP[trimmed]) return COUNTRY_MAP[trimmed];
+  if (trimmed === "unknown") return "US";
+  return country.trim().toUpperCase();
+};
 
 export default function UserDetailPage() {
   const params = useParams();
@@ -115,7 +221,7 @@ export default function UserDetailPage() {
 
   // Country badge helper
   const getCountryBadge = (country?: string) => {
-    const code = (country || "US").toUpperCase();
+    const code = normalizeCountry(country);
     switch (code) {
       case "US":
         return (
@@ -149,9 +255,10 @@ export default function UserDetailPage() {
           </span>
         );
       default:
+        const flag = FLAG_MAP[code] || "🌐";
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-            <Globe className="w-3 h-3 text-slate-500" /> {code}
+            <span className="text-xs">{flag}</span> {code}
           </span>
         );
     }
@@ -233,7 +340,7 @@ export default function UserDetailPage() {
         (acc.groupName && acc.groupName.toLowerCase().includes(accountSearch.toLowerCase()));
 
       const matchStatus = accountStatusFilter === "ALL" || acc.status === accountStatusFilter;
-      const matchCountry = accountCountryFilter === "ALL" || (acc.country || "US").toUpperCase() === accountCountryFilter;
+      const matchCountry = accountCountryFilter === "ALL" || normalizeCountry(acc.country) === accountCountryFilter;
 
       return matchSearch && matchStatus && matchCountry;
     });
@@ -350,13 +457,20 @@ export default function UserDetailPage() {
           {/* Actions Toolbar */}
           <div className="flex flex-wrap items-center gap-2">
             {/* Direct Checklist link */}
-            <Link
-              href={`/checklist?date=${new Date().toISOString().split("T")[0]}`}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm hover:shadow transition-all"
-            >
-              <CheckCircle className="w-3.5 h-3.5" />
-              <span>Xem Checklist Hôm Nay</span>
-            </Link>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  href={`/checklist?date=${new Date().toISOString().split("T")[0]}`}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm hover:shadow active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span>Xem Checklist Hôm Nay</span>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs font-semibold">
+                Xem bảng chấm công và thực hiện checklist hôm nay
+              </TooltipContent>
+            </Tooltip>
 
             {/* Admin Role Change / Toggle Status */}
             {isAdmin && session?.user?.id !== user.id && (
@@ -375,33 +489,40 @@ export default function UserDetailPage() {
                   </SelectContent>
                 </Select>
 
-                <button
-                  onClick={() => {
-                    const confirmMsg = user.isActive
-                      ? `Xác nhận CHẶN QUYỀN TRUY CẬP của nhân sự ${user.fullName || user.username}?\n\nNhân sự này sẽ bị ngắt phiên làm việc và không thể đăng nhập vào hệ thống!`
-                      : `Xác nhận MỞ LẠI QUYỀN TRUY CẬP cho nhân sự ${user.fullName || user.username}?`;
-                    if (confirm(confirmMsg)) {
-                      toggleStatusMutation.mutate({ userId: user.id, isActive: !user.isActive });
-                    }
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                    user.isActive
-                      ? "bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900"
-                      : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900"
-                  }`}
-                >
-                  {user.isActive ? (
-                    <>
-                      <Ban className="w-3.5 h-3.5 text-rose-500" />
-                      <span>Chặn quyền truy cập</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>Mở chặn quyền truy cập</span>
-                    </>
-                  )}
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => {
+                        const confirmMsg = user.isActive
+                          ? `Xác nhận CHẶN QUYỀN TRUY CẬP của nhân sự ${user.fullName || user.username}?\n\nNhân sự này sẽ bị ngắt phiên làm việc và không thể đăng nhập vào hệ thống!`
+                          : `Xác nhận MỞ LẠI QUYỀN TRUY CẬP cho nhân sự ${user.fullName || user.username}?`;
+                        if (confirm(confirmMsg)) {
+                          toggleStatusMutation.mutate({ userId: user.id, isActive: !user.isActive });
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border active:scale-95 whitespace-nowrap ${
+                        user.isActive
+                          ? "bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900"
+                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900"
+                      }`}
+                    >
+                      {user.isActive ? (
+                        <>
+                          <Ban className="w-3.5 h-3.5 text-rose-500" />
+                          <span>Chặn quyền truy cập</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>Mở chặn quyền truy cập</span>
+                        </>
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs font-semibold">
+                    {user.isActive ? "Tạm ngừng quyền truy cập tài khoản này" : "Khôi phục quyền truy cập cho nhân sự"}
+                  </TooltipContent>
+                </Tooltip>
               </>
             )}
           </div>
@@ -459,9 +580,9 @@ export default function UserDetailPage() {
               <button
                 key={p.value}
                 onClick={() => setDays(p.value)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap ${
                   days === p.value
-                    ? "bg-amber-500 text-slate-950 shadow-xs"
+                    ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
@@ -475,94 +596,94 @@ export default function UserDetailPage() {
       {/* Top 6 KPI Cards Overview */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
         {/* Total Assigned Accounts */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">Account Giao Việc</span>
-            <Users className="w-4 h-4 text-pink-500" />
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Account Giao Việc">Account Giao Việc</span>
+            <Users className="w-4 h-4 text-pink-500 shrink-0" />
           </div>
-          <div className="text-xl sm:text-2xl font-black text-pink-600 dark:text-pink-400 mt-2">
+          <div className="text-xl sm:text-2xl font-black text-pink-600 dark:text-pink-400 mt-2 truncate">
             {stats.totalAssigned}
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            <span>{stats.activeAccounts} hoạt động • {stats.warmingAccounts} nuôi</span>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+            <span className="truncate">{stats.activeAccounts} hoạt động • {stats.warmingAccounts} nuôi</span>
           </div>
         </div>
 
         {/* Total Views across fleet */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Views (${days === 0 ? "Toàn bộ" : `${days}d`})`}>
               Views ({days === 0 ? "Toàn bộ" : `${days}d`})
             </span>
-            <Eye className="w-4 h-4 text-cyan-500" />
+            <Eye className="w-4 h-4 text-cyan-500 shrink-0" />
           </div>
-          <div className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-2">
+          <div className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-2 truncate">
             {Number(stats.totalViews).toLocaleString()}
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            <span>{days === 0 ? "Toàn thời gian (Studio)" : `Dàn kênh ${days} ngày qua`}</span>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+            <span className="truncate">{days === 0 ? "Toàn thời gian (Studio)" : `Dàn kênh ${days} ngày qua`}</span>
           </div>
         </div>
 
         {/* Total Followers */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">Tổng Followers</span>
-            <UserCheck className="w-4 h-4 text-purple-500" />
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Tổng Followers">Tổng Followers</span>
+            <UserCheck className="w-4 h-4 text-purple-500 shrink-0" />
           </div>
-          <div className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2">
+          <div className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2 truncate">
             {Number(stats.totalFollowers).toLocaleString()}
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            <span>Người theo dõi tích lũy</span>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+            <span className="truncate">Người theo dõi tích lũy</span>
           </div>
         </div>
 
         {/* Total Revenue */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Doanh Thu (${days === 0 ? "Toàn bộ" : `${days}d`})`}>
               Doanh Thu ({days === 0 ? "Toàn bộ" : `${days}d`})
             </span>
-            <DollarSign className="w-4 h-4 text-emerald-500" />
+            <DollarSign className="w-4 h-4 text-emerald-500 shrink-0" />
           </div>
-          <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">
+          <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2 truncate">
             ${Number(stats.totalRevenue).toFixed(2)}
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            <span>{days === 0 ? "Creator Rewards (Lũy kế)" : `Thu nhập ${days} ngày qua`}</span>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+            <span className="truncate">{days === 0 ? "Creator Rewards (Lũy kế)" : `Thu nhập ${days} ngày qua`}</span>
           </div>
         </div>
 
         {/* Workday Score */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Ngày Công (${days === 0 ? "Toàn bộ" : `${days}d`})`}>
               Ngày Công ({days === 0 ? "Toàn bộ" : `${days}d`})
             </span>
-            <Calendar className="w-4 h-4 text-amber-500" />
+            <Calendar className="w-4 h-4 text-amber-500 shrink-0" />
           </div>
-          <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-2">
+          <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-2 truncate">
             {Number(stats.monthlyWorkdays)} Công
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            <span>Chốt theo mốc 10:00 AM</span>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+            <span className="truncate">Chốt theo mốc 10:00 AM</span>
           </div>
         </div>
 
         {/* Average Completion Rate */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`KPI TB (${days === 0 ? "Toàn bộ" : `${days}d`})`}>
               KPI TB ({days === 0 ? "Toàn bộ" : `${days}d`})
             </span>
-            <TrendingUp className="w-4 h-4 text-indigo-500" />
+            <TrendingUp className="w-4 h-4 text-indigo-500 shrink-0" />
           </div>
-          <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2">
+          <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2 truncate">
             {stats.avgCompletionRate}%
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            <span>Tỷ lệ hoàn thành nhiệm vụ</span>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+            <span className="truncate">Tỷ lệ hoàn thành nhiệm vụ</span>
           </div>
         </div>
       </div>
@@ -584,30 +705,38 @@ export default function UserDetailPage() {
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Select value={accountStatusFilter} onValueChange={setAccountStatusFilter}>
-                <SelectTrigger className="h-9 w-36 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800">
+                <SelectTrigger className="h-9 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer">
                   <SelectValue placeholder="Trạng thái" />
                 </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  <SelectItem value="ALL">Tất cả trạng thái</SelectItem>
-                  <SelectItem value="ACTIVE">Hoạt Động (Active)</SelectItem>
-                  <SelectItem value="WARMING">Đang Nuôi (Warming)</SelectItem>
-                  <SelectItem value="RESTRICTED">Hạn Chế</SelectItem>
-                  <SelectItem value="BANNED">Bị Khóa (Banned)</SelectItem>
-                  <SelectItem value="STOPPED">Tạm Dừng</SelectItem>
+                <SelectContent className="rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xl">
+                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
+                  <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Hoạt Động (Active)</SelectItem>
+                  <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Đang Nuôi (Warming)</SelectItem>
+                  <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Hạn Chế</SelectItem>
+                  <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Bị Khóa (Banned)</SelectItem>
+                  <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Tạm Dừng</SelectItem>
                 </SelectContent>
               </Select>
 
               <Select value={accountCountryFilter} onValueChange={setAccountCountryFilter}>
-                <SelectTrigger className="h-9 w-32 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800">
-                  <SelectValue placeholder="Quốc gia" />
+                <SelectTrigger className="h-9 w-44 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer">
+                  <SelectValue placeholder="Tất cả quốc gia" />
                 </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  <SelectItem value="ALL">Tất cả quốc gia</SelectItem>
-                  <SelectItem value="US">🇺🇸 US</SelectItem>
-                  <SelectItem value="UK">🇬🇧 UK</SelectItem>
-                  <SelectItem value="VN">🇻🇳 VN</SelectItem>
-                  <SelectItem value="DE">🇩🇪 DE</SelectItem>
-                  <SelectItem value="FR">🇫🇷 FR</SelectItem>
+                <SelectContent className="rounded-xl max-h-60 overflow-y-auto bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xl">
+                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
+                  {COUNTRY_OPTIONS.map((c) => (
+                    <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                  {userDetail?.tiktokAccounts
+                    ?.map((acc: any) => normalizeCountry(acc.country))
+                    .filter((c: string, idx: number, arr: string[]) => arr.indexOf(c) === idx && !COUNTRY_OPTIONS.some((opt) => opt.value === c))
+                    .map((extraCode: string) => (
+                      <SelectItem key={extraCode} value={extraCode} className="text-xs font-normal cursor-pointer">
+                        {FLAG_MAP[extraCode] || "🌐"} {extraCode}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -630,25 +759,30 @@ export default function UserDetailPage() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 normal-case">
                     <tr>
-                      <th className="py-3.5 px-4">Tài khoản TikTok & GPM</th>
-                      <th className="py-3.5 px-4">Quốc gia</th>
-                      <th className="py-3.5 px-4">Trạng thái</th>
-                      <th className="py-3.5 px-4">Lượt xem</th>
-                      <th className="py-3.5 px-4">Followers</th>
-                      <th className="py-3.5 px-4">Số video</th>
-                      <th className="py-3.5 px-4">Doanh thu</th>
-                      <th className="py-3.5 px-4">Đồng bộ lần cuối</th>
-                      <th className="py-3.5 px-4 text-right">Thao tác</th>
+                      <th className="py-3.5 px-4 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px] whitespace-nowrap">
+                        Tài khoản TikTok & GPM
+                      </th>
+                      <th className="py-3.5 px-4 text-center whitespace-nowrap min-w-[90px]">Online</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[100px]">Quốc gia</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[110px]">Trạng thái</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[90px]">Lượt xem</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[90px]">Followers</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[80px]">Số video</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[90px]">Doanh thu</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[120px]">Đồng bộ lần cuối</th>
+                      <th className="py-3.5 px-4 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
+                        Thao tác
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                     {filteredAccounts.map((acc: any) => (
                       <tr
                         key={acc.id}
-                        className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                        className="group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                       >
-                        {/* Username & GPM Profile */}
-                        <td className="py-3.5 px-4">
+                        {/* Username & GPM Profile - Sticky Left */}
+                        <td className="py-3.5 px-4 sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px] transition-colors">
                           <div>
                             <Link
                               href={`/accounts/${acc.id}`}
@@ -670,38 +804,43 @@ export default function UserDetailPage() {
                           </div>
                         </td>
 
+                        {/* Separate Online Column */}
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap min-w-[90px]">
+                          <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" />
+                        </td>
+
                         {/* Country */}
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 whitespace-nowrap min-w-[100px]">
                           {getCountryBadge(acc.country)}
                         </td>
 
                         {/* Status */}
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 whitespace-nowrap min-w-[110px]">
                           {getStatusBadge(acc.status)}
                         </td>
 
                         {/* Views */}
-                        <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
+                        <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap min-w-[90px]">
                           {Number(acc.totalViews || 0).toLocaleString()}
                         </td>
 
                         {/* Followers */}
-                        <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
+                        <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap min-w-[90px]">
                           {Number(acc.totalFollowers || 0).toLocaleString()}
                         </td>
 
                         {/* Videos */}
-                        <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
+                        <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap min-w-[80px]">
                           {Number(acc.totalVideos || 0).toLocaleString()}
                         </td>
 
                         {/* Revenue */}
-                        <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400">
+                        <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap min-w-[90px]">
                           ${Number(acc.totalRevenue || 0).toFixed(2)}
                         </td>
 
                         {/* Last Synced */}
-                        <td className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">
+                        <td className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-[120px]">
                           {acc.lastSyncedAt
                             ? new Date(acc.lastSyncedAt).toLocaleString("vi-VN", {
                                 hour: "2-digit",
@@ -712,9 +851,9 @@ export default function UserDetailPage() {
                             : "Chưa sync"}
                         </td>
 
-                        {/* Action Buttons */}
-                        <td className="py-3.5 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
+                        {/* Action Buttons - Sticky Right */}
+                        <td className="py-3.5 px-4 text-center sticky right-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px] whitespace-nowrap transition-colors">
+                          <div className="flex items-center justify-center gap-1.5">
                             {/* Sync Button */}
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -812,13 +951,17 @@ export default function UserDetailPage() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 normal-case">
                     <tr>
-                      <th className="py-3.5 px-4">Ngày làm việc</th>
-                      <th className="py-3.5 px-4">Số acc phụ trách</th>
-                      <th className="py-3.5 px-4">Tài khoản hoàn thành</th>
-                      <th className="py-3.5 px-4">Tỷ lệ hoàn thành (%)</th>
-                      <th className="py-3.5 px-4">Điểm ngày công chốt</th>
-                      <th className="py-3.5 px-4">Trạng thái chốt 10:00 AM</th>
-                      <th className="py-3.5 px-4 text-right">Chi tiết</th>
+                      <th className="py-3.5 px-4 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[160px] whitespace-nowrap">
+                        Ngày làm việc
+                      </th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[130px]">Số acc phụ trách</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[150px]">Tài khoản hoàn thành</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[150px]">Tỷ lệ hoàn thành (%)</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">Điểm ngày công chốt</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[160px]">Trạng thái chốt 10:00 AM</th>
+                      <th className="py-3.5 px-4 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[130px]">
+                        Chi tiết
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -835,18 +978,19 @@ export default function UserDetailPage() {
                       return (
                         <tr
                           key={c.id}
-                          className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                          className="group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                         >
-                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
+                          {/* Sticky Left: Ngày làm việc */}
+                          <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[160px] whitespace-nowrap transition-colors">
                             {dateFormatted}
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-slate-700 dark:text-slate-300">
+                          <td className="py-3.5 px-4 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap min-w-[130px]">
                             {c.totalAssigned} accounts
                           </td>
-                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap min-w-[150px]">
                             {c.completedCount} / {c.totalAssigned}
                           </td>
-                          <td className="py-3.5 px-4">
+                          <td className="py-3.5 px-4 whitespace-nowrap min-w-[150px]">
                             <div className="flex items-center gap-2">
                               <span className="font-bold">{rate}%</span>
                               <div className="w-16 bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
@@ -863,7 +1007,7 @@ export default function UserDetailPage() {
                               </div>
                             </div>
                           </td>
-                          <td className="py-3.5 px-4">
+                          <td className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">
                             <span
                               className={`px-2.5 py-1 rounded-lg text-xs font-black ${
                                 score >= 1.0
@@ -876,7 +1020,7 @@ export default function UserDetailPage() {
                               {score} Ngày Công
                             </span>
                           </td>
-                          <td className="py-3.5 px-4">
+                          <td className="py-3.5 px-4 whitespace-nowrap min-w-[160px]">
                             {c.isLocked ? (
                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
                                 <Clock className="w-3.5 h-3.5 text-slate-400" /> Đã chốt (Locked)
@@ -887,7 +1031,9 @@ export default function UserDetailPage() {
                               </span>
                             )}
                           </td>
-                          <td className="py-3.5 px-4 text-right">
+
+                          {/* Sticky Right: Chi tiết */}
+                          <td className="py-3.5 px-4 text-center sticky right-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[130px] whitespace-nowrap transition-colors">
                             <Link
                               href={`/checklist?date=${new Date(c.date).toISOString().split("T")[0]}`}
                               className="inline-flex items-center gap-1 text-xs font-bold text-pink-600 dark:text-pink-400 hover:underline"

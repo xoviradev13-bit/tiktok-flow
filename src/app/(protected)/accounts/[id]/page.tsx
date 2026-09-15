@@ -51,6 +51,8 @@ import {
   CartesianGrid,
 } from "recharts";
 import { trpc } from "@/lib/trpc";
+import { launchGpmProfile } from "@/lib/gpm-client-bridge";
+import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 import {
   Tooltip,
   TooltipContent,
@@ -72,6 +74,109 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { AccountDetailSkeleton } from "@/components/skeletons/PageSkeletons";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { DateRange } from "react-day-picker";
+import { format, subDays } from "date-fns";
+
+const COUNTRY_MAP: Record<string, string> = {
+  unitedstates: "US", "united states": "US", usa: "US", us: "US", "mỹ": "US",
+  vietnam: "VN", "việt nam": "VN", vn: "VN",
+  unitedkingdom: "UK", "united kingdom": "UK", uk: "UK", gb: "UK", greatbritain: "UK", "anh": "UK",
+  germany: "DE", de: "DE", "đức": "DE",
+  france: "FR", fr: "FR", "pháp": "FR",
+  thailand: "TH", th: "TH", "thái lan": "TH",
+  indonesia: "ID", id: "ID",
+  malaysia: "MY", my: "MY",
+  philippines: "PH", ph: "PH",
+  singapore: "SG", sg: "SG",
+  japan: "JP", jp: "JP", "nhật bản": "JP",
+  southkorea: "KR", "south korea": "KR", kr: "KR", korea: "KR", "hàn quốc": "KR",
+  taiwan: "TW", tw: "TW", "đài loan": "TW",
+  hongkong: "HK", "hong kong": "HK", hk: "HK",
+  cambodia: "KH", kh: "KH", "campuchia": "KH",
+  myanmar: "MM", mm: "MM",
+  laos: "LA", la: "LA", "lào": "LA",
+  belgium: "BE", be: "BE", "bỉ": "BE",
+  netherlands: "NL", nl: "NL", "hà lan": "NL",
+  spain: "ES", es: "ES", "tây ban nha": "ES",
+  italy: "IT", it: "IT", "ý": "IT",
+  portugal: "PT", pt: "PT", "bồ đào nha": "PT",
+  poland: "PL", pl: "PL", "ba lan": "PL",
+  sweden: "SE", se: "SE", "thụy điển": "SE",
+  switzerland: "CH", ch: "CH", "thụy sĩ": "CH",
+  austria: "AT", at: "AT", "áo": "AT",
+  ireland: "IE", ie: "IE",
+  russia: "RU", ru: "RU", "nga": "RU",
+  turkey: "TR", tr: "TR", "thổ nhĩ kỳ": "TR",
+  canada: "CA", ca: "CA",
+  australia: "AU", au: "AU", "úc": "AU",
+  brazil: "BR", br: "BR",
+  mexico: "MX", mx: "MX",
+  india: "IN", in: "IN", "ấn độ": "IN",
+  pakistan: "PK", pk: "PK",
+  bangladesh: "BD", bd: "BD",
+  egypt: "EG", eg: "EG", "ai cập": "EG",
+};
+
+const normalizeCountry = (country?: string | null): string => {
+  if (!country) return "US";
+  const trimmed = country.trim().toLowerCase();
+  if (COUNTRY_MAP[trimmed]) return COUNTRY_MAP[trimmed];
+  if (trimmed === "unknown") return "US";
+  return country.trim().toUpperCase();
+};
+
+const COUNTRY_OPTIONS = [
+  // Tier 1 / Common markets
+  { value: "US", label: "🇺🇸 US - United States (Mỹ)" },
+  { value: "VN", label: "🇻🇳 VN - Vietnam (Việt Nam)" },
+  { value: "UK", label: "🇬🇧 UK - United Kingdom (Anh)" },
+  { value: "DE", label: "🇩🇪 DE - Germany (Đức)" },
+  { value: "FR", label: "🇫🇷 FR - France (Pháp)" },
+
+  // Southeast Asia & East Asia
+  { value: "TH", label: "🇹🇭 TH - Thailand (Thái Lan)" },
+  { value: "ID", label: "🇮🇩 ID - Indonesia" },
+  { value: "MY", label: "🇲🇾 MY - Malaysia" },
+  { value: "PH", label: "🇵🇭 PH - Philippines" },
+  { value: "SG", label: "🇸🇬 SG - Singapore" },
+  { value: "JP", label: "🇯🇵 JP - Japan (Nhật Bản)" },
+  { value: "KR", label: "🇰🇷 KR - South Korea (Hàn Quốc)" },
+  { value: "TW", label: "🇹🇼 TW - Taiwan (Đài Loan)" },
+  { value: "HK", label: "🇭🇰 HK - Hong Kong" },
+  { value: "KH", label: "🇰🇭 KH - Cambodia (Campuchia)" },
+  { value: "MM", label: "🇲🇲 MM - Myanmar" },
+  { value: "LA", label: "🇱🇦 LA - Laos (Lào)" },
+
+  // Europe
+  { value: "BE", label: "🇧🇪 BE - Belgium (Bỉ)" },
+  { value: "NL", label: "🇳🇱 NL - Netherlands (Hà Lan)" },
+  { value: "ES", label: "🇪🇸 ES - Spain (Tây Ban Nha)" },
+  { value: "IT", label: "🇮🇹 IT - Italy (Ý)" },
+  { value: "PT", label: "🇵🇹 PT - Portugal (Bồ Đào Nha)" },
+  { value: "PL", label: "🇵🇱 PL - Poland (Ba Lan)" },
+  { value: "SE", label: "🇸🇪 SE - Sweden (Thụy Điển)" },
+  { value: "CH", label: "🇨🇭 CH - Switzerland (Thụy Sĩ)" },
+  { value: "AT", label: "🇦🇹 AT - Austria (Áo)" },
+  { value: "IE", label: "🇮🇪 IE - Ireland" },
+  { value: "RU", label: "🇷🇺 RU - Russia (Nga)" },
+  { value: "TR", label: "🇹🇷 TR - Turkey (Thổ Nhĩ Kỳ)" },
+
+  // Americas & Oceania & Others
+  { value: "CA", label: "🇨🇦 CA - Canada" },
+  { value: "AU", label: "🇦🇺 AU - Australia (Úc)" },
+  { value: "BR", label: "🇧🇷 BR - Brazil" },
+  { value: "MX", label: "🇲🇽 MX - Mexico" },
+  { value: "IN", label: "🇮🇳 IN - India (Ấn Độ)" },
+  { value: "PK", label: "🇵🇰 PK - Pakistan" },
+  { value: "BD", label: "🇧🇩 BD - Bangladesh" },
+  { value: "EG", label: "🇪🇬 EG - Egypt (Ai Cập)" },
+];
 
 export default function AccountDetailPage() {
   const { data: session } = useSession();
@@ -82,8 +187,27 @@ export default function AccountDetailPage() {
   const accountId = (params?.id as string) || "";
 
   const [activeTab, setActiveTab] = useState<"overview" | "history" | "logs" | "alerts">("overview");
-  const [selectedTimeRange, setSelectedTimeRange] = useState<"7d" | "28d" | "60d" | "365d" | "all">("28d");
-  
+  const [selectedTimeRange, setSelectedTimeRange] = useState<"7d" | "28d" | "60d" | "365d" | "all" | "custom">("28d");
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
+  const [rangeSelection, setRangeSelection] = useState<DateRange | undefined>(() => {
+    const to = new Date();
+    const from = subDays(to, 27);
+    return { from, to };
+  });
+
+  // Separate time range filter state for "Biểu Đồ & Lịch Sử Doanh Thu" tab
+  const [historyTimeRange, setHistoryTimeRange] = useState<"7d" | "28d" | "60d" | "365d" | "all" | "custom">("28d");
+  const [historyStartDate, setHistoryStartDate] = useState<string>("");
+  const [historyEndDate, setHistoryEndDate] = useState<string>("");
+  const [isHistoryRangePickerOpen, setIsHistoryRangePickerOpen] = useState(false);
+  const [historyRangeSelection, setHistoryRangeSelection] = useState<DateRange | undefined>(() => {
+    const to = new Date();
+    const from = subDays(to, 27);
+    return { from, to };
+  });
+
   // Modals & Action States
   const [isAddRevenueOpen, setIsAddRevenueOpen] = useState(false);
   const [newRevDate, setNewRevDate] = useState(new Date().toISOString().split("T")[0]);
@@ -148,11 +272,8 @@ export default function AccountDetailPage() {
 
   const syncMutation = trpc.accounts.syncAccount.useMutation({
     onSuccess: (data) => {
-      if (data?.liveData) {
-        showToast(
-          `Đã đồng bộ Live từ TikTok Studio: ${Number(data.liveData.totalViews || 0).toLocaleString()} views, ${data.liveData.followersCount?.toLocaleString() || 0} followers!`,
-          "success"
-        );
+      if (data?.queued) {
+        showToast("Đã gửi lệnh đồng bộ vào hàng đợi cho Client Agent!", "success");
       } else {
         showToast("Đã làm mới thông tin tài khoản!", "success");
       }
@@ -162,16 +283,32 @@ export default function AccountDetailPage() {
     onError: (err) => showToast(err.message || "Lỗi khi đồng bộ", "error"),
   });
 
-  const startGpmMutation = trpc.gpm.startProfile.useMutation({
-    onSuccess: (res: any) => {
-      if (res?.success === false) {
-        showToast(res?.message || "Không thể khởi động profile GPM", "error");
-      } else {
-        showToast("🚀 Đã mở trình duyệt profile GPM thành công!", "success");
-      }
-    },
-    onError: (err) => showToast(err.message || "Không thể kết nối GPMLogin API", "error"),
-  });
+  const { data: gpmStatus } = trpc.gpm.checkStatus.useQuery();
+  const [startingGpm, setStartingGpm] = useState(false);
+
+  const startGpmMutation = trpc.gpm.startProfile.useMutation();
+
+  const handleStartGpm = async () => {
+    if (!account?.gpmProfileId) return;
+    const targetPort = (account as any).gpmPort || gpmStatus?.port || 9495;
+    setStartingGpm(true);
+    try {
+      await launchGpmProfile(account.gpmProfileId, {
+        port: targetPort,
+        startMutation: startGpmMutation,
+        onSuccess: (data) => {
+          showToast(`🚀 Đã mở profile GPM (cổng ${data?.port || targetPort}) thành công!`, "success");
+        },
+        onError: (err) => {
+          showToast(err.message || "Không thể mở profile GPM", "error");
+        },
+      });
+    } catch (err: any) {
+      showToast(err.message || "Không thể mở profile GPM", "error");
+    } finally {
+      setStartingGpm(false);
+    }
+  };
 
   const stopGpmMutation = trpc.gpm.stopProfile.useMutation({
     onSuccess: () => showToast("Đã đóng profile GPM!", "info"),
@@ -208,22 +345,35 @@ export default function AccountDetailPage() {
     onError: (err) => showToast(err.message || "Lỗi lưu doanh thu", "error"),
   });
 
-  // Country Flag helper
-  const getCountryBadge = (country?: string) => {
-    switch (country?.toUpperCase()) {
-      case "US":
-        return <span className="inline-flex items-center gap-1 text-slate-900 dark:text-slate-100 font-semibold"><span className="text-base">🇺🇸</span> United States (US)</span>;
-      case "UK":
-        return <span className="inline-flex items-center gap-1 text-slate-900 dark:text-slate-100 font-semibold"><span className="text-base">🇬🇧</span> United Kingdom (UK)</span>;
-      case "VN":
-        return <span className="inline-flex items-center gap-1 text-slate-900 dark:text-slate-100 font-semibold"><span className="text-base">🇻🇳</span> Việt Nam (VN)</span>;
-      case "DE":
-        return <span className="inline-flex items-center gap-1 text-slate-900 dark:text-slate-100 font-semibold"><span className="text-base">🇩🇪</span> Germany (DE)</span>;
-      case "FR":
-        return <span className="inline-flex items-center gap-1 text-slate-900 dark:text-slate-100 font-semibold"><span className="text-base">🇫🇷</span> France (FR)</span>;
-      default:
-        return <span className="inline-flex items-center gap-1 text-slate-900 dark:text-slate-100 font-semibold"><span className="text-base">🌐</span> {country || "Global"}</span>;
-    }
+  // Country name helper
+  const getCountryName = (country?: string) => {
+    const code = (country || "US").toUpperCase();
+    const map: Record<string, string> = {
+      US: "United States",
+      UK: "United Kingdom",
+      GB: "United Kingdom",
+      VN: "Việt Nam",
+      DE: "Germany",
+      FR: "France",
+      TH: "Thailand",
+      ID: "Indonesia",
+      MY: "Malaysia",
+      PH: "Philippines",
+      SG: "Singapore",
+      JP: "Japan",
+      KR: "South Korea",
+      CA: "Canada",
+      AU: "Australia",
+      BR: "Brazil",
+      MX: "Mexico",
+      ES: "Spain",
+      IT: "Italy",
+      NL: "Netherlands",
+      PL: "Poland",
+      RU: "Russia",
+      TR: "Turkey",
+    };
+    return map[code] || code;
   };
 
   // Currency symbol helper
@@ -285,36 +435,154 @@ export default function AccountDetailPage() {
     }
   };
 
-  // Format Daily Revenue Chart Data
-  const chartData = useMemo(() => {
-    if (!account?.dailyRevenues || account.dailyRevenues.length === 0) {
-      return [];
-    }
-    let revs = [...account.dailyRevenues];
-    if (selectedTimeRange === "7d") revs = revs.slice(0, 7);
-    else if (selectedTimeRange === "28d") revs = revs.slice(0, 28);
-    else if (selectedTimeRange === "60d") revs = revs.slice(0, 60);
-    else if (selectedTimeRange === "365d") revs = revs.slice(0, 365);
+  // Unified Daily Revenue Records (Manual entries + TikTok Studio API)
+  const allRevenueRecords = useMemo(() => {
+    const records: Array<{
+      id: string;
+      date: string;
+      sourceType: string;
+      views: number;
+      rpm: number;
+      revenue: number;
+      isAutomated: boolean;
+      createdTime?: string;
+    }> = [];
 
-    return revs
-      .reverse()
-      .map((r: any) => {
-        const dateStr = new Date(r.date).toLocaleDateString("vi-VN", {
-          month: "2-digit",
-          day: "2-digit",
+    const existingKeys = new Set<string>();
+
+    if (account?.dailyRevenues && account.dailyRevenues.length > 0) {
+      for (const rec of account.dailyRevenues) {
+        const dStr = new Date(rec.date).toISOString().split("T")[0];
+        existingKeys.add(dStr);
+        records.push({
+          id: rec.id,
+          date: dStr,
+          sourceType: rec.sourceType || "CREATOR_REWARDS",
+          views: Number(rec.views || 0),
+          rpm: Number(rec.rpm || 0),
+          revenue: Number(rec.revenue || 0),
+          isAutomated: false,
+          createdTime: new Date(rec.createdAt).toLocaleTimeString("vi-VN"),
         });
-        return {
-          date: dateStr,
-          views: Number(r.views || 0),
-          revenue: Number(r.revenue || 0),
-          rpm: Number(r.rpm || 0),
-        };
+      }
+    }
+
+    const breakdown = (account as any)?.analytics?.dailyBreakdown;
+    if (Array.isArray(breakdown)) {
+      for (const item of breakdown) {
+        if (!item?.date) continue;
+        const dStr = item.date;
+        if (!existingKeys.has(dStr)) {
+          existingKeys.add(dStr);
+          const rev = Number(item.revenue || 0);
+          const vw = Number(item.views || 0);
+          const rpm = vw > 0 ? (rev * 1000) / vw : 0;
+          records.push({
+            id: `auto-${dStr}`,
+            date: dStr,
+            sourceType: "CREATOR_REWARDS",
+            views: vw,
+            rpm: Math.round(rpm * 100) / 100,
+            revenue: rev,
+            isAutomated: true,
+            createdTime: "TikTok Studio API",
+          });
+        }
+      }
+    }
+
+    // Sort chronologically ascending for charts
+    records.sort((a, b) => a.date.localeCompare(b.date));
+    return records;
+  }, [account]);
+
+  // Helper to filter records by time range
+  const filterRecordsByRange = (
+    records: typeof allRevenueRecords,
+    range: "7d" | "28d" | "60d" | "365d" | "all" | "custom",
+    startDate?: string,
+    endDate?: string
+  ) => {
+    if (range === "custom") {
+      if (startDate || endDate) {
+        return records.filter((r) => {
+          if (startDate && r.date < startDate) return false;
+          if (endDate && r.date > endDate) return false;
+          return true;
+        });
+      }
+      return records;
+    }
+    if (range === "7d") return records.slice(-7);
+    if (range === "28d") return records.slice(-28);
+    if (range === "60d") return records.slice(-60);
+    if (range === "365d") return records.slice(-365);
+    return records; // "all"
+  };
+
+  // Format Daily Revenue Chart Data for Overview Tab (based on selectedTimeRange)
+  const chartData = useMemo(() => {
+    const filtered = filterRecordsByRange(
+      allRevenueRecords,
+      selectedTimeRange,
+      customStartDate,
+      customEndDate
+    );
+    return filtered.map((r) => {
+      const d = new Date(r.date + "T00:00:00");
+      const dateStr = d.toLocaleDateString("vi-VN", {
+        month: "2-digit",
+        day: "2-digit",
       });
-  }, [account, selectedTimeRange]);
+      return {
+        date: dateStr,
+        views: r.views,
+        revenue: r.revenue,
+        rpm: r.rpm,
+      };
+    });
+  }, [allRevenueRecords, selectedTimeRange, customStartDate, customEndDate]);
+
+  // Format Daily Revenue Chart Data for History Tab (based on historyTimeRange)
+  const historyChartData = useMemo(() => {
+    const filtered = filterRecordsByRange(
+      allRevenueRecords,
+      historyTimeRange,
+      historyStartDate,
+      historyEndDate
+    );
+    return filtered.map((r) => {
+      const d = new Date(r.date + "T00:00:00");
+      const dateStr = d.toLocaleDateString("vi-VN", {
+        month: "2-digit",
+        day: "2-digit",
+      });
+      return {
+        date: dateStr,
+        views: r.views,
+        revenue: r.revenue,
+        rpm: r.rpm,
+      };
+    });
+  }, [allRevenueRecords, historyTimeRange, historyStartDate, historyEndDate]);
+
+  // Filtered rows for History Table (newest date first, based on historyTimeRange)
+  const displayedHistoryRows = useMemo(() => {
+    const filtered = filterRecordsByRange(
+      allRevenueRecords,
+      historyTimeRange,
+      historyStartDate,
+      historyEndDate
+    );
+    return [...filtered].sort((a, b) => b.date.localeCompare(a.date));
+  }, [allRevenueRecords, historyTimeRange, historyStartDate, historyEndDate]);
+
+  // Backward compatibility alias for any existing reference
+  const displayedRevenueRows = displayedHistoryRows;
 
   // Derived Calculations
   const totalViewsNum = Number(account?.totalViews || 0);
-  const totalRevNum = Number(account?.totalRevenue || 0);
+  const totalRevNum = Number((account as any)?.analytics?.totalRevenue ?? account?.totalRevenue ?? 0);
   const calculatedRpm =
     totalViewsNum > 0
       ? Math.round(((totalRevNum * 1000) / totalViewsNum) * 100) / 100
@@ -351,13 +619,12 @@ export default function AccountDetailPage() {
       {/* Toast Notification */}
       {toastMsg && (
         <div
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-xl border text-xs font-semibold backdrop-blur-md animate-slideUp ${
-            toastMsg.type === "success"
-              ? "bg-emerald-500/90 text-white border-emerald-400"
-              : toastMsg.type === "error"
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-xl border text-xs font-semibold backdrop-blur-md animate-slideUp ${toastMsg.type === "success"
+            ? "bg-emerald-500/90 text-white border-emerald-400"
+            : toastMsg.type === "error"
               ? "bg-rose-500/90 text-white border-rose-400"
               : "bg-slate-900/90 text-white border-slate-700"
-          }`}
+            }`}
         >
           {toastMsg.type === "success" && <CheckCircle className="w-4 h-4 shrink-0" />}
           {toastMsg.type === "error" && <AlertTriangle className="w-4 h-4 shrink-0" />}
@@ -367,14 +634,14 @@ export default function AccountDetailPage() {
 
       {/* Account Details Header Section (Static / Non-sticky) */}
       <div className="bg-transparent pb-4 border-b border-slate-200/80 dark:border-slate-800/80 space-y-3">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           {/* Back Button & Account Title */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3.5 min-w-0">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link
                   href="/accounts"
-                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all shadow-sm"
+                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all shadow-sm shrink-0"
                 >
                   <ArrowLeft className="w-5 h-5" />
                 </Link>
@@ -384,120 +651,148 @@ export default function AccountDetailPage() {
               </TooltipContent>
             </Tooltip>
 
-            {/* Avatar & Title */}
-            <div className="flex items-center gap-3.5">
-              <div className="relative">
-                <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-pink-500 to-rose-400 p-0.5 shadow-md">
-                  <div className="w-full h-full rounded-[14px] bg-white dark:bg-slate-900 flex items-center justify-center font-black text-pink-600 dark:text-pink-400 text-lg uppercase">
-                    {account.username.slice(0, 2)}
-                  </div>
-                </div>
-                <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center shadow">
-                  <span className="text-xs">{account.country === "UK" ? "🇬🇧" : account.country === "VN" ? "🇻🇳" : account.country === "DE" ? "🇩🇪" : "🇺🇸"}</span>
+            {/* Avatar */}
+            <div className="relative shrink-0">
+              <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-pink-500 to-rose-400 p-0.5 shadow-md">
+                <div className="w-full h-full rounded-[14px] bg-white dark:bg-slate-900 flex items-center justify-center font-black text-pink-600 dark:text-pink-400 text-lg uppercase">
+                  {account.username.slice(0, 2)}
                 </div>
               </div>
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center shadow">
+                <span className="text-xs">{account.country === "UK" ? "🇬🇧" : account.country === "VN" ? "🇻🇳" : account.country === "DE" ? "🇩🇪" : "🇺🇸"}</span>
+              </div>
+            </div>
 
-              <div>
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                    @{account.username}
-                  </h1>
-                  {getStatusBadge(account.status)}
-                  {account.groupName && (
-                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                      {account.groupName}
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1 flex-wrap">
-                  <span>ID: <code className="text-xs font-mono text-slate-700 dark:text-slate-300">{account.id}</code></span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1.5">
-                    Phụ trách: <strong className="text-slate-800 dark:text-slate-200">{account.assignedUser?.name || account.assignedUser?.fullName || account.assignedUser?.username || "Chưa gán"}</strong>
+            {/* Title & Metadata */}
+            <div className="space-y-1 min-w-0">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                  @{account.username}
+                </h1>
+                <OnlineOfflineBadge isOnline={account.isOnline} size="md" />
+                {getStatusBadge(account.status)}
+                {account.groupName && (
+                  <span className="px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                    {account.groupName}
                   </span>
-                  {isLeadOrAdmin ? (
-                    <button
-                      onClick={() => toggleLockMutation.mutate({ id: account.id, isLocked: !account.isAssignmentLocked })}
-                      disabled={toggleLockMutation.isPending}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                        account.isAssignmentLocked
-                          ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
-                          : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                )}
+              </div>
+
+              <div className="flex items-center gap-2.5 sm:gap-3 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
+                <span>ID: <code className="text-xs font-mono text-slate-700 dark:text-slate-300">{account.id}</code></span>
+                <span>•</span>
+                <span className="flex items-center gap-1.5">
+                  Phụ trách: <strong className="text-slate-800 dark:text-slate-200">{account.assignedUser?.name || account.assignedUser?.fullName || account.assignedUser?.username || "Chưa gán"}</strong>
+                </span>
+                {isLeadOrAdmin ? (
+                  <button
+                    onClick={() => toggleLockMutation.mutate({ id: account.id, isLocked: !account.isAssignmentLocked })}
+                    disabled={toggleLockMutation.isPending}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${account.isAssignmentLocked
+                      ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
+                      : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
                       }`}
-                      title={account.isAssignmentLocked ? "Click để mở khóa phân công" : "Click để khóa phân công"}
-                    >
-                      {account.isAssignmentLocked ? (
-                        <>
-                          <Lock className="w-3 h-3" />
-                          <span>Đã khóa phân công</span>
-                        </>
-                      ) : (
-                        <>
-                          <Unlock className="w-3 h-3" />
-                          <span>Đổi ca tự do</span>
-                        </>
-                      )}
-                    </button>
-                  ) : account.isAssignmentLocked ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-                      <Lock className="w-3 h-3" />
-                      <span>Đã khóa</span>
-                    </span>
-                  ) : null}
-                  <span>•</span>
-                  <span>Cập nhật: {account.lastSyncedAt ? new Date(account.lastSyncedAt).toLocaleString("vi-VN") : "Chưa đồng bộ"}</span>
-                </div>
+                    title={account.isAssignmentLocked ? "Click để mở khóa phân công" : "Click để khóa phân công"}
+                  >
+                    {account.isAssignmentLocked ? (
+                      <>
+                        <Lock className="w-3 h-3" />
+                        <span>Đã khóa phân công</span>
+                      </>
+                    ) : (
+                      <>
+                        <Unlock className="w-3 h-3" />
+                        <span>Đổi ca tự do</span>
+                      </>
+                    )}
+                  </button>
+                ) : account.isAssignmentLocked ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                    <Lock className="w-3 h-3" />
+                    <span>Đã khóa</span>
+                  </span>
+                ) : null}
+                <span>•</span>
+                <span>Cập nhật: {account.lastSyncedAt ? new Date(account.lastSyncedAt).toLocaleString("vi-VN") : "Chưa đồng bộ"}</span>
               </div>
             </div>
           </div>
 
           {/* Action Buttons Toolbar */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 w-full xl:w-auto xl:ml-auto">
             {/* Transfer / Reassign Button for Admin & Lead */}
             {isLeadOrAdmin && (
-              <button
-                onClick={() => {
-                  setSelectedTransferUserId(account.assignedUserId || "UNASSIGNED");
-                  setIsLockOnTransfer(!!account.isAssignmentLocked);
-                  setIsTransferModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs active:scale-95 transition-all cursor-pointer"
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Chuyển giao</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => {
+                      setSelectedTransferUserId(account.assignedUserId || "UNASSIGNED");
+                      setIsLockOnTransfer(!!account.isAssignmentLocked);
+                      setIsTransferModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs active:scale-95 transition-all cursor-pointer"
+                  >
+                    <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span>Chuyển giao</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  Chuyển giao quyền quản lý tài khoản cho nhân sự khác
+                </TooltipContent>
+              </Tooltip>
             )}
 
             {/* Sync Live Button */}
-            <button
-              onClick={() => syncMutation.mutate({ accountId: account.id })}
-              disabled={syncMutation.isPending}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm hover:shadow active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-              <span>{syncMutation.isPending ? "Đang đồng bộ..." : "Đồng Bộ TikTok Studio"}</span>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => syncMutation.mutate({ accountId: account.id })}
+                  disabled={syncMutation.isPending}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm hover:shadow active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-4 h-4 shrink-0 aspect-square ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                  <span>{syncMutation.isPending ? "Đang đồng bộ..." : "Đồng Bộ TikTok Studio"}</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                Đồng bộ dữ liệu thời gian thực từ TikTok Studio
+              </TooltipContent>
+            </Tooltip>
 
             {/* Launch / Stop GPM Profile */}
             {account.gpmProfileId && (
               <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => startGpmMutation.mutate({ gpmProfileId: account.gpmProfileId! })}
-                  disabled={startGpmMutation.isPending}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm hover:shadow active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Mở Profile GPM</span>
-                </button>
-                <button
-                  onClick={() => stopGpmMutation.mutate({ gpmProfileId: account.gpmProfileId! })}
-                  disabled={stopGpmMutation.isPending}
-                  className="p-2 rounded-xl text-xs font-bold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
-                  title="Đóng trình duyệt GPM"
-                >
-                  <Square className="w-3.5 h-3.5" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleStartGpm}
+                      disabled={startingGpm || startGpmMutation.isPending}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm hover:shadow active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      <Play className={`w-3.5 h-3.5 fill-current shrink-0 ${startingGpm ? "animate-pulse" : ""}`} />
+                      <span>{startingGpm ? "Đang mở..." : "Mở Profile GPM"}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    Mở profile GPM (cổng {(account as any).gpmPort || gpmStatus?.port || "auto"})
+                  </TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => stopGpmMutation.mutate({ gpmProfileId: account.gpmProfileId!, port: (account as any).gpmPort || gpmStatus?.port || undefined })}
+                      disabled={stopGpmMutation.isPending}
+                      className="p-2 rounded-xl text-xs font-bold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all cursor-pointer disabled:opacity-50"
+                      aria-label="Đóng trình duyệt GPM"
+                    >
+                      <Square className="w-3.5 h-3.5 fill-current shrink-0" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    Đóng trình duyệt GPM
+                  </TooltipContent>
+                </Tooltip>
               </div>
             )}
           </div>
@@ -507,11 +802,10 @@ export default function AccountDetailPage() {
         <div className="flex items-center gap-1 border-t border-slate-200/60 dark:border-slate-800/60 pt-2.5 overflow-x-auto">
           <button
             onClick={() => setActiveTab("overview")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "overview"
-                ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-            }`}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === "overview"
+              ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
+              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+              }`}
           >
             <Activity className="w-3.5 h-3.5" />
             <span>Tổng Quan & Chỉ Số</span>
@@ -519,28 +813,26 @@ export default function AccountDetailPage() {
 
           <button
             onClick={() => setActiveTab("history")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "history"
-                ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-            }`}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === "history"
+              ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
+              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+              }`}
           >
             <BarChart3 className="w-3.5 h-3.5" />
             <span>Biểu Đồ & Lịch Sử Doanh Thu</span>
-            {account.dailyRevenues?.length > 0 && (
+            {displayedRevenueRows.length > 0 && (
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-xs bg-pink-500/20 text-pink-500">
-                {account.dailyRevenues.length}
+                {displayedRevenueRows.length}
               </span>
             )}
           </button>
 
           <button
             onClick={() => setActiveTab("alerts")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "alerts"
-                ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-            }`}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === "alerts"
+              ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
+              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+              }`}
           >
             <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
             <span>Cảnh Báo & Rủi Ro</span>
@@ -553,11 +845,10 @@ export default function AccountDetailPage() {
 
           <button
             onClick={() => setActiveTab("logs")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "logs"
-                ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-            }`}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === "logs"
+              ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
+              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+              }`}
           >
             <FileText className="w-3.5 h-3.5" />
             <span>Nhật Ký & Audit Trail</span>
@@ -571,218 +862,367 @@ export default function AccountDetailPage() {
       </div>
 
       {/* Top 6 KPI Cards Overview */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-        {/* Total Views */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">Tổng Lượt Xem</span>
-            <Eye className="w-4 h-4 text-cyan-500" />
+      {activeTab !== "alerts" && activeTab !== "logs" && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+          {/* Total Views */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Tổng Lượt Xem">Tổng Lượt Xem</span>
+              <Eye className="w-4 h-4 text-cyan-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-2 truncate">
+              {totalViewsNum.toLocaleString()}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 truncate">
+              <Sparkles className="w-3 h-3 text-cyan-500 shrink-0" />
+              <span className="truncate">Toàn thời gian (Studio)</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-2">
-            {totalViewsNum.toLocaleString()}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-            <Sparkles className="w-3 h-3 text-cyan-500" />
-            <span>Toàn thời gian (Studio)</span>
-          </div>
-        </div>
 
-        {/* Total Followers */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">Followers</span>
-            <Users className="w-4 h-4 text-purple-500" />
+          {/* Total Followers */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Followers">Followers</span>
+              <Users className="w-4 h-4 text-purple-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2 truncate">
+              {Number(account.totalFollowers || 0).toLocaleString()}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 truncate">
+              <span className="truncate">Kênh đạt chuẩn quỹ</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2">
-            {Number(account.totalFollowers || 0).toLocaleString()}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-            <span>Kênh đạt chuẩn quỹ</span>
-          </div>
-        </div>
 
-        {/* Total Videos */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">Số Video</span>
-            <Video className="w-4 h-4 text-indigo-500" />
+          {/* Total Videos */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Số Video">Số Video</span>
+              <Video className="w-4 h-4 text-indigo-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2 truncate">
+              {Number(account.totalVideos || 0).toLocaleString()}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 truncate">
+              <span className="truncate">Đã đăng trên kênh</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2">
-            {Number(account.totalVideos || 0).toLocaleString()}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-            <span>Đã đăng trên kênh</span>
-          </div>
-        </div>
 
-        {/* Total Revenue */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">Tổng Doanh Thu</span>
-            <DollarSign className="w-4 h-4 text-pink-500" />
+          {/* Total Revenue */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Tổng Doanh Thu">Tổng Doanh Thu</span>
+              <DollarSign className="w-4 h-4 text-pink-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-pink-600 dark:text-pink-400 mt-2 truncate">
+              {currencySymbol}{totalRevNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 truncate">
+              <span className="truncate">Creator Rewards</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-pink-600 dark:text-pink-400 mt-2">
-            {currencySymbol}{totalRevNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-            <span>Creator Rewards</span>
-          </div>
-        </div>
 
-        {/* Average RPM */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">RPM Trung Bình</span>
-            <TrendingUp className="w-4 h-4 text-emerald-500" />
+          {/* Average RPM */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="RPM Trung Bình">RPM Trung Bình</span>
+              <TrendingUp className="w-4 h-4 text-emerald-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2 truncate">
+              {currencySymbol}{calculatedRpm.toFixed(2)}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 truncate">
+              <span className="truncate">/ 1,000 views</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">
-            {currencySymbol}{calculatedRpm.toFixed(2)}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-            <span>/ 1,000 views</span>
-          </div>
-        </div>
 
-        {/* Fleet / Country Status */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-            <span className="text-xs font-bold uppercase tracking-wider">Khu Vực & Tiền Tệ</span>
-            <Globe className="w-4 h-4 text-amber-500" />
-          </div>
-          <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-2 flex items-center gap-1.5">
-            {getCountryBadge(account.country)}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Đơn vị: <strong className="text-slate-700 dark:text-slate-300 font-mono">{currencySymbol} ({account.country})</strong>
+          {/* Country Status */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Quốc Gia">Quốc Gia</span>
+              <Globe className="w-4 h-4 text-amber-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-2 truncate">
+              {(account.country || "US").toUpperCase()}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+              {getCountryName(account.country)}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Main Tab Content */}
       {activeTab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left 2 Columns: Views Breakdown & Performance Dashboard */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-6 flex flex-col">
             {/* Time-Window Breakdown Box */}
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <BarChart3 className="w-4 h-4 text-pink-500" />
-                    Phân Tích Chỉ Số Theo Khung Thời Gian (TikTok Studio)
+                    Phân Tích Chỉ Số Theo Thời Gian
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Số liệu lượt xem và video trích xuất tự động qua API TikTok Studio
+                    Số liệu lượt xem và doanh thu của tài khoản
                   </p>
                 </div>
 
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl flex-wrap">
+                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0 overflow-x-auto max-w-full scrollbar-none">
                   {[
-                    { id: "7d", label: "7 ngày" },
-                    { id: "28d", label: "28 ngày" },
-                    { id: "60d", label: "60 ngày" },
-                    { id: "365d", label: "365 ngày" },
-                    { id: "all", label: "Toàn bộ" },
+                    { id: "7d", label: "7 Ngày" },
+                    { id: "28d", label: "28 Ngày" },
+                    { id: "60d", label: "60 Ngày" },
+                    { id: "365d", label: "365 Ngày" },
+                    { id: "all", label: "Toàn Bộ" },
                   ].map((range) => (
                     <button
                       key={range.id}
                       onClick={() => setSelectedTimeRange(range.id as any)}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        selectedTimeRange === range.id
-                          ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
-                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                      }`}
+                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${selectedTimeRange === range.id
+                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
                     >
                       {range.label}
                     </button>
                   ))}
+
+                  {/* Custom Date Range Popover */}
+                  <Popover open={isRangePickerOpen} onOpenChange={setIsRangePickerOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${selectedTimeRange === "custom"
+                          ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                          }`}
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>
+                          {selectedTimeRange === "custom" && customStartDate && customEndDate
+                            ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
+                            : "Tùy chọn"}
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="bottom"
+                      sideOffset={6}
+                      align="end"
+                      avoidCollisions={false}
+                      className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
+                    >
+                      <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                          Chọn khoảng ngày thống kê
+                        </span>
+                        {rangeSelection?.from && (
+                          <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
+                            {format(rangeSelection.from, "dd/MM/yy")} - {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="w-full py-0.5">
+                        <CalendarPicker
+                          mode="range"
+                          selected={rangeSelection}
+                          onSelect={(range) => {
+                            setRangeSelection(range);
+                          }}
+                          numberOfMonths={1}
+                          className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                          classNames={{
+                            root: "w-full",
+                            months: "relative flex flex-col w-full",
+                            month: "w-full flex flex-col gap-1.5",
+                            weekdays: "flex w-full justify-between",
+                            week: "flex w-full mt-1 justify-between",
+                          }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setIsRangePickerOpen(false)}
+                          className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!rangeSelection?.from}
+                          onClick={() => {
+                            if (rangeSelection?.from) {
+                              const s = format(rangeSelection.from, "yyyy-MM-dd");
+                              const e = rangeSelection.to ? format(rangeSelection.to, "yyyy-MM-dd") : s;
+                              setCustomStartDate(s);
+                              setCustomEndDate(e);
+                              setSelectedTimeRange("custom");
+                            }
+                            setIsRangePickerOpen(false);
+                          }}
+                          className="px-4 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 disabled:opacity-50 rounded-lg shadow-sm cursor-pointer transition-all"
+                        >
+                          Áp dụng
+                        </button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
+
+              {/* Custom Date Range Summary Banner */}
+              {selectedTimeRange === "custom" && customStartDate && customEndDate && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-pink-50 dark:bg-pink-950/30 border border-pink-200 dark:border-pink-800/60">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400 flex items-center justify-center font-bold shrink-0">
+                      <Calendar className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white">
+                        Khoảng ngày tùy chọn:{" "}
+                        <span className="text-pink-600 dark:text-pink-400">
+                          {format(new Date(customStartDate + "T00:00:00"), "dd/MM/yyyy")} - {format(new Date(customEndDate + "T00:00:00"), "dd/MM/yyyy")}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {chartData.length} ngày có dữ liệu
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs font-semibold">
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400">Doanh thu: </span>
+                      <span className="font-black text-pink-600 dark:text-pink-400 text-sm">
+                        {currencySymbol}{chartData.reduce((s, i) => s + (i.revenue || 0), 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 dark:text-slate-400">Lượt xem: </span>
+                      <span className="font-black text-pink-600 dark:text-pink-400 text-sm">
+                        {chartData.reduce((s, i) => s + (i.views || 0), 0).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Metric Comparison Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">7 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-cyan-600 dark:text-cyan-400 mt-1">
-                    {account.dailyRevenues?.slice(0, 7).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}
+                    {(account as any).analytics?.revenue7d != null
+                      ? `${currencySymbol}${Number((account as any).analytics.revenue7d).toFixed(2)}`
+                      : "—"}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">Lượt xem (7d)</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {((account as any).analytics?.views7d != null
+                      ? Number((account as any).analytics.views7d).toLocaleString()
+                      : account.dailyRevenues?.slice(0, 7).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString()) || "—"}{" "}
+                    views
+                  </div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">28 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 mt-1">
-                    {account.dailyRevenues?.slice(0, 28).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}
+                    {(account as any).analytics?.revenue28d != null
+                      ? `${currencySymbol}${Number((account as any).analytics.revenue28d).toFixed(2)}`
+                      : "—"}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">Lượt xem (28d)</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {((account as any).analytics?.views28d != null
+                      ? Number((account as any).analytics.views28d).toLocaleString()
+                      : account.dailyRevenues?.slice(0, 28).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString()) || "—"}{" "}
+                    views
+                  </div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">60 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 mt-1">
-                    {account.dailyRevenues?.slice(0, 60).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}
+                    {(account as any).analytics?.revenue60d != null
+                      ? `${currencySymbol}${Number((account as any).analytics.revenue60d).toFixed(2)}`
+                      : "—"}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">Lượt xem (60d)</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {((account as any).analytics?.views60d != null
+                      ? Number((account as any).analytics.views60d).toLocaleString()
+                      : account.dailyRevenues?.slice(0, 60).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString()) || "—"}{" "}
+                    views
+                  </div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">365 Ngày (1 Năm)</div>
                   <div className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 mt-1">
-                    {account.dailyRevenues?.slice(0, 365).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}
+                    {(account as any).analytics?.revenue365d != null
+                      ? `${currencySymbol}${Number((account as any).analytics.revenue365d).toFixed(2)}`
+                      : "—"}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">Lượt xem (365d)</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {((account as any).analytics?.views365d != null
+                      ? Number((account as any).analytics.views365d).toLocaleString()
+                      : account.dailyRevenues?.slice(0, 365).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString()) || "—"}{" "}
+                    views
+                  </div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center col-span-2 sm:col-span-1">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Toàn Thời Gian</div>
                   <div className="text-base sm:text-lg font-black text-pink-600 dark:text-pink-400 mt-1">
-                    {totalViewsNum.toLocaleString()}
+                    {currencySymbol}{totalRevNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">Lifetime Views</div>
-                </div>
-              </div>
-
-              {/* Progress Summary */}
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-pink-500/5 via-purple-500/5 to-cyan-500/5 border border-pink-500/10 dark:border-pink-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400 flex items-center justify-center font-bold">
-                    <Sparkles className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      Trạng thái Quỹ Creator Rewards
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      Tài khoản đã được liên kết và cập nhật đầy đủ dữ liệu thống kê từ TikTok Studio.
-                    </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {totalViewsNum.toLocaleString()} views
                   </div>
                 </div>
-
-                <button
-                  onClick={() => setIsAddRevenueOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:border-pink-500 transition-all shadow-sm cursor-pointer whitespace-nowrap"
-                >
-                  <Plus className="w-3.5 h-3.5 text-pink-500" />
-                  <span>Nhập doanh thu ngày</span>
-                </button>
               </div>
             </div>
 
             {/* Daily Revenue Chart Preview */}
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4 flex-1 flex flex-col justify-between">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    Biểu Đồ Doanh Thu & Lượt Xem Gần Đây
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+                    <span className="flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-emerald-500" />
+                      Biểu Đồ Doanh Thu & Lượt Xem Gần Đây
+                    </span>
+                    <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                      ({selectedTimeRange === "7d"
+                        ? "7 ngày qua"
+                        : selectedTimeRange === "28d"
+                          ? "28 ngày qua"
+                          : selectedTimeRange === "60d"
+                            ? "60 ngày qua"
+                            : selectedTimeRange === "365d"
+                              ? "365 ngày qua"
+                              : selectedTimeRange === "all"
+                                ? "Toàn bộ"
+                                : customStartDate && customEndDate
+                                  ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
+                                  : "Tùy chọn"})
+                    </span>
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Theo dõi biến động doanh thu ({currencySymbol}) và lượt xem hàng ngày
                   </p>
                 </div>
                 <button
-                  onClick={() => setActiveTab("history")}
-                  className="text-xs font-bold text-pink-600 hover:text-pink-500 dark:text-pink-400 flex items-center gap-1 cursor-pointer"
+                  onClick={() => {
+                    setActiveTab("history");
+                    setHistoryTimeRange(selectedTimeRange);
+                    setHistoryStartDate(customStartDate);
+                    setHistoryEndDate(customEndDate);
+                    setHistoryRangeSelection(rangeSelection);
+                  }}
+                  className="text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-pink-600 dark:hover:text-pink-400 px-3 py-1.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-pink-50 dark:hover:bg-pink-950/50 border border-slate-200/80 dark:border-slate-700/80 hover:border-pink-300 dark:hover:border-pink-800 flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
                 >
                   <span>Xem đầy đủ bảng</span>
                   <ChevronRight className="w-3.5 h-3.5" />
@@ -790,7 +1230,7 @@ export default function AccountDetailPage() {
               </div>
 
               {chartData.length > 0 ? (
-                <div className="h-64 w-full pt-2">
+                <div className="w-full pt-2 flex-1 min-h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
@@ -810,15 +1250,18 @@ export default function AccountDetailPage() {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="py-12 text-center text-slate-400 dark:text-slate-500 space-y-2">
-                  <BarChart3 className="w-8 h-8 mx-auto opacity-40" />
+                <div className="py-12 text-center text-slate-400 dark:text-slate-500 space-y-3 flex-1 flex flex-col items-center justify-center min-h-[260px]">
+                  <BarChart3 className="w-10 h-10 mx-auto opacity-40 text-slate-400" />
                   <p className="text-xs">Chưa có bản ghi doanh thu nào theo ngày.</p>
-                  <button
-                    onClick={() => setIsAddRevenueOpen(true)}
-                    className="text-xs text-pink-600 font-bold hover:underline cursor-pointer"
-                  >
-                    + Nhập bản ghi đầu tiên
-                  </button>
+                  {isLeadOrAdmin && (
+                    <button
+                      onClick={() => setIsAddRevenueOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/40 hover:bg-pink-100 dark:hover:bg-pink-900/50 border border-pink-200/80 dark:border-pink-800/80 transition-all cursor-pointer shadow-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Nhập bản ghi đầu tiên</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -844,15 +1287,15 @@ export default function AccountDetailPage() {
                     updateMutation.mutate({ id: account.id, status: val })
                   }
                 >
-                  <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-medium cursor-pointer">
+                  <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                    <SelectItem value="ACTIVE" className="text-xs cursor-pointer">Active (Hoạt động)</SelectItem>
-                    <SelectItem value="WARMING" className="text-xs cursor-pointer">Warming (Nuôi acc)</SelectItem>
-                    <SelectItem value="RESTRICTED" className="text-xs cursor-pointer">Restricted (Hạn chế)</SelectItem>
-                    <SelectItem value="BANNED" className="text-xs cursor-pointer">Banned (Bị khóa)</SelectItem>
-                    <SelectItem value="STOPPED" className="text-xs cursor-pointer">Stopped (Tạm dừng)</SelectItem>
+                    <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active (Hoạt động)</SelectItem>
+                    <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming (Nuôi acc)</SelectItem>
+                    <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted (Hạn chế)</SelectItem>
+                    <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned (Bị khóa)</SelectItem>
+                    <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped (Tạm dừng)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -862,31 +1305,37 @@ export default function AccountDetailPage() {
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Nhân sự phụ trách
                 </label>
-                <Select
-                  value={account.assignedUserId || "UNASSIGNED"}
-                  onValueChange={(val) =>
-                    updateMutation.mutate({
-                      id: account.id,
-                      assignedUserId: val === "UNASSIGNED" ? null : val,
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-medium cursor-pointer">
-                    <SelectValue placeholder="-- Chọn nhân sự --">
-                      {account.assignedUser ? account.assignedUser.fullName || account.assignedUser.username : "-- Chưa gán --"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
-                    <SelectItem value="UNASSIGNED" className="text-xs cursor-pointer text-slate-400">
-                      -- Chưa gán --
-                    </SelectItem>
-                    {staffList.map((s: any) => (
-                      <SelectItem key={s.id} value={s.id} className="text-xs cursor-pointer">
-                        {s.fullName} ({s.username})
+                {isLeadOrAdmin ? (
+                  <Select
+                    value={account.assignedUserId || "UNASSIGNED"}
+                    onValueChange={(val) =>
+                      updateMutation.mutate({
+                        id: account.id,
+                        assignedUserId: val === "UNASSIGNED" ? null : val,
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
+                      <SelectValue placeholder="-- Chọn nhân sự --">
+                        {account.assignedUser ? account.assignedUser.fullName || account.assignedUser.username : "-- Chưa gán --"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
+                      <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
+                        -- Chưa gán --
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      {staffList.map((s: any) => (
+                        <SelectItem key={s.id} value={s.id} className="text-xs font-normal cursor-pointer">
+                          {s.fullName} ({s.username})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 flex items-center text-xs font-normal text-slate-700 dark:text-slate-300 select-none">
+                    {account.assignedUser ? account.assignedUser.fullName || account.assignedUser.username : "Chưa gán"}
+                  </div>
+                )}
               </div>
 
               {/* Country Selector */}
@@ -895,20 +1344,25 @@ export default function AccountDetailPage() {
                   Quốc gia (Country)
                 </label>
                 <Select
-                  value={account.country}
+                  value={normalizeCountry(account.country)}
                   onValueChange={(val) =>
                     updateMutation.mutate({ id: account.id, country: val })
                   }
                 >
-                  <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-medium cursor-pointer">
-                    <SelectValue />
+                  <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
+                    <SelectValue placeholder="Chọn quốc gia" />
                   </SelectTrigger>
-                  <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                    <SelectItem value="US" className="text-xs cursor-pointer">🇺🇸 United States (US - $)</SelectItem>
-                    <SelectItem value="UK" className="text-xs cursor-pointer">🇬🇧 United Kingdom (UK - £)</SelectItem>
-                    <SelectItem value="VN" className="text-xs cursor-pointer">🇻🇳 Việt Nam (VN - ₫)</SelectItem>
-                    <SelectItem value="DE" className="text-xs cursor-pointer">🇩🇪 Germany (DE - €)</SelectItem>
-                    <SelectItem value="FR" className="text-xs cursor-pointer">🇫🇷 France (FR - €)</SelectItem>
+                  <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
+                    {COUNTRY_OPTIONS.map((c) => (
+                      <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                    {!COUNTRY_OPTIONS.some((c) => c.value === normalizeCountry(account.country)) && account.country && (
+                      <SelectItem value={account.country} className="text-xs font-normal cursor-pointer">
+                        🌐 {account.country}
+                      </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -955,28 +1409,57 @@ export default function AccountDetailPage() {
                 <div className="space-y-3">
                   <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 space-y-1.5">
                     <div className="text-xs font-medium text-slate-500">GPM Profile ID</div>
-                    <code className="text-xs font-mono text-cyan-600 dark:text-cyan-400 break-all block font-bold">
-                      {account.gpmProfileId}
-                    </code>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs font-mono text-cyan-600 dark:text-cyan-400 break-all block font-bold">
+                        {account.gpmProfileId}
+                      </code>
+                      {((account as any).gpmPort || gpmStatus?.port) && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border border-cyan-300/50 dark:border-cyan-800/50">
+                          Port: {(account as any).gpmPort || gpmStatus?.port}
+                        </span>
+                      )}
+                    </div>
+                    {(account as { gpmProfileName?: string | null }).gpmProfileName && (
+                      <div className="pt-1 text-xs text-slate-600 dark:text-slate-300">
+                        Tên profile:{" "}
+                        <span className="font-semibold">
+                          {(account as { gpmProfileName?: string | null }).gpmProfileName}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => startGpmMutation.mutate({ gpmProfileId: account.gpmProfileId! })}
-                      disabled={startGpmMutation.isPending}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm transition-all disabled:opacity-50 cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>Mở GPM</span>
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={handleStartGpm}
+                          disabled={startingGpm || startGpmMutation.isPending}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                        >
+                          <Play className={`w-3.5 h-3.5 fill-current ${startingGpm ? "animate-pulse" : ""}`} />
+                          <span>{startingGpm ? "Đang mở..." : "Mở GPM"}</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        Mở profile GPM (cổng {(account as any).gpmPort || gpmStatus?.port || "auto"})
+                      </TooltipContent>
+                    </Tooltip>
 
-                    <button
-                      onClick={() => stopGpmMutation.mutate({ gpmProfileId: account.gpmProfileId! })}
-                      disabled={stopGpmMutation.isPending}
-                      className="py-2 px-3 rounded-xl text-xs font-bold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
-                    >
-                      <Square className="w-3.5 h-3.5" />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => stopGpmMutation.mutate({ gpmProfileId: account.gpmProfileId!, port: (account as any).gpmPort || gpmStatus?.port || undefined })}
+                          disabled={stopGpmMutation.isPending}
+                          className="py-2 px-3 rounded-xl text-xs font-bold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
+                        >
+                          <Square className="w-3.5 h-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        Đóng trình duyệt GPM
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               ) : (
@@ -1004,25 +1487,194 @@ export default function AccountDetailPage() {
       {/* History & Daily Revenue Tab */}
       {activeTab === "history" && (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <DollarSign className="w-5 h-5 text-amber-500" />
                 Lịch Sử Doanh Thu & Views Từng Ngày ({currencySymbol})
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Bảng ghi chi tiết các ngày đã được ghi nhận hoặc đồng bộ từ TikTok Studio
+                Bảng hiển thị chi tiết số liệu theo từng ngày đã được ghi nhận và đồng bộ từ TikTok Studio.
               </p>
             </div>
 
-            <button
-              onClick={() => setIsAddRevenueOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm hover:shadow transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Thêm Bản Ghi Mới</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* History Date Filter Toolbar */}
+              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0 overflow-x-auto max-w-full scrollbar-none">
+                {[
+                  { id: "7d", label: "7 Ngày" },
+                  { id: "28d", label: "28 Ngày" },
+                  { id: "60d", label: "60 Ngày" },
+                  { id: "365d", label: "365 Ngày" },
+                  { id: "all", label: "Toàn Bộ" },
+                ].map((range) => (
+                  <button
+                    key={range.id}
+                    onClick={() => setHistoryTimeRange(range.id as any)}
+                    className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${historyTimeRange === range.id
+                      ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                  >
+                    {range.label}
+                  </button>
+                ))}
+
+                {/* Custom Date Range Popover */}
+                <Popover open={isHistoryRangePickerOpen} onOpenChange={setIsHistoryRangePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${historyTimeRange === "custom"
+                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>
+                        {historyTimeRange === "custom" && historyStartDate && historyEndDate
+                          ? `${format(new Date(historyStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(historyEndDate + "T00:00:00"), "dd/MM")}`
+                          : "Tùy chọn"}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="bottom"
+                    sideOffset={6}
+                    align="end"
+                    avoidCollisions={false}
+                    className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
+                  >
+                    <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                        Chọn khoảng ngày thống kê
+                      </span>
+                      {historyRangeSelection?.from && (
+                        <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
+                          {format(historyRangeSelection.from, "dd/MM/yy")} - {historyRangeSelection.to ? format(historyRangeSelection.to, "dd/MM/yy") : "..."}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="w-full py-0.5">
+                      <CalendarPicker
+                        mode="range"
+                        selected={historyRangeSelection}
+                        onSelect={(range) => {
+                          setHistoryRangeSelection(range);
+                        }}
+                        numberOfMonths={1}
+                        className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                        classNames={{
+                          root: "w-full",
+                          months: "relative flex flex-col w-full",
+                          month: "w-full flex flex-col gap-1.5",
+                          weekdays: "flex w-full justify-between",
+                          week: "flex w-full mt-1 justify-between",
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setIsHistoryRangePickerOpen(false)}
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!historyRangeSelection?.from}
+                        onClick={() => {
+                          if (historyRangeSelection?.from) {
+                            const s = format(historyRangeSelection.from, "yyyy-MM-dd");
+                            const e = historyRangeSelection.to ? format(historyRangeSelection.to, "yyyy-MM-dd") : s;
+                            setHistoryStartDate(s);
+                            setHistoryEndDate(e);
+                            setHistoryTimeRange("custom");
+                          }
+                          setIsHistoryRangePickerOpen(false);
+                        }}
+                        className="px-4 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 disabled:opacity-50 rounded-lg shadow-sm cursor-pointer transition-all"
+                      >
+                        Áp dụng
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {isLeadOrAdmin && (
+                <button
+                  onClick={() => setIsAddRevenueOpen(true)}
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm hover:shadow transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Thêm Bản Ghi Mới</span>
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Custom Date Range Summary Banner for History Tab */}
+          {historyTimeRange === "custom" && historyStartDate && historyEndDate && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-pink-50 dark:bg-pink-950/30 border border-pink-200 dark:border-pink-800/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400 flex items-center justify-center font-bold shrink-0">
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 dark:text-white">
+                    Khoảng ngày tùy chọn:{" "}
+                    <span className="text-pink-600 dark:text-pink-400">
+                      {format(new Date(historyStartDate + "T00:00:00"), "dd/MM/yyyy")} - {format(new Date(historyEndDate + "T00:00:00"), "dd/MM/yyyy")}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {displayedHistoryRows.length} ngày có dữ liệu
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 text-xs font-semibold">
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400">Doanh thu: </span>
+                  <span className="font-black text-pink-600 dark:text-pink-400 text-sm">
+                    {currencySymbol}{displayedHistoryRows.reduce((s, i) => s + (i.revenue || 0), 0).toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400">Lượt xem: </span>
+                  <span className="font-black text-pink-600 dark:text-pink-400 text-sm">
+                    {displayedHistoryRows.reduce((s, i) => s + (i.views || 0), 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* History Chart */}
+          {historyChartData.length > 0 && (
+            <div className="w-full pt-1 min-h-[260px] h-[260px] pb-2 border-b border-slate-100 dark:border-slate-800">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={historyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <RechartsTooltip
+                    contentStyle={{
+                      backgroundColor: "rgba(15, 23, 42, 0.95)",
+                      borderRadius: "12px",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      color: "#fff",
+                      fontSize: "12px",
+                    }}
+                  />
+                  <Bar dataKey="revenue" name={`Doanh thu (${currencySymbol})`} fill="#ec4899" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Table */}
           <div className="overflow-x-auto">
@@ -1038,22 +1690,27 @@ export default function AccountDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                {account.dailyRevenues && account.dailyRevenues.length > 0 ? (
-                  account.dailyRevenues.map((rec: any) => (
+                {displayedRevenueRows.length > 0 ? (
+                  displayedRevenueRows.map((rec) => (
                     <tr
                       key={rec.id}
                       className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                     >
                       <td className="py-3 px-4 font-bold text-slate-900 dark:text-slate-100">
-                        {new Date(rec.date).toLocaleDateString("vi-VN")}
+                        {new Date(rec.date + "T00:00:00").toLocaleDateString("vi-VN")}
                       </td>
                       <td className="py-3 px-4">
-                        <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800">
-                          {rec.sourceType || "CREATOR_REWARDS"}
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-xs font-bold border ${rec.isAutomated
+                            ? "bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800"
+                            : "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800"
+                            }`}
+                        >
+                          {rec.sourceType} {rec.isAutomated ? "• Studio" : "• Thủ công"}
                         </span>
                       </td>
                       <td className="py-3 px-4 font-semibold text-cyan-600 dark:text-cyan-400">
-                        {Number(rec.views || 0).toLocaleString()}
+                        {rec.views > 0 ? rec.views.toLocaleString() : "—"}
                       </td>
                       <td className="py-3 px-4 font-semibold text-emerald-600 dark:text-emerald-400">
                         {currencySymbol}{Number(rec.rpm || 0).toFixed(2)}
@@ -1062,14 +1719,29 @@ export default function AccountDetailPage() {
                         {currencySymbol}{Number(rec.revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-3 px-4 text-slate-400 text-xs">
-                        {new Date(rec.createdAt).toLocaleTimeString("vi-VN")}
+                        {rec.createdTime || "—"}
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400">
-                      Chưa có bản ghi doanh thu nào. Bấm nút <strong>"Thêm Bản Ghi Mới"</strong> để ghi nhận.
+                    <td colSpan={6} className="py-14 text-center text-slate-400 dark:text-slate-500">
+                      <div className="flex flex-col items-center justify-center gap-3 max-w-md mx-auto">
+                        <BarChart3 className="w-10 h-10 opacity-35 text-slate-400 dark:text-slate-500" />
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Chưa có bản ghi doanh thu nào. Bấm nút <strong>"Thêm Bản Ghi Mới"</strong> để ghi nhận hoặc đồng bộ TikTok Studio.
+                        </p>
+                        {isLeadOrAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setIsAddRevenueOpen(true)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/40 hover:bg-pink-100 dark:hover:bg-pink-900/50 border border-pink-200/80 dark:border-pink-800/80 transition-all cursor-pointer shadow-xs mt-1"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Thêm bản ghi đầu tiên</span>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -1097,19 +1769,17 @@ export default function AccountDetailPage() {
               account.alerts.map((alt: any) => (
                 <div
                   key={alt.id}
-                  className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
-                    alt.status === "OPEN"
-                      ? "bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60"
-                      : "bg-slate-50 dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 opacity-70"
-                  }`}
+                  className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${alt.status === "OPEN"
+                    ? "bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60"
+                    : "bg-slate-50 dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 opacity-70"
+                    }`}
                 >
                   <div className="flex items-start gap-3">
                     <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                        alt.status === "OPEN"
-                          ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                          : "bg-slate-200 dark:bg-slate-800 text-slate-500"
-                      }`}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${alt.status === "OPEN"
+                        ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                        : "bg-slate-200 dark:bg-slate-800 text-slate-500"
+                        }`}
                     >
                       <AlertTriangle className="w-4 h-4" />
                     </div>
@@ -1119,11 +1789,10 @@ export default function AccountDetailPage() {
                           {alt.alertType}
                         </span>
                         <span
-                          className={`px-2 py-0.2 rounded-full text-xs font-bold ${
-                            alt.status === "OPEN"
-                              ? "bg-rose-500 text-white"
-                              : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
-                          }`}
+                          className={`px-2 py-0.2 rounded-full text-xs font-bold ${alt.status === "OPEN"
+                            ? "bg-rose-500 text-white"
+                            : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                            }`}
                         >
                           {alt.status}
                         </span>

@@ -119,23 +119,132 @@
 
   function detectCountryFromCurrency(currency) {
     switch (currency) {
-      case "£": return "UK";
-      case "€": return "DE";
-      case "₫": return "VN";
-      case "R$": return "BR";
-      case "Rp": return "ID";
-      case "₱": return "PH";
-      case "Rs": return "PK";
-      case "₽": return "RU";
-      case "৳": return "BD";
-      case "EGP": return "EG";
-      case "¥": return "JP";
-      case "₩": return "KR";
-      case "฿": return "TH";
-      case "RM": return "MY";
-      case "₺": return "TR";
-      default: return "US";
+      case "£": return "United Kingdom";
+      case "€": return "Germany";
+      case "₫": return "Vietnam";
+      case "R$": return "Brazil";
+      case "Rp": return "Indonesia";
+      case "₱": return "Philippines";
+      case "Rs": return "Pakistan";
+      case "₽": return "Russia";
+      case "৳": return "Bangladesh";
+      case "EGP": return "Egypt";
+      case "¥": return "Japan";
+      case "₩": return "South Korea";
+      case "฿": return "Thailand";
+      case "RM": return "Malaysia";
+      case "₺": return "Turkey";
+      default: return null;
     }
+  }
+
+  /** UI / BCP47 language codes — never treat these alone as market country. */
+  const LANG_ONLY = new Set([
+    "vi", "en", "th", "id", "ms", "ja", "ko", "zh", "fr", "de", "es", "pt", "ru", "ar",
+    "hi", "tr", "it", "pl", "nl", "sv", "ro", "uk", "cs", "hu", "el", "he", "bn", "fil",
+  ]);
+
+  const CODE_TO_COUNTRY_NAME = {
+    us: "United States",
+    gb: "United Kingdom",
+    uk: "United Kingdom",
+    vn: "Vietnam",
+    de: "Germany",
+    fr: "France",
+    be: "Belgium",
+    nl: "Netherlands",
+    id: "Indonesia",
+    th: "Thailand",
+    my: "Malaysia",
+    ph: "Philippines",
+    sg: "Singapore",
+    jp: "Japan",
+    kr: "South Korea",
+    br: "Brazil",
+    mx: "Mexico",
+    ca: "Canada",
+    au: "Australia",
+    in: "India",
+    pk: "Pakistan",
+    bd: "Bangladesh",
+    eg: "Egypt",
+    tr: "Turkey",
+    ru: "Russia",
+    es: "Spain",
+    it: "Italy",
+    pt: "Portugal",
+    pl: "Poland",
+    se: "Sweden",
+    ch: "Switzerland",
+    at: "Austria",
+    ie: "Ireland",
+    tw: "Taiwan",
+    hk: "Hong Kong",
+    kh: "Cambodia",
+    mm: "Myanmar",
+    la: "Laos",
+  };
+
+  function readCookie(name) {
+    try {
+      const m = document.cookie.match(
+        new RegExp("(?:^|; )" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "=([^;]*)")
+      );
+      return m ? decodeURIComponent(m[1]) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Extract ISO country code. For store cookies, 2-letter codes are always countries. */
+  function extractCountryCode(raw, opts) {
+    const fromStore = opts && opts.fromStore === true;
+    const s = String(raw || "").trim().toLowerCase().replace(/_/g, "-");
+    if (!s) return null;
+    if (/^[a-z]{2}$/.test(s)) {
+      if (!fromStore && LANG_ONLY.has(s) && s !== "uk") return null;
+      return s === "uk" ? "gb" : s;
+    }
+    if (/^[a-z]{2}-[a-z]{2}$/.test(s)) {
+      const [a, b] = s.split("-");
+      // vi-VN → vn ; vn-vi → vn
+      if (LANG_ONLY.has(a) && !LANG_ONLY.has(b)) return b;
+      if (!LANG_ONLY.has(a) || fromStore) return a === "uk" ? "gb" : a;
+      if (!LANG_ONLY.has(b)) return b;
+    }
+    return null;
+  }
+
+  /**
+   * Resolve English country name (Vietnam, Belgium, Germany…).
+   * Prefer store-country-code; never append language.
+   */
+  function normalizeCountryName(parts) {
+    const storeCode = extractCountryCode(parts.storeCountry, { fromStore: true });
+    const regionCode = extractCountryCode(parts.region, { fromStore: true });
+    const code = storeCode || regionCode;
+    if (!code) return null;
+    return CODE_TO_COUNTRY_NAME[code] || code.toUpperCase();
+  }
+
+  function extractCountryFromAppContext(scope) {
+    const ctx = scope?.["webapp.app-context"] || {};
+    const appCtx = ctx.appContext || {};
+    const user = ctx.user || {};
+    return {
+      region:
+        appCtx.region ||
+        appCtx.priority_region ||
+        user.region ||
+        scope?.["webapp.user-detail"]?.userInfo?.user?.region ||
+        null,
+      language: appCtx.language || ctx.language || null,
+      storeCountry: readCookie("store-country-code"),
+      langCookie:
+        readCookie("tiktok_webapp_lang") ||
+        readCookie("app_language") ||
+        readCookie("i18next"),
+    };
   }
 
   // Multi-language text matcher for Studio DOM cards
@@ -270,14 +379,16 @@
         const json = JSON.parse(scriptTag.textContent);
         const scope = json["__DEFAULT_SCOPE__"] || {};
         const appUser = scope["webapp.app-context"]?.user;
-        const region =
-          scope["webapp.app-context"]?.appContext?.region ||
-          scope["webapp.app-context"]?.language ||
-          null;
+        const hints = extractCountryFromAppContext(scope);
+        const country = normalizeCountryName({
+          storeCountry: hints.storeCountry,
+          region: hints.region,
+          language: hints.language || hints.langCookie,
+        });
         if (appUser && (appUser.uniqueId || appUser.id)) {
           const uname = normalizeHandle(appUser.uniqueId);
           if (uname) rememberHandle(uname);
-          return { isLoggedIn: true, username: uname, country: region || null };
+          return { isLoggedIn: true, username: uname, country: country || null };
         }
       }
     } catch (e) { }
@@ -290,26 +401,42 @@
       if (res.ok) {
         const info = await res.json();
         const uname = normalizeHandle(info.data?.username || info.data?.screen_name);
-        const cCode = info.data?.country_code || info.data?.country;
+        const hints = {
+          storeCountry: readCookie("store-country-code"),
+          region: info.data?.store_country || info.data?.country_code || info.data?.country || null,
+          language:
+            readCookie("tiktok_webapp_lang") ||
+            readCookie("app_language") ||
+            info.data?.language ||
+            null,
+        };
+        // Never treat numeric dial codes as market locale
+        if (hints.region && /^\d+$/.test(String(hints.region))) hints.region = null;
+        const country = normalizeCountryName(hints);
         if (uname && info.data?.user_id_str) {
           rememberHandle(uname);
-          return { isLoggedIn: true, username: uname, country: cCode || null };
+          return { isLoggedIn: true, username: uname, country: country || null };
         }
       }
     } catch (e) { }
 
     // F. Nav profile icon only (safe) — after ground-truth probes
+    const cookieCountry = normalizeCountryName({
+      storeCountry: readCookie("store-country-code"),
+      region: null,
+      language: readCookie("tiktok_webapp_lang") || readCookie("app_language"),
+    });
     if (profileIcon) {
       const href = profileIcon.getAttribute("href") || "";
       const m = href.match(/\/@([a-zA-Z0-9_.-]+)/);
       const uname = normalizeHandle(m?.[1]);
       if (uname) {
         rememberHandle(uname);
-        return { isLoggedIn: true, username: uname, country: null };
+        return { isLoggedIn: true, username: uname, country: cookieCountry || null };
       }
       // Icon present but no href handle — still logged in; use cache if available
       if (cachedHandle) {
-        return { isLoggedIn: true, username: cachedHandle, country: null };
+        return { isLoggedIn: true, username: cachedHandle, country: cookieCountry || null };
       }
     }
 
@@ -340,7 +467,8 @@
         username: username || "unknown",
         nickname: "",
         avatarUrl: "",
-        country: auth.country ? String(auth.country).toUpperCase() : "US",
+        // English country name only (Vietnam). Never invent "United States".
+        country: auth.country || null,
         currency: "$",
         isLoggedIn: isLoggedIn,
         viewedProfile: viewedHandle || null,
@@ -369,7 +497,8 @@
             document.querySelector('img[class*="Avatar"]');
           if (avatarEl && avatarEl.src) result.avatarUrl = avatarEl.src;
         }
-        if ((!result.nickname || !result.avatarUrl) && !isOtherProfilePage) {
+        // Always hydrate OUR identity via /@username fetch — never scrape the viewed public profile
+        if (!result.nickname || !result.avatarUrl) {
           await hydrateOwnIdentity(result);
         }
       } catch (e) { /* non-blocking */ }
@@ -410,7 +539,11 @@
 
   // 3. Debounced Detection & Reporting
   let debounceTimer = null;
-  async function triggerDetection() {
+  let lastSuccessfulReportAt = 0;
+  const FORCE_REREPORT_MS = 45_000;
+
+  async function triggerDetection(opts = {}) {
+    const force = opts.force === true;
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(async () => {
       const data = await extractAllMetrics();
@@ -422,24 +555,12 @@
         return;
       }
 
-      // Public profile of someone else → do not touch popup metrics / server stats
+      // Public profile of someone else → still report OUR logged-in identity (first login / GPM link),
+      // but never use their page DOM as nickname/avatar (extractAllMetrics already hydrates via /@us).
       if (data.isOtherProfilePage) {
         console.log(
-          `[TikTokFlow] Skipping report — viewing public @${data.viewedProfile} (logged-in @${data.username} unchanged)`
+          `[TikTokFlow] On public @${data.viewedProfile} — reporting logged-in identity @${data.username}`
         );
-        try {
-          chrome.runtime.sendMessage({
-            type: "TIKTOK_STATUS_DETECTED",
-            data: {
-              username: data.username,
-              isLoggedIn: true,
-              isOtherProfilePage: true,
-              viewedProfile: data.viewedProfile,
-              metricsSource: "identity_only",
-            },
-          });
-        } catch (e) {}
-        return;
       }
 
       // Hash identity only — Agent owns metrics
@@ -449,32 +570,78 @@
         logged: !!data.isLoggedIn,
       });
 
-      if (currentHash !== lastReportedDataHash) {
-        lastReportedDataHash = currentHash;
+      const stale =
+        !lastSuccessfulReportAt ||
+        Date.now() - lastSuccessfulReportAt > FORCE_REREPORT_MS;
+      if (!force && currentHash === lastReportedDataHash && !stale) {
+        return;
+      }
 
-        console.log("[TikTokFlow] Reporting identity for logged-in account:", data.username);
+      console.log("[TikTokFlow] Reporting identity for logged-in account:", data.username, {
+        force,
+        stale,
+      });
 
-        try {
-          chrome.runtime.sendMessage({
+
+      try {
+        chrome.runtime.sendMessage(
+          {
             type: "TIKTOK_STATUS_DETECTED",
             data: {
               ...data,
+              // Identity report is allowed on other profiles; strip page-context flag so
+              // background does not treat this as a no-op skip.
+              isOtherProfilePage: false,
+              viewedWhileOnOtherProfile: data.isOtherProfilePage ? data.viewedProfile : null,
               detectedUrl: window.location.href,
               timestamp: new Date().toISOString(),
             },
-          });
-        } catch (e) { }
+          },
+          (resp) => {
+            if (chrome.runtime.lastError) {
+              console.warn(
+                "[TikTokFlow] Report message failed:",
+                chrome.runtime.lastError.message
+              );
+              // Do NOT mark hash — allow retry on next tick
+              return;
+            }
+            // Only mark success after server identity post (phase 1) — not mere SW receipt.
+            if (resp && resp.ok) {
+              lastReportedDataHash = currentHash;
+              lastSuccessfulReportAt = Date.now();
+            }
+          }
+        );
+      } catch (e) {
+        console.warn("[TikTokFlow] Report send threw:", e?.message || e);
       }
-    }, 1200); // 1.2s debounce for peak performance
+    }, force ? 200 : 1200);
   }
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "FORCE_IDENTITY_SCAN") {
+      lastReportedDataHash = "";
+      triggerDetection({ force: true });
+      sendResponse({ ok: true });
+      return true;
+    }
+  });
 
   // Initial runs
   triggerDetection();
-  setTimeout(triggerDetection, 2500);
-  setTimeout(triggerDetection, 6000);
+  setTimeout(() => triggerDetection(), 2500);
+  setTimeout(() => triggerDetection(), 6000);
 
-  // Periodic check for SPA navigation
-  setInterval(triggerDetection, 25000);
+  // Periodic check for SPA navigation + retry failed reports
+  setInterval(() => triggerDetection(), 10000);
+
+  // Re-scan when tab becomes visible (common after opening another profile)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") triggerDetection({ force: true });
+  });
+  window.addEventListener("pageshow", () => triggerDetection({ force: true }));
+  window.addEventListener("focus", () => triggerDetection());
 
   // MutationObserver with debounce
   const target = document.body || document.documentElement;

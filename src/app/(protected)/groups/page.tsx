@@ -406,38 +406,52 @@ function GroupsManagementContent() {
       {/* Header & Controls Section */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
-              <Layers className="w-7 h-7 text-pink-500" />
-              <span>Quản Lý Nhóm & Teams</span>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
+              <Layers className="w-7 h-7 text-pink-500 shrink-0" />
+              <span className="truncate">Quản Lý Nhóm & Teams</span>
               {loading ? (
-                <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle" />
+                <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle shrink-0" />
               ) : (
-                <span>({totalGroupsCount})</span>
+                <span className="shrink-0">({totalGroupsCount})</span>
               )}
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
               Quản trị cơ cấu nhóm, chỉ định Trưởng nhóm (Leader) và theo dõi thành viên & dàn tài khoản TikTok phụ trách.
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5 self-start sm:self-auto">
-            <Link
-              href="/users"
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs active:scale-95 transition-all cursor-pointer"
-            >
-              <Users className="w-4 h-4 text-slate-500" />
-              <span>Xem Danh Sách Nhân Sự</span>
-            </Link>
+          <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0 flex-wrap">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  href="/users"
+                  className="h-10 flex items-center gap-2 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Users className="w-4 h-4 text-slate-500 shrink-0" />
+                  <span className="truncate">Xem Danh Sách Nhân Sự</span>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs font-semibold">
+                Xem danh sách tất cả thành viên trong tổ chức
+              </TooltipContent>
+            </Tooltip>
 
             {isAdmin && (
-              <button
-                onClick={() => setIsCreateOpen(true)}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Tạo Nhóm Mới</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setIsCreateOpen(true)}
+                    className="h-10 flex items-center gap-2 px-5 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span className="truncate">Tạo Nhóm Mới</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs font-semibold">
+                  Khởi tạo một nhóm làm việc mới
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
         </div>
@@ -503,7 +517,7 @@ function GroupsManagementContent() {
             />
           </div>
 
-          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end flex-wrap">
+          <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-auto sm:ml-auto flex-wrap">
             {/* Sort Popover */}
             <Popover>
               <PopoverTrigger asChild>
@@ -599,7 +613,7 @@ function GroupsManagementContent() {
                           actions: true,
                         })
                       }
-                      className="text-xs text-pink-500 hover:underline font-normal cursor-pointer"
+                      className="px-2 py-0.5 rounded-md text-xs text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors font-medium cursor-pointer"
                     >
                       Mặc định
                     </button>
@@ -630,7 +644,7 @@ function GroupsManagementContent() {
                             }));
                           }}
                         />
-                        <span className="text-slate-700 dark:text-slate-300 font-medium">
+                        <span className="text-slate-700 dark:text-slate-300 font-normal">
                           {col.label}
                         </span>
                         {col.locked && (
@@ -644,14 +658,6 @@ function GroupsManagementContent() {
                 </PopoverContent>
               </Popover>
             )}
-
-            <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline ml-2">
-              Hiển thị: {loading ? (
-                <span className="inline-block w-6 h-3.5 bg-slate-200 dark:bg-slate-800 rounded animate-pulse align-middle mx-1" />
-              ) : (
-                <strong className="text-slate-900 dark:text-white">{filteredAndSortedGroups.length}</strong>
-              )} nhóm
-            </span>
           </div>
         </div>
       </div>
@@ -783,7 +789,7 @@ function GroupsManagementContent() {
                       <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
                         <DropdownMenuItem
                           onClick={() => handleOpenEdit(group)}
-                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                         >
                           <Pencil className="w-3.5 h-3.5 text-slate-400" />
                           <span>Chỉnh sửa nhóm</span>
@@ -794,7 +800,7 @@ function GroupsManagementContent() {
                             setGroupToDelete(group);
                             setIsDeleteOpen(true);
                           }}
-                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                           <span>Xóa nhóm</span>
@@ -837,7 +843,7 @@ function GroupsManagementContent() {
                           <button
                             type="button"
                             onClick={() => handleOpenEdit(group)}
-                            className="text-xs font-semibold text-pink-600 dark:text-pink-400 hover:underline cursor-pointer"
+                            className="px-2 py-0.5 rounded-md text-xs font-semibold text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/60 transition-colors cursor-pointer"
                           >
                             + Gán
                           </button>
@@ -970,11 +976,11 @@ function GroupsManagementContent() {
         /* Table View */
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
           <div className="overflow-x-auto relative">
-            <table className="w-full text-left text-xs border-collapse">
+            <table className="w-full text-left text-xs border-collapse min-w-[900px]">
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800 select-none">
                 <tr>
                   {isAdmin && (
-                    <th className="py-3.5 px-4 w-10 text-center sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs">
+                    <th className="py-3.5 px-3 w-10 min-w-[40px] max-w-[40px] text-center sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs">
                       <button
                         type="button"
                         onClick={toggleSelectAll}
@@ -993,13 +999,13 @@ function GroupsManagementContent() {
                       </button>
                     </th>
                   )}
-                  <th className={`py-3.5 px-4 w-12 text-center sticky ${isAdmin ? "left-10" : "left-0"} z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs`}>
+                  <th className={`py-3.5 px-2 w-10 min-w-[40px] max-w-[40px] text-center sticky ${isAdmin ? "left-[40px]" : "left-0"} z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs`}>
                     #
                   </th>
                   {visibleColumns.name && (
                     <th
                       onClick={() => handleSort("name")}
-                      className={`py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky ${isAdmin ? "left-22" : "left-12"
+                      className={`py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky ${isAdmin ? "left-[80px]" : "left-[40px]"
                         } z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]`}
                     >
                       <div className="flex items-center gap-1.5">
@@ -1069,7 +1075,7 @@ function GroupsManagementContent() {
                   filteredAndSortedGroups.map((group: any, idx: number) => {
                     const isSelected = selectedGroupIds.includes(group.id);
                     const rowBgClass = isSelected
-                      ? "bg-pink-50/40 dark:bg-pink-950/20"
+                      ? "bg-pink-50 dark:bg-pink-950/90"
                       : "bg-white dark:bg-slate-900";
                     const members = group.members || [];
                     const displayMembers = members.slice(0, 3);
@@ -1079,11 +1085,11 @@ function GroupsManagementContent() {
                     return (
                       <tr
                         key={group.id}
-                        className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors group align-middle ${isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""
+                        className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors group align-middle ${isSelected ? "bg-pink-50 dark:bg-pink-950/90" : ""
                           }`}
                       >
                         {isAdmin && (
-                          <td className={`py-4 px-4 text-center align-middle sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
+                          <td className={`py-4 px-3 w-10 min-w-[40px] max-w-[40px] text-center align-middle sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
                             <Checkbox
                               checked={isSelected}
                               onCheckedChange={() => toggleSelectGroup(group.id)}
@@ -1091,12 +1097,12 @@ function GroupsManagementContent() {
                             />
                           </td>
                         )}
-                        <td className={`py-4 px-4 text-center align-middle text-slate-400 text-xs font-mono sticky ${isAdmin ? "left-10" : "left-0"} z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
+                        <td className={`py-4 px-2 w-10 min-w-[40px] max-w-[40px] text-center align-middle text-slate-400 text-xs font-mono sticky ${isAdmin ? "left-[40px]" : "left-0"} z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
                           {idx + 1}
                         </td>
 
                         {visibleColumns.name && (
-                          <td className={`py-4 px-4 align-middle sticky ${isAdmin ? "left-22" : "left-12"
+                          <td className={`py-4 px-4 align-middle sticky ${isAdmin ? "left-[80px]" : "left-[40px]"
                             } z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]`}>
                             <div className="flex items-center gap-2.5">
                               <span className={`w-3 h-3 rounded-full shrink-0 border ${getColorClass(group.color || "pink")}`} />
@@ -1251,7 +1257,7 @@ function GroupsManagementContent() {
                                 <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
                                   <DropdownMenuItem
                                     onClick={() => handleOpenEdit(group)}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                   >
                                     <Pencil className="w-3.5 h-3.5 text-slate-400" />
                                     <span>Chỉnh sửa nhóm</span>
@@ -1262,9 +1268,9 @@ function GroupsManagementContent() {
                                       setGroupToDelete(group);
                                       setIsDeleteOpen(true);
                                     }}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                                     <span>Xóa nhóm</span>
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>

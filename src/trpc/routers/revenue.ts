@@ -40,7 +40,13 @@ export const revenueRouter = router({
 
       const accounts = await ctx.prisma.tiktokAccount.findMany({
         where: whereAccount,
-        select: { id: true, totalRevenue: true, totalViews: true },
+        select: {
+          id: true,
+          username: true,
+          totalRevenue: true,
+          totalViews: true,
+          analytics: true,
+        },
       });
 
       const accountIds = accounts.map((a) => a.id);
@@ -49,6 +55,7 @@ export const revenueRouter = router({
         accountId: { in: accountIds },
       };
 
+      let pastDateStr = "";
       if (isCustomRange && startDate && endDate) {
         const start = parseDateOnly(startDate);
         const end = parseDateOnly(endDate);
@@ -58,6 +65,7 @@ export const revenueRouter = router({
         const pastDate = new Date();
         pastDate.setDate(pastDate.getDate() - days);
         whereDaily.date = { gte: pastDate };
+        pastDateStr = pastDate.toISOString().split("T")[0];
       }
 
       const dailyRecords = await ctx.prisma.dailyRevenue.findMany({
@@ -72,11 +80,13 @@ export const revenueRouter = router({
 
       // Group by date for charts
       const chartMap = new Map<string, { date: string; revenue: number; views: number }>();
+      const existingRecordKeys = new Set<string>();
       let periodRevenue = 0;
       let periodViews = 0;
 
       for (const rec of dailyRecords) {
         const dateStr = rec.date.toISOString().split("T")[0];
+        existingRecordKeys.add(`${rec.accountId}_${dateStr}`);
         const existing = chartMap.get(dateStr) || { date: dateStr, revenue: 0, views: 0 };
         const rev = Number(rec.revenue || 0);
         const vw = Number(rec.views || 0);
@@ -85,6 +95,35 @@ export const revenueRouter = router({
         periodRevenue += rev;
         periodViews += vw;
         chartMap.set(dateStr, existing);
+      }
+
+      // Merge daily breakdown from AccountAnalytics JSON
+      let breakdownRecordsCount = 0;
+      for (const acc of accounts) {
+        const breakdown = (acc.analytics?.dailyBreakdown as any[]) || [];
+        for (const item of breakdown) {
+          if (!item.date) continue;
+          const dateStr = item.date;
+          // Filter by date range
+          if (isCustomRange && startDate && endDate) {
+            if (dateStr < startDate || dateStr > endDate) continue;
+          } else if (days > 0 && pastDateStr) {
+            if (dateStr < pastDateStr) continue;
+          }
+
+          breakdownRecordsCount++;
+          // Only add if not already covered by a manual DailyRevenue record
+          if (!existingRecordKeys.has(`${acc.id}_${dateStr}`)) {
+            const existing = chartMap.get(dateStr) || { date: dateStr, revenue: 0, views: 0 };
+            const rev = Number(item.revenue || 0);
+            const vw = Number(item.views || 0);
+            existing.revenue += rev;
+            existing.views += vw;
+            periodRevenue += rev;
+            periodViews += vw;
+            chartMap.set(dateStr, existing);
+          }
+        }
       }
 
       // If custom date range is provided, fill missing days in range so chart is continuous
@@ -109,22 +148,44 @@ export const revenueRouter = router({
           rpm: d.views > 0 ? Math.round(((d.revenue * 1000) / d.views) * 100) / 100 : 0,
         }));
 
-      // Total records count in database
-      const totalRecords = dailyRecords.length;
+      // Direct analytics period totals for matching preset days (7d, 28d, 60d, 365d, all)
+      let analyticsPeriodRev = 0;
+      let analyticsPeriodViews = 0;
+      let hasAnalyticsPreset = false;
 
-      // For ALL-TIME (days === 0 and not custom range), if daily records don't cover full lifetime, use the higher accumulated totals from accounts
-      const accTotalRevenue = accounts.reduce((sum, a) => sum + Number(a.totalRevenue || 0), 0);
-      const accTotalViews = accounts.reduce((sum, a) => sum + Number(a.totalViews || 0), 0);
+      if (!isCustomRange) {
+        if (days === 7) {
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.revenue7d ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.analytics?.views7d ?? 0), 0);
+          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
+        } else if (days === 28) {
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.revenue28d ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.analytics?.views28d ?? 0), 0);
+          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
+        } else if (days === 60) {
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.revenue60d ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.analytics?.views60d ?? 0), 0);
+          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
+        } else if (days === 365) {
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.revenue365d ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.analytics?.views365d ?? 0), 0);
+          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
+        } else if (days === 0) {
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.totalRevenue ?? a.totalRevenue ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.totalViews ?? 0), 0);
+          hasAnalyticsPreset = true;
+        }
+      }
 
-      const totalRevenue =
-        days === 0 && !isCustomRange
-          ? Math.max(periodRevenue, accTotalRevenue)
-          : periodRevenue;
+      const totalRevenue = hasAnalyticsPreset
+        ? Math.max(periodRevenue, analyticsPeriodRev)
+        : periodRevenue;
 
-      const totalViews =
-        days === 0 && !isCustomRange
-          ? Math.max(periodViews, accTotalViews)
-          : periodViews;
+      const totalViews = hasAnalyticsPreset
+        ? Math.max(periodViews, analyticsPeriodViews)
+        : periodViews;
+
+      const totalRecords = dailyRecords.length + breakdownRecordsCount;
 
       return {
         days: isCustomRange ? 0 : days,
@@ -259,29 +320,93 @@ export const revenueRouter = router({
         where.date = { ...where.date, lte: parseDateOnly(input.endDate) };
       }
 
-      const records = await ctx.prisma.dailyRevenue.findMany({
-        where,
-        include: {
-          account: {
-            select: {
-              id: true,
-              username: true,
-              country: true,
-              assignedUser: {
-                select: {
-                  id: true,
-                  fullName: true,
-                  name: true,
-                  username: true,
+      const [records, accountsWithAnalytics] = await Promise.all([
+        ctx.prisma.dailyRevenue.findMany({
+          where,
+          include: {
+            account: {
+              select: {
+                id: true,
+                username: true,
+                country: true,
+                assignedUser: {
+                  select: {
+                    id: true,
+                    fullName: true,
+                    name: true,
+                    username: true,
+                  },
                 },
               },
             },
           },
-        },
-        orderBy: { date: "desc" },
-      });
+          orderBy: { date: "desc" },
+        }),
+        ctx.prisma.tiktokAccount.findMany({
+          where: whereAccount,
+          select: {
+            id: true,
+            username: true,
+            country: true,
+            assignedUser: {
+              select: {
+                id: true,
+                fullName: true,
+                name: true,
+                username: true,
+              },
+            },
+            analytics: true,
+          },
+        }),
+      ]);
 
-      return serializeBigInt(records);
+      const manualKeys = new Set(
+        records.map((r) => `${r.accountId}_${r.date.toISOString().split("T")[0]}`)
+      );
+
+      const allRecords: any[] = [...records];
+
+      if (!input?.sourceType || input.sourceType === "ALL" || input.sourceType === "CREATOR_REWARDS") {
+        for (const acc of accountsWithAnalytics) {
+          const breakdown = (acc.analytics?.dailyBreakdown as any[]) || [];
+          for (const item of breakdown) {
+            if (!item.date) continue;
+            const dateStr = item.date;
+            if (input?.startDate && dateStr < input.startDate) continue;
+            if (input?.endDate && dateStr > input.endDate) continue;
+
+            const key = `${acc.id}_${dateStr}`;
+            if (!manualKeys.has(key)) {
+              manualKeys.add(key);
+              const viewsNum = Number(item.views || 0);
+              const revNum = Number(item.revenue || 0);
+              const rpmNum = viewsNum > 0 ? (revNum * 1000) / viewsNum : 0;
+
+              allRecords.push({
+                id: `auto-${acc.id}-${dateStr}`,
+                accountId: acc.id,
+                date: new Date(dateStr + "T00:00:00.000Z"),
+                views: BigInt(viewsNum),
+                rpm: Math.round(rpmNum * 100) / 100,
+                revenue: revNum,
+                sourceType: "CREATOR_REWARDS",
+                createdAt: new Date(dateStr + "T00:00:00.000Z"),
+                account: {
+                  id: acc.id,
+                  username: acc.username,
+                  country: acc.country,
+                  assignedUser: acc.assignedUser,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      allRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      return serializeBigInt(allRecords);
     }),
 
   // 4. Bulk Delete Revenue Records (LEAD / ADMIN)

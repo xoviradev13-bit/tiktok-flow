@@ -92,29 +92,46 @@ document.addEventListener("DOMContentLoaded", async () => {
         fileCfg.pairingCode.startsWith("ttf_pair_");
 
       if (freshPairing && (data.tokenRevoked || !data.personalToken)) {
-        await chrome.storage.local.set({
-          ...fileCfg,
-          tokenRevoked: false,
-          tokenRevokedReason: "",
-          tokenRevokedAt: null,
-          authRequired: false,
-          personalToken: data.tokenRevoked ? "" : data.personalToken || "",
-          accessToken: "",
-          accessExpiresAt: 0,
-          refreshToken: "",
-        });
-        data = {
-          ...data,
-          ...fileCfg,
-          tokenRevoked: false,
-          tokenRevokedReason: "",
-          authRequired: false,
-          personalToken: data.tokenRevoked ? "" : data.personalToken || "",
-        };
-        chrome.runtime.sendMessage({ type: "FORCE_PAIR_REDEEM" }).catch(() => {});
+        // Re-check storage to avoid wiping a token that another path just redeemed.
+        const latest = await chrome.storage.local.get([
+          "personalToken",
+          "tokenRevoked",
+          "pairingCode",
+        ]);
+        if (latest.personalToken && !latest.tokenRevoked) {
+          data = { ...data, personalToken: latest.personalToken, tokenRevoked: false };
+        } else {
+          // Never spread full fileCfg — config.json personalToken is empty and can
+          // race-overwrite a concurrent successful redeem.
+          await chrome.storage.local.set({
+            serverUrl: fileCfg.serverUrl || data.serverUrl,
+            memberName: fileCfg.memberName || data.memberName,
+            userEmail: fileCfg.userEmail || data.userEmail,
+            pairingCode: fileCfg.pairingCode,
+            tokenRevoked: false,
+            tokenRevokedReason: "",
+            tokenRevokedAt: null,
+            authRequired: false,
+          });
+          data = {
+            ...data,
+            serverUrl: fileCfg.serverUrl || data.serverUrl,
+            memberName: fileCfg.memberName || data.memberName,
+            userEmail: fileCfg.userEmail || data.userEmail,
+            pairingCode: fileCfg.pairingCode,
+            tokenRevoked: false,
+            tokenRevokedReason: "",
+            authRequired: false,
+          };
+          chrome.runtime.sendMessage({ type: "FORCE_PAIR_REDEEM" }).catch(() => {});
+        }
       } else if (!data.tokenRevoked && (!data.memberName || !data.personalToken)) {
-        await chrome.storage.local.set(fileCfg);
-        data = { ...data, ...fileCfg };
+        await chrome.storage.local.set({
+          serverUrl: fileCfg.serverUrl || data.serverUrl,
+          memberName: fileCfg.memberName || data.memberName,
+          userEmail: fileCfg.userEmail || data.userEmail,
+        });
+        data = { ...data, ...fileCfg, personalToken: data.personalToken || "" };
       }
     }
   } catch (e) {}
@@ -380,6 +397,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // Ask open TikTok tabs to re-detect identity + GPM link (don't rely on click alone).
+  chrome.runtime.sendMessage({ type: "REQUEST_IDENTITY_SCAN" }, () => {
+    void chrome.runtime.lastError;
+  });
+
   // 2. Auto-detect GPM API port (9495 / 19995 / 19996 / …)
   function applyGpmProbe(res) {
     if (res && res.online) {
@@ -399,6 +421,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     applyGpmProbe(res);
   });
+
+  // Paint cached agent/GPM status immediately so popup is not stuck on "Đang kiểm tra…"
+  // while the service worker is busy with a long resolve/report.
+  chrome.storage.local.get(
+    ["agentOnline", "gpmApiPort", "gpmApiOnline", "gpmApiBase"],
+    (cached) => {
+      if (cached.agentOnline === true || cached.agentOnline === false) {
+        applyAgentProbe({ online: !!cached.agentOnline });
+      }
+      if (cached.gpmApiOnline && (cached.gpmApiPort || cached.gpmApiBase)) {
+        const port =
+          cached.gpmApiPort ||
+          String(cached.gpmApiBase || "").match(/:(\d+)/)?.[1];
+        applyGpmProbe({ online: true, port });
+      } else if (cached.gpmApiOnline === false) {
+        applyGpmProbe({ online: false });
+      }
+    }
+  );
 
   chrome.runtime.sendMessage({ type: "PROBE_AGENT" }, (res) => {
     if (chrome.runtime.lastError) {

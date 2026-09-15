@@ -13,6 +13,7 @@ function AuthErrorContent() {
 
   const isInvitationError = errorCode === "InvitationRequired";
   const isAccountLocked = errorCode === "ACCOUNT_LOCKED";
+  const isOAuthLinkError = errorCode === "OAuthAccountNotLinked";
 
   // Get user-friendly message from error code
   const errorMessage = getUserFriendlyMessage(
@@ -26,7 +27,7 @@ function AuthErrorContent() {
         {/* Error Icon */}
         <div
           className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 ring-8 ${
-            isInvitationError
+            isInvitationError || isOAuthLinkError
               ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/10"
               : "bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-rose-500/10"
           }`}
@@ -45,6 +46,8 @@ function AuthErrorContent() {
             ? "Email Chưa Có Thư Mời"
             : isAccountLocked
             ? "Tài Khoản Bị Chặn Quyền Truy Cập"
+            : isOAuthLinkError
+            ? "Email Đã Tồn Tại Bằng Mật Khẩu"
             : "Lỗi Xác Thực"}
         </h1>
 
@@ -88,6 +91,17 @@ function AuthErrorContent() {
               </p>
             </div>
           </div>
+        ) : isOAuthLinkError ? (
+          <div className="space-y-3.5 w-full mb-6 text-center">
+            <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 rounded-xl text-center space-y-1.5 text-xs">
+              <p className="text-amber-800 dark:text-amber-300 font-medium leading-relaxed">
+                Tài khoản của bạn trước đó đã được tạo bằng <b>Email & Mật khẩu</b>.
+              </p>
+              <p className="text-xs text-amber-700/80 dark:text-amber-400/80 leading-relaxed">
+                Vui lòng đăng nhập bằng <b>Email & Mật khẩu</b> ban đầu để truy cập hệ thống.
+              </p>
+            </div>
+          </div>
         ) : (
           <p className="text-center text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-8">
             {errorMessage}
@@ -101,6 +115,11 @@ function AuthErrorContent() {
                 <>
                   <LogIn className="mr-2 w-4 h-4" />
                   Đổi Tài Khoản Khác / Đăng Nhập Lại
+                </>
+              ) : isOAuthLinkError ? (
+                <>
+                  <LogIn className="mr-2 w-4 h-4" />
+                  Đăng Nhập Bằng Mật Khẩu
                 </>
               ) : (
                 <>

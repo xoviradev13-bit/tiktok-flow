@@ -143,7 +143,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
                 TikTokFlow Client Agent Worker
               </h4>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                Phần mềm Agent chạy trên máy Windows, tự động thu thập các số liệu TikTok như lượt xem, doanh thu và các dữ liệu liên quan, sau đó đồng bộ về hệ thống. Agent hoạt động nền theo lịch cấu hình sẵn, hạn chế tối đa việc chiếm dụng chuột và ảnh hưởng đến thao tác của người dùng. Mỗi máy chỉ chạy một Agent, được cấu hình riêng cho từng nhân sự vận hành, nhằm đảm bảo dữ liệu được xử lý ổn định, chính xác và tránh xung đột trong quá trình vận hành.
+                Phần mềm Agent chạy trên máy <strong>Windows</strong>, tự động thu thập số liệu TikTok (lượt xem, doanh thu…) rồi đồng bộ về hệ thống. Agent chạy ngầm cùng Windows, hạn chế chiếm dụng chuột. Mỗi máy chỉ chạy một Agent, cấu hình riêng cho từng nhân sự. <strong>Cài và chạy Agent trước</strong>, rồi mới nạp Extension.
               </p>
             </div>
 
@@ -191,10 +191,10 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
           </span>
           <div>
             <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-              Bước 2: Cài Đặt Nhanh (Mất Chưa Đầy 1 Phút)
+              Bước 2: Cài Đặt Nhanh — Agent trước, Extension sau
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-              Thao tác cực kỳ đơn giản để kích hoạt đồng bộ trên máy trạm của bạn:
+              Extension cần Client Agent đang chạy trên cùng máy mới kích hoạt được. Làm theo thứ tự dưới đây:
             </p>
           </div>
         </div>
@@ -202,38 +202,14 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-3 flex flex-col justify-between">
             <div className="space-y-3">
-              <div className="text-base font-bold text-pink-600 dark:text-pink-400 flex items-center gap-2">
-                <Puzzle className="w-4 h-4 shrink-0" />
-                <span>1. Cài Đặt Extension Vào GPMLogin:</span>
-              </div>
-              <ol className="list-decimal list-inside text-sm text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed pl-1">
-                <li>Mở ứng dụng GPMLogin ➔ Menu <strong>Extensions (Tiện ích)</strong> ➔ Bấm <strong>+ Thêm extension</strong>.</li>
-                <li>Chọn dòng <strong>Từ thiết bị (.crx, .zip)</strong> ➔ Chọn trực tiếp file <code className="text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono text-xs font-bold border border-slate-200 dark:border-slate-700">extension.zip</code> vừa tải về (không cần giải nén).</li>
-                <li>Bật công tắc sang <strong>On</strong>. Extension sẽ tự động kích hoạt trên toàn bộ profile!</li>
-              </ol>
-            </div>
-
-            <div className="pt-2">
-              <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 shadow-sm">
-                <ZoomableImage
-                  src="/images/docs/extensions/anh-2.png"
-                  alt="Minh họa Extension TikTokFlow Companion bật On trên GPMLogin"
-                  onZoom={(src, alt) => setZoomImage({ src, alt })}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-3 flex flex-col justify-between">
-            <div className="space-y-3">
               <div className="text-base font-bold text-cyan-600 dark:text-cyan-400 flex items-center gap-2">
                 <Laptop className="w-4 h-4 shrink-0" />
-                <span>2. Chạy Client Agent Tự Động:</span>
+                <span>1. Chạy Client Agent (làm trước):</span>
               </div>
               <ol className="list-decimal list-inside text-sm text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed pl-1">
                 <li>Giải nén file <code className="text-cyan-600 dark:text-cyan-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono text-xs font-bold border border-slate-200 dark:border-slate-700">client-agent.zip</code>.</li>
-                <li>Nhấp đúp <code className="font-mono text-xs font-bold text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-slate-900 px-1.5 py-0.5 rounded border border-cyan-200 dark:border-cyan-800">setup-agent.bat</code> để tự động chạy ngầm cùng Windows.</li>
-                <li>Hoặc nhấp đúp vào file <code className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">run-agent.bat</code> để cào số liệu ngay.</li>
+                <li>Nhấp đúp <code className="font-mono text-xs font-bold text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-slate-900 px-1.5 py-0.5 rounded border border-cyan-200 dark:border-cyan-800">setup-agent.bat</code> ➔ phím <strong>1</strong> (nếu Windows hỏi quyền quản trị, chọn Cho phép) để Agent chạy ngầm cùng Windows.</li>
+                <li>Muốn quét số liệu ngay: nhấp đúp <code className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">run-agent.bat</code>.</li>
               </ol>
             </div>
 
@@ -242,6 +218,30 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
                 <ZoomableImage
                   src="/images/docs/clientagent/anh-1.png"
                   alt="Minh họa Menu setup-agent.bat chạy ngầm"
+                  onZoom={(src, alt) => setZoomImage({ src, alt })}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-3 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="text-base font-bold text-pink-600 dark:text-pink-400 flex items-center gap-2">
+                <Puzzle className="w-4 h-4 shrink-0" />
+                <span>2. Cài Extension vào GPMLogin:</span>
+              </div>
+              <ol className="list-decimal list-inside text-sm text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed pl-1">
+                <li>Đảm bảo Agent đã chạy ở bước 1.</li>
+                <li>Mở GPMLogin ➔ Menu <strong>Extensions (Tiện ích)</strong> ➔ <strong>+ Thêm extension</strong>.</li>
+                <li>Chọn <strong>Từ thiết bị (.crx, .zip)</strong> ➔ chọn file <code className="text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono text-xs font-bold border border-slate-200 dark:border-slate-700">extension.zip</code> (không cần giải nén) ➔ bật <strong>On</strong>.</li>
+              </ol>
+            </div>
+
+            <div className="pt-2">
+              <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 shadow-sm">
+                <ZoomableImage
+                  src="/images/docs/extensions/anh-2.png"
+                  alt="Minh họa Extension TikTokFlow Companion bật On trên GPMLogin"
                   onZoom={(src, alt) => setZoomImage({ src, alt })}
                 />
               </div>
@@ -285,7 +285,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
                   <span>Cách 1 (Tải lại file mới - Khuyên dùng):</span>
                 </div>
                 <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed pl-8">
-                  Tải lại gói Extension & Client Agent từ trang <Link href="/extensions" className="font-bold text-pink-600 dark:text-pink-400 hover:underline">Kho Tiện Ích (/extensions)</Link> (hệ thống đã tích hợp sẵn cơ chế xác thực và trao đổi Token tự động). Với Extension thì nạp trực tiếp file zip mới vào GPMLogin (<em>+ Thêm extension ➔ Từ thiết bị .zip</em>); với Client Agent thì giải nén và nhấp đúp file <code className="font-mono text-xs font-bold text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">setup-agent.bat</code> là xong!
+                  Tải lại gói Client Agent rồi Extension từ trang <Link href="/extensions" className="font-bold text-pink-600 dark:text-pink-400 hover:underline">Kho Tiện Ích (/extensions)</Link>. Chạy lại <code className="font-mono text-xs font-bold text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">setup-agent.bat</code> phím 1, sau đó nạp lại Extension zip vào GPMLogin.
                 </p>
               </div>
 

@@ -24,6 +24,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import BugReportModal from "@/components/bug-report/BugReportModal";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
@@ -112,131 +113,139 @@ export default function LogsPage() {
   return (
     <div className="space-y-6 animate-fadeIn pb-16">
       {/* Page Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-              <Activity className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                Nhật Ký Hệ Thống & Giám Sát Hoạt Động
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                Theo dõi toàn bộ audit trail, thay đổi trạng thái dàn tài khoản, lịch sử đồng bộ GPM và quản lý báo cáo sự cố kỹ thuật.
-              </p>
-            </div>
-          </div>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
+            <Activity className="w-6 h-6 text-indigo-500 shrink-0" />
+            <span className="truncate">Nhật Ký Hệ Thống & Giám Sát Hoạt Động</span>
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+            Theo dõi toàn bộ audit trail, thay đổi trạng thái dàn tài khoản, lịch sử đồng bộ GPM và quản lý báo cáo sự cố kỹ thuật.
+          </p>
         </div>
 
         {/* Action Buttons */}
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer shadow-2xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Xuất CSV</span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                className="h-10 flex items-center gap-2 px-3.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
+              >
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Xuất CSV</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs font-semibold">
+              Tải xuống toàn bộ bản ghi audit log dạng CSV
+            </TooltipContent>
+          </Tooltip>
 
-          <button
-            type="button"
-            onClick={() => setIsBugModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-md shadow-pink-600/20 active:scale-95 transition-all cursor-pointer"
-          >
-            <Bug className="w-4 h-4" />
-            <span>Báo Cáo Sự Cố</span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setIsBugModalOpen(true)}
+                className="h-10 flex items-center gap-2 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-md shadow-pink-600/20 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Bug className="w-4 h-4 shrink-0" />
+                <span className="truncate">Báo Cáo Sự Cố</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs font-semibold">
+              Gửi phản hồi hoặc báo cáo lỗi kỹ thuật
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
       {/* 4 Premium Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Logs */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-indigo-500/40 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-indigo-500/40 transition-all min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate whitespace-nowrap" title="Tổng Bản Ghi Audit">
               Tổng Bản Ghi Audit
             </span>
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
               <FileText className="w-5 h-5" />
             </div>
           </div>
           {logsLoading ? (
             <div className="h-8 w-20 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-3" />
           ) : (
-            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight truncate">
               {stats.total.toLocaleString()}
             </div>
           )}
-          <div className="text-xs text-slate-400 mt-1 flex items-center gap-1 font-medium">
-            <span>Sự kiện ghi nhận trên hệ thống</span>
+          <div className="text-xs text-slate-400 mt-1 flex items-center gap-1 font-medium truncate">
+            <span className="truncate">Sự kiện ghi nhận trên hệ thống</span>
           </div>
         </div>
 
         {/* Status Changes */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-blue-500/40 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-blue-500/40 transition-all min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate whitespace-nowrap" title="Thay Đổi Trạng Thái">
               Thay Đổi Trạng Thái
             </span>
-            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
               <Layers className="w-5 h-5" />
             </div>
           </div>
           {logsLoading ? (
             <div className="h-8 w-16 bg-blue-100 dark:bg-blue-950/60 rounded-lg animate-pulse mt-3" />
           ) : (
-            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight truncate">
               {stats.statusChanges.toLocaleString()}
             </div>
           )}
-          <div className="text-xs text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1 font-medium">
-            <span>Warming, Active, Banned, v.v.</span>
+          <div className="text-xs text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1 font-medium truncate">
+            <span className="truncate">Warming, Active, Banned, v.v.</span>
           </div>
         </div>
 
         {/* Sync & Revenue Events */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-emerald-500/40 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-emerald-500/40 transition-all min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate whitespace-nowrap" title="Đồng Bộ & Quét Số Liệu">
               Đồng Bộ & Quét Số Liệu
             </span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <RefreshCw className="w-5 h-5" />
             </div>
           </div>
           {logsLoading ? (
             <div className="h-8 w-16 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-3" />
           ) : (
-            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight truncate">
               {stats.syncEvents.toLocaleString()}
             </div>
           )}
-          <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1 font-medium">
-            <span>GPM Fleet & Extension Reports</span>
+          <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1 font-medium truncate">
+            <span className="truncate">GPM Fleet & Extension Reports</span>
           </div>
         </div>
 
         {/* Bug Reports / Alerts */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-rose-500/40 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-rose-500/40 transition-all min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate whitespace-nowrap" title="Báo Cáo Sự Cố & Cảnh Báo">
               Báo Cáo Sự Cố & Cảnh Báo
             </span>
-            <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
               <Bug className="w-5 h-5" />
             </div>
           </div>
           {bugsLoading ? (
             <div className="h-8 w-14 bg-rose-100 dark:bg-rose-950/60 rounded-lg animate-pulse mt-3" />
           ) : (
-            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight truncate">
               {bugReports.length}
             </div>
           )}
-          <div className="text-xs text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1 font-medium">
+          <div className="text-xs text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1 font-medium truncate">
             {bugsLoading ? (
               <span className="inline-block w-28 h-3 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
             ) : (

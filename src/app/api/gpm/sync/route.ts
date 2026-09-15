@@ -1,37 +1,143 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { gpmClient } from "@/lib/gpm-api";
-import { findTikTokHandleInProfile, detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
+import { isWeakCountryName } from "@/lib/country-name";
 import { auth } from "@/lib/auth";
 import { pMap } from "@/lib/concurrency";
 
-export async function POST(req: Request) {
-  try {
-    const session = await auth();
-    const authHeader = req.headers.get("authorization");
-    const cronSecret = process.env.CRON_SECRET;
-    const isCronAuthorized = cronSecret && authHeader === `Bearer ${cronSecret}`;
+import os from "os";
 
-    if (!session?.user?.id && !isCronAuthorized) {
+async function resolveAuthUser(req: Request) {
+  let session: any = null;
+  try {
+    session = await auth();
+  } catch {
+    session = null;
+  }
+  const authHeader = req.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+
+  let user = session?.user;
+  if (!user?.id && authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (cronSecret && token === cronSecret) {
+      user = { id: "cron", name: "Hệ Thống", role: "ADMIN" } as any;
+    } else {
+      const { resolveExtensionBearerAuth } = await import("@/lib/extension-auth");
+      const bearerAuth = await resolveExtensionBearerAuth(token, "/api/gpm/sync");
+      if (bearerAuth.ok) {
+        user = bearerAuth.user as any;
+      }
+    }
+  }
+  return user;
+}
+
+async function getActiveSyncJobForUser(userId: string) {
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  // Auto-expire stale jobs older than 5 minutes for this user
+  await prisma.syncQueue.updateMany({
+    where: {
+      requestedById: userId,
+      status: { in: ["PENDING", "PROCESSING"] },
+      requestedAt: { lt: fiveMinutesAgo },
+    },
+    data: {
+      status: "TIMED_OUT",
+      errorMessage: "Quá thời gian chờ (5 phút) - Đã tự động hủy bỏ",
+      completedAt: new Date(),
+    },
+  });
+
+  const activeJob = await prisma.syncQueue.findFirst({
+    where: {
+      requestedById: userId,
+      status: { in: ["PENDING", "PROCESSING"] },
+      requestedAt: { gte: fiveMinutesAgo },
+    },
+    orderBy: { requestedAt: "desc" },
+    include: {
+      requestedBy: {
+        select: { id: true, name: true, email: true },
+      },
+    },
+  });
+
+  return activeJob;
+}
+
+export async function POST(req: Request) {
+  let createdJobId: string | null = null;
+  try {
+    const user = await resolveAuthUser(req);
+
+    if (!user?.id) {
       return NextResponse.json(
         { success: false, error: "Yêu cầu đăng nhập để đồng bộ profile GPMLogin." },
         { status: 401 }
       );
     }
 
-    const actorName = session?.user?.name || session?.user?.email || "Hệ Thống";
+    let dbUser = null;
+    if (user?.id && user.id !== "cron" && user.id !== "system") {
+      dbUser = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { id: true, role: true, name: true, username: true },
+      });
+    }
+    const currentUserId = dbUser?.id || user.id;
+    const currentUserRole = dbUser?.role || user.role;
+    const actorName = user?.name || user?.email || "Hệ Thống";
+
+    // Per-User Anti-Spam Check: Check if THIS user already has a sync in progress
+    const existingActiveJob = await getActiveSyncJobForUser(currentUserId);
+    if (existingActiveJob) {
+      return NextResponse.json({
+        success: false,
+        inProgress: true,
+        activeJob: {
+          id: existingActiveJob.id,
+          status: existingActiveJob.status,
+          requestedAt: existingActiveJob.requestedAt,
+          machineName: existingActiveJob.machineName,
+        },
+        message: `Tiến trình đồng bộ của bạn đang được xử lý (${existingActiveJob.status === "PROCESSING" ? "Agent đang quét" : "Đang chờ Agent nhận"}). Vui lòng chờ hoàn tất!`,
+      });
+    }
+
+    // Enqueue New Sync Job in SyncQueue scoped to current user
+    const syncJob = await prisma.syncQueue.create({
+      data: {
+        requestedById: currentUserId,
+        status: "PENDING",
+        targetScope: currentUserId,
+        requestedAt: new Date(),
+      },
+    });
+    createdJobId = syncJob.id;
 
     // Check GPMLogin connection first
     const health = await gpmClient.checkConnection();
     if (!health.isOnline) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Không thể kết nối với phần mềm GPMLogin (đã dò cổng 9495/19995/19996…). Vui lòng đảm bảo GPMLogin đang mở và bật API Setting.",
-        },
-        { status: 200 }
-      );
+      // Remote VPS Mode: Web server is on cloud/VPS and cannot reach local GPM directly.
+      // The pending SyncQueue record will be picked up by the Client Agent polling daemon.
+      return NextResponse.json({
+        success: true,
+        isRemoteSignal: true,
+        jobId: syncJob.id,
+        message: "Đã đưa lệnh vào hàng đợi đồng bộ. Client Agent trên máy tính cá nhân sẽ tự động nhận và bắt đầu quét ngay!",
+      });
     }
+
+    // Local Mode: GPM is running on this same machine
+    await prisma.syncQueue.update({
+      where: { id: syncJob.id },
+      data: {
+        status: "PROCESSING",
+        startedAt: new Date(),
+        machineName: os.hostname(),
+      },
+    });
 
     const gpmResult = await gpmClient.listProfiles(1, 200);
     const profiles = gpmResult?.data || [];
@@ -52,7 +158,8 @@ export async function POST(req: Request) {
     await pMap(
       profiles,
       async (p) => {
-        const realHandle = findTikTokHandleInProfile(p.id);
+        const handleMatch = (p.name || "").match(/@([a-zA-Z0-9_.]+)/);
+        const realHandle = handleMatch ? handleMatch[1] : null;
 
         let existing = await prisma.tiktokAccount.findFirst({
           where: {
@@ -68,32 +175,37 @@ export async function POST(req: Request) {
           },
         });
 
-        // Strictly ignore profiles that have never opened / logged into TikTok
-        if (!realHandle && !existing) {
+        // Filter profiles that relate to TikTok
+        const lowerName = (p.name || "").toLowerCase();
+        const lowerGroup = (p.group_id || "").toLowerCase();
+        const isTikTok = Boolean(realHandle || existing || lowerName.includes("tiktok") || lowerGroup.includes("tiktok"));
+        if (!isTikTok) {
           return;
         }
 
         const extractedUsername = realHandle || existing?.username || `profile_${p.id.slice(0, 8)}`;
-        const currentUserId = session?.user?.id;
-        const currentUserRole = session?.user?.role;
 
-        let country = "US";
-        const lowerName = p.name.toLowerCase();
-        const lowerGroup = (p.group_id || "").toLowerCase();
-        if (lowerName.includes("uk") || lowerGroup.includes("uk")) country = "UK";
-        else if (lowerName.includes("vn") || lowerGroup.includes("vn")) country = "VN";
-        else if (lowerName.includes("de")) country = "DE";
-        else if (lowerName.includes("fr")) country = "FR";
+        let resolvedCountry = "US";
+        if (lowerName.includes("uk") || lowerGroup.includes("uk")) resolvedCountry = "UK";
+        else if (lowerName.includes("vn") || lowerGroup.includes("vn")) resolvedCountry = "VN";
+        else if (lowerName.includes("de") || lowerGroup.includes("de")) resolvedCountry = "DE";
+        else if (lowerName.includes("fr") || lowerGroup.includes("fr")) resolvedCountry = "FR";
+
+        const isOnline = existing?.isOnline || false;
 
         // 1. ATTEMPT INSERT IF NEW
         if (!existing) {
           try {
             const assignedUserId = currentUserRole === "STAFF" && currentUserId ? currentUserId : null;
+            const { gpmClient } = await import("@/lib/gpm-api");
+            const gpmGroupName = await gpmClient.resolveGroupName(p.group_id);
             const newAccount = await prisma.tiktokAccount.create({
               data: {
                 username: extractedUsername,
-                country,
-                groupName: p.group_id || "GPM Fleet",
+                country: resolvedCountry || "Unknown",
+                isOnline,
+                gpmProfileName: p.name || null,
+                groupName: gpmGroupName,
                 gpmProfileId: p.id,
                 status: "ACTIVE",
                 assignedUserId,
@@ -139,17 +251,32 @@ export async function POST(req: Request) {
         // 2. ATOMIC CLAIM OR STATS UPDATE
         const claimWhereCondition: any = {
           id: existing.id,
-          ...(currentUserRole === "STAFF"
+          ...(currentUserRole === "STAFF" && currentUserId
             ? { assignedUserId: null }
             : {}
           ),
         };
 
+        const { gpmClient } = await import("@/lib/gpm-api");
+        const gpmGroupName = await gpmClient.resolveGroupName(p.group_id);
         const updateData: any = {
           gpmProfileId: p.id,
-          groupName: p.group_id || existing.groupName,
+          gpmProfileName: p.name || existing.gpmProfileName || null,
+          groupName:
+            gpmGroupName ??
+            (existing.groupName && !/^Profile\s+/i.test(existing.groupName)
+              ? existing.groupName
+              : null),
           lastSyncedAt: new Date(),
         };
+
+        if (resolvedCountry && (!existing.country || isWeakCountryName(existing.country))) {
+          updateData.country = resolvedCountry;
+        }
+
+        if (isOnline && !existing.isOnline) {
+          updateData.isOnline = true;
+        }
 
         if (realHandle && existing.username !== realHandle) {
           updateData.username = realHandle;
@@ -157,7 +284,7 @@ export async function POST(req: Request) {
 
         if (currentUserRole === "STAFF" && !existing.assignedUserId && currentUserId) {
           updateData.assignedUserId = currentUserId;
-        } else if ((currentUserRole === "ADMIN" || currentUserRole === "LEAD") && currentUserId) {
+        } else if ((currentUserRole === "ADMIN" || currentUserRole === "LEAD") && currentUserId && !existing.assignedUserId) {
           updateData.assignedUserId = currentUserId;
         }
 
@@ -169,7 +296,7 @@ export async function POST(req: Request) {
         if (claimResult.count > 0) {
           updatedCount++;
           const newlyAssigned = !existing.assignedUserId && updateData.assignedUserId;
-          const overridden = existing.assignedUserId && existing.assignedUserId !== updateData.assignedUserId;
+          const overridden = existing.assignedUserId && updateData.assignedUserId && existing.assignedUserId !== updateData.assignedUserId;
 
           if (newlyAssigned || overridden) {
             await prisma.accountLog.create({
@@ -191,6 +318,12 @@ export async function POST(req: Request) {
           if (realHandle && existing.username !== realHandle) {
             statsUpdate.username = realHandle;
           }
+          if (resolvedCountry && (!existing.country || isWeakCountryName(existing.country))) {
+            statsUpdate.country = resolvedCountry;
+          }
+          if (isOnline && !existing.isOnline) {
+            statsUpdate.isOnline = true;
+          }
           await prisma.tiktokAccount.update({
             where: { id: existing.id },
             data: statsUpdate,
@@ -201,8 +334,69 @@ export async function POST(req: Request) {
       6
     );
 
+    // Update lastRunAt in central sync_schedule
+    try {
+      const nowIso = new Date().toISOString();
+      const configRecord = await prisma.systemConfig.findUnique({
+        where: { key: "sync_schedule" },
+      });
+      if (configRecord && configRecord.value) {
+        const parsed = JSON.parse(configRecord.value);
+        if (Array.isArray(parsed.schedules)) {
+          parsed.schedules = parsed.schedules.map((s: any) => ({
+            ...s,
+            lastRunAt: nowIso,
+          }));
+        }
+        parsed.lastRunAt = nowIso;
+        await prisma.systemConfig.update({
+          where: { key: "sync_schedule" },
+          data: { value: JSON.stringify(parsed) },
+        });
+      } else {
+        await prisma.systemConfig.upsert({
+          where: { key: "sync_schedule" },
+          create: {
+            key: "sync_schedule",
+            value: JSON.stringify({
+              autoEnabled: true,
+              mode: "AUTO",
+              lastRunAt: nowIso,
+              schedules: [{ repeat: "DAILY", timeOfDay: "18:00", enabled: true, lastRunAt: nowIso }],
+            }),
+          },
+          update: {
+            value: JSON.stringify({
+              autoEnabled: true,
+              mode: "AUTO",
+              lastRunAt: nowIso,
+              schedules: [{ repeat: "DAILY", timeOfDay: "18:00", enabled: true, lastRunAt: nowIso }],
+            }),
+          },
+        });
+      }
+    } catch (e) {
+      console.warn("[/api/gpm/sync] Failed to update lastRunAt in sync_schedule:", e);
+    }
+
+    // Mark Local Sync Job as COMPLETED in SyncQueue
+    if (createdJobId) {
+      await prisma.syncQueue.update({
+        where: { id: createdJobId },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          profilesCount: profiles.length,
+          successCount: updatedCount + newCount,
+          failCount: 0,
+          resultSummary: `Mới: ${newCount}, Cập nhật: ${updatedCount}`,
+        },
+      });
+    }
+
     return NextResponse.json({
       success: true,
+      jobId: createdJobId,
       message: `Đã đồng bộ ${profiles.length} profile từ GPMLogin (Mới: ${newCount}, Cập nhật: ${updatedCount})`,
       totalScanned: profiles.length,
       newImportedCount: newCount,
@@ -210,6 +404,18 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     console.error("[/api/gpm/sync] Error:", err);
+    if (createdJobId) {
+      try {
+        await prisma.syncQueue.update({
+          where: { id: createdJobId },
+          data: {
+            status: "FAILED",
+            completedAt: new Date(),
+            errorMessage: err?.message || "Lỗi xử lý đồng bộ GPMLogin",
+          },
+        });
+      } catch { }
+    }
     return NextResponse.json(
       { success: false, error: err?.message || "Lỗi xử lý đồng bộ GPMLogin" },
       { status: 500 }
@@ -217,6 +423,59 @@ export async function POST(req: Request) {
   }
 }
 
+/**
+ * GET /api/gpm/sync
+ * Returns the current queue status: isSyncing, activeJob, lastCompletedJob
+ * Allows UI buttons to know if sync is in progress and stay disabled.
+ */
 export async function GET(req: Request) {
-  return POST(req);
+  const { searchParams } = new URL(req.url);
+  if (searchParams.get("run") === "1") {
+    return POST(req);
+  }
+
+  try {
+    const user = await resolveAuthUser(req);
+    if (!user?.id) {
+      return NextResponse.json({ isSyncing: false, activeJob: null, lastCompletedJob: null });
+    }
+
+    const activeJob = await getActiveSyncJobForUser(user.id);
+    const lastCompleted = await prisma.syncQueue.findFirst({
+      where: {
+        requestedById: user.id,
+        status: "COMPLETED",
+      },
+      orderBy: { completedAt: "desc" },
+      take: 1,
+    });
+
+    return NextResponse.json({
+      isSyncing: Boolean(activeJob),
+      activeJob: activeJob
+        ? {
+            id: activeJob.id,
+            status: activeJob.status,
+            requestedAt: activeJob.requestedAt,
+            startedAt: activeJob.startedAt,
+            machineName: activeJob.machineName,
+            requestedBy: activeJob.requestedBy?.name || "Bạn",
+          }
+        : null,
+      lastCompletedJob: lastCompleted
+        ? {
+            id: lastCompleted.id,
+            completedAt: lastCompleted.completedAt,
+            profilesCount: lastCompleted.profilesCount,
+            successCount: lastCompleted.successCount,
+            resultSummary: lastCompleted.resultSummary,
+          }
+        : null,
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { isSyncing: false, error: err?.message },
+      { status: 500 }
+    );
+  }
 }

@@ -80,8 +80,9 @@ export default function Navbar() {
   }, []);
 
   const handleGlobalSync = async () => {
+    if (syncing) return;
     setSyncing(true);
-    setSyncMessage("Đang quét & đồng bộ toàn bộ tài khoản...");
+    setSyncMessage("Đang đưa lệnh vào hàng đợi đồng bộ...");
     try {
       const res = await fetch("/api/gpm/sync", {
         method: "POST",
@@ -93,7 +94,7 @@ export default function Navbar() {
         setSyncMessage(`✅ ${json.message}`);
         window.dispatchEvent(new Event("refreshData"));
       } else {
-        setSyncMessage(`❌ ${json.error || "Lỗi đồng bộ"}`);
+        setSyncMessage(json.inProgress ? `⏳ ${json.message}` : `❌ ${json.error || json.message || "Lỗi đồng bộ"}`);
       }
     } catch (err: any) {
       setSyncMessage(`❌ ${err.message}`);
@@ -178,7 +179,7 @@ export default function Navbar() {
                     timeInfo.isPast ? "text-amber-400" : "text-emerald-400"
                   }`}
                 >
-                  {mounted ? (timeInfo.isPast ? "Đã chốt" : timeInfo.remaining) : "--:--:--"}
+                  {mounted ? (timeInfo.isPast ? `Đã chốt • Mai: ${timeInfo.remaining}` : timeInfo.remaining) : "--:--:--"}
                 </span>
               </div>
             </div>

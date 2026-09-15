@@ -17,6 +17,7 @@ import confetti from "canvas-confetti";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { LeaderboardPageSkeleton } from "@/components/skeletons/PageSkeletons";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
 
 export default function LeaderboardPage() {
@@ -58,12 +59,12 @@ export default function LeaderboardPage() {
     <div className="space-y-8 animate-fadeIn">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-            <Trophy className="w-6 h-6 text-yellow-500" />
-            Bảng Xếp Hạng Nhân Sự (Leaderboard & KPI)
+        <div className="min-w-0">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
+            <Trophy className="w-6 h-6 text-yellow-500 shrink-0" />
+            <span className="truncate">Bảng Xếp Hạng Nhân Sự (Leaderboard & KPI)</span>
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
             Vinh danh nhân viên có doanh thu cao nhất, số ngày công tích lũy và hiệu suất RPM vượt trội.
           </p>
         </div>
@@ -172,20 +173,27 @@ export default function LeaderboardPage() {
               <Medal className="w-4 h-4 text-yellow-500" />
               Bảng Xếp Hạng Chi Tiết Toàn Team
             </h2>
-            <button
-              onClick={handleCelebrate}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-pink-50 hover:bg-pink-100 dark:bg-pink-600/20 dark:hover:bg-pink-600/30 text-pink-600 dark:text-pink-400 transition-colors cursor-pointer border border-pink-200 dark:border-pink-500/20"
-            >
-              <Sparkles className="w-3.5 h-3.5" /> Chúc Mừng
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleCelebrate}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-pink-50 hover:bg-pink-100 dark:bg-pink-600/20 dark:hover:bg-pink-600/30 text-pink-600 dark:text-pink-400 transition-colors cursor-pointer border border-pink-200 dark:border-pink-500/20"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Chúc Mừng
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs font-semibold">
+                Bắn pháo hoa vinh danh bảng vàng
+              </TooltipContent>
+            </Tooltip>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 min-w-[850px]">
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 normal-case">
                 <tr>
-                  <th className="px-5 py-3.5">Hạng</th>
-                  <th className="px-4 py-3.5">Nhân viên</th>
+                  <th className="sticky left-0 z-20 bg-slate-50 dark:bg-slate-950 px-5 py-3.5 w-16 min-w-[64px] max-w-[64px]">Hạng</th>
+                  <th className="sticky left-16 z-20 bg-slate-50 dark:bg-slate-950 px-4 py-3.5 min-w-[200px] border-r border-slate-200/80 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">Nhân viên</th>
                   <th className="px-4 py-3.5">Số acc phụ trách</th>
                   <th className="px-4 py-3.5">Ngày công tích lũy</th>
                   <th className="px-4 py-3.5">Tỷ lệ đạt KPI</th>
@@ -207,7 +215,7 @@ export default function LeaderboardPage() {
                     .map((user) => (
                       <tr
                         key={user.userId}
-                        className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${
+                        className={`group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${
                           user.rank === 1
                             ? "bg-yellow-50/50 dark:bg-yellow-950/10 font-bold"
                             : user.rank === 2
@@ -215,7 +223,13 @@ export default function LeaderboardPage() {
                             : ""
                         }`}
                       >
-                        <td className="px-5 py-3.5 whitespace-nowrap">
+                        <td className={`sticky left-0 z-10 px-5 py-3.5 whitespace-nowrap w-16 min-w-[64px] max-w-[64px] transition-colors ${
+                          user.rank === 1
+                            ? "bg-yellow-50 dark:bg-[#1a1708]"
+                            : user.rank === 2
+                            ? "bg-slate-50 dark:bg-[#111622]"
+                            : "bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800"
+                        }`}>
                           <span
                             className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-black text-xs ${
                               user.rank === 1
@@ -231,7 +245,13 @@ export default function LeaderboardPage() {
                           </span>
                         </td>
 
-                        <td className="px-4 py-3.5 whitespace-nowrap">
+                        <td className={`sticky left-16 z-10 px-4 py-3.5 whitespace-nowrap min-w-[200px] border-r border-slate-200/80 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] transition-colors ${
+                          user.rank === 1
+                            ? "bg-yellow-50 dark:bg-[#1a1708]"
+                            : user.rank === 2
+                            ? "bg-slate-50 dark:bg-[#111622]"
+                            : "bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800"
+                        }`}>
                           <div className="font-extrabold text-slate-900 dark:text-white">
                             {user.fullName}
                           </div>

@@ -76,6 +76,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
+import { cn } from "@/lib/utils";
+import { TimePickerField } from "@/features/schedule/ScheduleModal";
 
 export default function ChecklistPage() {
   const { data: session } = useSession();
@@ -175,6 +177,19 @@ export default function ChecklistPage() {
     return () => window.removeEventListener("refreshData", handleRefresh);
   }, [utils]);
 
+  // Sync editRules when scoringConfig is loaded from database
+  useEffect(() => {
+    if (timesheetData?.scoringConfig) {
+      setEditRules({
+        cutOffHour: timesheetData.scoringConfig.cutOffHour ?? 10,
+        cutOffMinute: timesheetData.scoringConfig.cutOffMinute ?? 0,
+        fullDayThreshold: timesheetData.scoringConfig.fullDayThreshold ?? 85,
+        halfDayThreshold: timesheetData.scoringConfig.halfDayThreshold ?? 50,
+        requireDataSync: timesheetData.scoringConfig.requireDataSync ?? true,
+      });
+    }
+  }, [timesheetData?.scoringConfig]);
+
   // Lock body scroll when settings drawer is open
   useEffect(() => {
     if (isSettingsDrawerOpen) {
@@ -198,6 +213,18 @@ export default function ChecklistPage() {
       utils.checklist.getByDate.invalidate();
     },
     onError: (err) => showToast(err.message || "Lỗi cập nhật trạng thái", "error"),
+  });
+
+  const saveRulesMutation = trpc.checklist.saveRules.useMutation({
+    onSuccess: () => {
+      showToast("✅ Đã lưu cấu hình quy tắc chấm công vào cơ sở dữ liệu thành công!", "success");
+      setIsSettingsDrawerOpen(false);
+      utils.checklist.getByDate.invalidate();
+      utils.settings.getAll.invalidate();
+    },
+    onError: (err) => {
+      showToast(err.message || "Lỗi khi lưu cấu hình quy tắc", "error");
+    },
   });
 
   const massCompleteMutation = trpc.checklist.massCompleteAll.useMutation({
@@ -496,50 +523,127 @@ export default function ChecklistPage() {
 
   const cutoffInfo = timesheetData?.cutoffInfo;
 
+  const activeRules = timesheetData?.scoringConfig || {
+    cutOffHour: 10,
+    cutOffMinute: 0,
+    fullDayThreshold: 85,
+    halfDayThreshold: 50,
+    requireDataSync: true,
+  };
+  const activeCutoffStr = `${String(activeRules.cutOffHour).padStart(2, "0")}:${String(activeRules.cutOffMinute).padStart(2, "0")}`;
+
+  // Client-side live countdown ticker for Cutoff Time (Asia/Ho_Chi_Minh)
+  const [liveCutoff, setLiveCutoff] = useState({
+    remaining: "--:--:--",
+    remainingNext: "--:--:--",
+    isPast: false,
+    mounted: false,
+  });
+
+  useEffect(() => {
+    const updateCountdown = () => {
+      const now = new Date();
+      const vnString = now.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" });
+      const vnDate = new Date(vnString);
+
+      const cutoffToday = new Date(vnDate);
+      cutoffToday.setHours(activeRules.cutOffHour, activeRules.cutOffMinute, 0, 0);
+
+      const isPast = vnDate.getTime() >= cutoffToday.getTime();
+
+      const diffMs = Math.max(0, cutoffToday.getTime() - vnDate.getTime());
+      const h = Math.floor(diffMs / (1000 * 60 * 60));
+      const m = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      const s = Math.floor((diffMs % (1000 * 60)) / 1000);
+      const remaining = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+
+      const cutoffTomorrow = new Date(cutoffToday);
+      cutoffTomorrow.setDate(cutoffTomorrow.getDate() + 1);
+      const diffNextMs = Math.max(0, cutoffTomorrow.getTime() - vnDate.getTime());
+      const nh = Math.floor(diffNextMs / (1000 * 60 * 60));
+      const nm = Math.floor((diffNextMs % (1000 * 60 * 60)) / (1000 * 60));
+      const ns = Math.floor((diffNextMs % (1000 * 60)) / 1000);
+      const remainingNext = `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}:${String(ns).padStart(2, "0")}`;
+
+      setLiveCutoff({
+        remaining,
+        remainingNext,
+        isPast,
+        mounted: true,
+      });
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [activeRules.cutOffHour, activeRules.cutOffMinute]);
+
   return (
     <div className="space-y-6 w-full pb-24 animate-fadeIn">
       {/* Top Header Section */}
-      <div className="bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md pt-1 pb-2 space-y-4">
+      <div className="space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 tracking-tight">
-                <CheckSquare className="w-8 h-8 text-emerald-500" />
-                Bảng Chấm Công & KPI Vận Hành
-              </h1>
-            </div>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
+              <CheckSquare className="w-6 h-6 text-emerald-500 shrink-0" />
+              <span className="truncate">Bảng Chấm Công & KPI Vận Hành</span>
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+              Theo dõi chấm công hàng ngày, tỷ lệ hoàn thành KPI, tự động chốt công theo mốc 10:00 AM và quản lý lịch sử vận hành.
+            </p>
           </div>
 
           {/* Action Buttons Group */}
           <div className="flex flex-wrap items-center gap-2.5 self-start lg:self-auto">
             {/* Auto-Scan Button */}
-            <button
-              onClick={handleAutoScanAll}
-              disabled={scanning}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/25 active:scale-95 transition-all cursor-pointer disabled:opacity-70"
-            >
-              <Zap className={`w-4 h-4 ${scanning ? "animate-spin" : ""}`} />
-              <span>{scanning ? "Đang Quét Toàn Dàn..." : "Tự Động Chấm Công"}</span>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleAutoScanAll}
+                  disabled={scanning}
+                  className="h-10 inline-flex items-center gap-2 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/25 active:scale-95 transition-all cursor-pointer disabled:opacity-70 whitespace-nowrap shrink-0"
+                >
+                  <Zap className={`w-4 h-4 shrink-0 ${scanning ? "animate-spin" : ""}`} />
+                  <span className="truncate">{scanning ? "Đang Quét Toàn Dàn..." : "Tự Động Chấm Công"}</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs font-semibold">
+                Tự động kết nối và ghi nhận chấm công toàn bộ dàn tài khoản
+              </TooltipContent>
+            </Tooltip>
 
             {/* Export Excel Button */}
-            <button
-              onClick={handleExportExcel}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-xs cursor-pointer active:scale-95"
-            >
-              <Download className="w-4 h-4 text-emerald-500" />
-              <span>Xuất Excel (.xlsx)</span>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleExportExcel}
+                  className="h-10 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-xs cursor-pointer active:scale-95 whitespace-nowrap shrink-0"
+                >
+                  <Download className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span className="truncate">Xuất Excel (.xlsx)</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs font-semibold">
+                Tải file Excel danh sách bảng chấm công và KPI ngày hiện tại
+              </TooltipContent>
+            </Tooltip>
 
             {/* Config Rules Button */}
             {isAdmin && (
-              <button
-                onClick={() => setIsSettingsDrawerOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90 transition-all shadow-xs cursor-pointer active:scale-95"
-              >
-                <SlidersHorizontal className="w-4 h-4" />
-                <span>Cấu Hình Quy Tắc</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setIsSettingsDrawerOpen(true)}
+                    className="h-10 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-bold bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90 transition-all shadow-xs cursor-pointer active:scale-95 whitespace-nowrap shrink-0"
+                  >
+                    <SlidersHorizontal className="w-4 h-4 shrink-0" />
+                    <span className="truncate">Cấu Hình Quy Tắc</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs font-semibold">
+                  Cấu hình giờ chốt công và điều kiện hoàn thành checklist
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
         </div>
@@ -575,22 +679,22 @@ export default function ChecklistPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight">
-                    Mốc Chốt Công Tự Động: 10:00 Sáng (Giờ VN)
+                    Mốc Chốt Công Tự Động: {activeCutoffStr} Sáng (Giờ VN)
                   </span>
-                  {cutoffInfo?.isPastCutoff ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs sm:text-xs font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                  {liveCutoff.isPast ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                      Đã chốt hôm nay (10:00 AM)
+                      Đã chốt hôm nay ({activeCutoffStr}) • Chốt tiếp: <span className="font-mono">{liveCutoff.mounted ? liveCutoff.remainingNext : "--:--:--"}</span>
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs sm:text-xs font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
-                      Đang chờ chốt (Còn {cutoffInfo?.remainingFormatted || "10:00 AM"})
+                      Đang chờ chốt (Còn: <span className="font-mono">{liveCutoff.mounted ? liveCutoff.remaining : "--:--:--"}</span>)
                     </span>
                   )}
                 </div>
                 <p className="text-xs sm:text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-[560px] leading-relaxed">
-                  Đúng 10:00 AM mỗi ngày, hệ thống tự động quét Live toàn bộ dàn kênh. Nhân sự hoàn thành <strong>&ge;85%</strong> hưởng 1.0 công, <strong>50% - 85%</strong> hưởng 0.5 công.
+                  Đúng {activeCutoffStr} mỗi ngày, hệ thống tự động quét Live toàn bộ dàn kênh. Nhân sự hoàn thành <strong>&ge;{activeRules.fullDayThreshold}%</strong> hưởng 1.0 công, <strong>{activeRules.halfDayThreshold}% - {activeRules.fullDayThreshold}%</strong> hưởng 0.5 công.
                 </p>
               </div>
             </div>
@@ -647,30 +751,28 @@ export default function ChecklistPage() {
           {/* Row 1: Mode Switcher & Time Presets */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             {/* View Mode Toggle */}
-            <div className="w-full sm:w-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
+            <div className="w-full sm:w-auto grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
               <button
                 type="button"
                 onClick={() => setViewMode("daily")}
-                className={`px-3 py-2 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${viewMode === "daily"
+                className={`px-3 py-2 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 min-w-0 ${viewMode === "daily"
                   ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
               >
-                <span>📅</span>
-                <span className="hidden sm:inline">Bảng Chấm Công Theo Ngày (Roll Call)</span>
-                <span className="sm:hidden">Theo Ngày (Roll Call)</span>
+                <span className="shrink-0">📅</span>
+                <span className="truncate whitespace-nowrap">Theo Ngày (Roll Call)</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode("range")}
-                className={`px-3 py-2 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${viewMode === "range"
+                className={`px-3 py-2 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 min-w-0 ${viewMode === "range"
                   ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
               >
-                <span>📈</span>
-                <span className="hidden sm:inline">Lịch Sử Khoảng Ngày (Timesheet Range)</span>
-                <span className="sm:hidden">Khoảng Ngày (Timesheet)</span>
+                <span className="shrink-0">📈</span>
+                <span className="truncate whitespace-nowrap">Khoảng Ngày (Timesheet)</span>
               </button>
             </div>
 
@@ -678,9 +780,9 @@ export default function ChecklistPage() {
             {viewMode === "range" ? (
               <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none py-1">
                 {[
-                  { id: "7d", label: "7 Ngày Qua", action: () => applyRangePreset(7, "7d") },
-                  { id: "28d", label: "28 Ngày Qua", action: () => applyRangePreset(28, "28d") },
-                  { id: "60d", label: "60 Ngày Qua", action: () => applyRangePreset(60, "60d") },
+                  { id: "7d", label: "7 Ngày", action: () => applyRangePreset(7, "7d") },
+                  { id: "28d", label: "28 Ngày", action: () => applyRangePreset(28, "28d") },
+                  { id: "60d", label: "60 Ngày", action: () => applyRangePreset(60, "60d") },
                   { id: "month", label: "Tháng Này", action: applyThisMonth },
                   { id: "365d", label: "365 Ngày", action: () => applyRangePreset(365, "365d") },
                 ].map((p) => {
@@ -689,8 +791,8 @@ export default function ChecklistPage() {
                     <button
                       key={p.id}
                       onClick={p.action}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isActive
-                        ? "bg-emerald-500 text-white shadow-xs font-black"
+                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${isActive
+                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
                         }`}
                     >
@@ -716,8 +818,8 @@ export default function ChecklistPage() {
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${activeRangePreset === "custom"
-                        ? "bg-emerald-500 text-white shadow-xs font-black"
+                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${activeRangePreset === "custom"
+                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
                         }`}
                     >
@@ -725,30 +827,46 @@ export default function ChecklistPage() {
                       <span>
                         {activeRangePreset === "custom"
                           ? `${format(new Date(startDateStr + "T00:00:00"), "dd/MM")} - ${format(new Date(endDateStr + "T00:00:00"), "dd/MM/yy")}`
-                          : "Tùy chọn khoảng ngày"}
+                          : "Tùy chọn"}
                       </span>
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="end" className="w-auto p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 space-y-2.5">
-                    <div className="px-1 pt-1 pb-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  <PopoverContent
+                    side="bottom"
+                    sideOffset={6}
+                    align="end"
+                    avoidCollisions={false}
+                    className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
+                  >
+                    <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                         Chọn khoảng ngày chấm công
                       </span>
                       {rangeSelection?.from && (
-                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                        <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800 whitespace-nowrap shrink-0">
                           {format(rangeSelection.from, "dd/MM/yy")} - {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
                         </span>
                       )}
                     </div>
 
-                    <CalendarPicker
-                      mode="range"
-                      selected={rangeSelection}
-                      onSelect={(range) => {
-                        setRangeSelection(range);
-                      }}
-                      numberOfMonths={1}
-                    />
+                    <div className="w-full py-0.5">
+                      <CalendarPicker
+                        mode="range"
+                        selected={rangeSelection}
+                        onSelect={(range) => {
+                          setRangeSelection(range);
+                        }}
+                        numberOfMonths={1}
+                        className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                        classNames={{
+                          root: "w-full",
+                          months: "relative flex flex-col w-full",
+                          month: "w-full flex flex-col gap-1.5",
+                          weekdays: "flex w-full justify-between",
+                          week: "flex w-full mt-1 justify-between",
+                        }}
+                      />
+                    </div>
 
                     <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                       <button
@@ -771,7 +889,7 @@ export default function ChecklistPage() {
                           }
                           setIsRangePickerOpen(false);
                         }}
-                        className="px-3 py-1.5 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white rounded-lg shadow-sm cursor-pointer transition-all"
+                        className="px-4 py-1.5 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white rounded-lg shadow-sm cursor-pointer transition-all"
                       >
                         Áp dụng
                       </button>
@@ -784,8 +902,8 @@ export default function ChecklistPage() {
                 <button
                   type="button"
                   onClick={() => setDateStr(todayStr)}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyToday
-                    ? "bg-emerald-500 text-white shadow-xs font-black"
+                  className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyToday
+                    ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
                     }`}
                 >
@@ -794,8 +912,8 @@ export default function ChecklistPage() {
                 <button
                   type="button"
                   onClick={() => setDateStr(yesterdayStr)}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyYesterday
-                    ? "bg-emerald-500 text-white shadow-xs font-black"
+                  className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyYesterday
+                    ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
                     }`}
                 >
@@ -807,8 +925,8 @@ export default function ChecklistPage() {
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${isDailyCustom
-                        ? "bg-emerald-500 text-white shadow-xs font-black"
+                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${isDailyCustom
+                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
                         }`}
                     >
@@ -816,22 +934,45 @@ export default function ChecklistPage() {
                       <span>
                         {isDailyCustom
                           ? format(new Date(dateStr + "T00:00:00"), "dd/MM/yyyy")
-                          : "Tùy chọn ngày"}
+                          : "Tùy chọn"}
                       </span>
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="end" className="w-auto p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50">
-                    <div className="px-2 pt-1 pb-2 border-b border-slate-100 dark:border-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Chọn ngày chấm công
+                  <PopoverContent
+                    side="bottom"
+                    sideOffset={6}
+                    align="end"
+                    avoidCollisions={false}
+                    className="w-[300px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
+                  >
+                    <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                        Chọn ngày chấm công
+                      </span>
+                      {dateStr && (
+                        <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                          {format(new Date(dateStr + "T00:00:00"), "dd/MM/yy")}
+                        </span>
+                      )}
                     </div>
-                    <CalendarPicker
-                      mode="single"
-                      selected={new Date(dateStr + "T00:00:00")}
-                      onSelect={(d) => {
-                        if (d) setDateStr(format(d, "yyyy-MM-dd"));
-                        setIsDatePickerOpen(false);
-                      }}
-                    />
+                    <div className="w-full py-0.5">
+                      <CalendarPicker
+                        mode="single"
+                        selected={new Date(dateStr + "T00:00:00")}
+                        onSelect={(d) => {
+                          if (d) setDateStr(format(d, "yyyy-MM-dd"));
+                          setIsDatePickerOpen(false);
+                        }}
+                        className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                        classNames={{
+                          root: "w-full",
+                          months: "relative flex flex-col w-full",
+                          month: "w-full flex flex-col gap-1.5",
+                          weekdays: "flex w-full justify-between",
+                          week: "flex w-full mt-1 justify-between",
+                        }}
+                      />
+                    </div>
                   </PopoverContent>
                 </Popover>
               </div>
@@ -870,15 +1011,15 @@ export default function ChecklistPage() {
                   value={selectedUserId}
                   onValueChange={(val) => setSelectedUserId(val)}
                 >
-                  <SelectTrigger className="w-full h-9 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap">
+                  <SelectTrigger className="w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap">
                     <SelectValue placeholder="Tất cả nhân sự" />
                   </SelectTrigger>
                   <SelectContent className="rounded-2xl max-h-72">
-                    <SelectItem value="ALL" className="text-xs font-bold cursor-pointer">
+                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
                       👥 Tất cả nhân sự ({staffList.length} thành viên)
                     </SelectItem>
                     {staffList.map((s: any) => (
-                      <SelectItem key={s.id} value={s.id} className="text-xs cursor-pointer">
+                      <SelectItem key={s.id} value={s.id} className="text-xs font-normal cursor-pointer">
                         {s.fullName} (@{s.username}) — {s.role}
                       </SelectItem>
                     ))}
@@ -892,29 +1033,29 @@ export default function ChecklistPage() {
                   value={scoreFilter}
                   onValueChange={(val: any) => setScoreFilter(val)}
                 >
-                  <SelectTrigger className="w-full h-9 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap">
+                  <SelectTrigger className="w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap">
                     <SelectValue placeholder="Tất cả kết quả" />
                   </SelectTrigger>
                   <SelectContent className="rounded-2xl">
-                    <SelectItem value="ALL" className="text-xs cursor-pointer">
+                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
                       Tất cả kết quả công
                     </SelectItem>
-                    <SelectItem value="FULL" className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 cursor-pointer">
+                    <SelectItem value="FULL" className="text-xs font-normal text-emerald-600 dark:text-emerald-400 cursor-pointer">
                       <span className="inline-flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                        <span>Đủ 1.0 Ngày Công (&ge;85%)</span>
+                        <span>Đủ 1.0 Ngày Công (&ge;{activeRules.fullDayThreshold}%)</span>
                       </span>
                     </SelectItem>
-                    <SelectItem value="HALF" className="text-xs font-semibold text-amber-600 dark:text-amber-400 cursor-pointer">
+                    <SelectItem value="HALF" className="text-xs font-normal text-amber-600 dark:text-amber-400 cursor-pointer">
                       <span className="inline-flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-                        <span>Nửa 0.5 Ngày Công (50%-85%)</span>
+                        <span>Nửa 0.5 Ngày Công ({activeRules.halfDayThreshold}%-{activeRules.fullDayThreshold}%)</span>
                       </span>
                     </SelectItem>
-                    <SelectItem value="ZERO" className="text-xs font-semibold text-rose-600 dark:text-rose-400 cursor-pointer">
+                    <SelectItem value="ZERO" className="text-xs font-normal text-rose-600 dark:text-rose-400 cursor-pointer">
                       <span className="inline-flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
-                        <span>0 Ngày Công (&lt;50%)</span>
+                        <span>0 Ngày Công (&lt;{activeRules.halfDayThreshold}%)</span>
                       </span>
                     </SelectItem>
                   </SelectContent>
@@ -1096,9 +1237,9 @@ export default function ChecklistPage() {
                             </div>
                             <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                               <div
-                                className={`h-full rounded-full transition-all ${rate >= 85
+                                className={`h-full rounded-full transition-all ${rate >= activeRules.fullDayThreshold
                                   ? "bg-gradient-to-r from-emerald-500 to-teal-400"
-                                  : rate >= 50
+                                  : rate >= activeRules.halfDayThreshold
                                     ? "bg-gradient-to-r from-amber-500 to-yellow-400"
                                     : "bg-gradient-to-r from-rose-500 to-pink-500"
                                   }`}
@@ -1144,7 +1285,7 @@ export default function ChecklistPage() {
                                     showToast(`⏳ Đang quét tự động cho @${chk.user.username}...`, "info");
                                     autoScanMutation.mutate({ checklistId: chk.id });
                                   }}
-                                  className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold cursor-pointer rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/50 text-slate-700 dark:text-slate-200"
+                                  className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal cursor-pointer rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/50 text-slate-700 dark:text-slate-200"
                                 >
                                   <Zap className="w-4 h-4 text-pink-500" />
                                   <span>Quét Tự Động Nhân Sự</span>
@@ -1153,7 +1294,7 @@ export default function ChecklistPage() {
                                 {isAdmin ? (
                                   <DropdownMenuItem
                                     onClick={() => handleAdminCheckComplete(chk.id, chk.user.fullName)}
-                                    className="flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 cursor-pointer rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                                    className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-emerald-600 dark:text-emerald-400 cursor-pointer rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
                                   >
                                     <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                                     <span>Check Hoàn Thành (1.0 Công)</span>
@@ -1170,7 +1311,7 @@ export default function ChecklistPage() {
                                 <DropdownMenuItem asChild>
                                   <Link
                                     href={`/users/${chk.user.id}`}
-                                    className="flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 cursor-pointer rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800"
+                                    className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-slate-600 dark:text-slate-400 cursor-pointer rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800"
                                   >
                                     <Users className="w-4 h-4 text-slate-400" />
                                     <span>Xem Profile & Dàn Kênh</span>
@@ -1214,179 +1355,179 @@ export default function ChecklistPage() {
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                                    {chk.items.map((item: any) => {
-                                      const isItemCompleted = item.isCompleted || (item.isPosted && item.isSynced);
-                                      const lastSyncFormatted = item.account.lastSyncedAt
-                                        ? format(new Date(item.account.lastSyncedAt), "HH:mm dd/MM")
-                                        : "Chưa sync";
+                                      {chk.items.map((item: any) => {
+                                        const isItemCompleted = item.isCompleted || (item.isPosted && item.isSynced);
+                                        const lastSyncFormatted = item.account.lastSyncedAt
+                                          ? format(new Date(item.account.lastSyncedAt), "HH:mm dd/MM")
+                                          : "Chưa sync";
 
-                                      return (
-                                        <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                                          {/* Account Name & Link */}
-                                          <td className="py-3 px-4">
-                                            <div className="flex items-center gap-2">
-                                              {getCountryBadge(item.account.country)}
-                                              <div>
-                                                <Link
-                                                  href={`/accounts/${item.account.id}`}
-                                                  className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors"
-                                                >
-                                                  @{item.account.username}
-                                                </Link>
-                                                <div className="text-xs text-slate-400">
-                                                  Views: {Number(item.account.totalViews || 0).toLocaleString()} • Rev: ${Number(item.account.totalRevenue || 0).toFixed(2)}
+                                        return (
+                                          <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                                            {/* Account Name & Link */}
+                                            <td className="py-3 px-4">
+                                              <div className="flex items-center gap-2">
+                                                {getCountryBadge(item.account.country)}
+                                                <div>
+                                                  <Link
+                                                    href={`/accounts/${item.account.id}`}
+                                                    className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors"
+                                                  >
+                                                    @{item.account.username}
+                                                  </Link>
+                                                  <div className="text-xs text-slate-400">
+                                                    Views: {Number(item.account.totalViews || 0).toLocaleString()} • Rev: ${Number(item.account.totalRevenue || 0).toFixed(2)}
+                                                  </div>
                                                 </div>
                                               </div>
-                                            </div>
-                                          </td>
+                                            </td>
 
-                                          {/* Toggle Posted */}
-                                          <td className="py-3 px-4 text-center">
-                                            <button
-                                              onClick={() => handleToggleItemField(item, "isPosted")}
-                                              className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer shadow-2xs ${item.isPosted
-                                                ? "bg-emerald-500 border-emerald-500 text-white"
-                                                : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-transparent hover:border-emerald-400"
-                                                }`}
-                                            >
-                                              <Check className="w-4 h-4 stroke-[3]" />
-                                            </button>
-                                          </td>
+                                            {/* Toggle Posted */}
+                                            <td className="py-3 px-4 text-center">
+                                              <button
+                                                onClick={() => handleToggleItemField(item, "isPosted")}
+                                                className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer shadow-2xs ${item.isPosted
+                                                  ? "bg-emerald-500 border-emerald-500 text-white"
+                                                  : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-transparent hover:border-emerald-400"
+                                                  }`}
+                                              >
+                                                <Check className="w-4 h-4 stroke-[3]" />
+                                              </button>
+                                            </td>
 
-                                          {/* Toggle Synced */}
-                                          <td className="py-3 px-4 text-center">
-                                            <button
-                                              onClick={() => handleToggleItemField(item, "isSynced")}
-                                              className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer shadow-2xs ${item.isSynced
-                                                ? "bg-cyan-500 border-cyan-500 text-white"
-                                                : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-transparent hover:border-cyan-400"
-                                                }`}
-                                            >
-                                              <RefreshCw className="w-3.5 h-3.5 stroke-[2.5]" />
-                                            </button>
-                                          </td>
+                                            {/* Toggle Synced */}
+                                            <td className="py-3 px-4 text-center">
+                                              <button
+                                                onClick={() => handleToggleItemField(item, "isSynced")}
+                                                className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer shadow-2xs ${item.isSynced
+                                                  ? "bg-cyan-500 border-cyan-500 text-white"
+                                                  : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-transparent hover:border-cyan-400"
+                                                  }`}
+                                              >
+                                                <RefreshCw className="w-3.5 h-3.5 stroke-[2.5]" />
+                                              </button>
+                                            </td>
 
-                                          {/* KPI Status */}
-                                          <td className="py-3 px-4 text-center">
-                                            {isItemCompleted ? (
-                                              <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
-                                                <CheckCircle2 className="w-3.5 h-3.5" /> Đạt KPI
-                                              </span>
-                                            ) : (
-                                              <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                                Chưa đạt
-                                              </span>
-                                            )}
-                                          </td>
-
-                                          {/* Latest Video Time & Title */}
-                                          <td className="py-3 px-4 min-w-[220px]">
-                                            <div className="space-y-0.5">
-                                              <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold text-xs">
-                                                <Video className="w-3.5 h-3.5 text-pink-500 shrink-0" />
-                                                <span>
-                                                  {item.notes?.includes("lúc")
-                                                    ? item.notes.split("•")[0].trim()
-                                                    : item.isPosted
-                                                      ? `Đã đăng video hôm nay`
-                                                      : "Chưa phát hiện video mới"}
+                                            {/* KPI Status */}
+                                            <td className="py-3 px-4 text-center">
+                                              {isItemCompleted ? (
+                                                <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
+                                                  <CheckCircle2 className="w-3.5 h-3.5" /> Đạt KPI
                                                 </span>
-                                              </div>
-                                              <div className="text-xs text-slate-400">
-                                                Sync Live gần nhất: <strong>{lastSyncFormatted}</strong>
-                                              </div>
-                                            </div>
-                                          </td>
-
-                                          {/* Operator Notes Input / Modal Trigger */}
-                                          <td className="py-3 px-4 min-w-[220px]">
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                const canEdit = isAdmin || isLeadOrAdmin || chk.user.id === (session?.user as any)?.id;
-                                                setNoteModalItem({
-                                                  id: item.id,
-                                                  accountUsername: item.account.username,
-                                                  country: item.account.country,
-                                                  notes: item.notes || "",
-                                                  dateFormatted,
-                                                  staffName: chk.user.fullName,
-                                                  canEdit,
-                                                });
-                                                setNoteInputText(item.notes || "");
-                                              }}
-                                              className="w-full text-left group/note flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200/80 dark:border-slate-800 transition-all cursor-pointer shadow-2xs hover:border-pink-300 dark:hover:border-pink-800"
-                                            >
-                                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                <FileEdit className="w-3.5 h-3.5 text-slate-400 group-hover/note:text-pink-500 shrink-0" />
-                                                <span className={`text-xs truncate ${item.notes ? "text-slate-800 dark:text-slate-200 font-medium" : "text-slate-400 italic"}`}>
-                                                  {item.notes || "Nhập ghi chú vận hành, tiêu đề.."}
+                                              ) : (
+                                                <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                                  Chưa đạt
                                                 </span>
-                                              </div>
-                                              <span className="text-xs text-pink-600 dark:text-pink-400 font-bold shrink-0 opacity-0 group-hover/note:opacity-100 transition-opacity">
-                                                Sửa
-                                              </span>
-                                            </button>
-                                          </td>
+                                              )}
+                                            </td>
 
-                                          {/* Quick Actions */}
-                                          <td className="py-3 px-4 text-right">
-                                            <div className="flex items-center justify-end gap-1">
-                                              {/* Launch GPM */}
-                                              {item.account.gpmProfileId && (
+                                            {/* Latest Video Time & Title */}
+                                            <td className="py-3 px-4 min-w-[220px]">
+                                              <div className="space-y-0.5">
+                                                <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold text-xs">
+                                                  <Video className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                                                  <span>
+                                                    {item.notes?.includes("lúc")
+                                                      ? item.notes.split("•")[0].trim()
+                                                      : item.isPosted
+                                                        ? `Đã đăng video hôm nay`
+                                                        : "Chưa phát hiện video mới"}
+                                                  </span>
+                                                </div>
+                                                <div className="text-xs text-slate-400">
+                                                  Sync Live gần nhất: <strong>{lastSyncFormatted}</strong>
+                                                </div>
+                                              </div>
+                                            </td>
+
+                                            {/* Operator Notes Input / Modal Trigger */}
+                                            <td className="py-3 px-4 min-w-[220px]">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const canEdit = isAdmin || isLeadOrAdmin || chk.user.id === (session?.user as any)?.id;
+                                                  setNoteModalItem({
+                                                    id: item.id,
+                                                    accountUsername: item.account.username,
+                                                    country: item.account.country,
+                                                    notes: item.notes || "",
+                                                    dateFormatted,
+                                                    staffName: chk.user.fullName,
+                                                    canEdit,
+                                                  });
+                                                  setNoteInputText(item.notes || "");
+                                                }}
+                                                className="w-full text-left group/note flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200/80 dark:border-slate-800 transition-all cursor-pointer shadow-2xs hover:border-pink-300 dark:hover:border-pink-800"
+                                              >
+                                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                  <FileEdit className="w-3.5 h-3.5 text-slate-400 group-hover/note:text-pink-500 shrink-0" />
+                                                  <span className={`text-xs truncate ${item.notes ? "text-slate-800 dark:text-slate-200 font-medium" : "text-slate-400 italic"}`}>
+                                                    {item.notes || "Nhập ghi chú vận hành, tiêu đề.."}
+                                                  </span>
+                                                </div>
+                                                <span className="text-xs text-pink-600 dark:text-pink-400 font-bold shrink-0 opacity-0 group-hover/note:opacity-100 transition-opacity">
+                                                  Sửa
+                                                </span>
+                                              </button>
+                                            </td>
+
+                                            {/* Quick Actions */}
+                                            <td className="py-3 px-4 text-right">
+                                              <div className="flex items-center justify-end gap-1">
+                                                {/* Launch GPM */}
+                                                {item.account.gpmProfileId && (
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <button
+                                                        onClick={() => startGpmMutation.mutate({ gpmProfileId: item.account.gpmProfileId })}
+                                                        className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors cursor-pointer"
+                                                        aria-label="Mở trình duyệt GPMLogin"
+                                                      >
+                                                        <Play className="w-3.5 h-3.5" />
+                                                      </button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="top" className="text-xs">
+                                                      Mở GPM Profile
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                )}
+
+                                                {/* Sync Account */}
                                                 <Tooltip>
                                                   <TooltipTrigger asChild>
                                                     <button
-                                                      onClick={() => startGpmMutation.mutate({ gpmProfileId: item.account.gpmProfileId })}
-                                                      className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors cursor-pointer"
-                                                      aria-label="Mở trình duyệt GPMLogin"
+                                                      onClick={() => syncAccountMutation.mutate({ accountId: item.account.id })}
+                                                      className="p-1.5 rounded-lg text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/50 transition-colors cursor-pointer"
+                                                      aria-label="Đồng bộ Live"
                                                     >
-                                                      <Play className="w-3.5 h-3.5" />
+                                                      <RefreshCw className="w-3.5 h-3.5" />
                                                     </button>
                                                   </TooltipTrigger>
                                                   <TooltipContent side="top" className="text-xs">
-                                                    Mở GPM Profile
+                                                    Đồng bộ Live Studio
                                                   </TooltipContent>
                                                 </Tooltip>
-                                              )}
 
-                                              {/* Sync Account */}
-                                              <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                  <button
-                                                    onClick={() => syncAccountMutation.mutate({ accountId: item.account.id })}
-                                                    className="p-1.5 rounded-lg text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/50 transition-colors cursor-pointer"
-                                                    aria-label="Đồng bộ Live"
-                                                  >
-                                                    <RefreshCw className="w-3.5 h-3.5" />
-                                                  </button>
-                                                </TooltipTrigger>
-                                                <TooltipContent side="top" className="text-xs">
-                                                  Đồng bộ Live Studio
-                                                </TooltipContent>
-                                              </Tooltip>
-
-                                              {/* Detail Link */}
-                                              <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                  <Link
-                                                    href={`/accounts/${item.account.id}`}
-                                                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
-                                                    aria-label="Xem chi tiết tài khoản"
-                                                  >
-                                                    <ExternalLink className="w-3.5 h-3.5" />
-                                                  </Link>
-                                                </TooltipTrigger>
-                                                <TooltipContent side="top" className="text-xs">
-                                                  Xem chi tiết kênh
-                                                </TooltipContent>
-                                              </Tooltip>
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
+                                                {/* Detail Link */}
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                    <Link
+                                                      href={`/accounts/${item.account.id}`}
+                                                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+                                                      aria-label="Xem chi tiết tài khoản"
+                                                    >
+                                                      <ExternalLink className="w-3.5 h-3.5" />
+                                                    </Link>
+                                                  </TooltipTrigger>
+                                                  <TooltipContent side="top" className="text-xs">
+                                                    Xem chi tiết kênh
+                                                  </TooltipContent>
+                                                </Tooltip>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
                                   </table>
                                 </div>
                               )}
@@ -1424,74 +1565,101 @@ export default function ChecklistPage() {
               </div>
 
               {/* Cutoff Time */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+              <div>
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-2">
                   Khung giờ chốt công tự động (Giờ VN)
                 </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-xs text-slate-400">Giờ (0 - 23)</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={23}
-                      value={editRules.cutOffHour}
-                      onChange={(e) => setEditRules({ ...editRules, cutOffHour: parseInt(e.target.value) || 0 })}
-                      className="w-full h-9 px-3 mt-1 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-400">Phút (0 - 59)</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={59}
-                      value={editRules.cutOffMinute}
-                      onChange={(e) => setEditRules({ ...editRules, cutOffMinute: parseInt(e.target.value) || 0 })}
-                      className="w-full h-9 px-3 mt-1 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white"
-                    />
-                  </div>
-                </div>
-                <p className="text-xs text-slate-400">
-                  Mặc định: 10:00 Sáng hàng ngày. Hệ thống Cron tự động chốt vào mốc này.
+                <TimePickerField
+                  value={`${String(editRules.cutOffHour).padStart(2, "0")}:${String(editRules.cutOffMinute).padStart(2, "0")}`}
+                  onChange={(val) => {
+                    const [h, m] = val.split(":").map(Number);
+                    if (!isNaN(h) && !isNaN(m)) {
+                      setEditRules((prev) => ({
+                        ...prev,
+                        cutOffHour: h,
+                        cutOffMinute: m,
+                      }));
+                    }
+                  }}
+                />
+                <p className="text-xs text-slate-400 mt-2">
+                  Hệ thống Cron tự động chốt vào mốc giờ này hàng ngày.
                 </p>
               </div>
 
               {/* Threshold 1.0 */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                  Ngưỡng hưởng 1.0 Ngày Công (%)
+              <div>
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-2">
+                  Ngưỡng tính 1 Ngày Công (%)
                 </label>
                 <input
                   type="number"
-                  min={1}
+                  min={0}
                   max={100}
-                  value={editRules.fullDayThreshold}
-                  onChange={(e) => setEditRules({ ...editRules, fullDayThreshold: parseInt(e.target.value) || 85 })}
-                  className="w-full h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white"
+                  value={editRules.fullDayThreshold === 0 ? "" : editRules.fullDayThreshold}
+                  onChange={(e) => {
+                    const val = e.target.value === "" ? 0 : parseInt(e.target.value, 10);
+                    if (!isNaN(val)) {
+                      setEditRules((prev) => ({
+                        ...prev,
+                        fullDayThreshold: Math.min(100, Math.max(0, val)),
+                      }));
+                    }
+                  }}
+                  placeholder="85"
+                  className={cn(
+                    "w-full h-10 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border text-sm font-normal text-slate-900 dark:text-white transition-colors focus:outline-none focus:ring-2",
+                    editRules.fullDayThreshold <= editRules.halfDayThreshold
+                      ? "border-rose-300 dark:border-rose-800 focus:ring-rose-500"
+                      : "border-slate-200 dark:border-slate-800 focus:ring-pink-500"
+                  )}
                 />
-                <p className="text-xs text-slate-400">
-                  Mặc định: &ge;85%. Đạt từ 85% số accounts được giao trở lên sẽ được tính 1.0 công.
+                <p className="text-xs text-slate-400 mt-2">
+                  Đạt từ {editRules.fullDayThreshold}% số accounts được giao trở lên sẽ được tính 1.0 ngày công.
                 </p>
               </div>
 
               {/* Threshold 0.5 */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                  Ngưỡng hưởng 0.5 Ngày Công (%)
+              <div>
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-2">
+                  Ngưỡng tính 0.5 Ngày Công (%)
                 </label>
                 <input
                   type="number"
-                  min={1}
-                  max={99}
-                  value={editRules.halfDayThreshold}
-                  onChange={(e) => setEditRules({ ...editRules, halfDayThreshold: parseInt(e.target.value) || 50 })}
-                  className="w-full h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white"
+                  min={0}
+                  max={100}
+                  value={editRules.halfDayThreshold === 0 ? "" : editRules.halfDayThreshold}
+                  onChange={(e) => {
+                    const val = e.target.value === "" ? 0 : parseInt(e.target.value, 10);
+                    if (!isNaN(val)) {
+                      setEditRules((prev) => ({
+                        ...prev,
+                        halfDayThreshold: Math.min(100, Math.max(0, val)),
+                      }));
+                    }
+                  }}
+                  placeholder="50"
+                  className={cn(
+                    "w-full h-10 px-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border text-sm font-normal text-slate-900 dark:text-white transition-colors focus:outline-none focus:ring-2",
+                    editRules.fullDayThreshold <= editRules.halfDayThreshold
+                      ? "border-rose-300 dark:border-rose-800 focus:ring-rose-500"
+                      : "border-slate-200 dark:border-slate-800 focus:ring-pink-500"
+                  )}
                 />
-                <p className="text-xs text-slate-400">
-                  Mặc định: 50% - 85%. Đạt từ 50% đến dưới 85% sẽ được tính nửa ngày công (0.5 công). Dưới 50% tính 0 công.
+                <p className="text-xs text-slate-400 mt-2">
+                  Đạt từ {editRules.halfDayThreshold}% đến dưới {editRules.fullDayThreshold}% sẽ được tính 0.5 ngày công. Dưới {editRules.halfDayThreshold}% tính 0 công.
                 </p>
               </div>
+
+              {/* Threshold Validation Error Alert */}
+              {editRules.fullDayThreshold <= editRules.halfDayThreshold && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-medium text-rose-700 dark:text-rose-300 flex items-start gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+                  <span>
+                    Ngưỡng hưởng 1.0 công ({editRules.fullDayThreshold}%) phải lớn hơn ngưỡng hưởng 0.5 công ({editRules.halfDayThreshold}%).
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
@@ -1502,13 +1670,22 @@ export default function ChecklistPage() {
                 Hủy
               </button>
               <button
+                disabled={editRules.fullDayThreshold <= editRules.halfDayThreshold || saveRulesMutation.isPending}
                 onClick={() => {
-                  setIsSettingsDrawerOpen(false);
-                  showToast("✅ Đã lưu cấu hình quy tắc chấm công thành công!", "success");
+                  if (editRules.fullDayThreshold <= editRules.halfDayThreshold) {
+                    showToast("❌ Ngưỡng 1.0 Ngày Công phải lớn hơn ngưỡng 0.5 Ngày Công!", "error");
+                    return;
+                  }
+                  saveRulesMutation.mutate(editRules);
                 }}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer"
+                className={cn(
+                  "px-5 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all cursor-pointer",
+                  editRules.fullDayThreshold <= editRules.halfDayThreshold || saveRulesMutation.isPending
+                    ? "bg-slate-300 dark:bg-slate-800 cursor-not-allowed opacity-60 shadow-none"
+                    : "bg-pink-600 hover:bg-pink-500 shadow-pink-600/30"
+                )}
               >
-                Lưu Thay Đổi
+                {saveRulesMutation.isPending ? "Đang lưu..." : "Lưu Thay Đổi"}
               </button>
             </div>
           </div>
@@ -1553,11 +1730,10 @@ export default function ChecklistPage() {
                 readOnly={!noteModalItem?.canEdit}
                 disabled={!noteModalItem?.canEdit}
                 placeholder="Nhập ghi chú chi tiết, giải trình lỗi, tiêu đề video, lý do chưa đủ KPI..."
-                className={`w-full min-h-[140px] p-3.5 text-xs rounded-2xl border text-slate-900 dark:text-white placeholder:text-slate-400 resize-none leading-relaxed ${
-                  noteModalItem?.canEdit
-                    ? "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 focus:outline-none focus:border-pink-500"
-                    : "bg-slate-100/70 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 opacity-80 cursor-not-allowed"
-                }`}
+                className={`w-full min-h-[140px] p-3.5 text-xs rounded-2xl border text-slate-900 dark:text-white placeholder:text-slate-400 resize-none leading-relaxed ${noteModalItem?.canEdit
+                  ? "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 focus:outline-none focus:border-pink-500"
+                  : "bg-slate-100/70 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 opacity-80 cursor-not-allowed"
+                  }`}
               />
             </div>
 

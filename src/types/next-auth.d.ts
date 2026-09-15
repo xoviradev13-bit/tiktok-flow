@@ -10,7 +10,10 @@ declare module "next-auth" {
 
   interface Session {
     accessToken?: string;
-    user: {
+    // Set to "ACCOUNT_LOCKED" when the jwt callback detects dbUser.isActive === false.
+    // When present, `user` is omitted — always check `error` before reading `user`.
+    error?: "ACCOUNT_LOCKED";
+    user?: {
       id: string;
       role?: string;
       userType?: string;
@@ -26,5 +29,7 @@ declare module "next-auth/jwt" {
     role?: string;
     userType?: string;
     isVerified?: boolean;
+    // Set to "ACCOUNT_LOCKED" in the jwt callback when the DB user is inactive.
+    error?: "ACCOUNT_LOCKED";
   }
 }

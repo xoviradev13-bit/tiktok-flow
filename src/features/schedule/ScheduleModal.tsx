@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Clock, Calendar, Sparkles, ChevronDown } from "lucide-react";
 import {
   Dialog,
@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger, PopoverAnchor } from "@/components/ui/popover";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -128,17 +128,420 @@ interface ScheduleModalProps {
   description?: string;
 }
 
-// 15-minute intervals across 24 hours
+// Format 24h to 12h AM/PM for display
+function formatTime12h(time24: string): string {
+  if (!time24) return "4:45 pm";
+  const parts = time24.split(":");
+  if (parts.length < 2) return time24;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return time24;
+  const period = h >= 12 ? "pm" : "am";
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+// Parse flexible user-typed time into { time24, formatted12 }
+function parseFlexibleTime(raw: string): { time24: string; formatted12: string } | null {
+  if (!raw) return null;
+  const clean = raw.trim().toLowerCase();
+
+  // Check period if specified (am, pm, a, p)
+  let period: "am" | "pm" | null = null;
+  let rest = clean;
+  const pMatch = clean.match(/(?:^|\s|(?<=\d))(am|pm|a|p)$/);
+  if (pMatch) {
+    period = pMatch[1].startsWith("p") ? "pm" : "am";
+    rest = clean.slice(0, pMatch.index).trim();
+  }
+
+  let h = -1;
+  let m = 0;
+
+  if (rest.includes(":")) {
+    const parts = rest.split(":");
+    h = parseInt(parts[0], 10);
+    m = parts[1] ? parseInt(parts[1], 10) : 0;
+  } else if (/^\d+$/.test(rest)) {
+    if (rest.length <= 2) {
+      h = parseInt(rest, 10);
+      m = 0;
+    } else if (rest.length === 3) {
+      // e.g. "455" -> h=4, m=55
+      h = parseInt(rest.slice(0, 1), 10);
+      m = parseInt(rest.slice(1), 10);
+    } else if (rest.length >= 4) {
+      // e.g. "1230" -> h=12, m=30
+      h = parseInt(rest.slice(0, 2), 10);
+      m = parseInt(rest.slice(2, 4), 10);
+    } else {
+      return null;
+    }
+  } else {
+    return null;
+  }
+
+  if (isNaN(h) || isNaN(m) || m < 0 || m > 59) return null;
+
+  if (period === null) {
+    if (h >= 13 && h <= 23) {
+      period = "pm";
+      h = h - 12;
+    } else if (h === 12) {
+      period = "pm";
+    } else if (h === 0) {
+      period = "am";
+      h = 12;
+    } else if (h >= 1 && h <= 11) {
+      period = "am"; // Default to AM when not specified (e.g. 5:03 -> 5:03 am)
+    } else {
+      return null;
+    }
+  } else {
+    if (h < 1 || h > 12) return null;
+  }
+
+  let h24 = h % 12;
+  if (period === "pm") h24 += 12;
+
+  const time24 = `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const formatted12 = `${h}:${String(m).padStart(2, "0")} ${period}`;
+
+  return { time24, formatted12 };
+}
+
+// Strict real-time partial time validator preventing invalid formats while typing
+function isValidPartialTime(raw: string): boolean {
+  if (!raw) return true;
+  const s = raw.trim().toLowerCase();
+  if (!s) return true;
+
+  // Colon format: H:MM or HH:MM
+  if (s.includes(":")) {
+    const parts = s.split(":");
+    if (parts.length > 2) return false; // At most one colon
+
+    const [hStr, rest] = parts;
+    if (!/^\d{1,2}$/.test(hStr)) return false;
+    const h = parseInt(hStr, 10);
+    if (h < 0 || h > 23) return false;
+
+    if (rest === "") return true; // "5:" is valid while typing
+
+    // First minute digit must be 0-5. Second digit 0-9. Followed by optional space & a/am/p/pm
+    return /^[0-5](?:[0-9](?:\s*(?:[ap](?:m)?)?)?)?$/.test(rest);
+  }
+
+  // Non-colon format (raw digits + optional period): max 4 digits
+  const digitMatch = s.match(/^(\d+)(.*)$/);
+  if (!digitMatch) return false;
+
+  const digits = digitMatch[1];
+  const tail = digitMatch[2];
+
+  if (digits.length === 1) {
+    // 0..9
+  } else if (digits.length === 2) {
+    const n = parseInt(digits, 10);
+    const mTen = parseInt(digits[1], 10);
+    const isHour = n >= 0 && n <= 23;
+    const isHourAndMinTen = mTen >= 0 && mTen <= 5;
+    if (!isHour && !isHourAndMinTen) return false;
+  } else if (digits.length === 3) {
+    // e.g. "455", "503", "555": middle digit (minute tens) must be 0..5
+    const mTen = parseInt(digits[1], 10);
+    if (mTen < 0 || mTen > 5) return false;
+  } else if (digits.length === 4) {
+    // e.g. "1230", "0845": hour 00..23, 3rd digit (minute tens) must be 0..5
+    const h = parseInt(digits.slice(0, 2), 10);
+    const mTen = parseInt(digits[2], 10);
+    if (h < 0 || h > 23 || mTen < 0 || mTen > 5) return false;
+  } else {
+    // Strictly block more than 4 digits (prevents 5566666666, 555555)
+    return false;
+  }
+
+  if (tail === "") return true;
+  return /^\s*(?:[ap](?:m)?)?$/.test(tail);
+}
+
+// Check if user's input is an exact match for one of the 15-minute intervals in TIME_OPTIONS
+function findExactOptionValue(rawText: string): string | null {
+  if (!rawText) return null;
+  const parsed = parseFlexibleTime(rawText);
+  if (!parsed) return null;
+  const parts = parsed.time24.split(":");
+  const m = parseInt(parts[1], 10);
+  // An option in TIME_OPTIONS has minute in [0, 15, 30, 45]
+  if (!isNaN(m) && m % 15 === 0) {
+    return parsed.time24;
+  }
+  return null;
+}
+
+// Find matching 15-minute slot from typed text to scroll dropdown into view
+function findMatchingOptionValue(rawText: string): string | null {
+  if (!rawText) return null;
+  const clean = rawText.trim().toLowerCase();
+
+  let period: "am" | "pm" | null = null;
+  let rest = clean;
+  const pMatch = clean.match(/(?:^|\s|(?<=\d))(am|pm|a|p)$/);
+  if (pMatch) {
+    period = pMatch[1].startsWith("p") ? "pm" : "am";
+    rest = clean.slice(0, pMatch.index).trim();
+  }
+
+  let h = -1;
+  let m = 0;
+
+  if (rest.includes(":")) {
+    const parts = rest.split(":");
+    h = parseInt(parts[0], 10);
+    m = parts[1] ? parseInt(parts[1], 10) : 0;
+  } else if (/^\d+$/.test(rest)) {
+    if (rest.length <= 2) {
+      h = parseInt(rest, 10);
+      m = 0;
+    } else if (rest.length === 3) {
+      h = parseInt(rest.slice(0, 1), 10);
+      m = parseInt(rest.slice(1), 10);
+    } else if (rest.length >= 4) {
+      h = parseInt(rest.slice(0, 2), 10);
+      m = parseInt(rest.slice(2, 4), 10);
+    }
+  }
+
+  if (isNaN(h) || h < 0) return null;
+  if (isNaN(m) || m < 0) m = 0;
+
+  if (period === null) {
+    if (h >= 13 && h <= 23) {
+      period = "pm";
+    } else if (h === 12) {
+      period = "pm";
+    } else {
+      period = "am";
+    }
+  }
+
+  let h24 = h % 12;
+  if (period === "pm") h24 += 12;
+
+  const slotMin = Math.floor(Math.min(59, m) / 15) * 15;
+  return `${String(h24).padStart(2, "0")}:${String(slotMin).padStart(2, "0")}`;
+}
+
+// 15-minute intervals across 24 hours (Full list always shown)
 const TIME_OPTIONS = Array.from({ length: 96 }).map((_, i) => {
   const totalMinutes = i * 15;
   const h24 = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   const time24 = `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-  const period = h24 >= 12 ? "pm" : "am";
-  const h12 = h24 % 12 || 12;
-  const label = `${h12}:${String(m).padStart(2, "0")} ${period}`;
-  return { value: time24, label };
+  return { value: time24, label: formatTime12h(time24) };
 });
+
+export interface TimePickerFieldProps {
+  value: string; // "HH:mm"
+  onChange: (value: string) => void;
+}
+
+export function TimePickerField({ value, onChange }: TimePickerFieldProps) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(() => formatTime12h(value || "16:45"));
+  const [highlightedValue, setHighlightedValue] = useState<string>(value || "16:45");
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const isFocusedRef = useRef(false);
+
+  // Sync external value only when user is not actively typing/focused
+  useEffect(() => {
+    if (!isFocusedRef.current) {
+      const formatted = formatTime12h(value || "16:45");
+      setText(formatted);
+      const exact = findExactOptionValue(formatted);
+      setHighlightedValue(exact || "");
+    }
+  }, [value]);
+
+  // Scroll to matched item in the dropdown
+  const scrollToItem = (targetValue: string) => {
+    requestAnimationFrame(() => {
+      const el = itemRefs.current[targetValue];
+      const container = listRef.current;
+      if (el && container) {
+        container.scrollTop = el.offsetTop;
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (open) {
+      const scrollTarget = findMatchingOptionValue(text) || value || "16:45";
+      const exact = findExactOptionValue(text);
+      setHighlightedValue(exact || "");
+      setTimeout(() => scrollToItem(scrollTarget), 30);
+    }
+  }, [open]);
+
+  // Commit text on blur or enter
+  const handleCommit = () => {
+    const parsed = parseFlexibleTime(text);
+    if (parsed) {
+      onChange(parsed.time24);
+      setText(parsed.formatted12);
+      const exact = findExactOptionValue(parsed.formatted12);
+      setHighlightedValue(exact || "");
+    } else {
+      const fallback = formatTime12h(value || "16:45");
+      setText(fallback);
+      const exact = findExactOptionValue(fallback);
+      setHighlightedValue(exact || "");
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    // Reject any invalid format or character sequences
+    if (!isValidPartialTime(val)) {
+      return;
+    }
+    setText(val);
+
+    // Scroll dropdown near the time slot
+    const scrollTarget = findMatchingOptionValue(val);
+    if (scrollTarget) {
+      scrollToItem(scrollTarget);
+    }
+
+    // ONLY select/highlight an item in the popover if there is an exact 15-min match!
+    const exact = findExactOptionValue(val);
+    setHighlightedValue(exact || "");
+  };
+
+  const handleBlur = () => {
+    isFocusedRef.current = false;
+    handleCommit();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Allow navigation & editing keys
+    if (
+      e.key === "Backspace" ||
+      e.key === "Tab" ||
+      e.key === "Escape" ||
+      e.key === "ArrowLeft" ||
+      e.key === "ArrowRight" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowDown" ||
+      e.key === "Delete" ||
+      e.ctrlKey ||
+      e.metaKey
+    ) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleCommit();
+        setOpen(false);
+      }
+      if (e.key === "Escape") {
+        setOpen(false);
+      }
+      return;
+    }
+
+    // Block non-matching characters
+    if (!/^[0-9:apmAPM\s]$/.test(e.key)) {
+      e.preventDefault();
+      return;
+    }
+  };
+
+  // Helper to select all characters and prevent caret placement between characters
+  const selectAll = () => {
+    requestAnimationFrame(() => {
+      inputRef.current?.select();
+    });
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
+        <div className="relative w-full">
+          <Input
+            ref={inputRef}
+            type="text"
+            value={text}
+            onChange={handleInputChange}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              isFocusedRef.current = true;
+              inputRef.current?.focus();
+              inputRef.current?.select();
+              setOpen(true);
+            }}
+            onMouseUp={(e) => {
+              e.preventDefault();
+              inputRef.current?.select();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              inputRef.current?.select();
+            }}
+            onFocus={() => {
+              isFocusedRef.current = true;
+              selectAll();
+              setOpen(true);
+            }}
+            placeholder="5:00 am"
+            className="w-full rounded-xl h-10 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-sm font-normal px-3.5 focus-visible:ring-purple-500 selection:bg-blue-500 selection:text-white"
+          />
+        </div>
+      </PopoverAnchor>
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popover-anchor-width)] min-w-[200px] max-h-60 overflow-hidden p-0 z-[350] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-2xl"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <div
+          ref={listRef}
+          className="w-full max-h-60 overflow-y-auto p-1.5 scroll-smooth"
+        >
+          {TIME_OPTIONS.map((opt) => {
+            const isHighlighted = opt.value === highlightedValue;
+            return (
+              <button
+                key={opt.value}
+                ref={(el) => {
+                  itemRefs.current[opt.value] = el;
+                }}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(opt.value);
+                  setText(opt.label);
+                  setHighlightedValue(opt.value);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "w-full text-left px-3.5 py-2 rounded-lg text-sm transition-colors cursor-pointer flex items-center justify-between",
+                  isHighlighted
+                    ? "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium"
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                )}
+              >
+                <span>{opt.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function ScheduleModal({
   isOpen,
@@ -225,14 +628,7 @@ export default function ScheduleModal({
     }
   };
 
-  // Format 24h to 12h AM/PM for display
-  const formatTime12h = (time24: string) => {
-    if (!time24) return "4:45 pm";
-    const [h, m] = time24.split(":").map(Number);
-    const period = h >= 12 ? "pm" : "am";
-    const hour12 = h % 12 || 12;
-    return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
-  };
+
 
   // Generate summary text in Vietnamese
   const getSummaryText = () => {
@@ -243,8 +639,8 @@ export default function ScheduleModal({
     if (item.repeat === "HOURLY") {
       const count = item.everyCount || 1;
       return count === 1
-        ? `Mỗi 1 giờ vào lúc ${timeFormatted}`
-        : `Mỗi ${count} giờ vào lúc ${timeFormatted}`;
+        ? `Mỗi 1 giờ`
+        : `Mỗi ${count} giờ`;
     }
     if (item.repeat === "DAILY") {
       const count = item.everyCount || 1;
@@ -267,20 +663,7 @@ export default function ScheduleModal({
     return `Lịch trình tự động`;
   };
 
-  const timeOptions = (() => {
-    const current = item.timeOfDay;
-    if (current && !TIME_OPTIONS.some((o) => o.value === current)) {
-      const [h, m] = current.split(":").map(Number);
-      if (!isNaN(h) && !isNaN(m)) {
-        const period = h >= 12 ? "pm" : "am";
-        const h12 = h % 12 || 12;
-        const label = `${h12}:${String(m).padStart(2, "0")} ${period}`;
-        const list = [...TIME_OPTIONS, { value: current, label }];
-        return list.sort((a, b) => a.value.localeCompare(b.value));
-      }
-    }
-    return TIME_OPTIONS;
-  })();
+
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -419,33 +802,18 @@ export default function ScheduleModal({
             </div>
           ) : null}
 
-          {/* At (Time dropdown) */}
-          <div>
-            <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
-              Vào lúc
-            </Label>
-            <Select
-              value={item.timeOfDay || "16:45"}
-              onValueChange={(val) => setItem({ ...item, timeOfDay: val })}
-            >
-              <SelectTrigger className="w-full rounded-xl h-10 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-sm font-normal focus:ring-purple-500">
-                <SelectValue placeholder="Chọn thời gian">
-                  {formatTime12h(item.timeOfDay || "16:45")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent className="z-[350]">
-                {timeOptions.map((opt) => (
-                  <SelectItem
-                    key={opt.value}
-                    value={opt.value}
-                    className="cursor-pointer py-2 text-sm font-normal"
-                  >
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* At (Time dropdown & editable text input) - only applicable for DAILY, WEEKLY, ONCE */}
+          {["DAILY", "WEEKLY", "ONCE"].includes(item.repeat) ? (
+            <div>
+              <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
+                Vào lúc
+              </Label>
+              <TimePickerField
+                value={item.timeOfDay || "16:45"}
+                onChange={(val) => setItem({ ...item, timeOfDay: val })}
+              />
+            </div>
+          ) : null}
 
           {/* Starts */}
           <div>

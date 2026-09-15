@@ -11,6 +11,7 @@ export interface GpmProfileItem {
   id: string;
   name: string;
   group_id: string;
+  group_name?: string;
   storage_path: string;
   raw_proxy: string;
   browser: { name: string; version: string };
@@ -19,6 +20,14 @@ export interface GpmProfileItem {
   created_at: string;
   updated_at: string;
   tags: string[];
+}
+
+export interface GpmGroupItem {
+  id: string;
+  name: string;
+  sort?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface GpmStartResponse {
@@ -88,13 +97,22 @@ export function readGpmConfiguredApiPort(): number | null {
   return null;
 }
 
-function buildGpmBaseCandidates(preferredBase?: string): string[] {
+export function buildGpmBaseCandidates(preferredBase?: string, preferredPort?: number | null): string[] {
   const bases: string[] = [];
+  if (preferredPort && Number.isFinite(preferredPort) && preferredPort > 0) {
+    for (const ver of GPM_API_VERSIONS) {
+      bases.push(`http://127.0.0.1:${preferredPort}/api/${ver}`);
+    }
+  }
   if (preferredBase) {
     bases.push(preferredBase.replace(/\/$/, "").replace("localhost", "127.0.0.1"));
   }
   const configuredPort = readGpmConfiguredApiPort();
-  const ports = [...(configuredPort ? [configuredPort] : []), ...GPM_PORT_CANDIDATES];
+  const ports = [
+    ...(preferredPort && Number.isFinite(preferredPort) && preferredPort > 0 ? [preferredPort] : []),
+    ...(configuredPort ? [configuredPort] : []),
+    ...GPM_PORT_CANDIDATES,
+  ];
   const seen = new Set<number>();
   for (const port of ports) {
     if (seen.has(port)) continue;
@@ -125,8 +143,8 @@ export class GpmApiClient {
     return portFromBaseUrl(this.baseUrl);
   }
 
-  async checkConnection(): Promise<GpmConnectionStatus> {
-    for (const candidate of buildGpmBaseCandidates(this.baseUrl)) {
+  async checkConnection(preferredPort?: number | null): Promise<GpmConnectionStatus> {
+    for (const candidate of buildGpmBaseCandidates(this.baseUrl, preferredPort)) {
       try {
         const res = await fetch(`${candidate}/profiles?page=1&per_page=1&page_size=1`, {
           method: "GET",
@@ -210,6 +228,47 @@ export class GpmApiClient {
     }
   }
 
+  async listGroups(page = 1, pageSize = 100): Promise<GpmGroupItem[]> {
+    try {
+      const url = new URL(`${this.baseUrl}/groups`);
+      url.searchParams.set("page", String(page));
+      url.searchParams.set("page_size", String(pageSize));
+      url.searchParams.set("per_page", String(pageSize));
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return [];
+      const json: GpmApiResponse<GpmPagination<GpmGroupItem> | GpmGroupItem[]> =
+        await res.json();
+      const data = json.data;
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray((data as GpmPagination<GpmGroupItem>).data)) {
+        return (data as GpmPagination<GpmGroupItem>).data;
+      }
+      return [];
+    } catch (err) {
+      console.warn("[GpmApiClient] Failed to list groups:", err);
+      return [];
+    }
+  }
+
+  /** Map GPM group_id → display name (UI: "Default group"). */
+  async resolveGroupName(groupId?: string | null, fallbackName?: string | null): Promise<string | null> {
+    const explicit = String(fallbackName || "").trim();
+    if (explicit) return explicit;
+    const id = String(groupId || "").trim();
+    if (!id) return null;
+    if (/^(all|default)$/i.test(id)) return "Default group";
+    const groups = await this.listGroups(1, 200);
+    const hit = groups.find((g) => String(g.id) === id || String(g.name) === id);
+    if (hit?.name) return hit.name;
+    // group_id sometimes already is the human name
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return id;
+    return null;
+  }
+
   async startProfile(
     profileId: string,
     options?: {
@@ -217,12 +276,13 @@ export class GpmApiClient {
       windowScale?: number;
       additionArgs?: string;
       url?: string;
+      port?: number | null;
     }
   ): Promise<GpmStartResponse | null> {
     const targetUrl =
       options?.url || (options?.additionArgs?.startsWith("http") ? options.additionArgs : null);
 
-    for (const base of buildGpmBaseCandidates(this.baseUrl)) {
+    for (const base of buildGpmBaseCandidates(this.baseUrl, options?.port)) {
       try {
         const url = new URL(`${base}/profiles/start/${profileId}`);
         if (options?.skipProxyCheck) url.searchParams.set("skip_proxy_check", "true");
@@ -273,8 +333,11 @@ export class GpmApiClient {
     return null;
   }
 
-  async stopProfile(profileId: string): Promise<boolean> {
-    for (const base of buildGpmBaseCandidates(this.baseUrl)) {
+  async stopProfile(
+    profileId: string,
+    options?: { port?: number | null }
+  ): Promise<boolean> {
+    for (const base of buildGpmBaseCandidates(this.baseUrl, options?.port)) {
       try {
         const res = await fetch(`${base}/profiles/stop/${profileId}`, {
           method: "GET",

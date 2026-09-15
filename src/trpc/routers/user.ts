@@ -7,6 +7,7 @@ import {
   generatePersonalToken,
   persistPersonalTokenValue,
   revealPersonalToken,
+  writeMachineBindingLog,
 } from "@/lib/extension-auth";
 
 function serializeBigInt<T>(obj: T): T {
@@ -40,6 +41,10 @@ export const userRouter = router({
         extensionToken: true,
         extensionAccessEnabled: true,
         extensionRevokedAt: true,
+        boundMachineId: true,
+        boundMachineName: true,
+        boundOsUser: true,
+        boundMachineAt: true,
         groupId: true,
         group: {
           select: { id: true, name: true, color: true },
@@ -398,4 +403,60 @@ export const userRouter = router({
         dailyChecklists: filteredChecklists,
       });
     }),
+
+  requestMachineChange: protectedProcedure
+    .input(z.object({ reason: z.string().min(5).max(500) }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: {
+          id: true,
+          boundMachineId: true,
+          boundMachineName: true,
+          boundOsUser: true,
+        },
+      });
+      if (!user?.boundMachineId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Tài khoản chưa gắn máy.",
+        });
+      }
+      const pending = await ctx.prisma.machineChangeRequest.findFirst({
+        where: { userId: user.id, status: "PENDING" },
+      });
+      if (pending) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Đã có yêu cầu đang chờ duyệt.",
+        });
+      }
+      const row = await ctx.prisma.machineChangeRequest.create({
+        data: {
+          userId: user.id,
+          reason: input.reason,
+          fromMachineId: user.boundMachineId,
+          fromMachineName: user.boundMachineName,
+          fromOsUsername: user.boundOsUser,
+          status: "PENDING",
+        },
+      });
+      await writeMachineBindingLog(ctx.prisma, {
+        userId: user.id,
+        action: "CHANGE_REQUESTED",
+        machineId: user.boundMachineId,
+        machineName: user.boundMachineName,
+        osUsername: user.boundOsUser,
+        reason: input.reason,
+        actorUserId: user.id,
+      });
+      return row;
+    }),
+
+  myMachineChangeRequest: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.prisma.machineChangeRequest.findFirst({
+      where: { userId: ctx.session.user.id, status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+    });
+  }),
 });

@@ -40,6 +40,7 @@ import {
   ShieldAlert,
   X,
   ZoomIn,
+  Monitor,
 } from "lucide-react";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
@@ -192,6 +193,20 @@ export default function SettingsPage() {
   const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
+  const [machineChangeReason, setMachineChangeReason] = useState("");
+
+  const { data: pendingMachineChange, refetch: refetchMachineChange } =
+    trpc.user.myMachineChangeRequest.useQuery(undefined, {
+      enabled: activeTab === "integrations",
+    });
+  const requestMachineChangeMutation = trpc.user.requestMachineChange.useMutation({
+    onSuccess: () => {
+      setMachineChangeReason("");
+      refetchMachineChange();
+      toast.success("Đã gửi yêu cầu đổi máy. Chờ admin duyệt.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Không gửi được yêu cầu"),
+  });
 
   // Sync profile data into local states
   useEffect(() => {
@@ -353,6 +368,23 @@ export default function SettingsPage() {
     };
   };
 
+  const formatScheduleItemLabel = (s: SyncScheduleItem) => {
+    if (s.repeat === "HOURLY") {
+      const h = s.everyCount || (s.intervalMinutes ? Math.round(s.intervalMinutes / 60) : 1);
+      return h > 1 ? `Mỗi ${h} giờ` : "Mỗi 1 giờ";
+    }
+    if (s.repeat === "DAILY") {
+      const d = s.everyCount || 1;
+      return d > 1 ? `Mỗi ${d} ngày lúc ${s.timeOfDay || "18:00"}` : `Hàng ngày lúc ${s.timeOfDay || "18:00"}`;
+    }
+    if (s.repeat === "WEEKLY") return `Hàng tuần lúc ${s.timeOfDay || "18:00"}`;
+    if (s.repeat === "EVERY_15_MIN") return "Mỗi 15 phút";
+    if (s.repeat === "EVERY_30_MIN") return "Mỗi 30 phút";
+    if (s.repeat === "CUSTOM") return `Mỗi ${s.intervalMinutes || 60} phút`;
+    if (s.repeat === "ONCE") return `1 lần duy nhất lúc ${s.timeOfDay || "18:00"}`;
+    return s.timeOfDay ? `Lúc ${s.timeOfDay}` : `Mỗi ${s.intervalMinutes || 60} phút`;
+  };
+
   useEffect(() => {
     if (configData && isAdmin) {
       setConfig({
@@ -383,14 +415,19 @@ export default function SettingsPage() {
   };
 
   const handleManualTriggerGpm = async () => {
+    if (manualGpmSyncing) return;
     try {
       setManualGpmSyncing(true);
       const res = await fetch("/api/gpm/sync", { method: "POST" });
       const data = await res.json();
       if (data.success) {
-        toast.success(`Đồng bộ thành công: ${data.message || "Đã xong"}`);
+        toast.success(`Đồng bộ: ${data.message || "Đã xong"}`);
       } else {
-        toast.error(`Lỗi: ${data.error || "Không thể đồng bộ"}`);
+        if (data.inProgress) {
+          toast.info(data.message);
+        } else {
+          toast.error(`Lỗi: ${data.error || data.message || "Không thể đồng bộ"}`);
+        }
       }
     } catch (e: any) {
       toast.error(`Lỗi: ${e.message}`);
@@ -421,17 +458,15 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn max-w-6xl mx-auto pb-16">
+    <div className="space-y-6 animate-fadeIn pb-16">
       {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-              <Settings className="w-5 h-5 animate-spin-slow" />
-            </div>
-            Cài Đặt & Cá Nhân Hóa
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
+            <Settings className="w-6 h-6 text-pink-500 shrink-0 animate-spin-slow" />
+            <span className="truncate">Cài Đặt & Cá Nhân Hóa</span>
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
             Quản lý thông tin hồ sơ, mật khẩu bảo mật, giao diện hiển thị và cấu hình tích hợp tự động hóa.
           </p>
         </div>
@@ -456,13 +491,12 @@ export default function SettingsPage() {
               <div className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                 {userProfile.name || userProfile.username || "Thành viên"}
                 <span
-                  className={`px-1.5 py-0.2 rounded-md text-xs font-black uppercase ${
-                    userProfile.role === "ADMIN"
-                      ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
-                      : userProfile.role === "LEAD"
+                  className={`px-1.5 py-0.2 rounded-md text-xs font-black uppercase ${userProfile.role === "ADMIN"
+                    ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
+                    : userProfile.role === "LEAD"
                       ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
                       : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
-                  }`}
+                    }`}
                 >
                   {userProfile.role}
                 </span>
@@ -476,14 +510,13 @@ export default function SettingsPage() {
       </div>
 
       {/* Modern Navigation Tabs */}
-      <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto scrollbar-none">
+      <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto scrollbar-none w-full">
         <button
           onClick={() => setActiveTab("profile")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === "profile"
-              ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-          }`}
+          className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "profile"
+            ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
+            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
         >
           <User className="w-4 h-4" />
           <span>Hồ Sơ Cá Nhân</span>
@@ -491,11 +524,10 @@ export default function SettingsPage() {
 
         <button
           onClick={() => setActiveTab("security")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === "security"
-              ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-          }`}
+          className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "security"
+            ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
+            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
         >
           <Lock className="w-4 h-4" />
           <span>Bảo Mật & Mật Khẩu</span>
@@ -503,23 +535,21 @@ export default function SettingsPage() {
 
         <button
           onClick={() => setActiveTab("appearance")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === "appearance"
-              ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-          }`}
+          className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "appearance"
+            ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
+            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
         >
           <Palette className="w-4 h-4" />
-          <span>Giao Diện (Theme)</span>
+          <span>Giao Diện</span>
         </button>
 
         <button
           onClick={() => setActiveTab("integrations")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === "integrations"
-              ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-          }`}
+          className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "integrations"
+            ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
+            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
         >
           <Key className="w-4 h-4" />
           <span>Personal Token</span>
@@ -528,35 +558,32 @@ export default function SettingsPage() {
         {isAdmin && (
           <button
             onClick={() => setActiveTab("admin_system")}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
-              activeTab === "admin_system"
-                ? "bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md shadow-pink-500/20"
-                : "text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
-            }`}
+            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "admin_system"
+              ? "bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md shadow-pink-500/20"
+              : "text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
+              }`}
           >
             <ShieldCheck className="w-4 h-4" />
-            <span>Lịch Trình Cron (Admin)</span>
+            <span>Thiết Lập Đồng Bộ</span>
           </button>
         )}
 
         {isAdmin && (
           <button
             onClick={() => setActiveTab("admin_bugs")}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
-              activeTab === "admin_bugs"
-                ? "bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md shadow-pink-500/20"
-                : "text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
-            }`}
+            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "admin_bugs"
+              ? "bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md shadow-pink-500/20"
+              : "text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
+              }`}
           >
             <Bug className="w-4 h-4" />
-            <span>Báo Cáo Sự Cố (Bug Hub)</span>
+            <span>Quản Lý Sự Cố</span>
             {openBugsCount > 0 && (
               <span
-                className={`text-[10px] font-black px-1.5 py-0.5 rounded-full transition-colors ${
-                  activeTab === "admin_bugs"
-                    ? "bg-white text-rose-600"
-                    : "bg-rose-500 text-white"
-                }`}
+                className={`text-[10px] font-black px-1.5 py-0.5 rounded-full transition-colors ${activeTab === "admin_bugs"
+                  ? "bg-white text-rose-600"
+                  : "bg-rose-500 text-white"
+                  }`}
               >
                 {openBugsCount}
               </span>
@@ -656,9 +683,8 @@ export default function SettingsPage() {
                     key={idx}
                     type="button"
                     onClick={() => setAvatarUrl(p)}
-                    className={`rounded-xl overflow-hidden aspect-square border-2 transition-all cursor-pointer ${
-                      avatarUrl === p ? "border-indigo-500 scale-105 shadow-md" : "border-transparent opacity-70 hover:opacity-100"
-                    }`}
+                    className={`rounded-xl overflow-hidden aspect-square border-2 transition-all cursor-pointer ${avatarUrl === p ? "border-indigo-500 scale-105 shadow-md" : "border-transparent opacity-70 hover:opacity-100"
+                      }`}
                   >
                     <img src={p} alt={`Preset ${idx}`} className="w-full h-full object-cover" />
                   </button>
@@ -674,9 +700,8 @@ export default function SettingsPage() {
               Thông Tin Tài Khoản
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-              Cập nhật tên hiển thị, username định danh và ảnh đại diện trên toàn hệ thống TikTokFlow.
+              Cập nhật tên hiển thị, username và ảnh đại diện trên toàn hệ thống TikTokFlow.
             </p>
-
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -694,7 +719,7 @@ export default function SettingsPage() {
 
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                    Username Định Danh (@)
+                    Username (@)
                   </label>
                   <input
                     type="text"
@@ -746,12 +771,12 @@ export default function SettingsPage() {
                   </div>
                   <div>
                     <div className="text-xs font-bold text-slate-400 uppercase">Vai trò của bạn</div>
-                    <div className="text-xs font-black text-slate-800 dark:text-slate-200">
+                    <div className="mt-0.5 text-xs font-black text-slate-800 dark:text-slate-200">
                       {userProfile?.role === "ADMIN"
                         ? "Quản Trị Viên (Admin)"
                         : userProfile?.role === "LEAD"
-                        ? "Trưởng Nhóm (Team Lead)"
-                        : "Vận Hành Viên (Staff)"}
+                          ? "Trưởng Nhóm (Team Lead)"
+                          : "Vận Hành Viên (Staff)"}
                     </div>
                   </div>
                 </div>
@@ -762,7 +787,7 @@ export default function SettingsPage() {
                   </div>
                   <div>
                     <div className="text-xs font-bold text-slate-400 uppercase">Nhóm Trực Thuộc</div>
-                    <div className="text-xs font-black text-slate-800 dark:text-slate-200">
+                    <div className="mt-0.5 text-xs font-black text-slate-800 dark:text-slate-200">
                       {userProfile?.group?.name || "Chưa phân nhóm"}
                     </div>
                   </div>
@@ -983,11 +1008,10 @@ export default function SettingsPage() {
             {/* Light Card */}
             <div
               onClick={() => setTheme("light")}
-              className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${
-                theme === "light"
-                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.02]"
-                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
-              }`}
+              className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${theme === "light"
+                ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.02]"
+                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
+                }`}
             >
               <div className="w-full h-24 rounded-2xl bg-slate-100 border border-slate-200 p-3 flex flex-col justify-between shadow-inner">
                 <div className="flex items-center gap-2">
@@ -1010,11 +1034,10 @@ export default function SettingsPage() {
             {/* Dark Card */}
             <div
               onClick={() => setTheme("dark")}
-              className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${
-                theme === "dark"
-                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.02]"
-                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
-              }`}
+              className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${theme === "dark"
+                ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.02]"
+                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
+                }`}
             >
               <div className="w-full h-24 rounded-2xl bg-slate-950 border border-slate-800 p-3 flex flex-col justify-between shadow-inner">
                 <div className="flex items-center gap-2">
@@ -1037,11 +1060,10 @@ export default function SettingsPage() {
             {/* System Card */}
             <div
               onClick={() => setTheme("system")}
-              className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${
-                theme === "system"
-                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.02]"
-                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
-              }`}
+              className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${theme === "system"
+                ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.02]"
+                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
+                }`}
             >
               <div className="w-full h-24 rounded-2xl bg-gradient-to-r from-slate-100 to-slate-950 border border-slate-300 dark:border-slate-700 p-3 flex flex-col justify-between shadow-inner">
                 <div className="flex items-center gap-2">
@@ -1072,8 +1094,8 @@ export default function SettingsPage() {
                   <Sparkles className="w-5 h-5 text-pink-500" />
                   <span>Màu Sắc Nhận Diện Chủ Đạo (Accent Color Theme)</span>
                 </h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                  Tùy chỉnh tông màu chính của hệ thống. Màu đã chọn sẽ tự động điều chỉnh toàn bộ nút bấm, thanh điều hướng, huy hiệu và các điểm nhấn giao diện.
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                  Tùy chỉnh màu chủ đạo của hệ thống. Màu đã chọn sẽ được áp dụng tự động cho nút bấm, thanh điều hướng, huy hiệu và các điểm nhấn giao diện.
                 </p>
               </div>
 
@@ -1096,11 +1118,10 @@ export default function SettingsPage() {
                         description: "Giao diện và phong cách nút bấm đã được cập nhật đồng bộ.",
                       });
                     }}
-                    className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between group active:scale-[0.98] ${
-                      isSelected
-                        ? "border-pink-600 bg-pink-50/25 dark:bg-pink-950/25 shadow-lg shadow-pink-500/10 scale-[1.01]"
-                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-sm"
-                    }`}
+                    className={`p-4 rounded-2xl border-2 transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between group active:scale-[0.98] ${isSelected
+                      ? "border-pink-600 bg-pink-50/25 dark:bg-pink-950/25 shadow-lg shadow-pink-500/10 scale-[1.01]"
+                      : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-sm"
+                      }`}
                   >
                     <div className="space-y-3">
                       {/* Swatch & Indicator */}
@@ -1207,6 +1228,88 @@ export default function SettingsPage() {
       {/* ========================================================= */}
       {activeTab === "integrations" && (
         <div className="space-y-6 animate-fadeIn">
+          {/* Bound machine + change request */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Monitor className="w-5 h-5 text-cyan-500" />
+                Máy tính đã liên kết
+              </h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                Extension và Client Agent chỉ hoạt động trên thiết bị đã được liên kết. Khi đổi thiết bị, cần được Admin phê duyệt.
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 px-4 py-3 text-sm">
+              {userProfile?.boundMachineId ? (
+                <div className="space-y-1">
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {userProfile.boundMachineName || "Máy đã gắn"}
+                  </div>
+                  <div className="font-mono text-xs text-slate-500 dark:text-slate-400 break-all">
+                    {userProfile.boundMachineId}
+                    {userProfile.boundOsUser ? ` · ${userProfile.boundOsUser}` : ""}
+                  </div>
+                  {userProfile.boundMachineAt && (
+                    <div className="text-xs text-slate-400">
+                      Gắn lúc {new Date(userProfile.boundMachineAt).toLocaleString("vi-VN")}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-slate-600 dark:text-slate-400">
+                  **Chưa liên kết thiết bị** — Mở Extension hoặc chạy Client Agent trên thiết bị làm việc để tự động liên kết lần đầu.
+                </p>
+              )}
+            </div>
+
+            {userProfile?.boundMachineId && (
+              <div className="space-y-3">
+                {pendingMachineChange ? (
+                  <div className="rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+                    Đang chờ duyệt đổi máy
+                    {pendingMachineChange.reason
+                      ? `: “${pendingMachineChange.reason}”`
+                      : "."}{" "}
+                    Admin sẽ hủy liên kết cũ sau khi duyệt.
+                  </div>
+                ) : (
+                  <>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      Lý do yêu cầu đổi máy
+                    </label>
+                    <textarea
+                      value={machineChangeReason}
+                      onChange={(e) => setMachineChangeReason(e.target.value)}
+                      rows={3}
+                      maxLength={500}
+                      placeholder="Ví dụ: Đổi laptop công ty / máy cũ hỏng..."
+                      className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+                    />
+                    <button
+                      type="button"
+                      disabled={
+                        machineChangeReason.trim().length < 5 ||
+                        requestMachineChangeMutation.isPending
+                      }
+                      onClick={() =>
+                        requestMachineChangeMutation.mutate({
+                          reason: machineChangeReason.trim(),
+                        })
+                      }
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 cursor-pointer"
+                    >
+                      {requestMachineChangeMutation.isPending && (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      )}
+                      Gửi yêu cầu đổi máy
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Main Personal Token Card */}
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -1215,9 +1318,8 @@ export default function SettingsPage() {
                   <Key className="w-5 h-5 text-pink-500" />
                   Mã Khóa Định Danh Cá Nhân (Personal Token)
                 </h2>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                  Mã riêng của bạn trên máy tính — giống chìa khóa. Extension và Client Agent dùng mã này để biết dữ liệu thuộc về ai.
-                  Đừng gửi cho người khác.
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed max-w-3xl">
+                  Mã liên kết riêng của bạn trên máy tính, được Extension và Client Agent sử dụng để xác định và đồng bộ dữ liệu đúng với tài khoản. Không chia sẻ mã này với người khác.
                 </p>
               </div>
 
@@ -1271,19 +1373,18 @@ export default function SettingsPage() {
             )}
 
             {/* Token Display Box */}
-            <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-              userProfile?.extensionAccessEnabled === false
-                ? "bg-rose-50/80 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50"
-                : "bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700"
-            }`}>
+            <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${userProfile?.extensionAccessEnabled === false
+              ? "bg-rose-50/80 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50"
+              : "bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700"
+              }`}>
               <div className="font-mono text-sm text-slate-800 dark:text-slate-200 tracking-wider truncate select-all">
                 {userProfile?.extensionAccessEnabled === false
                   ? "Token đã bị thu hồi — cấp lại để tiếp tục dùng Extension / Client Agent"
                   : showToken
-                  ? userProfile?.extensionToken || "Chưa có token"
-                  : userProfile?.extensionToken
-                  ? `${userProfile.extensionToken.slice(0, 10)}••••••••••••••••••••••••${userProfile.extensionToken.slice(-6)}`
-                  : "Chưa có token"}
+                    ? userProfile?.extensionToken || "Chưa có token"
+                    : userProfile?.extensionToken
+                      ? `${userProfile.extensionToken.slice(0, 10)}••••••••••••••••••••••••${userProfile.extensionToken.slice(-6)}`
+                      : "Chưa có token"}
               </div>
 
               <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -1350,21 +1451,21 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs sm:text-sm">
                 <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-1 shadow-2xs">
                   <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <Puzzle className="w-4 h-4 text-pink-500 shrink-0" />
-                    <span>Extension (Cài trên GPMLogin)</span>
+                    <Bot className="w-4 h-4 text-cyan-500 shrink-0" />
+                    <span>1. Client Agent (máy Windows — làm trước)</span>
                   </div>
                   <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
-                    Chạy ngầm để nhận diện tài khoản TikTok đang đăng nhập trên từng profile trình duyệt và hỗ trợ liên kết dàn kênh.
+                    Giải nén ZIP ➔ <code className="font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 px-1 rounded">setup-agent.bat</code> phím <strong>1</strong> (Cho phép UAC nếu hỏi). Agent chạy ngầm, cập nhật số liệu. Mỗi máy chỉ một Agent.
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-1 shadow-2xs">
                   <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-cyan-500 shrink-0" />
-                    <span>Client Agent (Chạy trên máy Windows)</span>
+                    <Puzzle className="w-4 h-4 text-pink-500 shrink-0" />
+                    <span>2. Extension (cài trên GPMLogin — sau Agent)</span>
                   </div>
                   <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-xs">
-                    Chạy ngầm theo lịch định kỳ để cập nhật số liệu (view, doanh thu). Mỗi máy trạm chỉ mở duy nhất một Agent.
+                    Nạp <code className="font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 px-1 rounded">extension.zip</code> vào GPMLogin khi Agent đã chạy. Extension nhận diện tài khoản TikTok trên từng profile.
                   </p>
                 </div>
               </div>
@@ -1382,7 +1483,7 @@ export default function SettingsPage() {
                     <span>Cách 1 (Khuyên dùng): Tải lại file ZIP mới</span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed pl-7">
-                    Vào <Link href="/extensions" className="font-bold text-pink-600 dark:text-pink-400 hover:underline">Kho Tiện Ích (/extensions)</Link> để tải gói mới. Hệ thống đã tích hợp sẵn cơ chế xác thực và trao đổi Token tự động, bạn chỉ cần nạp lại file vào GPMLogin hoặc mở file <code className="font-mono text-xs font-bold text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">setup-agent.bat</code> là xong.
+                    Vào <Link href="/extensions" className="font-bold text-pink-600 dark:text-pink-400 hover:underline">Kho Tiện Ích (/extensions)</Link> tải gói mới: cài lại Agent (<code className="font-mono text-xs font-bold text-pink-600 dark:text-pink-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">setup-agent.bat</code> phím 1) rồi nạp lại Extension vào GPMLogin. Hệ thống đã tích hợp sẵn cơ chế xác thực tự động với tài khoản của bạn.
                   </p>
                 </div>
 
@@ -1528,50 +1629,16 @@ export default function SettingsPage() {
       {/* ========================================================= */}
       {activeTab === "admin_system" && isAdmin && (
         <div className="space-y-6 animate-fadeIn">
-          {/* Base URL Settings Card */}
-          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs">
-            <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
-              <Bot className="w-5 h-5 text-indigo-500" />
-              Cổng Kết Nối GPMLogin Local REST API
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-              Cổng REST API nội bộ mặc định của phần mềm GPMLogin đang chạy trên máy chủ điều hành.
-            </p>
-
-            <div className="flex flex-col sm:flex-row items-center gap-3">
-              <input
-                type="text"
-                value={config.gpmConfig?.baseUrl || "http://localhost:9495/api/v1"}
-                onChange={(e) =>
-                  setConfig({
-                    ...config,
-                    gpmConfig: { ...config.gpmConfig, baseUrl: e.target.value },
-                  })
-                }
-                className="w-full sm:w-96 px-3.5 py-2.5 text-sm rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 font-mono text-slate-900 dark:text-white"
-              />
-
-              <button
-                type="button"
-                onClick={() => persistGpmConfig(config.gpmConfig)}
-                disabled={gpmSaveStatus === "saving"}
-                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
-              >
-                {gpmSaveStatus === "saving" ? "Đang lưu..." : gpmSaveStatus === "saved" ? "Đã lưu!" : "Lưu Base URL"}
-              </button>
-            </div>
-          </div>
-
           {/* Schedule 1: GPM Fleet Inventory Schedule */}
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Calendar className="w-5 h-5 text-cyan-500" />
-                  1. Lịch Kiểm Kê Profile GPMLogin (Fleet Inventory Schedule)
+                  1. Lịch Đồng Bộ Profile GPMLogin
                 </h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                  Tự động quét danh mục profile mới tạo trong GPMLogin và thêm vào danh sách quản lý.
+                  Tự động kiểm tra các profile và tài khoản TikTok trong GPMLogin, sau đó đồng bộ vào danh sách quản lý.
                 </p>
               </div>
 
@@ -1583,7 +1650,7 @@ export default function SettingsPage() {
                   className="px-3.5 py-2 rounded-xl text-sm font-bold text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-500/10 hover:bg-cyan-100 transition-all cursor-pointer flex items-center gap-1.5"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${manualGpmSyncing ? "animate-spin" : ""}`} />
-                  <span>Quét Ngay</span>
+                  <span>Đồng Bộ Ngay</span>
                 </button>
 
                 <button
@@ -1605,7 +1672,7 @@ export default function SettingsPage() {
             <div className="space-y-2.5">
               {gpmSchedule.schedules.length === 0 ? (
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
-                  Chưa thiết lập lịch kiểm kê tự động.
+                  Chưa thiết lập lịch đồng bộ tự động.
                 </div>
               ) : (
                 gpmSchedule.schedules.map((item) => (
@@ -1619,7 +1686,7 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                          {item.repeat === "HOURLY" ? `Mỗi ${item.intervalMinutes || 60} phút` : `Lúc ${item.timeOfDay || "17:00"}`}
+                          {formatScheduleItemLabel(item)}
                         </div>
                         <div className="text-xs text-slate-400 font-mono">
                           Lần chạy cuối: {item.lastRunAt ? new Date(item.lastRunAt).toLocaleString("vi-VN") : "Chưa chạy"}
@@ -1652,10 +1719,10 @@ export default function SettingsPage() {
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Zap className="w-5 h-5 text-amber-500" />
-                  2. Lịch Quét Vét TikTok Studio Ngầm (Deep Sweeper Schedule)
+                  2. Lịch Tự Động Cập Nhật Số Liệu TikTok
                 </h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                  Khởi chạy headless Chromium quét vét số liệu Creator Rewards, RPM và video mới nhất.
+                  Tự động cập nhật số liệu TikTok như doanh thu, RPM và video mới nhất.
                 </p>
               </div>
 
@@ -1689,7 +1756,7 @@ export default function SettingsPage() {
             <div className="space-y-2.5">
               {sweeperSchedule.schedules.length === 0 ? (
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
-                  Chưa thiết lập lịch quét vét ngầm tự động.
+                  Chưa thiết lập lịch đồng bộ tự động.
                 </div>
               ) : (
                 sweeperSchedule.schedules.map((item) => (
@@ -1703,7 +1770,7 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                          {item.repeat === "DAILY" ? `Hàng ngày lúc ${item.timeOfDay || "18:00"}` : `Mỗi ${item.intervalMinutes || 60} phút`}
+                          {formatScheduleItemLabel(item)}
                         </div>
                         <div className="text-xs text-slate-400 font-mono">
                           Lần chạy cuối: {item.lastRunAt ? new Date(item.lastRunAt).toLocaleString("vi-VN") : "Chưa chạy"}
@@ -1752,8 +1819,8 @@ export default function SettingsPage() {
         initialItem={editingItem || undefined}
         title={
           modalTarget === "GPM_FLEET"
-            ? "Cấu Hình Lịch Kiểm Kê Profile GPMLogin"
-            : "Cấu Hình Lịch Quét Vét TikTok Studio Ngầm"
+            ? "Cấu Hình Lịch Đồng Bộ Profile GPMLogin"
+            : "Cấu Hình Lịch Tự Động Cập Nhật Số Liệu TikTok"
         }
         onSave={async (savedItem) => {
           if (modalTarget === "GPM_FLEET") {

@@ -106,10 +106,21 @@ model User {
   extensionAccessEnabled   Boolean                  @default(true) @map("extension_access_enabled")
   extensionRevokedAt       DateTime?                @map("extension_revoked_at")
   extensionSessionVersion  Int                      @default(0) @map("extension_session_version")
+  boundMachineId           String?                  @unique @map("bound_machine_id")
+  boundMachineName         String?                  @map("bound_machine_name")
+  boundOsUser              String?                  @map("bound_os_user")
+  boundMachineAt           DateTime?                @map("bound_machine_at")
+  agentAttestSecretSealed  String?                  @map("agent_attest_secret_sealed")
+  gpmPort                  Int?                     @map("gpm_port")
+  gpmIsOnline              Boolean                  @default(false) @map("gpm_is_online")
+  gpmLastSeenAt            DateTime?                @map("gpm_last_seen_at")
   extensionInstallations   ExtensionInstallation[]
   extensionRefreshTokens   ExtensionRefreshToken[]
   extensionPairingCodes    ExtensionPairingCode[]
   extensionAuthEvents      ExtensionAuthEvent[]
+  machineBindingLogs       MachineBindingLog[]
+  machineChangeRequests    MachineChangeRequest[]
+  syncQueues               SyncQueue[]              @relation("UserSyncQueues")
 
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
@@ -132,8 +143,11 @@ model TiktokAccount {
   username           String               @unique
   country            String               @default("US") // US, UK, VN, DE, FR...
   gpmProfileId       String?              // GPM-Login profile UUID
-  groupName          String?              // Raw GPM group / tag
+  gpmProfileName     String?              // GPM profile display name (e.g. "Profile 5404")
+  gpmPort            Int?                 @map("gpm_port")
+  groupName          String?              // GPM group name (e.g. "Default group")
   status             AccountStatus        @default(ACTIVE)
+  isOnline           Boolean              @default(false) @map("is_online")
   assignedUserId     String?
   assignedUser       User?                @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
   isAssignmentLocked Boolean              @default(false) @map("is_assignment_locked") // Khóa phân công: chỉ Admin mới đổi được
@@ -145,14 +159,17 @@ model TiktokAccount {
   alerts             AccountAlert[]
   logs               AccountLog[]
   dailyRevenues      DailyRevenue[]
+  analytics          AccountAnalytics?
   checklistItems     DailyChecklistItem[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 
   @@index([status])
+  @@index([isOnline])
   @@index([assignedUserId])
   @@index([country])
   @@index([gpmProfileId])
+  @@index([gpmProfileName])
   @@index([groupName])
   @@index([updatedAt])
   @@index([createdAt])
@@ -260,6 +277,41 @@ model DailyRevenue {
   @@index([accountId, date])
   @@index([date, revenue])
   @@map("daily_revenues")
+}
+
+// 6b. Structured Account Analytics (Single Source of Truth)
+model AccountAnalytics {
+  id              String        @id @default(cuid())
+  accountId       String        @unique
+  account         TiktokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  currency        String        @default("USD")
+
+  // Period Totals
+  revenue7d       Decimal       @default(0.0) @db.Decimal(12, 2)
+  revenue28d      Decimal       @default(0.0) @db.Decimal(12, 2)
+  revenue60d      Decimal       @default(0.0) @db.Decimal(12, 2)
+  revenue365d     Decimal?      @db.Decimal(12, 2)
+  totalRevenue    Decimal       @default(0.0) @db.Decimal(12, 2)
+
+  views7d         BigInt?       @default(0)
+  views28d        BigInt?       @default(0)
+  views60d        BigInt?       @default(0)
+  views365d       BigInt?       @default(0)
+  likes28d        Int?          @default(0)
+  comments28d     Int?          @default(0)
+  shares28d       Int?          @default(0)
+
+  // Granular Time-Series & Breakdown as JSON
+  dailyBreakdown  Json?         // Array of { date: string, revenue: number, views?: number }
+  activePrograms  Json?         // Array of { name: string, programId?: number, revenue: number, revenue7d?: number, revenue28d?: number, revenue60d?: number }
+  insightsHistory Json?         // { vv_history, pv_history, like_history, comment_history, share_history }
+  rawSnapshot     Json?
+
+  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime      @default(now())
+
+  @@index([accountId])
+  @@map("account_analytics")
 }
 
 // 7. Dynamic System Configurations
@@ -443,4 +495,82 @@ model ExtensionAuthEvent {
   @@index([createdAt])
   @@map("extension_auth_events")
 }
+
+model ExtensionAttestNonce {
+  nonce     String   @id
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("extension_attest_nonces")
+}
+
+model MachineBindingLog {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  action        String
+  machineId     String?  @map("machine_id")
+  machineName   String?  @map("machine_name")
+  osUsername    String?  @map("os_username")
+  actorUserId   String?  @map("actor_user_id")
+  actorName     String?  @map("actor_name")
+  reason        String?
+  ip            String?
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([machineId, createdAt])
+  @@map("machine_binding_logs")
+}
+
+model MachineChangeRequest {
+  id               String    @id @default(cuid())
+  userId           String    @map("user_id")
+  fromMachineId    String    @map("from_machine_id")
+  fromMachineName  String?   @map("from_machine_name")
+  fromOsUsername   String?   @map("from_os_username")
+  reason           String
+  status           String
+  reviewedById     String?   @map("reviewed_by_id")
+  reviewedAt       DateTime? @map("reviewed_at")
+  reviewNote       String?   @map("review_note")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("machine_change_requests")
+}
+
+// 22. Asynchronous Sync Job Queue
+model SyncQueue {
+  id              String    @id @default(cuid())
+  requestedById   String?   @map("requested_by_id")
+  status          String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, TIMED_OUT
+  targetScope     String    @default("ALL")     // ALL, or specific user/machine
+  requestedAt     DateTime  @default(now()) @map("requested_at")
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  machineId       String?   @map("machine_id")
+  machineName     String?   @map("machine_name")
+  profilesCount   Int?      @map("profiles_count")
+  successCount    Int?      @map("success_count")
+  failCount       Int?      @map("fail_count")
+  resultSummary   String?   @map("result_summary") @db.Text
+  errorMessage    String?   @map("error_message") @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  requestedBy     User?     @relation("UserSyncQueues", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@index([status, requestedAt])
+  @@index([requestedById])
+  @@map("sync_queues")
+}
+
 

@@ -27,6 +27,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { launchGpmProfile } from "@/lib/gpm-client-bridge";
 import {
   Tooltip,
   TooltipContent,
@@ -40,6 +41,7 @@ export default function GpmHubPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [runningProfiles, setRunningProfiles] = useState<Set<string>>(new Set());
+  const [startingId, setStartingId] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -72,15 +74,7 @@ export default function GpmHubPage() {
   });
 
   // Start Profile Mutation
-  const startMutation = trpc.gpm.startProfile.useMutation({
-    onSuccess: (_, vars) => {
-      setRunningProfiles((prev) => new Set(prev).add(vars.gpmProfileId));
-      toast.success("Đã mở profile GPMLogin (TikTok Studio)!");
-    },
-    onError: (err) => {
-      toast.error(err.message || "Không thể mở profile");
-    },
-  });
+  const startMutation = trpc.gpm.startProfile.useMutation();
 
   // Stop Profile Mutation
   const stopMutation = trpc.gpm.stopProfile.useMutation({
@@ -112,15 +106,30 @@ export default function GpmHubPage() {
     scanMutation.mutate({});
   };
 
-  const handleStartProfile = (profileId: string) => {
-    startMutation.mutate({
-      gpmProfileId: profileId,
-      url: "https://www.tiktok.com/tiktokstudio",
-    });
+  const handleStartProfile = async (profileId: string, customPort?: number | null) => {
+    const targetPort = customPort || gpmStatus?.port || 9495;
+    setStartingId(profileId);
+    try {
+      await launchGpmProfile(profileId, {
+        port: targetPort,
+        startMutation,
+        onSuccess: (data) => {
+          setRunningProfiles((prev) => new Set(prev).add(profileId));
+          toast.success(`Đã mở profile GPMLogin (cổng ${data?.port || targetPort})!`);
+        },
+        onError: (err) => {
+          toast.error(err.message || "Không thể mở profile GPMLogin");
+        },
+      });
+    } catch (err: any) {
+      toast.error(err.message || "Không thể mở profile GPMLogin");
+    } finally {
+      setStartingId(null);
+    }
   };
 
-  const handleStopProfile = (profileId: string) => {
-    stopMutation.mutate({ gpmProfileId: profileId });
+  const handleStopProfile = (profileId: string, customPort?: number | null) => {
+    stopMutation.mutate({ gpmProfileId: profileId, port: customPort || gpmStatus?.port || undefined });
   };
 
   const handleCopy = (text: string, id: string) => {
@@ -170,21 +179,15 @@ export default function GpmHubPage() {
   return (
     <div className="space-y-6 animate-fadeIn pb-16">
       {/* Top Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/20">
-              <Bot className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                GPMLogin Fleet & Automation Hub
-              </h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                Quản trị dàn profile GPMLogin, tự động hóa quét số liệu TikTok Creator Rewards và điều khiển trình duyệt ngầm.
-              </p>
-            </div>
-          </div>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
+            <Bot className="w-6 h-6 text-cyan-500 shrink-0" />
+            <span className="truncate">GPMLogin Fleet & Automation Hub</span>
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+            Quản trị dàn profile GPMLogin, tự động hóa quét số liệu TikTok Creator Rewards và điều khiển trình duyệt ngầm.
+          </p>
         </div>
 
         {/* Action Buttons & Status Badge */}
@@ -207,115 +210,128 @@ export default function GpmHubPage() {
                 ? `GPM Online (Port: ${gpmStatus.port || "auto"})`
                 : "GPM Offline"}
             </span>
-            <button
-              onClick={() => refetchStatus()}
-              disabled={checkingGpm}
-              className="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-              title="Kiểm tra lại kết nối"
-            >
-              <RefreshCw className={`w-3 h-3 ${checkingGpm ? "animate-spin" : ""}`} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => refetchStatus()}
+                  disabled={checkingGpm}
+                  className="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3 h-3 ${checkingGpm ? "animate-spin" : ""}`} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs font-semibold">
+                Kiểm tra lại trạng thái kết nối GPMLogin
+              </TooltipContent>
+            </Tooltip>
           </div>
 
           {/* 1-Click Scan Button */}
-          <button
-            onClick={handleScanProfiles}
-            disabled={scanMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg shadow-cyan-600/20 active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
-          >
-            <DownloadCloud className={`w-4 h-4 ${scanMutation.isPending ? "animate-bounce" : ""}`} />
-            <span>{scanMutation.isPending ? "Đang quét..." : "1-Click Scan Profile"}</span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={handleScanProfiles}
+                disabled={scanMutation.isPending}
+                className="h-10 flex items-center gap-2 px-4 rounded-xl text-sm font-bold bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg shadow-cyan-600/20 active:scale-95 transition-all disabled:opacity-60 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <DownloadCloud className={`w-4 h-4 shrink-0 ${scanMutation.isPending ? "animate-bounce" : ""}`} />
+                <span className="truncate">{scanMutation.isPending ? "Đang quét..." : "1-Click Scan Profile"}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs font-semibold">
+              Quét và cập nhật thông tin toàn bộ profile GPMLogin
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
       {/* 4 Premium Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1 */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-cyan-500/40 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-cyan-500/40 transition-all min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate whitespace-nowrap" title="Tổng Dàn Tài Khoản">
               Tổng Dàn Tài Khoản
             </span>
-            <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0">
               <Layers className="w-5 h-5" />
             </div>
           </div>
           {loading ? (
             <div className="h-8 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-3" />
           ) : (
-            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight truncate">
               {stats.total}
             </div>
           )}
-          <div className="text-xs text-slate-400 mt-1 flex items-center gap-1 font-medium">
-            <span>Dàn account TikTok trong hệ thống</span>
+          <div className="text-xs text-slate-400 mt-1 flex items-center gap-1 font-medium truncate">
+            <span className="truncate">Dàn account TikTok trong hệ thống</span>
           </div>
         </div>
 
         {/* Card 2 */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-emerald-500/40 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-emerald-500/40 transition-all min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate whitespace-nowrap" title="Đã Gắn GPM Profile">
               Đã Gắn GPM Profile
             </span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <CheckCircle2 className="w-5 h-5" />
             </div>
           </div>
           {loading ? (
             <div className="h-8 w-16 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-3" />
           ) : (
-            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight truncate">
               {stats.linked}
             </div>
           )}
-          <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1 font-medium">
-            <span>Sẵn sàng cào số liệu & mở profile</span>
+          <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1 font-medium truncate">
+            <span className="truncate">Sẵn sàng cào số liệu & mở profile</span>
           </div>
         </div>
 
         {/* Card 3 */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-indigo-500/40 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-indigo-500/40 transition-all min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate whitespace-nowrap" title="Đang Hoạt Động (Active)">
               Đang Hoạt Động (Active)
             </span>
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
               <Zap className="w-5 h-5" />
             </div>
           </div>
           {loading ? (
             <div className="h-8 w-16 bg-indigo-100 dark:bg-indigo-950/60 rounded-lg animate-pulse mt-3" />
           ) : (
-            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight truncate">
               {stats.active}
             </div>
           )}
-          <div className="text-xs text-indigo-600 dark:text-indigo-400 mt-1 flex items-center gap-1 font-medium">
-            <span>Trạng thái tài khoản chuẩn sạch</span>
+          <div className="text-xs text-indigo-600 dark:text-indigo-400 mt-1 flex items-center gap-1 font-medium truncate">
+            <span className="truncate">Trạng thái tài khoản chuẩn sạch</span>
           </div>
         </div>
 
         {/* Card 4 */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-amber-500/40 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-amber-500/40 transition-all min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate whitespace-nowrap" title="Chưa Phân Công">
               Chưa Phân Công
             </span>
-            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Users className="w-5 h-5" />
             </div>
           </div>
           {loading ? (
             <div className="h-8 w-16 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-3" />
           ) : (
-            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
+            <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-3 tracking-tight truncate">
               {stats.unassigned}
             </div>
           )}
-          <div className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1 font-medium">
-            <span>Cần phân công nhân viên quản lý</span>
+          <div className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1 font-medium truncate">
+            <span className="truncate">Cần phân công nhân viên quản lý</span>
           </div>
         </div>
       </div>
@@ -440,13 +456,13 @@ export default function GpmHubPage() {
                               {acc.gpmProfileId ? (
                                 <button
                                   type="button"
-                                  onClick={() => handleStartProfile(acc.gpmProfileId!)}
-                                  disabled={startMutation.isPending}
+                                  onClick={() => handleStartProfile(acc.gpmProfileId!, acc.gpmPort || gpmStatus?.port)}
+                                  disabled={startingId === acc.gpmProfileId || startMutation.isPending}
                                   className="font-bold text-slate-900 dark:text-slate-100 hover:text-cyan-500 flex items-center gap-1.5 transition-colors cursor-pointer text-left group/btn"
-                                  title="Mở trình duyệt GPM profile (vào TikTok Studio)"
+                                  title={`Mở profile GPM (cổng ${acc.gpmPort || gpmStatus?.port || "auto"})`}
                                 >
                                   <span className="group-hover/btn:underline">@{acc.username}</span>
-                                  <Play className="w-3 h-3 text-cyan-500 fill-cyan-500/20 group-hover/btn:scale-110 transition-transform" />
+                                  <Play className={`w-3 h-3 text-cyan-500 fill-cyan-500/20 group-hover/btn:scale-110 transition-transform ${startingId === acc.gpmProfileId ? "animate-pulse" : ""}`} />
                                 </button>
                               ) : (
                                 <span
@@ -470,6 +486,11 @@ export default function GpmHubPage() {
                               <span className="px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 text-xs font-bold">
                                 {acc.gpmProfileId.slice(0, 8)}...{acc.gpmProfileId.slice(-4)}
                               </span>
+                              {(acc.gpmPort || gpmStatus?.port) && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60" title={`Cổng API: ${acc.gpmPort || gpmStatus?.port}`}>
+                                  :{acc.gpmPort || gpmStatus?.port}
+                                </span>
+                              )}
                               <button
                                 onClick={() => handleCopy(acc.gpmProfileId!, acc.id)}
                                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
@@ -554,21 +575,23 @@ export default function GpmHubPage() {
                               <>
                                 {isRunning ? (
                                   <button
-                                    onClick={() => handleStopProfile(acc.gpmProfileId!)}
+                                    onClick={() => handleStopProfile(acc.gpmProfileId!, acc.gpmPort || gpmStatus?.port)}
                                     disabled={stopMutation.isPending}
                                     className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 transition-all cursor-pointer flex items-center gap-1"
+                                    title={`Dừng profile GPM (cổng ${acc.gpmPort || gpmStatus?.port || "auto"})`}
                                   >
                                     <Square className="w-3 h-3 fill-current" />
                                     <span>Dừng</span>
                                   </button>
                                 ) : (
                                   <button
-                                    onClick={() => handleStartProfile(acc.gpmProfileId!)}
-                                    disabled={startMutation.isPending}
+                                    onClick={() => handleStartProfile(acc.gpmProfileId!, acc.gpmPort || gpmStatus?.port)}
+                                    disabled={startingId === acc.gpmProfileId || startMutation.isPending}
                                     className="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-50 hover:bg-cyan-100 dark:bg-cyan-500/10 dark:hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 transition-all cursor-pointer flex items-center gap-1"
+                                    title={`Mở profile GPM (cổng ${acc.gpmPort || gpmStatus?.port || "auto"})`}
                                   >
-                                    <Play className="w-3 h-3 fill-current" />
-                                    <span>Mở</span>
+                                    <Play className={`w-3 h-3 fill-current ${startingId === acc.gpmProfileId ? "animate-pulse" : ""}`} />
+                                    <span>{startingId === acc.gpmProfileId ? "Đang mở..." : "Mở"}</span>
                                   </button>
                                 )}
 

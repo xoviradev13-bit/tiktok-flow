@@ -63,12 +63,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
+import { launchGpmProfile } from "@/lib/gpm-client-bridge";
+import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 
 type AccountSortKey =
   | "username"
@@ -82,6 +80,111 @@ type AccountSortKey =
   | "totalRevenue"
   | "alertsCount"
   | "updatedAt";
+
+const COUNTRY_MAP: Record<string, string> = {
+  us: "US", "united states": "US", usa: "US", "u.s.": "US", "u.s.a.": "US", america: "US",
+  gb: "UK", uk: "UK", "united kingdom": "UK", britain: "UK", england: "UK",
+  vn: "VN", vietnam: "VN", "viet nam": "VN", "việt nam": "VN",
+  de: "DE", germany: "DE", german: "DE", "đức": "DE",
+  fr: "FR", france: "FR", "pháp": "FR",
+  be: "BE", belgium: "BE", "bỉ": "BE",
+  nl: "NL", netherlands: "NL", holland: "NL", "hà lan": "NL",
+  id: "ID", indonesia: "ID",
+  th: "TH", thailand: "TH", "thái lan": "TH",
+  my: "MY", malaysia: "MY",
+  ph: "PH", philippines: "PH",
+  sg: "SG", singapore: "SG",
+  jp: "JP", japan: "JP", "nhật bản": "JP",
+  kr: "KR", "south korea": "KR", korea: "KR", "hàn quốc": "KR",
+  br: "BR", brazil: "BR",
+  mx: "MX", mexico: "MX",
+  ca: "CA", canada: "CA",
+  au: "AU", australia: "AU", "úc": "AU",
+  in: "IN", india: "IN", "ấn độ": "IN",
+  pk: "PK", pakistan: "PK",
+  bd: "BD", bangladesh: "BD",
+  eg: "EG", egypt: "EG", "ai cập": "EG",
+  tr: "TR", turkey: "TR", "thổ nhĩ kỳ": "TR",
+  ru: "RU", russia: "RU", "nga": "RU",
+  es: "ES", spain: "ES", "tây ban nha": "ES",
+  it: "IT", italy: "IT", "ý": "IT",
+  pt: "PT", portugal: "PT", "bồ đào nha": "PT",
+  pl: "PL", poland: "PL", "ba lan": "PL",
+  se: "SE", sweden: "SE", "thụy điển": "SE",
+  ch: "CH", switzerland: "CH", "thụy sĩ": "CH",
+  at: "AT", austria: "AT", "áo": "AT",
+  ie: "IE", ireland: "IE",
+  tw: "TW", taiwan: "TW", "đài loan": "TW",
+  hk: "HK", "hong kong": "HK",
+  kh: "KH", cambodia: "KH", "campuchia": "KH",
+  mm: "MM", myanmar: "MM",
+  la: "LA", laos: "LA", "lào": "LA",
+};
+
+const COUNTRY_OPTIONS = [
+  // Tier 1 / Common markets
+  { value: "US", label: "🇺🇸 US - United States (Mỹ)" },
+  { value: "VN", label: "🇻🇳 VN - Vietnam (Việt Nam)" },
+  { value: "UK", label: "🇬🇧 UK - United Kingdom (Anh)" },
+  { value: "DE", label: "🇩🇪 DE - Germany (Đức)" },
+  { value: "FR", label: "🇫🇷 FR - France (Pháp)" },
+
+  // Southeast Asia & East Asia
+  { value: "TH", label: "🇹🇭 TH - Thailand (Thái Lan)" },
+  { value: "ID", label: "🇮🇩 ID - Indonesia" },
+  { value: "MY", label: "🇲🇾 MY - Malaysia" },
+  { value: "PH", label: "🇵🇭 PH - Philippines" },
+  { value: "SG", label: "🇸🇬 SG - Singapore" },
+  { value: "JP", label: "🇯🇵 JP - Japan (Nhật Bản)" },
+  { value: "KR", label: "🇰🇷 KR - South Korea (Hàn Quốc)" },
+  { value: "TW", label: "🇹🇼 TW - Taiwan (Đài Loan)" },
+  { value: "HK", label: "🇭🇰 HK - Hong Kong" },
+  { value: "KH", label: "🇰🇭 KH - Cambodia (Campuchia)" },
+  { value: "MM", label: "🇲🇲 MM - Myanmar" },
+  { value: "LA", label: "🇱🇦 LA - Laos (Lào)" },
+
+  // Europe
+  { value: "BE", label: "🇧🇪 BE - Belgium (Bỉ)" },
+  { value: "NL", label: "🇳🇱 NL - Netherlands (Hà Lan)" },
+  { value: "ES", label: "🇪🇸 ES - Spain (Tây Ban Nha)" },
+  { value: "IT", label: "🇮🇹 IT - Italy (Ý)" },
+  { value: "PT", label: "🇵🇹 PT - Portugal (Bồ Đào Nha)" },
+  { value: "PL", label: "🇵🇱 PL - Poland (Ba Lan)" },
+  { value: "SE", label: "🇸🇪 SE - Sweden (Thụy Điển)" },
+  { value: "CH", label: "🇨🇭 CH - Switzerland (Thụy Sĩ)" },
+  { value: "AT", label: "🇦🇹 AT - Austria (Áo)" },
+  { value: "IE", label: "🇮🇪 IE - Ireland" },
+  { value: "RU", label: "🇷🇺 RU - Russia (Nga)" },
+  { value: "TR", label: "🇹🇷 TR - Turkey (Thổ Nhĩ Kỳ)" },
+
+  // Americas & Oceania & Others
+  { value: "CA", label: "🇨🇦 CA - Canada" },
+  { value: "AU", label: "🇦🇺 AU - Australia (Úc)" },
+  { value: "BR", label: "🇧🇷 BR - Brazil" },
+  { value: "MX", label: "🇲🇽 MX - Mexico" },
+  { value: "IN", label: "🇮🇳 IN - India (Ấn Độ)" },
+  { value: "PK", label: "🇵🇰 PK - Pakistan" },
+  { value: "BD", label: "🇧🇩 BD - Bangladesh" },
+  { value: "EG", label: "🇪🇬 EG - Egypt (Ai Cập)" },
+];
+
+const FLAG_MAP: Record<string, string> = {
+  US: "🇺🇸", VN: "🇻🇳", UK: "🇬🇧", GB: "🇬🇧", DE: "🇩🇪", FR: "🇫🇷",
+  TH: "🇹🇭", ID: "🇮🇩", MY: "🇲🇾", PH: "🇵🇭", SG: "🇸🇬", JP: "🇯🇵",
+  KR: "🇰🇷", TW: "🇹🇼", HK: "🇭🇰", KH: "🇰🇭", MM: "🇲🇲", LA: "🇱🇦",
+  BE: "🇧🇪", NL: "🇳🇱", ES: "🇪🇸", IT: "🇮🇹", PT: "🇵🇹", PL: "🇵🇱",
+  SE: "🇸🇪", CH: "🇨🇭", AT: "🇦🇹", IE: "🇮🇪", RU: "🇷🇺", TR: "🇹🇷",
+  CA: "🇨🇦", AU: "🇦🇺", BR: "🇧🇷", MX: "🇲🇽", IN: "🇮🇳", PK: "🇵🇰",
+  BD: "🇧🇩", EG: "🇪🇬",
+};
+
+const normalizeCountry = (country?: string | null): string => {
+  if (!country) return "US";
+  const trimmed = country.trim().toLowerCase();
+  if (COUNTRY_MAP[trimmed]) return COUNTRY_MAP[trimmed];
+  if (trimmed === "unknown") return "US";
+  return country.trim().toUpperCase();
+};
 
 function AccountsPageContent() {
   const router = useRouter();
@@ -99,6 +202,7 @@ function AccountsPageContent() {
   // Fast filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<any>("ALL");
+  const [onlineFilter, setOnlineFilter] = useState<"ALL" | "ONLINE" | "OFFLINE">("ALL");
   const [countryFilter, setCountryFilter] = useState("ALL");
   const [assignedFilter, setAssignedFilter] = useState("ALL");
 
@@ -246,11 +350,16 @@ function AccountsPageContent() {
   const { data: accountsData, isLoading: loading } = trpc.accounts.list.useQuery({
     search: search || undefined,
     status: statusFilter !== "ALL" ? statusFilter : undefined,
+    onlineStatus: onlineFilter !== "ALL" ? onlineFilter : undefined,
     country: countryFilter !== "ALL" ? countryFilter : undefined,
-    assignedUserId: assignedFilter !== "ALL" ? assignedFilter : undefined,
+    assignedUserId: isLeadOrAdmin && assignedFilter !== "ALL" ? assignedFilter : undefined,
   });
 
   const { data: users = [] } = trpc.user.listStaff.useQuery();
+  const { data: accountLogs = [], isLoading: isLogsLoading } = trpc.accounts.getLogs.useQuery(
+    { accountId: selectedAccount?.id || "" },
+    { enabled: isLogModalOpen && !!selectedAccount?.id }
+  );
 
   const accounts = accountsData?.items || [];
   const stats = accountsData?.stats;
@@ -359,16 +468,33 @@ function AccountsPageContent() {
     onError: (err: any) => alert(err.message),
   });
 
-  const startGpmMutation = trpc.gpm.startProfile.useMutation({
-    onSuccess: () => {
-      setActionMsg("🚀 Đã mở trình duyệt GPM profile!");
-      setTimeout(() => setActionMsg(null), 4000);
-    },
-    onError: (err: any) => alert(err.message),
-  });
+  const { data: gpmStatus } = trpc.gpm.checkStatus.useQuery();
+  const [startingGpmId, setStartingGpmId] = useState<string | null>(null);
 
-  const handleStartGpm = (gpmProfileId: string) => {
-    startGpmMutation.mutate({ gpmProfileId });
+  const startGpmMutation = trpc.gpm.startProfile.useMutation();
+
+  const handleStartGpm = async (gpmProfileId: string, customPort?: number | null) => {
+    const targetPort = customPort || gpmStatus?.port || 9495;
+    setStartingGpmId(gpmProfileId);
+    try {
+      await launchGpmProfile(gpmProfileId, {
+        port: targetPort,
+        startMutation: startGpmMutation,
+        onSuccess: (data) => {
+          setActionMsg(`🚀 Đã mở profile GPM (cổng ${data?.port || targetPort})!`);
+          setTimeout(() => setActionMsg(null), 4000);
+        },
+        onError: (err: any) => {
+          setActionMsg(`Lỗi: ${err.message || "Không thể kết nối GPMLogin"}`);
+          setTimeout(() => setActionMsg(null), 5000);
+        },
+      });
+    } catch (err: any) {
+      setActionMsg(`Lỗi: ${err.message || "Không thể kết nối GPMLogin"}`);
+      setTimeout(() => setActionMsg(null), 5000);
+    } finally {
+      setStartingGpmId(null);
+    }
   };
 
   const handleCreateAccount = (e: React.FormEvent) => {
@@ -388,13 +514,18 @@ function AccountsPageContent() {
   };
 
   const handleAssignUser = (accountId: string, userId: string) => {
+    if (!isLeadOrAdmin) {
+      setActionMsg("❌ Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền phân công nhân sự.");
+      setTimeout(() => setActionMsg(null), 4000);
+      return;
+    }
     updateMutation.mutate({ id: accountId, assignedUserId: userId || null });
   };
 
   const handleOpenEdit = (acc: any) => {
     setEditId(acc.id);
     setEditUsername(acc.username);
-    setEditCountry(acc.country || "US");
+    setEditCountry(normalizeCountry(acc.country));
     setEditGroup(acc.groupName || "");
     setEditGpmId(acc.gpmProfileId || "");
     setEditAssignedUser(acc.assignedUserId || "");
@@ -430,14 +561,22 @@ function AccountsPageContent() {
     const s = search.toLowerCase().trim();
 
     const filtered = accounts.filter((acc: any) => {
+      // Data isolation for STAFF: strictly only show accounts assigned to this staff user
+      if (!isLeadOrAdmin && session?.user?.id && acc.assignedUserId !== (session.user as any).id) {
+        return false;
+      }
+
       const matchSearch =
         !s ||
         acc.username.toLowerCase().includes(s) ||
         (acc.groupName && acc.groupName.toLowerCase().includes(s));
 
       const matchStatus = statusFilter === "ALL" || acc.status === statusFilter;
-      const matchCountry = countryFilter === "ALL" || acc.country === countryFilter;
-      const matchAssigned = assignedFilter === "ALL" || acc.assignedUserId === assignedFilter;
+      const matchOnline =
+        onlineFilter === "ALL" ||
+        (onlineFilter === "ONLINE" ? !!acc.isOnline : !acc.isOnline);
+      const matchCountry = countryFilter === "ALL" || normalizeCountry(acc.country) === countryFilter;
+      const matchAssigned = !isLeadOrAdmin || assignedFilter === "ALL" || acc.assignedUserId === assignedFilter;
 
       // Advanced filters
       const hasWarning = acc.alerts && acc.alerts.length > 0;
@@ -453,12 +592,13 @@ function AccountsPageContent() {
       const viewsNum = Number(acc.totalViews || 0);
       const matchMinViews = !minViews || viewsNum >= Number(minViews);
 
-      const revNum = Number(acc.totalRevenue || 0);
+      const revNum = Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0);
       const matchMinRev = !minRevenue || revNum >= Number(minRevenue);
 
       return (
         matchSearch &&
         matchStatus &&
+        matchOnline &&
         matchCountry &&
         matchAssigned &&
         matchWarning &&
@@ -479,7 +619,10 @@ function AccountsPageContent() {
       } else if (sortConfig.key === "alertsCount") {
         aVal = a.alerts?.length || 0;
         bVal = b.alerts?.length || 0;
-      } else if (sortConfig.key === "totalViews" || sortConfig.key === "totalFollowers" || sortConfig.key === "totalVideos" || sortConfig.key === "totalRevenue") {
+      } else if (sortConfig.key === "totalRevenue") {
+        aVal = Number(a.analytics?.totalRevenue ?? a.totalRevenue ?? 0);
+        bVal = Number(b.analytics?.totalRevenue ?? b.totalRevenue ?? 0);
+      } else if (sortConfig.key === "totalViews" || sortConfig.key === "totalFollowers" || sortConfig.key === "totalVideos") {
         aVal = Number(aVal || 0);
         bVal = Number(bVal || 0);
       } else if (sortConfig.key === "updatedAt") {
@@ -500,6 +643,7 @@ function AccountsPageContent() {
     accounts,
     search,
     statusFilter,
+    onlineFilter,
     countryFilter,
     assignedFilter,
     warningFilter,
@@ -553,12 +697,14 @@ function AccountsPageContent() {
   const totalActiveFiltersCount =
     (search ? 1 : 0) +
     (statusFilter !== "ALL" ? 1 : 0) +
+    (onlineFilter !== "ALL" ? 1 : 0) +
     (assignedFilter !== "ALL" ? 1 : 0) +
     activeAdvancedCount;
 
   const clearAllFilters = () => {
     setSearch("");
     setStatusFilter("ALL");
+    setOnlineFilter("ALL");
     setCountryFilter("ALL");
     setAssignedFilter("ALL");
     setWarningFilter("ALL");
@@ -569,48 +715,50 @@ function AccountsPageContent() {
   };
 
   const getCountryFlag = (country: string) => {
-    const code = (country || "US").toUpperCase();
-    switch (code) {
-      case "US":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 shadow-2xs">
-            <span className="text-xs">🇺🇸</span> US
-          </span>
-        );
-      case "UK":
-      case "GB":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 shadow-2xs">
-            <span className="text-xs">🇬🇧</span> UK
-          </span>
-        );
-      case "VN":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300 border border-red-200 dark:border-red-800/50 shadow-2xs">
-            <span className="text-xs">🇻🇳</span> VN
-          </span>
-        );
-      case "DE":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 shadow-2xs">
-            <span className="text-xs">🇩🇪</span> DE
-          </span>
-        );
-      case "FR":
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border border-sky-200 dark:border-sky-800/50 shadow-2xs">
-            <span className="text-xs">🇫🇷</span> FR
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs">
-            <Globe className="w-3.5 h-3.5 text-slate-500" /> {code}
-          </span>
-        );
-    }
+    const code = normalizeCountry(country);
+    const flag = FLAG_MAP[code] || "🌐";
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 dark:bg-slate-900/60 dark:text-slate-200 border border-slate-200 dark:border-slate-800 shadow-2xs">
+        <span className="text-xs">{flag}</span> {code}
+      </span>
+    );
   };
 
+  const getStatusBadgeStyle = (status: string) => {
+    switch (status) {
+      case "ACTIVE":
+        return {
+          dot: "bg-emerald-500",
+          container:
+            "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60",
+        };
+      case "WARMING":
+        return {
+          dot: "bg-amber-500",
+          container:
+            "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800/60",
+        };
+      case "RESTRICTED":
+        return {
+          dot: "bg-orange-500",
+          container:
+            "bg-orange-50 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300 border-orange-200 dark:border-orange-800/60",
+        };
+      case "BANNED":
+        return {
+          dot: "bg-rose-500",
+          container:
+            "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border-rose-200 dark:border-rose-800/60",
+        };
+      case "STOPPED":
+      default:
+        return {
+          dot: "bg-slate-400",
+          container:
+            "bg-slate-100 text-slate-600 dark:bg-slate-800/80 dark:text-slate-400 border-slate-200 dark:border-slate-700/80",
+        };
+    }
+  };
 
   const renderSortIndicator = (key: AccountSortKey) => {
     if (sortConfig.key !== key) {
@@ -629,30 +777,39 @@ function AccountsPageContent() {
       <div className="space-y-4">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-              <Users className="w-6 h-6 text-pink-500" />
-              <span>Quản Lý Dàn Tài Khoản TikTok</span>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
+              <Users className="w-6 h-6 text-pink-500 shrink-0" />
+              <span className="truncate">Quản Lý Dàn Tài Khoản TikTok</span>
               {loading ? (
-                <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle" />
+                <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle shrink-0" />
               ) : (
-                <span>({accounts.length})</span>
+                <span className="shrink-0">({accounts.length})</span>
               )}
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 truncate">
               Theo dõi trạng thái, phân công nhân sự, quản lý cảnh báo và đồng bộ số liệu qua GPM-Login.
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsCreateOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Thêm Tài Khoản</span>
-            </button>
-          </div>
+          {isLeadOrAdmin && (
+            <div className="flex items-center gap-3 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setIsCreateOpen(true)}
+                    className="h-10 flex items-center gap-2 px-4 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span className="truncate">Thêm Tài Khoản</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs font-semibold">
+                  Thêm tài khoản TikTok mới vào hệ thống
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          )}
         </div>
 
         {actionMsg && (
@@ -663,72 +820,104 @@ function AccountsPageContent() {
 
         {/* KPI Stats Bar */}
         {loading || !stats ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tổng Số Acc</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate whitespace-nowrap">Tổng Số Acc</div>
               <div className="h-7 w-16 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-1" />
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                <CheckCircle className="w-3.5 h-3.5" /> Hoạt Động (Active)
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                <span className="truncate whitespace-nowrap">Đang Online</span>
               </div>
               <div className="h-7 w-14 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-1" />
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                <Flame className="w-3.5 h-3.5" /> Nuôi Acc (Warming)
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 min-w-0">
+                <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate whitespace-nowrap">Hoạt Động (Active)</span>
+              </div>
+              <div className="h-7 w-14 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-1" />
+            </div>
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1 min-w-0">
+                <Flame className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate whitespace-nowrap">Nuôi Acc (Warming)</span>
               </div>
               <div className="h-7 w-14 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-1" />
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-orange-600 dark:text-orange-400 flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5" /> Hạn Chế (Restricted)
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-orange-600 dark:text-orange-400 flex items-center gap-1 min-w-0">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate whitespace-nowrap">Hạn Chế (Restricted)</span>
               </div>
               <div className="h-7 w-14 bg-orange-100 dark:bg-orange-950/60 rounded-lg animate-pulse mt-1" />
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                <XCircle className="w-3.5 h-3.5" /> Bị Khóa (Banned)
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1 min-w-0">
+                <XCircle className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate whitespace-nowrap">Bị Khóa (Banned)</span>
               </div>
               <div className="h-7 w-14 bg-rose-100 dark:bg-rose-950/60 rounded-lg animate-pulse mt-1" />
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400">Doanh Thu Toàn Dàn</div>
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400 truncate whitespace-nowrap">Doanh Thu Toàn Dàn</div>
               <div className="h-7 w-20 bg-pink-100 dark:bg-pink-950/60 rounded-lg animate-pulse mt-1" />
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tổng Số Acc</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate whitespace-nowrap" title="Tổng Số Acc">
+                Tổng Số Acc
+              </div>
               <div className="text-xl font-black text-slate-900 dark:text-white mt-1">{stats.total}</div>
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                <CheckCircle className="w-3.5 h-3.5" /> Hoạt Động (Active)
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 min-w-0" title="Đang Online">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <span className="truncate whitespace-nowrap">Đang Online</span>
+              </div>
+              <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1 flex items-baseline gap-1">
+                <span>{stats.online || 0}</span>
+                <span className="text-xs font-normal text-slate-400">/ {stats.total || 0}</span>
+              </div>
+            </div>
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 min-w-0" title="Hoạt Động (Active)">
+                <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate whitespace-nowrap">Hoạt Động (Active)</span>
               </div>
               <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{stats.active}</div>
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                <Flame className="w-3.5 h-3.5" /> Nuôi Acc (Warming)
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1 min-w-0" title="Nuôi Acc (Warming)">
+                <Flame className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate whitespace-nowrap">Nuôi Acc (Warming)</span>
               </div>
               <div className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1">{stats.warming}</div>
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-orange-600 dark:text-orange-400 flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5" /> Hạn Chế (Restricted)
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-orange-600 dark:text-orange-400 flex items-center gap-1 min-w-0" title="Hạn Chế (Restricted)">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate whitespace-nowrap">Hạn Chế (Restricted)</span>
               </div>
               <div className="text-xl font-black text-orange-600 dark:text-orange-400 mt-1">{stats.restricted}</div>
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                <XCircle className="w-3.5 h-3.5" /> Bị Khóa (Banned)
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1 min-w-0" title="Bị Khóa (Banned)">
+                <XCircle className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate whitespace-nowrap">Bị Khóa (Banned)</span>
               </div>
               <div className="text-xl font-black text-rose-600 dark:text-rose-400 mt-1">{stats.banned}</div>
             </div>
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400">Doanh Thu Toàn Dàn</div>
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400 truncate whitespace-nowrap" title="Doanh Thu Toàn Dàn">
+                Doanh Thu Toàn Dàn
+              </div>
               <div className="text-xl font-black text-pink-600 dark:text-pink-400 mt-1">${stats.totalRevenue.toLocaleString()}</div>
             </div>
           </div>
@@ -736,24 +925,52 @@ function AccountsPageContent() {
 
         {/* Filter & Toolbar Area (Sticky only on desktop) */}
         <div className="lg:sticky lg:top-[72px] z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
-          <div className="flex flex-col lg:flex-row gap-3 items-center justify-between">
-            {/* Search Box */}
-            <div className="relative w-full lg:w-72">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Tìm username, nickname, email..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 w-full min-w-0">
+            {/* Left Group: Search input + Fast Filters + Advanced Filter */}
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              {/* Search Box */}
+              <div className="relative w-full sm:w-44 md:w-48 lg:w-56 min-w-[160px]">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm username, nickname, email..."
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500"
+                />
+              </div>
+
+              {/* Online / Offline Fast Filter */}
+              <Select
+                value={onlineFilter}
+                onValueChange={(val: any) => {
+                  setOnlineFilter(val);
                   setPage(1);
                 }}
-                className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500"
-              />
-            </div>
+              >
+                <SelectTrigger className="w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate shrink-0">
+                  <SelectValue placeholder="Kết nối" />
+                </SelectTrigger>
+                <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả kết nối</SelectItem>
+                  <SelectItem value="ONLINE" className="text-xs font-normal cursor-pointer">
+                    <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50" />
+                      <span>Đang Online</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="OFFLINE" className="text-xs font-normal cursor-pointer">
+                    <span className="inline-flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium">
+                      <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
+                      <span>Đang Offline</span>
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
 
-            {/* Filter Group: 3 fast selections + Advanced Filter + Sort Popover */}
-            <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto justify-end">
               {/* Status Fast Filter */}
               <Select
                 value={statusFilter}
@@ -762,7 +979,7 @@ function AccountsPageContent() {
                   setPage(1);
                 }}
               >
-                <SelectTrigger className="w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                <SelectTrigger className="w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate shrink-0">
                   <SelectValue placeholder="Trạng thái" />
                 </SelectTrigger>
                 <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
@@ -775,37 +992,38 @@ function AccountsPageContent() {
                 </SelectContent>
               </Select>
 
-              {/* Assigned Staff Fast Filter */}
-              <Select
-                value={assignedFilter}
-                onValueChange={(val) => {
-                  setAssignedFilter(val);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-44 sm:w-48 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer [&>span]:truncate whitespace-nowrap">
-                  <SelectValue placeholder="Nhân sự" />
-                </SelectTrigger>
-                <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
-                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nhân sự</SelectItem>
-                  {users.map((u: any) => (
-                    <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
-                      {u.fullName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Assigned Staff Fast Filter (Admin and Lead only) */}
+              {isLeadOrAdmin && (
+                <Select
+                  value={assignedFilter}
+                  onValueChange={(val) => {
+                    setAssignedFilter(val);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-40 sm:w-44 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate shrink-0">
+                    <SelectValue placeholder="Nhân sự" />
+                  </SelectTrigger>
+                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
+                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nhân sự</SelectItem>
+                    {users.map((u: any) => (
+                      <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
+                        {u.fullName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
 
               {/* Advanced Filter Popover */}
               <Popover>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal border transition-all cursor-pointer ${
-                      activeAdvancedCount > 0
+                    className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-normal border transition-all cursor-pointer shrink-0 whitespace-nowrap ${activeAdvancedCount > 0
                         ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
                         : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
-                    }`}
+                      }`}
                   >
                     <Filter className="w-3.5 h-3.5" />
                     <span>Bộ lọc nâng cao</span>
@@ -851,13 +1069,13 @@ function AccountsPageContent() {
                       <SelectTrigger className="w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
                         <SelectValue placeholder="Tất cả quốc gia" />
                       </SelectTrigger>
-                      <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                      <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
                         <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
-                        <SelectItem value="US" className="text-xs font-normal cursor-pointer">🇺🇸 US</SelectItem>
-                        <SelectItem value="UK" className="text-xs font-normal cursor-pointer">🇬🇧 UK</SelectItem>
-                        <SelectItem value="VN" className="text-xs font-normal cursor-pointer">🇻🇳 VN</SelectItem>
-                        <SelectItem value="DE" className="text-xs font-normal cursor-pointer">🇩🇪 DE</SelectItem>
-                        <SelectItem value="FR" className="text-xs font-normal cursor-pointer">🇫🇷 FR</SelectItem>
+                        {COUNTRY_OPTIONS.map((c) => (
+                          <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
+                            {c.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -943,7 +1161,10 @@ function AccountsPageContent() {
                   </div>
                 </PopoverContent>
               </Popover>
+            </div>
 
+            {/* Action Controls Group: Sort, View Switcher & Column Customizer (Aligned to left on wrapped row) */}
+            <div className="flex items-center gap-2.5 shrink-0 self-start xl:self-auto xl:ml-auto">
               {/* Sort Popover */}
               <Popover>
                 <PopoverTrigger asChild>
@@ -991,11 +1212,10 @@ function AccountsPageContent() {
                 <button
                   type="button"
                   onClick={() => handleViewModeChange("grid")}
-                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    viewMode === "grid"
+                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "grid"
                       ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
                       : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
+                    }`}
                   title="Chế độ xem dạng lưới (Cards)"
                 >
                   <LayoutGrid className="w-3.5 h-3.5" />
@@ -1004,11 +1224,10 @@ function AccountsPageContent() {
                 <button
                   type="button"
                   onClick={() => handleViewModeChange("list")}
-                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    viewMode === "list"
+                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "list"
                       ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
                       : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
+                    }`}
                   title="Chế độ xem dạng danh sách (Bảng)"
                 >
                   <List className="w-3.5 h-3.5" />
@@ -1049,7 +1268,7 @@ function AccountsPageContent() {
                             actions: true,
                           })
                         }
-                        className="text-xs text-pink-500 hover:underline font-normal cursor-pointer"
+                        className="px-2 py-0.5 rounded-md text-xs text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors font-medium cursor-pointer"
                       >
                         Mặc định
                       </button>
@@ -1069,9 +1288,8 @@ function AccountsPageContent() {
                       ].map((col) => (
                         <label
                           key={col.key}
-                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${
-                            col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
-                          }`}
+                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
+                            }`}
                         >
                           <Checkbox
                             checked={visibleColumns[col.key as keyof typeof visibleColumns]}
@@ -1084,7 +1302,7 @@ function AccountsPageContent() {
                               }));
                             }}
                           />
-                          <span className="text-slate-700 dark:text-slate-300 font-medium">
+                          <span className="text-slate-700 dark:text-slate-300 font-normal">
                             {col.label}
                           </span>
                           {col.locked && (
@@ -1128,7 +1346,7 @@ function AccountsPageContent() {
                   </button>
                 </span>
               )}
-              {assignedFilter !== "ALL" && (
+              {isLeadOrAdmin && assignedFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
                   <span>Nhân sự: {users.find((u: any) => u.id === assignedFilter)?.fullName || assignedFilter}</span>
                   <button onClick={() => setAssignedFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
@@ -1248,13 +1466,12 @@ function AccountsPageContent() {
                 return (
                   <div
                     key={acc.id}
-                    className={`group relative flex flex-col bg-white dark:bg-slate-900/90 rounded-2xl border transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5 overflow-hidden ${
-                      isSelected
+                    className={`group relative flex flex-col bg-white dark:bg-slate-900/90 rounded-2xl border transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5 overflow-hidden ${isSelected
                         ? "border-pink-500 ring-2 ring-pink-500/20 bg-pink-50/10 dark:bg-pink-950/10 shadow-md"
                         : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs"
-                    }`}
+                      }`}
                   >
-                    {/* Top Bar: Checkbox + Country + Status + Actions */}
+                    {/* Top Bar: Checkbox + Online & Status Badges + Actions */}
                     <div className="p-4 pb-0 flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Checkbox
@@ -1262,39 +1479,39 @@ function AccountsPageContent() {
                           onCheckedChange={() => toggleSelectRow(acc.id)}
                           aria-label={`Chọn @${acc.username}`}
                         />
-                        {getCountryFlag(acc.country)}
                       </div>
 
                       <div className="flex items-center gap-1.5">
-                        {/* Status Select */}
-                        <Select
-                          value={acc.status}
-                          onValueChange={(val) => handleStatusChange(acc.id, val)}
-                        >
-                          <SelectTrigger className="h-7 px-2 text-xs font-bold rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full mr-1 ${
-                                acc.status === "ACTIVE"
-                                  ? "bg-emerald-500 animate-pulse"
-                                  : acc.status === "WARMING"
-                                  ? "bg-amber-500"
-                                  : acc.status === "RESTRICTED"
-                                  ? "bg-orange-500"
-                                  : acc.status === "BANNED"
-                                  ? "bg-rose-500"
-                                  : "bg-slate-400"
-                              }`}
-                            />
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                            <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
-                            <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
-                            <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
-                            <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
-                            <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <OnlineOfflineBadge
+                          isOnline={acc.isOnline}
+                          size="sm"
+                          className="h-7 px-2.5 text-xs font-bold rounded-full border inline-flex items-center gap-1.5 shadow-2xs"
+                        />
+
+                        {/* Status Select - Styled as twin badge */}
+                        {(() => {
+                          const badgeStyle = getStatusBadgeStyle(acc.status);
+                          return (
+                            <Select
+                              value={acc.status}
+                              onValueChange={(val) => handleStatusChange(acc.id, val)}
+                            >
+                              <SelectTrigger
+                                className={`h-7 w-auto px-2.5 text-xs font-bold rounded-full border transition-all shadow-2xs cursor-pointer gap-1.5 inline-flex items-center [&>svg]:size-3 [&>svg]:opacity-70 [&>svg]:text-current ${badgeStyle.container}`}
+                              >
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${badgeStyle.dot}`} />
+                                <SelectValue className="font-bold text-inherit" />
+                              </SelectTrigger>
+                              <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-1">
+                                <SelectItem value="ACTIVE" className="text-xs font-semibold cursor-pointer rounded-xl py-1.5">Active</SelectItem>
+                                <SelectItem value="WARMING" className="text-xs font-semibold cursor-pointer rounded-xl py-1.5">Warming</SelectItem>
+                                <SelectItem value="RESTRICTED" className="text-xs font-semibold cursor-pointer rounded-xl py-1.5">Restricted</SelectItem>
+                                <SelectItem value="BANNED" className="text-xs font-semibold cursor-pointer rounded-xl py-1.5">Banned</SelectItem>
+                                <SelectItem value="STOPPED" className="text-xs font-semibold cursor-pointer rounded-xl py-1.5">Stopped</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          );
+                        })()}
 
                         {/* More Actions Dropdown */}
                         <DropdownMenu>
@@ -1316,7 +1533,7 @@ function AccountsPageContent() {
                             <DropdownMenuItem asChild>
                               <Link
                                 href={`/accounts/${acc.id}`}
-                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                               >
                                 <Eye className="w-3.5 h-3.5 text-slate-400" />
                                 <span>Xem chi tiết</span>
@@ -1325,21 +1542,21 @@ function AccountsPageContent() {
                             <DropdownMenuItem
                               onClick={() => syncMutation.mutate({ accountId: acc.id })}
                               disabled={syncMutation.isPending}
-                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                             >
                               <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                               <span>Đồng bộ số liệu</span>
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => handleOpenLogs(acc)}
-                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                             >
                               <History className="w-3.5 h-3.5 text-slate-400" />
                               <span>Lịch sử hoạt động</span>
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => handleOpenEdit(acc)}
-                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                             >
                               <Pencil className="w-3.5 h-3.5 text-slate-400" />
                               <span>Chỉnh sửa</span>
@@ -1350,7 +1567,7 @@ function AccountsPageContent() {
                                 setAccountToDelete(acc);
                                 setIsDeleteOpen(true);
                               }}
-                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                               <span>Xóa tài khoản</span>
@@ -1399,6 +1616,11 @@ function AccountsPageContent() {
                               <span className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 truncate" title={acc.gpmProfileId}>
                                 {acc.gpmProfileId}
                               </span>
+                              {(acc.gpmPort || gpmStatus?.port) && (
+                                <span className="px-1 rounded text-[10px] font-mono font-bold bg-cyan-100/80 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-300 border border-cyan-300/40 dark:border-cyan-700/40" title={`Cổng API: ${acc.gpmPort || gpmStatus?.port}`}>
+                                  :{acc.gpmPort || gpmStatus?.port}
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                               <Tooltip>
@@ -1430,16 +1652,16 @@ function AccountsPageContent() {
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      handleStartGpm(acc.gpmProfileId);
+                                      handleStartGpm(acc.gpmProfileId, acc.gpmPort || gpmStatus?.port);
                                     }}
-                                    disabled={startGpmMutation.isPending}
+                                    disabled={startingGpmId === acc.gpmProfileId || startGpmMutation.isPending}
                                     className="p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
-                                    aria-label="Mở trình duyệt GPM"
+                                    aria-label={`Mở trình duyệt GPM (cổng ${acc.gpmPort || gpmStatus?.port || "auto"})`}
                                   >
-                                    <Play className="w-3 h-3" />
+                                    <Play className={`w-3 h-3 ${startingGpmId === acc.gpmProfileId ? "animate-pulse text-pink-500" : ""}`} />
                                   </button>
                                 </TooltipTrigger>
-                                <TooltipContent side="top">Mở trình duyệt GPMLogin</TooltipContent>
+                                <TooltipContent side="top">Mở trình duyệt GPMLogin (cổng {acc.gpmPort || gpmStatus?.port || "auto"})</TooltipContent>
                               </Tooltip>
                             </div>
                           </div>
@@ -1482,14 +1704,43 @@ function AccountsPageContent() {
                               {acc.totalVideos || 0}
                             </div>
                           </div>
-                          <div className="p-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40">
-                            <div className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                              <DollarSign className="w-3 h-3" /> Doanh thu
-                            </div>
-                            <div className="font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 truncate">
-                              ${Number(acc.totalRevenue || 0).toFixed(2)}
-                            </div>
-                          </div>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="p-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40 cursor-help">
+                                <div className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                  <DollarSign className="w-3 h-3" /> Doanh thu
+                                </div>
+                                <div className="font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 truncate">
+                                  ${Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0).toFixed(2)}
+                                </div>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
+                              <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1 flex items-center gap-1">
+                                <span>Doanh Thu TikTok Studio</span>
+                              </div>
+                              <div className="flex justify-between gap-4 text-[11px]">
+                                <span className="text-slate-400">7 ngày:</span>
+                                <span className="font-semibold text-cyan-300">${Number((acc as any).analytics?.revenue7d ?? 0).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between gap-4 text-[11px]">
+                                <span className="text-slate-400">28 ngày:</span>
+                                <span className="font-semibold text-purple-300">${Number((acc as any).analytics?.revenue28d ?? 0).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between gap-4 text-[11px]">
+                                <span className="text-slate-400">60 ngày:</span>
+                                <span className="font-semibold text-indigo-300">${Number((acc as any).analytics?.revenue60d ?? 0).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between gap-4 text-[11px]">
+                                <span className="text-slate-400">365 ngày:</span>
+                                <span className="font-semibold text-amber-300">${Number((acc as any).analytics?.revenue365d ?? 0).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
+                                <span className="text-slate-300">Toàn bộ:</span>
+                                <span className="text-emerald-400">${Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0).toFixed(2)}</span>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
                       </div>
 
@@ -1497,29 +1748,38 @@ function AccountsPageContent() {
                       <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
                         <span className="text-xs text-slate-400 shrink-0">Phụ trách:</span>
                         <div className="flex items-center gap-1 min-w-0 flex-1 justify-end">
-                          <Select
-                            value={acc.assignedUserId || "UNASSIGNED"}
-                            onValueChange={(val) =>
-                              handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)
-                            }
-                            disabled={!!acc.isAssignmentLocked && !isLeadOrAdmin}
-                          >
-                            <SelectTrigger className="h-6.5 px-2 text-xs font-normal rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer max-w-[140px]">
-                              <SelectValue placeholder="-- Chưa gán --">
-                                <span className="truncate">{getAssigneeLabel(acc)}</span>
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
-                              <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
-                                -- Chưa gán --
-                              </SelectItem>
-                              {users.map((u: any) => (
-                                <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
-                                  {u.fullName}
+                          {isLeadOrAdmin ? (
+                            <Select
+                              value={acc.assignedUserId || "UNASSIGNED"}
+                              onValueChange={(val) =>
+                                handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)
+                              }
+                              disabled={!!acc.isAssignmentLocked}
+                            >
+                              <SelectTrigger className="h-6.5 px-2 text-xs font-normal rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer max-w-[140px]">
+                                <SelectValue placeholder="-- Chưa gán --">
+                                  <span className="truncate">{getAssigneeLabel(acc)}</span>
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
+                                <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
+                                  -- Chưa gán --
                                 </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                                {users.map((u: any) => (
+                                  <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
+                                    {u.fullName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span
+                              className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[140px]"
+                              title={getAssigneeLabel(acc)}
+                            >
+                              {getAssigneeLabel(acc)}
+                            </span>
+                          )}
                           {isLeadOrAdmin ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -1532,11 +1792,10 @@ function AccountsPageContent() {
                                     })
                                   }
                                   disabled={toggleLockMutation.isPending}
-                                  className={`shrink-0 p-1 rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${
-                                    acc.isAssignmentLocked
+                                  className={`shrink-0 p-1 rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${acc.isAssignmentLocked
                                       ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
                                       : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-                                  }`}
+                                    }`}
                                   aria-label={
                                     acc.isAssignmentLocked
                                       ? "Mở khóa phân công"
@@ -1599,15 +1858,15 @@ function AccountsPageContent() {
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
-                                onClick={() => handleStartGpm(acc.gpmProfileId)}
-                                disabled={startGpmMutation.isPending}
+                                onClick={() => handleStartGpm(acc.gpmProfileId, acc.gpmPort || gpmStatus?.port)}
+                                disabled={startingGpmId === acc.gpmProfileId || startGpmMutation.isPending}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                                aria-label="Khởi chạy Profile GPM"
+                                aria-label={`Khởi chạy Profile GPM (cổng ${acc.gpmPort || gpmStatus?.port || "auto"})`}
                               >
-                                <Play className="w-2.5 h-2.5" /> GPM
+                                <Play className={`w-2.5 h-2.5 ${startingGpmId === acc.gpmProfileId ? "animate-pulse" : ""}`} /> {startingGpmId === acc.gpmProfileId ? "Đang mở..." : "GPM"}
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent side="top">Khởi chạy Profile GPMLogin</TooltipContent>
+                            <TooltipContent side="top">Khởi chạy Profile GPMLogin (cổng {acc.gpmPort || gpmStatus?.port || "auto"})</TooltipContent>
                           </Tooltip>
                         )}
                       </div>
@@ -1777,9 +2036,8 @@ function AccountsPageContent() {
                         return (
                           <tr
                             key={acc.id}
-                            className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 group ${
-                              isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""
-                            }`}
+                            className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 group ${isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""
+                              }`}
                           >
                             {/* Checkbox Row (Frozen Left) */}
                             <td className={`py-3.5 px-4 sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
@@ -1793,12 +2051,15 @@ function AccountsPageContent() {
                             {/* Username & Group (Frozen Left, Locked) */}
                             {visibleColumns.username && (
                               <td className={`px-5 py-3.5 sticky left-10 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]`}>
-                                <Link
-                                  href={`/accounts/${acc.id}`}
-                                  className="font-bold text-slate-900 dark:text-slate-100 hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors flex items-center gap-1.5"
-                                >
-                                  <span>@{acc.username}</span>
-                                </Link>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <Link
+                                    href={`/accounts/${acc.id}`}
+                                    className="font-bold text-slate-900 dark:text-slate-100 hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors flex items-center gap-1.5"
+                                  >
+                                    <span>@{acc.username}</span>
+                                  </Link>
+                                  <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" />
+                                </div>
                                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                                   <span>{acc.groupName || "Chưa phân nhóm"}</span>
                                 </div>
@@ -1816,6 +2077,25 @@ function AccountsPageContent() {
                                     >
                                       {acc.gpmProfileId}
                                     </span>
+                                    {(acc.gpmPort || gpmStatus?.port) && (
+                                      <span className="px-1 rounded text-[10px] font-mono font-bold bg-cyan-100/80 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-300 border border-cyan-300/40 dark:border-cyan-700/40" title={`Cổng API: ${acc.gpmPort || gpmStatus?.port}`}>
+                                        :{acc.gpmPort || gpmStatus?.port}
+                                      </span>
+                                    )}
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleStartGpm(acc.gpmProfileId, acc.gpmPort || gpmStatus?.port)}
+                                          disabled={startingGpmId === acc.gpmProfileId || startGpmMutation.isPending}
+                                          className="p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                          aria-label={`Mở GPM (cổng ${acc.gpmPort || gpmStatus?.port || "auto"})`}
+                                        >
+                                          <Play className={`w-3 h-3 ${startingGpmId === acc.gpmProfileId ? "animate-pulse text-pink-500" : ""}`} />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">Mở profile GPM (cổng {acc.gpmPort || gpmStatus?.port || "auto"})</TooltipContent>
+                                    </Tooltip>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
                                         <button
@@ -1882,29 +2162,38 @@ function AccountsPageContent() {
                             {visibleColumns.assignedUser && (
                               <td className="px-4 py-3.5 whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
-                                  <Select
-                                    value={acc.assignedUserId || "UNASSIGNED"}
-                                    onValueChange={(val) =>
-                                      handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)
-                                    }
-                                    disabled={!!acc.isAssignmentLocked && !isLeadOrAdmin}
-                                  >
-                                    <SelectTrigger className="h-7.5 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                                      <SelectValue placeholder="-- Chưa gán --">
-                                        <span className="truncate">{getAssigneeLabel(acc)}</span>
-                                      </SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
-                                      <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
-                                        -- Chưa gán --
-                                      </SelectItem>
-                                      {users.map((u: any) => (
-                                        <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
-                                          {u.fullName}
+                                  {isLeadOrAdmin ? (
+                                    <Select
+                                      value={acc.assignedUserId || "UNASSIGNED"}
+                                      onValueChange={(val) =>
+                                        handleAssignUser(acc.id, val === "UNASSIGNED" ? "" : val)
+                                      }
+                                      disabled={!!acc.isAssignmentLocked}
+                                    >
+                                      <SelectTrigger className="h-7.5 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                        <SelectValue placeholder="-- Chưa gán --">
+                                          <span className="truncate">{getAssigneeLabel(acc)}</span>
+                                        </SelectValue>
+                                      </SelectTrigger>
+                                      <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
+                                        <SelectItem value="UNASSIGNED" className="text-xs font-normal cursor-pointer text-slate-400">
+                                          -- Chưa gán --
                                         </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                        {users.map((u: any) => (
+                                          <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
+                                            {u.fullName}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <span
+                                      className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-36 block"
+                                      title={getAssigneeLabel(acc)}
+                                    >
+                                      {getAssigneeLabel(acc)}
+                                    </span>
+                                  )}
                                   {isLeadOrAdmin ? (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -1917,11 +2206,10 @@ function AccountsPageContent() {
                                             })
                                           }
                                           disabled={toggleLockMutation.isPending}
-                                          className={`shrink-0 p-1.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${
-                                            acc.isAssignmentLocked
+                                          className={`shrink-0 p-1.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${acc.isAssignmentLocked
                                               ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
                                               : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-                                          }`}
+                                            }`}
                                           aria-label={
                                             acc.isAssignmentLocked
                                               ? "Mở khóa phân công"
@@ -1977,7 +2265,38 @@ function AccountsPageContent() {
                             {/* Total Revenue */}
                             {visibleColumns.totalRevenue && (
                               <td className="px-4 py-3.5 whitespace-nowrap font-bold text-emerald-600 dark:text-emerald-400">
-                                ${Number(acc.totalRevenue || 0).toFixed(2)}
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="cursor-help border-b border-dotted border-emerald-500/40">
+                                      ${Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0).toFixed(2)}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
+                                    <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1">
+                                      Doanh Thu TikTok Studio
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">7 ngày:</span>
+                                      <span className="font-semibold text-cyan-300">${Number((acc as any).analytics?.revenue7d ?? 0).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">28 ngày:</span>
+                                      <span className="font-semibold text-purple-300">${Number((acc as any).analytics?.revenue28d ?? 0).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">60 ngày:</span>
+                                      <span className="font-semibold text-indigo-300">${Number((acc as any).analytics?.revenue60d ?? 0).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">365 ngày:</span>
+                                      <span className="font-semibold text-amber-300">${Number((acc as any).analytics?.revenue365d ?? 0).toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
+                                      <span className="text-slate-300">Toàn bộ:</span>
+                                      <span className="text-emerald-400">${Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0).toFixed(2)}</span>
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
                               </td>
                             )}
 
@@ -2031,7 +2350,7 @@ function AccountsPageContent() {
                                       <DropdownMenuItem asChild>
                                         <Link
                                           href={`/accounts/${acc.id}`}
-                                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                         >
                                           <Eye className="w-3.5 h-3.5 text-slate-400" />
                                           <span>Xem chi tiết</span>
@@ -2041,7 +2360,7 @@ function AccountsPageContent() {
                                       <DropdownMenuItem
                                         onClick={() => syncMutation.mutate({ accountId: acc.id })}
                                         disabled={syncMutation.isPending}
-                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                       >
                                         <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                                         <span>Đồng bộ số liệu</span>
@@ -2049,7 +2368,7 @@ function AccountsPageContent() {
 
                                       <DropdownMenuItem
                                         onClick={() => handleOpenLogs(acc)}
-                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                       >
                                         <History className="w-3.5 h-3.5 text-slate-400" />
                                         <span>Lịch sử hoạt động</span>
@@ -2057,7 +2376,7 @@ function AccountsPageContent() {
 
                                       <DropdownMenuItem
                                         onClick={() => handleOpenEdit(acc)}
-                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                       >
                                         <Pencil className="w-3.5 h-3.5 text-slate-400" />
                                         <span>Chỉnh sửa thông tin</span>
@@ -2070,7 +2389,7 @@ function AccountsPageContent() {
                                           setAccountToDelete(acc);
                                           setIsDeleteOpen(true);
                                         }}
-                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
                                       >
                                         <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                                         <span>Xóa tài khoản</span>
@@ -2129,12 +2448,14 @@ function AccountsPageContent() {
             <span>Đổi trạng thái</span>
           </button>
 
-          <button
-            onClick={() => setIsBulkAssignOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
-          >
-            <span>Gán nhân sự</span>
-          </button>
+          {isLeadOrAdmin && (
+            <button
+              onClick={() => setIsBulkAssignOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
+            >
+              <span>Gán nhân sự</span>
+            </button>
+          )}
 
           <button
             onClick={() => setIsBulkDeleteOpen(true)}
@@ -2187,12 +2508,12 @@ function AccountsPageContent() {
                     <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white cursor-pointer">
                       <SelectValue placeholder="Chọn quốc gia" />
                     </SelectTrigger>
-                    <SelectContent className="rounded-2xl">
-                      <SelectItem value="US" className="text-xs cursor-pointer">🇺🇸 US (Mỹ)</SelectItem>
-                      <SelectItem value="UK" className="text-xs cursor-pointer">🇬🇧 UK (Anh)</SelectItem>
-                      <SelectItem value="VN" className="text-xs cursor-pointer">🇻🇳 VN (Việt Nam)</SelectItem>
-                      <SelectItem value="DE" className="text-xs cursor-pointer">🇩🇪 DE (Đức)</SelectItem>
-                      <SelectItem value="FR" className="text-xs cursor-pointer">🇫🇷 FR (Pháp)</SelectItem>
+                    <SelectContent className="rounded-2xl max-h-60">
+                      {COUNTRY_OPTIONS.map((c) => (
+                        <SelectItem key={c.value} value={c.value} className="text-xs cursor-pointer">
+                          {c.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2294,12 +2615,17 @@ function AccountsPageContent() {
                     <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white cursor-pointer">
                       <SelectValue placeholder="Chọn quốc gia" />
                     </SelectTrigger>
-                    <SelectContent className="rounded-2xl">
-                      <SelectItem value="US" className="text-xs cursor-pointer">🇺🇸 US (Mỹ)</SelectItem>
-                      <SelectItem value="UK" className="text-xs cursor-pointer">🇬🇧 UK (Anh)</SelectItem>
-                      <SelectItem value="VN" className="text-xs cursor-pointer">🇻🇳 VN (Việt Nam)</SelectItem>
-                      <SelectItem value="DE" className="text-xs cursor-pointer">🇩🇪 DE (Đức)</SelectItem>
-                      <SelectItem value="FR" className="text-xs cursor-pointer">🇫🇷 FR (Pháp)</SelectItem>
+                    <SelectContent className="rounded-2xl max-h-60">
+                      {COUNTRY_OPTIONS.map((c) => (
+                        <SelectItem key={c.value} value={c.value} className="text-xs cursor-pointer">
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                      {!COUNTRY_OPTIONS.some((c) => c.value === editCountry) && editCountry && (
+                        <SelectItem value={editCountry} className="text-xs cursor-pointer">
+                          🌐 {editCountry}
+                        </SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2331,26 +2657,28 @@ function AccountsPageContent() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Phân Công Nhân Sự
-                </label>
-                <Select value={editAssignedUser || "UNASSIGNED"} onValueChange={(val) => setEditAssignedUser(val === "UNASSIGNED" ? "" : val)}>
-                  <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white cursor-pointer">
-                    <SelectValue placeholder="-- Chưa phân công --" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-2xl max-h-60">
-                    <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
-                      -- Chưa phân công --
-                    </SelectItem>
-                    {users.map((u: any) => (
-                      <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                        {u.fullName} ({u.role})
+              {isLeadOrAdmin && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Phân Công Nhân Sự
+                  </label>
+                  <Select value={editAssignedUser || "UNASSIGNED"} onValueChange={(val) => setEditAssignedUser(val === "UNASSIGNED" ? "" : val)}>
+                    <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white cursor-pointer">
+                      <SelectValue placeholder="-- Chưa phân công --" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl max-h-60">
+                      <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
+                        -- Chưa phân công --
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                      {users.map((u: any) => (
+                        <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                          {u.fullName} ({u.role})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
@@ -2524,7 +2852,7 @@ function AccountsPageContent() {
       )}
 
       {/* Modal: Bulk Assign Staff */}
-      {isBulkAssignOpen && (
+      {isBulkAssignOpen && isLeadOrAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
             <h3 className="text-base font-bold text-slate-900 dark:text-white">
@@ -2561,8 +2889,12 @@ function AccountsPageContent() {
               </button>
               <button
                 type="button"
-                disabled={bulkAssignMutation.isPending}
+                disabled={bulkAssignMutation.isPending || !isLeadOrAdmin}
                 onClick={() => {
+                  if (!isLeadOrAdmin) {
+                    alert("Chỉ Quản trị viên và Quản lý mới có quyền phân công nhân sự.");
+                    return;
+                  }
                   bulkAssignMutation.mutate({
                     ids: Array.from(selectedIds),
                     assignedUserId: bulkAssignUserVal || null,
@@ -2595,8 +2927,13 @@ function AccountsPageContent() {
             </div>
 
             <div className="max-h-80 overflow-y-auto space-y-2 pr-1 text-xs">
-              {selectedAccount.logs && selectedAccount.logs.length > 0 ? (
-                selectedAccount.logs.map((log: any) => (
+              {isLogsLoading ? (
+                <div className="py-8 flex flex-col items-center justify-center text-slate-400 gap-2">
+                  <RefreshCw className="w-5 h-5 animate-spin text-pink-500" />
+                  <span>Đang tải lịch sử hoạt động...</span>
+                </div>
+              ) : accountLogs && accountLogs.length > 0 ? (
+                accountLogs.map((log: any) => (
                   <div
                     key={log.id}
                     className="p-3 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1"

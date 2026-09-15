@@ -6,7 +6,6 @@ import {
   getClientIp,
   resolveExtensionBearerAuth,
 } from "@/lib/extension-auth";
-import { resolveGpmProfileByUsername } from "@/lib/tiktok-extractor";
 
 export interface VideoItemMetric {
   id?: string;
@@ -204,11 +203,14 @@ export async function POST(req: Request) {
     let gpmMatchedVia: string | null = resolvedGpmProfileId ? "client" : null;
 
     if (!resolvedGpmProfileId) {
-      const diskMatch = resolveGpmProfileByUsername(cleanUsername);
-      if (diskMatch) {
-        resolvedGpmProfileId = diskMatch.id;
-        resolvedGpmProfileName = diskMatch.name || resolvedGpmProfileName;
-        gpmMatchedVia = `disk:${diskMatch.matchedVia}`;
+      const existingAccount = await prisma.tiktokAccount.findUnique({
+        where: { username: cleanUsername },
+        select: { gpmProfileId: true, gpmProfileName: true },
+      });
+      if (existingAccount?.gpmProfileId) {
+        resolvedGpmProfileId = existingAccount.gpmProfileId;
+        resolvedGpmProfileName = existingAccount.gpmProfileName || resolvedGpmProfileName;
+        gpmMatchedVia = "db:matched";
       }
     }
 

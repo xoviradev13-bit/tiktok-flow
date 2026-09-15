@@ -291,6 +291,72 @@ export function findTikTokHandleInProfile(profileId: string): string | null {
 }
 
 /**
+ * Quick check whether a GPM profile has opened or used TikTok
+ * (via History or Cookies) so newly created / existing TikTok profiles are recognized.
+ */
+export function hasTikTokPresenceInProfile(profileId: string): boolean {
+  try {
+    if (!isValidGpmProfileId(profileId)) return false;
+    const storagePath = getGpmStoragePath();
+    const profileDir = path.join(storagePath, profileId, "Default");
+    if (!fs.existsSync(profileDir)) return false;
+
+    const cookiesPath = path.join(profileDir, "Network", "Cookies");
+    if (fs.existsSync(cookiesPath)) {
+      try {
+        const c = fs.readFileSync(cookiesPath).toString("latin1");
+        if (c.includes("tiktok.com") || c.includes("sessionid")) return true;
+      } catch {}
+    }
+
+    const historyPath = path.join(profileDir, "History");
+    if (fs.existsSync(historyPath)) {
+      try {
+        const h = fs.readFileSync(historyPath).toString("latin1");
+        if (h.includes("tiktok.com")) return true;
+      } catch {}
+    }
+  } catch {}
+  return false;
+}
+
+/**
+ * Checks if the GPM profile has a live TikTok sessionid cookie on disk.
+ */
+export function hasSessionCookieInProfile(profileId: string): boolean {
+  try {
+    if (!isValidGpmProfileId(profileId)) return false;
+    const storagePath = getGpmStoragePath();
+    const cookiesPath = path.join(storagePath, profileId, "Default", "Network", "Cookies");
+    if (fs.existsSync(cookiesPath)) {
+      const c = fs.readFileSync(cookiesPath).toString("latin1");
+      return c.includes("sessionid");
+    }
+  } catch {}
+  return false;
+}
+
+/**
+ * Detect country for a GPM profile using the same resolution rules as the Extension:
+ * 1. Checks profile name / group hints
+ * 2. Checks browser preferences (intl.selected_languages)
+ * 3. Checks store-country-code in cookies
+ * 4. Defaults to Vietnam (never unconfirmed US)
+/**
+ * Detect country for a GPM profile strictly from TikTok data:
+ * - Never guesses from browser language (intl.selected_languages) or profile names.
+ * - Under Option A, offline profile scanning does not guess country.
+ * - Live account country is populated by the Extension via TikTok Passport / store-country-code.
+ */
+export function detectCountryFromGpmProfile(
+  profileId: string,
+  profileName?: string | null,
+  groupId?: string | null
+): string | null {
+  return null;
+}
+
+/**
  * Read raw artifact blob for a GPM profile (History + LevelDB + Preferences).
  */
 function readGpmProfileArtifactBlob(profileId: string): string {
@@ -1200,7 +1266,8 @@ export async function fetchTikTokStudioFullData(
           if (el.children.length === 0) {
             const parent = el.parentElement;
             if (parent) {
-              const lines = parent.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+              const rawText = parent.innerText || parent.textContent || "";
+              const lines = rawText.split("\n").map((l) => l.trim()).filter(Boolean);
               const findNear = (variants: string[]) => {
                 const idx = lines.findIndex((l) => variants.includes(l.toLowerCase()));
                 if (idx !== -1) {
@@ -1358,7 +1425,8 @@ export async function fetchTikTokStudioFullData(
           if (el.children.length === 0 && viewsVariants.includes(text)) {
             const parent = el.parentElement;
             if (parent) {
-              const lines = parent.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+              const rawText = parent.innerText || parent.textContent || "";
+              const lines = rawText.split("\n").map((l) => l.trim()).filter(Boolean);
               const idx = lines.findIndex((l) => viewsVariants.includes(l.toLowerCase()));
               if (idx !== -1 && lines[idx + 1]) {
                 return parseUniversalNum(lines[idx + 1]);

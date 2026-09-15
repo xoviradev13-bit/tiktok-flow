@@ -207,6 +207,7 @@ export const analyticsRouter = router({
             where: { status: "OPEN" },
             select: { id: true, alertType: true, severity: true },
           },
+          analytics: true,
         },
       });
 
@@ -312,24 +313,89 @@ export const analyticsRouter = router({
           : Promise.resolve([]),
       ]);
 
+      // Merge daily breakdown from AccountAnalytics JSON
+      const existingDailyKeys = new Set(
+        currentDailyRevenues.map((r) => `${r.accountId}_${formatDateKey(r.date)}`)
+      );
+
+      const combinedDailyRevenues: Array<{
+        accountId: string;
+        date: Date;
+        revenue: number;
+        views: number;
+        sourceType?: string;
+        account?: { username: string; country: string | null };
+      }> = currentDailyRevenues.map((r) => ({
+        accountId: r.accountId,
+        date: r.date,
+        revenue: Number(r.revenue || 0),
+        views: Number(r.views || 0),
+        sourceType: r.sourceType,
+        account: r.account,
+      }));
+
+      for (const a of accounts) {
+        const breakdown = ((a as any).analytics?.dailyBreakdown as any[]) || [];
+        for (const item of breakdown) {
+          if (!item.date) continue;
+          const dStr = item.date;
+          if (currStart && !isAllTime) {
+            const dObj = parseDateOnly(dStr);
+            if (dObj < currStart || dObj > currEnd) continue;
+          }
+          const key = `${a.id}_${dStr}`;
+          if (!existingDailyKeys.has(key)) {
+            existingDailyKeys.add(key);
+            combinedDailyRevenues.push({
+              accountId: a.id,
+              date: parseDateOnly(dStr),
+              revenue: Number(item.revenue || 0),
+              views: Number(item.views || 0),
+              sourceType: "CREATOR_REWARDS",
+              account: { username: a.username, country: a.country },
+            });
+          }
+        }
+      }
+
       // ================= AGGREGATIONS & METRICS =================
       let currTotalRev = 0;
       let currTotalViews = 0;
-      for (const r of currentDailyRevenues) {
+      for (const r of combinedDailyRevenues) {
         currTotalRev += Number(r.revenue || 0);
         currTotalViews += Number(r.views || 0);
       }
 
-      // If "ALL" time and daily revenue table is sparse, fall back to account level totals if higher
-      if (isAllTime) {
-        let accRevSum = 0;
-        let accViewsSum = 0;
-        for (const a of accounts) {
-          accRevSum += Number(a.totalRevenue || 0);
-          accViewsSum += Number(a.totalViews || 0);
-        }
-        if (accRevSum > currTotalRev) currTotalRev = accRevSum;
-        if (accViewsSum > currTotalViews) currTotalViews = accViewsSum;
+      // Check direct preset analytics numbers from accounts if matching
+      let presetRev = 0;
+      let presetViews = 0;
+      let hasPresetMetrics = false;
+
+      if (input.period === "7D") {
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.revenue7d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.views7d ?? 0), 0);
+        hasPresetMetrics = presetRev > 0 || presetViews > 0;
+      } else if (input.period === "28D" || input.period === "30D") {
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.revenue28d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.views28d ?? 0), 0);
+        hasPresetMetrics = presetRev > 0 || presetViews > 0;
+      } else if (input.period === "60D") {
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.revenue60d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.views60d ?? 0), 0);
+        hasPresetMetrics = presetRev > 0 || presetViews > 0;
+      } else if (input.period === "365D") {
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.revenue365d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.views365d ?? 0), 0);
+        hasPresetMetrics = presetRev > 0 || presetViews > 0;
+      } else if (isAllTime) {
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.totalRevenue ?? a.totalRevenue ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number(a.totalViews ?? 0), 0);
+        hasPresetMetrics = true;
+      }
+
+      if (hasPresetMetrics) {
+        if (presetRev > currTotalRev) currTotalRev = presetRev;
+        if (presetViews > currTotalViews) currTotalViews = presetViews;
       }
 
       let prevTotalRev = 0;
@@ -402,7 +468,7 @@ export const analyticsRouter = router({
       >();
 
       // Populate revenue time-series
-      for (const rec of currentDailyRevenues) {
+      for (const rec of combinedDailyRevenues) {
         const dStr = formatDateKey(rec.date);
         const item = timeSeriesMap.get(dStr) || {
           date: dStr,
@@ -507,7 +573,7 @@ export const analyticsRouter = router({
         entry.accountsCount += 1;
         countryMap.set(c, entry);
       }
-      for (const rec of currentDailyRevenues) {
+      for (const rec of combinedDailyRevenues) {
         const c = rec.account?.country || "OTHER";
         const entry = countryMap.get(c);
         if (entry) {
@@ -525,7 +591,7 @@ export const analyticsRouter = router({
 
       // 3. Revenue Source Breakdown
       const sourceMap = new Map<string, { source: string; revenue: number; views: number }>();
-      for (const rec of currentDailyRevenues) {
+      for (const rec of combinedDailyRevenues) {
         const src = rec.sourceType || "CREATOR_REWARDS";
         const entry = sourceMap.get(src) || { source: src, revenue: 0, views: 0 };
         entry.revenue += Number(rec.revenue || 0);
@@ -541,11 +607,37 @@ export const analyticsRouter = router({
       // ================= TOP & ATTENTION-NEEDED ACCOUNTS =================
       // Calculate period revenue per account
       const accountRevenueMap = new Map<string, { revenue: number; views: number }>();
-      for (const r of currentDailyRevenues) {
+      for (const r of combinedDailyRevenues) {
         const existing = accountRevenueMap.get(r.accountId) || { revenue: 0, views: 0 };
         existing.revenue += Number(r.revenue || 0);
         existing.views += Number(r.views || 0);
         accountRevenueMap.set(r.accountId, existing);
+      }
+
+      // Factor in direct preset metrics per account if applicable
+      for (const a of accounts) {
+        const existing = accountRevenueMap.get(a.id) || { revenue: 0, views: 0 };
+        let directRev = 0;
+        let directViews = 0;
+        if (input.period === "7D") {
+          directRev = Number((a as any).analytics?.revenue7d ?? 0);
+          directViews = Number((a as any).analytics?.views7d ?? 0);
+        } else if (input.period === "28D" || input.period === "30D") {
+          directRev = Number((a as any).analytics?.revenue28d ?? 0);
+          directViews = Number((a as any).analytics?.views28d ?? 0);
+        } else if (input.period === "60D") {
+          directRev = Number((a as any).analytics?.revenue60d ?? 0);
+          directViews = Number((a as any).analytics?.views60d ?? 0);
+        } else if (input.period === "365D") {
+          directRev = Number((a as any).analytics?.revenue365d ?? 0);
+          directViews = Number((a as any).analytics?.views365d ?? 0);
+        } else if (isAllTime) {
+          directRev = Number((a as any).analytics?.totalRevenue ?? a.totalRevenue ?? 0);
+          directViews = Number(a.totalViews ?? 0);
+        }
+        if (directRev > existing.revenue) existing.revenue = directRev;
+        if (directViews > existing.views) existing.views = directViews;
+        accountRevenueMap.set(a.id, existing);
       }
 
       const enrichedAccounts = accounts.map((a) => {

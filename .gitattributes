@@ -1,0 +1,3 @@
+# Windows batch files must use CRLF or cmd.exe eats the first character of each line.
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -44,17 +44,22 @@ export default function Sidebar() {
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
 
   useEffect(() => {
-    // Check GPM API status (auto-detected port)
-    fetch("/api/gpm/scan")
-      .then((r) => r.json())
-      .then((data) => {
-        setGpmOnline(!!data?.isOnline);
-        setGpmPort(typeof data?.port === "number" ? data.port : null);
-      })
-      .catch(() => {
-        setGpmOnline(false);
-        setGpmPort(null);
-      });
+    // Check GPM API status (auto-detected port from DB / Agent)
+    const checkGpm = () => {
+      fetch("/api/gpm/scan")
+        .then((r) => r.json())
+        .then((data) => {
+          setGpmOnline(!!data?.isOnline);
+          setGpmPort(typeof data?.port === "number" ? data.port : null);
+        })
+        .catch(() => {
+          setGpmOnline(false);
+          setGpmPort(null);
+        });
+    };
+    checkGpm();
+    const interval = setInterval(checkGpm, 20000);
+    return () => clearInterval(interval);
   }, []);
 
   // Close mobile drawer on route change
@@ -84,7 +89,6 @@ export default function Sidebar() {
       items: [
         { href: "/analytics", label: "Trung Tâm Phân Tích", icon: LineChart },
         { href: "/accounts", label: "Dàn Account", icon: Users },
-        { href: "/gpm", label: "GPMLogin Fleet", icon: Bot, badge: gpmOnline ? "Online" : undefined },
         { href: "/checklist", label: "Checklist Chấm Công", icon: CheckSquare },
         { href: "/revenue", label: "Doanh Thu", icon: BarChart3 },
         { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
@@ -210,30 +214,32 @@ export default function Sidebar() {
           </button>
         </div>
 
-        {/* Collapsed Expand Quick Button under header on Desktop */}
-        {isCollapsed && (
-          <div className="hidden lg:flex justify-center pt-2 pb-1 border-b border-slate-100 dark:border-slate-800/60">
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={toggleSidebar}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-pink-500 dark:hover:text-pink-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all cursor-pointer"
-                  aria-label="Mở rộng sidebar"
-                >
-                  <PanelLeftOpen className="w-4 h-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Mở rộng Sidebar</TooltipContent>
-            </Tooltip>
-          </div>
-        )}
-
         {/* Navigation Menu (Scrollable) */}
         <div
-          className={`flex-1 overflow-y-auto py-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 px-3.5 ${
+          className={`flex-1 overflow-y-auto py-3 space-y-5 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 px-3.5 ${
             isCollapsed ? "lg:px-2" : "lg:px-3.5"
           }`}
         >
+          {/* Collapsed Expand Quick Button inside the list on Desktop */}
+          {isCollapsed && (
+            <div className="hidden lg:block pb-2 mb-2 border-b border-slate-100 dark:border-slate-800/60 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs z-10">
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={toggleSidebar}
+                    className="w-10 h-10 mx-auto flex items-center justify-center rounded-xl text-slate-400 hover:text-pink-500 dark:hover:text-pink-400 hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-all cursor-pointer"
+                    aria-label="Mở rộng sidebar"
+                  >
+                    <PanelLeftOpen className="w-4 h-4 shrink-0" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="font-semibold text-xs">
+                  Mở rộng Sidebar
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+
           {filteredNavGroups.map((group, gIdx) => (
             <div key={gIdx} className="space-y-1.5">
               <div
@@ -328,13 +334,19 @@ export default function Sidebar() {
                 className={`w-2 h-2 rounded-full ${
                   gpmOnline
                     ? "bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500"
-                    : "bg-emerald-500"
+                    : "bg-slate-400 dark:bg-slate-600"
                 }`}
               />
               <span>GPMLogin API{gpmPort ? ` (${gpmPort})` : ""}</span>
             </div>
-            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-              Online
+            <span
+              className={`text-xs font-semibold ${
+                gpmOnline
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-slate-400 dark:text-slate-500"
+              }`}
+            >
+              {gpmOnline ? "Online" : "Offline"}
             </span>
           </div>
 
@@ -347,7 +359,7 @@ export default function Sidebar() {
                       className={`w-2.5 h-2.5 rounded-full ${
                         gpmOnline
                           ? "bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500"
-                          : "bg-emerald-500"
+                          : "bg-slate-400 dark:bg-slate-600"
                       }`}
                     />
                   </div>

@@ -23,7 +23,7 @@ export const LEGACY_EXTENSION_PERSONAL_TOKEN_SUNSET =
 export const EXT_ACCESS_TYP = "ext_access" as const;
 export const ACCESS_TOKEN_TTL_SEC = 15 * 60; // 15 minutes
 export const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-export const PAIRING_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+export const PAIRING_CODE_TTL_MS = 24 * 60 * 60 * 1000; // 24h first-redeem window; used codes kept longer for rebootstrap
 export const REFRESH_PII_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 export const AUTH_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
@@ -473,7 +473,7 @@ export async function rotateRefreshToken(
   opts: { ip?: string; userAgent?: string }
 ): Promise<
   | { ok: true; accessToken: string; expiresIn: number; refreshToken: string; userId: string }
-  | { ok: false; status: 401; reuseDetected?: boolean; error: string }
+  | { ok: false; status: 401 | 409; reuseDetected?: boolean; error: string }
 > {
   const tokenHash = hashOpaqueToken(rawRefresh);
   const existing = await prisma.extensionRefreshToken.findUnique({
@@ -496,22 +496,15 @@ export async function rotateRefreshToken(
     return { ok: false, status: 401, error: "Refresh token không hợp lệ." };
   }
 
-  // Reuse of a rotated-away token (has successor) → theft signal.
-  // killAll-revoked tokens without replacedById are plain 401 (not reuse).
+  // Reuse of a rotated-away token — soft-fail only (do NOT killAll).
+  // Multi-profile fleets false-trigger reuse under concurrent refresh and
+  // killAll + Prisma contention takes down every profile on the machine.
   if (existing.replacedById) {
-    await killAllExtensionSessions(existing.userId, "REFRESH_REUSE_DETECTED");
-    await notifyExtensionAuthIncident("REFRESH_REUSE_DETECTED", {
-      userId: existing.userId,
-      userEmail: existing.user.email,
-      familyId: existing.familyId,
-      ip: opts.ip,
-      userAgent: opts.userAgent,
-    });
     return {
       ok: false,
       status: 401,
-      reuseDetected: true,
-      error: "Phát hiện tái sử dụng refresh token. Tất cả phiên Extension đã bị hủy.",
+      reuseDetected: false,
+      error: "Refresh token đã được thay thế. Dùng personalToken hoặc đổi phiên lại.",
     };
   }
 
@@ -528,54 +521,50 @@ export async function rotateRefreshToken(
   const newHash = hashOpaqueToken(newPlain);
   const now = new Date();
 
-  const result = await prisma.$transaction(async (tx) => {
-    const successor = await tx.extensionRefreshToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: newHash,
-        familyId: existing.familyId,
-        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
-        issuedIp: opts.ip,
-        issuedUserAgent: opts.userAgent,
-        lastUsedAt: now,
-      },
-    });
+  const result = await prisma.$transaction(
+    async (tx) => {
+      const successor = await tx.extensionRefreshToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: newHash,
+          familyId: existing.familyId,
+          expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+          issuedIp: opts.ip,
+          issuedUserAgent: opts.userAgent,
+          lastUsedAt: now,
+        },
+      });
 
-    const rotated = await tx.extensionRefreshToken.updateMany({
-      where: {
-        id: existing.id,
-        revokedAt: null,
-        replacedById: null,
-      },
-      data: {
-        revokedAt: now,
-        replacedById: successor.id,
-        lastUsedAt: now,
-      },
-    });
+      const rotated = await tx.extensionRefreshToken.updateMany({
+        where: {
+          id: existing.id,
+          revokedAt: null,
+          replacedById: null,
+        },
+        data: {
+          revokedAt: now,
+          replacedById: successor.id,
+          lastUsedAt: now,
+        },
+      });
 
-    if (rotated.count !== 1) {
-      // Concurrent rotation or reuse race → treat as reuse
-      return null;
-    }
+      if (rotated.count !== 1) {
+        // Concurrent rotation or reuse race → treat as reuse
+        return null;
+      }
 
-    return successor;
-  });
+      return successor;
+    },
+    { maxWait: 10_000, timeout: 15_000 }
+  );
 
   if (!result) {
-    await killAllExtensionSessions(user.id, "REFRESH_REUSE_DETECTED");
-    await notifyExtensionAuthIncident("REFRESH_REUSE_DETECTED", {
-      userId: user.id,
-      userEmail: user.email,
-      familyId: existing.familyId,
-      ip: opts.ip,
-      userAgent: opts.userAgent,
-    });
+    // Soft-fail concurrent rotation — do not kill every fleet session.
     return {
       ok: false,
-      status: 401,
-      reuseDetected: true,
-      error: "Phát hiện tái sử dụng refresh token. Tất cả phiên Extension đã bị hủy.",
+      status: 409,
+      reuseDetected: false,
+      error: "Xung đột làm mới phiên. Thử lại hoặc dùng personalToken.",
     };
   }
 
@@ -807,43 +796,453 @@ export async function purgeExpiredExtensionAuthData(): Promise<{
   refreshDeleted: number;
   eventsDeleted: number;
   pairingDeleted: number;
+  attestNoncesDeleted: number;
 }> {
   const now = new Date();
   const refreshCutoff = new Date(now.getTime() - REFRESH_PII_GRACE_MS);
   const eventCutoff = new Date(now.getTime() - AUTH_EVENT_RETENTION_MS);
 
-  const [refreshDeleted, eventsDeleted, pairingDeleted] = await Promise.all([
-    prisma.extensionRefreshToken.deleteMany({
-      where: {
-        OR: [
-          { expiresAt: { lt: refreshCutoff } },
-          {
-            AND: [
-              { revokedAt: { not: null } },
-              { revokedAt: { lt: refreshCutoff } },
-            ],
-          },
-        ],
-      },
-    }),
-    prisma.extensionAuthEvent.deleteMany({
-      where: { createdAt: { lt: eventCutoff } },
-    }),
-    prisma.extensionPairingCode.deleteMany({
-      where: {
-        OR: [
-          { expiresAt: { lt: now } },
-          { usedAt: { not: null, lt: refreshCutoff } },
-        ],
-      },
-    }),
-  ]);
+  const [refreshDeleted, eventsDeleted, pairingDeleted, attestNoncesDeleted] =
+    await Promise.all([
+      prisma.extensionRefreshToken.deleteMany({
+        where: {
+          OR: [
+            { expiresAt: { lt: refreshCutoff } },
+            {
+              AND: [
+                { revokedAt: { not: null } },
+                { revokedAt: { lt: refreshCutoff } },
+              ],
+            },
+          ],
+        },
+      }),
+      prisma.extensionAuthEvent.deleteMany({
+        where: { createdAt: { lt: eventCutoff } },
+      }),
+      prisma.extensionPairingCode.deleteMany({
+        where: {
+          OR: [
+            // Unused codes past expiry only
+            { usedAt: null, expiresAt: { lt: now } },
+            // Used codes kept for multi-profile rebootstrap, then purged after grace
+            { usedAt: { not: null, lt: refreshCutoff } },
+          ],
+        },
+      }),
+      prisma.extensionAttestNonce.deleteMany({
+        where: { expiresAt: { lt: now } },
+      }),
+    ]);
 
   return {
     refreshDeleted: refreshDeleted.count,
     eventsDeleted: eventsDeleted.count,
     pairingDeleted: pairingDeleted.count,
+    attestNoncesDeleted: attestNoncesDeleted.count,
   };
+}
+
+// --- Machine ID binding + Agent HMAC attest ---
+
+export function generateAgentAttestSecret(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+/** Seal arbitrary attest secret (same AES-GCM key as personalToken). Format a1.<iv>.<enc>.<tag> */
+export function sealAgentAttestSecret(plain: string): string {
+  const key = getPersonalTokenCryptoKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `a1.${iv.toString("hex")}.${enc.toString("hex")}.${tag.toString("hex")}`;
+}
+
+export function revealAgentAttestSecret(
+  stored: string | null | undefined
+): string | null {
+  if (!stored || !stored.startsWith("a1.")) return null;
+  const parts = stored.split(".");
+  if (parts.length !== 4) return null;
+  const [, ivHex, encHex, tagHex] = parts;
+  try {
+    const key = getPersonalTokenCryptoKey();
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      key,
+      Buffer.from(ivHex!, "hex")
+    );
+    decipher.setAuthTag(Buffer.from(tagHex!, "hex"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(encHex!, "hex")),
+      decipher.final(),
+    ]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reuse existing sealed secret (default) or mint. Rotate only when rotate=true.
+ * Returns plaintext for Client Agent zip only.
+ */
+export async function ensureAgentAttestSecretPlain(
+  userId: string,
+  opts: { rotate?: boolean } = {},
+  db: DbClient = prisma
+): Promise<string> {
+  if (!opts.rotate) {
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { agentAttestSecretSealed: true },
+    });
+    if (user?.agentAttestSecretSealed) {
+      const plain = revealAgentAttestSecret(user.agentAttestSecretSealed);
+      if (plain) return plain;
+    }
+  }
+  const plain = generateAgentAttestSecret();
+  await db.user.update({
+    where: { id: userId },
+    data: { agentAttestSecretSealed: sealAgentAttestSecret(plain) },
+  });
+  return plain;
+}
+
+export async function writeMachineBindingLog(
+  db: DbClient,
+  entry: {
+    userId: string;
+    action: string;
+    reason?: string | null;
+    machineId?: string | null;
+    machineName?: string | null;
+    osUsername?: string | null;
+    ip?: string | null;
+    actorUserId?: string | null;
+    actorName?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }
+): Promise<void> {
+  await db.machineBindingLog.create({
+    data: {
+      userId: entry.userId,
+      action: entry.action,
+      reason: entry.reason ?? null,
+      machineId: entry.machineId ?? null,
+      machineName: entry.machineName ?? null,
+      osUsername: entry.osUsername ?? null,
+      ip: entry.ip ?? null,
+      actorUserId: entry.actorUserId ?? null,
+      actorName: entry.actorName ?? null,
+      metadata: entry.metadata
+        ? (entry.metadata as Prisma.InputJsonValue)
+        : undefined,
+    },
+  });
+}
+
+export type MachineAttestInput = {
+  machineId?: string | null;
+  machineName?: string | null;
+  osUsername?: string | null;
+  nonce?: string | null;
+  ts?: number | string | null;
+  sig?: string | null;
+};
+
+export type MachineBindResult =
+  | { ok: true }
+  | {
+      ok: false;
+      status: 403 | 429;
+      error: string;
+      reason?: string;
+      retryAfterSec?: number;
+    };
+
+export async function checkAndBindMachine(
+  userId: string,
+  input: MachineAttestInput,
+  meta: {
+    ip?: string;
+    actorName?: string;
+    rlPrefix?: "pair" | "session";
+  } = {},
+  db: DbClient = prisma
+): Promise<MachineBindResult> {
+  const machineId =
+    typeof input.machineId === "string" ? input.machineId.trim() : "";
+  const machineName =
+    typeof input.machineName === "string" ? input.machineName.trim() : "";
+  const osUsername =
+    typeof input.osUsername === "string" ? input.osUsername.trim() : "";
+  const nonce = typeof input.nonce === "string" ? input.nonce.trim() : "";
+  const sig =
+    typeof input.sig === "string" ? input.sig.trim().toLowerCase() : "";
+  const ts = Number(input.ts);
+
+  if (!machineId || !nonce || !sig || !Number.isFinite(ts)) {
+    await writeMachineBindingLog(db, {
+      userId,
+      action: "BIND_REJECTED",
+      reason: "missing_attest",
+      ip: meta.ip,
+    });
+    return {
+      ok: false,
+      status: 403,
+      reason: "missing_attest",
+      error:
+        "Thiếu chứng thực Client Agent (machineId/nonce/ts/sig). Hãy đảm bảo Agent đang chạy (Windows Service) rồi thử lại.",
+    };
+  }
+
+  if (Math.abs(Date.now() - ts) > 120_000) {
+    await writeMachineBindingLog(db, {
+      userId,
+      action: "BIND_REJECTED",
+      reason: "ts_window",
+      machineId,
+      ip: meta.ip,
+    });
+    return {
+      ok: false,
+      status: 403,
+      reason: "ts_window",
+      error:
+        "Chứng thực Agent hết hạn hoặc đồng bộ thời gian thất bại. Thử lại.",
+    };
+  }
+
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      boundMachineId: true,
+      boundMachineName: true,
+      agentAttestSecretSealed: true,
+    },
+  });
+  if (!user) {
+    return { ok: false, status: 403, error: "Người dùng không tồn tại." };
+  }
+  if (!user.agentAttestSecretSealed) {
+    return {
+      ok: false,
+      status: 403,
+      reason: "missing_secret",
+      error:
+        "Thiếu agentAttestSecret. Tải lại zip Client Agent (pairing mới) để nhận secret.",
+    };
+  }
+
+  const attestSecret = revealAgentAttestSecret(user.agentAttestSecretSealed);
+  if (!attestSecret) {
+    return {
+      ok: false,
+      status: 403,
+      reason: "secret_reveal_fail",
+      error: "Không giải mã được agentAttestSecret. Liên hệ Admin.",
+    };
+  }
+
+  const canonical = [
+    machineId,
+    machineName || "",
+    osUsername || "",
+    nonce,
+    String(ts),
+  ].join("\n");
+  const expected = crypto
+    .createHmac("sha256", attestSecret)
+    .update(canonical)
+    .digest("hex");
+  const a = Buffer.from(sig, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    await writeMachineBindingLog(db, {
+      userId,
+      action: "BIND_REJECTED",
+      reason: "bad_sig",
+      machineId,
+      ip: meta.ip,
+    });
+    const prefix = meta.rlPrefix ?? "pair";
+    const ip = meta.ip || "unknown";
+    const ipLim = checkRateLimit(`${prefix}:attestfail:ip:${ip}`, 20);
+    const userLim = checkRateLimit(`${prefix}:attestfail:user:${userId}`, 10);
+    if (!ipLim.ok || !userLim.ok) {
+      const retryAfterSec = Math.max(
+        ipLim.retryAfterSec,
+        userLim.retryAfterSec,
+        1
+      );
+      return {
+        ok: false,
+        status: 429,
+        reason: "attest_rate_limited",
+        retryAfterSec,
+        error: "Quá nhiều lần xác thực Agent thất bại. Thử lại sau.",
+      };
+    }
+    return {
+      ok: false,
+      status: 403,
+      reason: "bad_sig",
+      error: "Chữ ký Client Agent không hợp lệ.",
+    };
+  }
+
+  try {
+    await db.extensionAttestNonce.create({
+      data: {
+        nonce,
+        userId,
+        expiresAt: new Date(Date.now() + 2 * 60 * 1000),
+      },
+    });
+  } catch (e: unknown) {
+    const code = (e as { code?: string })?.code;
+    if (code === "P2002") {
+      await writeMachineBindingLog(db, {
+        userId,
+        action: "BIND_REJECTED",
+        reason: "nonce_replay",
+        machineId,
+        ip: meta.ip,
+      });
+      return {
+        ok: false,
+        status: 403,
+        reason: "nonce_replay",
+        error: "Nonce attest đã dùng. Thử lại.",
+      };
+    }
+    throw e;
+  }
+
+  try {
+    if (!user.boundMachineId) {
+      const conflict = await db.user.findFirst({
+        where: { boundMachineId: machineId, NOT: { id: userId } },
+        select: { id: true },
+      });
+      if (conflict) {
+        await writeMachineBindingLog(db, {
+          userId,
+          action: "BIND_REJECTED",
+          reason: "occupied",
+          machineId,
+          metadata: { conflictUserId: conflict.id },
+          ip: meta.ip,
+        });
+        return {
+          ok: false,
+          status: 403,
+          reason: "occupied",
+          error:
+            "Thiết bị máy tính này đã được liên kết với một nhân sự khác. Liên hệ Admin để được hỗ trợ.",
+        };
+      }
+
+      await db.user.update({
+        where: { id: userId },
+        data: {
+          boundMachineId: machineId,
+          boundMachineName: machineName || null,
+          boundOsUser: osUsername || null,
+          boundMachineAt: new Date(),
+        },
+      });
+      clearUserCache(userId);
+      await writeMachineBindingLog(db, {
+        userId,
+        action: "BIND",
+        machineId,
+        machineName,
+        osUsername,
+        ip: meta.ip,
+        actorName: meta.actorName,
+      });
+      return { ok: true };
+    }
+
+    if (user.boundMachineId !== machineId) {
+      await writeMachineBindingLog(db, {
+        userId,
+        action: "BIND_REJECTED",
+        reason: "mismatch",
+        machineId,
+        ip: meta.ip,
+      });
+      return {
+        ok: false,
+        status: 403,
+        reason: "mismatch",
+        error: `Tài khoản đã được gắn cố định với máy tính "${user.boundMachineName || user.boundMachineId}". Không thể kích hoạt trên máy tính khác. Gửi yêu cầu đổi máy hoặc liên hệ Admin.`,
+      };
+    }
+
+    // Same machineId — refresh display only (no audit log)
+    await db.user.update({
+      where: { id: userId },
+      data: {
+        boundMachineName: machineName || user.boundMachineName,
+        boundOsUser: osUsername || undefined,
+        boundMachineAt: new Date(),
+      },
+    });
+    return { ok: true };
+  } catch (e: unknown) {
+    const code = (e as { code?: string })?.code;
+    if (code === "P2002") {
+      await writeMachineBindingLog(db, {
+        userId,
+        action: "BIND_REJECTED",
+        reason: "race_occupied",
+        machineId,
+        ip: meta.ip,
+      });
+      return {
+        ok: false,
+        status: 403,
+        reason: "race_occupied",
+        error: "Máy này vừa được liên kết với tài khoản khác. Liên hệ Admin.",
+      };
+    }
+    throw e;
+  }
+}
+
+/** Verify HMAC for /resolve-browser report (Track C). */
+export function verifyResolveAttestSig(
+  attestSecret: string,
+  fields: {
+    machineId: string;
+    sessionHash: string;
+    gpmProfileId: string;
+    reason: string;
+    nonce: string;
+    ts: number;
+    sig: string;
+  }
+): boolean {
+  const canonical = [
+    fields.machineId,
+    fields.sessionHash,
+    fields.gpmProfileId || "",
+    fields.reason || "",
+    fields.nonce,
+    String(fields.ts),
+  ].join("\n");
+  const expected = crypto
+    .createHmac("sha256", attestSecret)
+    .update(canonical)
+    .digest("hex");
+  const a = Buffer.from(fields.sig.trim().toLowerCase(), "utf8");
+  const b = Buffer.from(expected, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 // Kick health check once on first import in production (non-blocking)

@@ -143,13 +143,13 @@ export default function ExtensionDetailPage() {
 
             <div className="space-y-1.5 min-w-0">
               <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-none">
                   {ext.name}
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">
+                <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 leading-none">
                   v{ext.version}
                 </span>
-                <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
+                <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 leading-none">
                   {ext.category}
                 </span>
               </div>
@@ -358,8 +358,8 @@ export default function ExtensionDetailPage() {
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             {isClientAgent
-              ? "Mỗi máy chỉ mở một Agent. Tải file ZIP về, giải nén và làm theo các bước dưới. Nếu mã liên kết hết hạn, lấy Personal Token ở trang Cài đặt rồi chạy setup-agent.bat (phím 3)."
-              : "Trên mỗi máy nên cài cả Extension và Client Agent. Extension giúp nhận biết tài khoản đang đăng nhập; Agent giúp cập nhật số liệu. Tải ZIP và làm theo các bước dưới."}
+              ? "Mỗi máy chỉ mở một Agent (Windows). Tải ZIP, giải nén, chạy setup-agent.bat phím 1 trước khi dùng Extension. Nếu mã liên kết hết hạn, lấy Personal Token ở Cài đặt rồi chạy setup-agent.bat phím 3."
+              : "Cài Client Agent trước (setup-agent.bat phím 1), rồi nạp Extension vào GPMLogin. Extension nhận biết tài khoản đang đăng nhập; Agent cập nhật số liệu."}
           </p>
         </div>
 
@@ -392,10 +392,10 @@ export default function ExtensionDetailPage() {
                     2
                   </div>
                   <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                    Chạy Cùng Windows (Tự Động)
+                    Chạy Ngầm Cùng Windows
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Nhấp đúp chuột vào file <code className="bg-cyan-50 dark:bg-cyan-950/50 text-cyan-600 dark:text-cyan-400 px-1.5 py-0.5 rounded text-xs font-mono font-bold border border-cyan-200 dark:border-cyan-800">setup-agent.bat</code> ➔ Bấm phím <span className="font-bold text-cyan-600 dark:text-cyan-400">1</span>. Agent sẽ tự động chạy ngầm 100% vô hình mỗi khi mở máy theo lịch trình!
+                    Nhấp đúp <code className="bg-cyan-50 dark:bg-cyan-950/50 text-cyan-600 dark:text-cyan-400 px-1.5 py-0.5 rounded text-xs font-mono font-bold border border-cyan-200 dark:border-cyan-800">setup-agent.bat</code> ➔ phím <span className="font-bold text-cyan-600 dark:text-cyan-400">1</span> (Cho phép UAC nếu được hỏi). Agent chạy ngầm mỗi khi mở máy. Làm bước này <strong>trước</strong> khi nạp Extension.
                   </p>
                 </div>
               </div>
@@ -474,8 +474,9 @@ export default function ExtensionDetailPage() {
         ) : (
           <div className="space-y-6">
             <div className="p-4 rounded-2xl bg-pink-50 dark:bg-pink-500/10 border border-pink-200 dark:border-pink-500/30 text-xs text-pink-900 dark:text-pink-100 leading-relaxed">
-              <strong className="font-bold">Dễ nhớ:</strong> Extension giúp nhận biết bạn đang đăng nhập tài khoản nào;
-              Client Agent giúp cập nhật số liệu (lượt xem, doanh thu…). Cài cả hai trên máy của bạn.
+              <strong className="font-bold">Thứ tự:</strong> Cài và chạy Client Agent trước (
+              <code className="font-mono bg-pink-100 dark:bg-pink-950/50 px-1 rounded">setup-agent.bat</code> phím 1), rồi mới nạp Extension.
+              Extension nhận biết tài khoản đang đăng nhập; Agent cập nhật số liệu (lượt xem, doanh thu…).
               <span className="font-bold text-rose-700 dark:text-rose-300"> Tuyệt đối không chia sẻ công khai</span> file ZIP hoặc Personal Token.
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -519,8 +520,8 @@ export default function ExtensionDetailPage() {
                     Mở TikTok và kiểm tra
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Mở profile GPM và đăng nhập TikTok. Extension sẽ tự nhận diện tài khoản.
-                    Nếu cần, dán Personal Token từ trang Cài đặt vào cửa sổ Extension. Số liệu chi tiết (lượt xem, doanh thu…) do Client Agent cập nhật khi Agent chạy trên máy.
+                    Mở profile GPM và đăng nhập TikTok. Extension tự nhận diện khi Agent đang chạy trên máy.
+                    Nếu cần, dán Personal Token từ Cài đặt vào cửa sổ Extension. Số liệu chi tiết do Client Agent cập nhật.
                   </p>
                 </div>
               </div>

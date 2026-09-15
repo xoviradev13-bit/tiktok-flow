@@ -24,7 +24,8 @@ import * as XLSX from "xlsx";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
+import { DateRange } from "react-day-picker";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import {
   Popover,
@@ -60,8 +61,12 @@ export default function RevenueDetailsPage() {
   const [sourceTypeFilter, setSourceTypeFilter] = useState("ALL");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [isStartPickerOpen, setIsStartPickerOpen] = useState(false);
-  const [isEndPickerOpen, setIsEndPickerOpen] = useState(false);
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
+  const [rangeSelection, setRangeSelection] = useState<DateRange | undefined>(() => {
+    const to = new Date();
+    const from = subDays(to, 27);
+    return { from, to };
+  });
   const [minRevenue, setMinRevenue] = useState("");
   const [minViews, setMinViews] = useState("");
 
@@ -309,7 +314,7 @@ export default function RevenueDetailsPage() {
     XLSX.writeFile(wb, `DoanhThu_TikTok_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  // Filters count
+  // Total active filters count across all inputs
   const activeFiltersCount =
     (search ? 1 : 0) +
     (sourceTypeFilter !== "ALL" ? 1 : 0) +
@@ -317,6 +322,15 @@ export default function RevenueDetailsPage() {
     (endDate ? 1 : 0) +
     (minRevenue ? 1 : 0) +
     (minViews ? 1 : 0);
+
+  // Filters count for Advanced Filter Popover (minRevenue, minViews)
+  const advancedFiltersCount = (minRevenue ? 1 : 0) + (minViews ? 1 : 0);
+
+  const clearAdvancedFilters = () => {
+    setMinRevenue("");
+    setMinViews("");
+    setPage(1);
+  };
 
   const clearAllFilters = () => {
     setSearch("");
@@ -352,13 +366,13 @@ export default function RevenueDetailsPage() {
       {/* Header & Controls Section */}
       <div className="space-y-4">
         {/* Top Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link
                   href="/revenue"
-                  className="w-9 h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs"
+                  className="w-9 h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs shrink-0"
                   aria-label="Quay lại Tổng Quan Doanh Thu"
                 >
                   <ArrowLeft className="w-4 h-4" />
@@ -368,43 +382,59 @@ export default function RevenueDetailsPage() {
                 Quay lại Tổng Quan Doanh Thu
               </TooltipContent>
             </Tooltip>
-            <div>
-              <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-                <DollarSign className="w-6 h-6 text-amber-500" />
-                <span>Chi Tiết Bản Ghi Doanh Thu Từng Account</span>
-                {loading ? (
-                  <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle" />
-                ) : (
-                  <span>({records.length})</span>
-                )}
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
+                <DollarSign className="w-6 h-6 text-amber-500 shrink-0" />
+                <span className="truncate" title={`Chi Tiết Bản Ghi Doanh Thu Từng Account (${records.length})`}>
+                  Chi Tiết Bản Ghi Doanh Thu Từng Account{" "}
+                  {loading ? (
+                    <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle" />
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400 font-bold">({records.length})</span>
+                  )}
+                </span>
               </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
                 Bảng tra cứu chi tiết từng ngày, hỗ trợ lọc nguồn thu, khoảng ngày, sắp xếp và thao tác hàng loạt.
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+          <div className="flex items-center gap-2.5 shrink-0 flex-nowrap self-start xl:self-auto">
             {/* File Upload Button */}
-            <label className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-cyan-600 dark:text-cyan-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs active:scale-95">
-              <Upload className="w-4 h-4" />
-              <span>{importing ? "Đang Import..." : "Import File Excel/CSV"}</span>
-              <input
-                type="file"
-                accept=".csv, .xlsx, .xls"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-            </label>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <label className="h-10 flex items-center gap-1.5 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-cyan-600 dark:text-cyan-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs active:scale-95 whitespace-nowrap shrink-0">
+                  <Upload className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{importing ? "Đang Import..." : "Import File Excel/CSV"}</span>
+                  <input
+                    type="file"
+                    accept=".csv, .xlsx, .xls"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs font-normal">
+                Nhập file dữ liệu doanh thu (.xlsx, .xls, .csv)
+              </TooltipContent>
+            </Tooltip>
 
             {/* Export Excel Button */}
-            <button
-              onClick={() => handleExportExcel(false)}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-emerald-600 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs active:scale-95"
-            >
-              <Download className="w-4 h-4" />
-              <span>Xuất Excel {loading ? "(...)" : `(${filteredAndSortedRecords.length})`}</span>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => handleExportExcel(false)}
+                  className="h-10 flex items-center gap-1.5 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-emerald-600 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs active:scale-95 whitespace-nowrap shrink-0"
+                >
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span className="truncate">Xuất Excel {loading ? "(...)" : `(${filteredAndSortedRecords.length})`}</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs font-normal">
+                Xuất các bản ghi đang lọc ra file Excel (.xlsx)
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
 
@@ -416,32 +446,38 @@ export default function RevenueDetailsPage() {
 
         {/* Quick Summary Chips */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Tổng Doanh Thu (Bộ lọc hiện tại)</div>
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase truncate whitespace-nowrap" title="Tổng Doanh Thu (Bộ lọc hiện tại)">
+              Tổng Doanh Thu (Bộ lọc hiện tại)
+            </div>
             {loading ? (
               <div className="h-8 w-24 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-1" />
             ) : (
-              <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
+              <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1 truncate">
                 ${filteredTotalRevenue.toFixed(2)}
               </div>
             )}
           </div>
-          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Tổng Views Đủ ĐK</div>
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase truncate whitespace-nowrap" title="Tổng Views Đủ ĐK">
+              Tổng Views Đủ ĐK
+            </div>
             {loading ? (
               <div className="h-8 w-24 bg-cyan-100 dark:bg-cyan-950/60 rounded-lg animate-pulse mt-1" />
             ) : (
-              <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1">
+              <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1 truncate">
                 {filteredTotalViews.toLocaleString()}
               </div>
             )}
           </div>
-          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Số Bản Ghi Phù Hợp</div>
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase truncate whitespace-nowrap" title="Số Bản Ghi Phù Hợp">
+              Số Bản Ghi Phù Hợp
+            </div>
             {loading ? (
               <div className="h-8 w-16 bg-pink-100 dark:bg-pink-950/60 rounded-lg animate-pulse mt-1" />
             ) : (
-              <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1">
+              <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1 truncate">
                 {filteredAndSortedRecords.length}
               </div>
             )}
@@ -449,50 +485,137 @@ export default function RevenueDetailsPage() {
         </div>
 
         {/* Filter & Toolbar */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
-          <div className="flex flex-col lg:flex-row gap-3 items-center justify-between">
-            {/* Search Box */}
-            <div className="relative w-full lg:w-72">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Tìm username, nhân sự..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500"
-              />
-            </div>
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 w-full">
+            {/* Left: Search input & Date presets with Tùy chọn */}
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
+              <div className="relative w-full sm:w-48 lg:w-56 shrink-0">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm username, nhân sự..."
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-amber-500"
+                />
+              </div>
 
-            {/* Quick Presets Chips */}
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none">
-              {[
-                { value: 7, label: "7 Ngày" },
-                { value: 28, label: "28 Ngày" },
-                { value: 60, label: "60 Ngày" },
-                { value: 365, label: "365 Ngày" },
-                { value: 0, label: "Toàn Bộ" },
-              ].map((p) => {
-                const active = getActivePreset() === p.value;
-                return (
-                  <button
-                    key={p.value}
-                    type="button"
-                    onClick={() => applyPresetRange(p.value)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${active
-                      ? "bg-amber-500 text-slate-950 shadow-xs"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                      }`}
+              {/* Quick Presets Chips + Tùy chọn */}
+              <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
+                {[
+                  { value: 7, label: "7 Ngày" },
+                  { value: 28, label: "28 Ngày" },
+                  { value: 60, label: "60 Ngày" },
+                  { value: 365, label: "365 Ngày" },
+                  { value: 0, label: "Toàn Bộ" },
+                ].map((p) => {
+                  const active = getActivePreset() === p.value;
+                  return (
+                    <button
+                      key={p.value}
+                      type="button"
+                      onClick={() => applyPresetRange(p.value)}
+                      className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${active
+                        ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+
+                {/* Tùy chọn Popover */}
+                <Popover open={isRangePickerOpen} onOpenChange={setIsRangePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${getActivePreset() === -1
+                        ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>
+                        {getActivePreset() === -1 && startDate && endDate
+                          ? `${format(new Date(startDate + "T00:00:00"), "dd/MM")} - ${format(new Date(endDate + "T00:00:00"), "dd/MM")}`
+                          : "Tùy chọn"}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="bottom"
+                    sideOffset={6}
+                    align="start"
+                    avoidCollisions={false}
+                    className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
                   >
-                    {p.label}
-                  </button>
-                );
-              })}
+                    <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                        Chọn khoảng ngày thống kê
+                      </span>
+                      {rangeSelection?.from && (
+                        <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
+                          {format(rangeSelection.from, "dd/MM/yy")} - {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="w-full py-0.5">
+                      <CalendarPicker
+                        mode="range"
+                        selected={rangeSelection}
+                        onSelect={(range) => {
+                          setRangeSelection(range);
+                        }}
+                        numberOfMonths={1}
+                        className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                        classNames={{
+                          root: "w-full",
+                          months: "relative flex flex-col w-full",
+                          month: "w-full flex flex-col gap-1.5",
+                          weekdays: "flex w-full justify-between",
+                          week: "flex w-full mt-1 justify-between",
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setIsRangePickerOpen(false)}
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!rangeSelection?.from}
+                        onClick={() => {
+                          if (rangeSelection?.from) {
+                            const s = format(rangeSelection.from, "yyyy-MM-dd");
+                            const e = rangeSelection.to ? format(rangeSelection.to, "yyyy-MM-dd") : s;
+                            setStartDate(s);
+                            setEndDate(e);
+                            setPage(1);
+                          }
+                          setIsRangePickerOpen(false);
+                        }}
+                        className="px-4 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow-sm cursor-pointer transition-all disabled:opacity-50"
+                      >
+                        Áp dụng
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto justify-end">
+            {/* Right: Tất cả nguồn thu + Bộ lọc nâng cao + Sắp xếp + Cột hiển thị */}
+            <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap justify-start">
               {/* Source Type Filter */}
               <Select
                 value={sourceTypeFilter}
@@ -501,7 +624,7 @@ export default function RevenueDetailsPage() {
                   setPage(1);
                 }}
               >
-                <SelectTrigger className="w-44 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                <SelectTrigger className="w-36 sm:w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
                   <SelectValue placeholder="Tất cả nguồn thu" />
                 </SelectTrigger>
                 <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
@@ -518,26 +641,26 @@ export default function RevenueDetailsPage() {
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal border transition-all cursor-pointer ${activeFiltersCount > 0
+                    className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-normal border transition-all cursor-pointer whitespace-nowrap ${advancedFiltersCount > 0
                       ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
                       : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
                       }`}
                   >
                     <Filter className="w-3.5 h-3.5" />
                     <span>Bộ lọc nâng cao</span>
-                    {activeFiltersCount > 0 && (
+                    {advancedFiltersCount > 0 && (
                       <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
-                        {activeFiltersCount}
+                        {advancedFiltersCount}
                       </span>
                     )}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-80 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-3.5">
+                <PopoverContent align="end" className="w-72 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-3.5">
                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
                     <h4 className="text-xs font-bold text-slate-900 dark:text-white">Bộ lọc chi tiết</h4>
-                    {activeFiltersCount > 0 && (
+                    {advancedFiltersCount > 0 && (
                       <button
-                        onClick={clearAllFilters}
+                        onClick={clearAdvancedFilters}
                         className="text-xs font-semibold text-pink-600 hover:underline cursor-pointer"
                       >
                         Đặt lại
@@ -545,109 +668,8 @@ export default function RevenueDetailsPage() {
                     )}
                   </div>
 
-                  {/* Khoảng ngày nhanh */}
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                      Chọn nhanh khoảng thời gian
-                    </label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {[
-                        { value: 7, label: "7 ngày qua" },
-                        { value: 28, label: "28 ngày qua" },
-                        { value: 60, label: "60 ngày qua" },
-                        { value: 365, label: "1 năm (365d)" },
-                        { value: 0, label: "Toàn bộ" },
-                      ].map((p) => {
-                        const active = getActivePreset() === p.value;
-                        return (
-                          <button
-                            key={p.value}
-                            type="button"
-                            onClick={() => applyPresetRange(p.value)}
-                            className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${active
-                              ? "bg-amber-500 text-slate-950 border-amber-500 font-bold"
-                              : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
-                              }`}
-                          >
-                            {p.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Khoảng ngày */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                        Từ ngày
-                      </label>
-                      <Popover open={isStartPickerOpen} onOpenChange={setIsStartPickerOpen}>
-                        <PopoverTrigger asChild>
-                          <button
-                            type="button"
-                            className="w-full h-8.5 px-3 flex items-center justify-between gap-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-normal text-slate-900 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors group select-none"
-                          >
-                            <span className={startDate ? "text-slate-900 dark:text-white" : "text-slate-400"}>
-                              {startDate ? format(new Date(startDate + "T00:00:00"), "dd/MM/yyyy") : "dd/mm/yyyy"}
-                            </span>
-                            <Calendar className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 shrink-0" />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent align="start" className="w-auto p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-[400]">
-                          <CalendarPicker
-                            mode="single"
-                            selected={startDate ? new Date(startDate + "T00:00:00") : undefined}
-                            onSelect={(d) => {
-                              if (d) {
-                                setStartDate(format(d, "yyyy-MM-dd"));
-                              } else {
-                                setStartDate("");
-                              }
-                              setIsStartPickerOpen(false);
-                              setPage(1);
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                        Đến ngày
-                      </label>
-                      <Popover open={isEndPickerOpen} onOpenChange={setIsEndPickerOpen}>
-                        <PopoverTrigger asChild>
-                          <button
-                            type="button"
-                            className="w-full h-8.5 px-3 flex items-center justify-between gap-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-normal text-slate-900 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors group select-none"
-                          >
-                            <span className={endDate ? "text-slate-900 dark:text-white" : "text-slate-400"}>
-                              {endDate ? format(new Date(endDate + "T00:00:00"), "dd/MM/yyyy") : "dd/mm/yyyy"}
-                            </span>
-                            <Calendar className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 shrink-0" />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent align="end" className="w-auto p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-[400]">
-                          <CalendarPicker
-                            mode="single"
-                            selected={endDate ? new Date(endDate + "T00:00:00") : undefined}
-                            onSelect={(d) => {
-                              if (d) {
-                                setEndDate(format(d, "yyyy-MM-dd"));
-                              } else {
-                                setEndDate("");
-                              }
-                              setIsEndPickerOpen(false);
-                              setPage(1);
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                  </div>
-
                   {/* Doanh thu & Views tối thiểu */}
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-2.5">
                     <div>
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Doanh thu ($) ≥
@@ -687,7 +709,7 @@ export default function RevenueDetailsPage() {
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all cursor-pointer"
+                    className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all cursor-pointer whitespace-nowrap"
                   >
                     <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
                     <span>Sắp xếp</span>

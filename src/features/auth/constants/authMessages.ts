@@ -36,6 +36,7 @@ export const AUTH_MESSAGES = {
         // OAuth errors
         GOOGLE_CONNECT_FAILED: "Không thể kết nối với Google. Vui lòng thử lại.",
         OAUTH_FAILED: "Không thể đăng nhập bằng phương thức này. Vui lòng thử lại.",
+        OAUTH_ACCOUNT_NOT_LINKED: "Email này đã được đăng ký bằng mật khẩu hoặc phương thức khác. Vui lòng đăng nhập bằng mật khẩu để hoàn tất liên kết tài khoản.",
 
         // Network/Server errors
         NETWORK_ERROR: "Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng của bạn.",
@@ -92,7 +93,7 @@ export const ERROR_CODE_TO_MESSAGE: Record<string, string> = {
     OAuthCreateAccount: AUTH_MESSAGES.ERROR.OAUTH_FAILED,
     EmailCreateAccount: AUTH_MESSAGES.ERROR.REGISTRATION_FAILED,
     Callback: AUTH_MESSAGES.ERROR.GENERIC,
-    OAuthAccountNotLinked: AUTH_MESSAGES.ERROR.USER_EXISTS,
+    OAuthAccountNotLinked: AUTH_MESSAGES.ERROR.OAUTH_ACCOUNT_NOT_LINKED,
     EmailSignin: AUTH_MESSAGES.ERROR.MAGIC_LINK_FAILED,
     CredentialsSignin: AUTH_MESSAGES.ERROR.INVALID_CREDENTIALS,
     SessionRequired: AUTH_MESSAGES.ERROR.TOKEN_EXPIRED,

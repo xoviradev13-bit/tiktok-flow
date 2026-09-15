@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import {
   Zap,
   TrendingUp,
@@ -30,12 +30,21 @@ import PublicHeader from "@/components/layout/PublicHeader";
 import PublicFooter from "@/components/layout/PublicFooter";
 
 export default function LandingPage() {
-  const { data: session, status } = useSession();
-  const [mounted, setMounted] = useState(false);
+  const { status } = useSession();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const goToSignIn = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      await signOut({ redirect: false });
+    } catch {
+      // ignore — still navigate to sign-in
+    }
+    window.location.href = "/signin";
+  };
+
+  const isAuthenticated = status === "authenticated";
+  const primaryHref = isAuthenticated ? "/accounts" : "/signin";
+  const onPrimaryClick = isAuthenticated ? undefined : goToSignIn;
 
   const features = [
     {
@@ -116,13 +125,14 @@ export default function LandingPage() {
 
         {/* CTA Buttons */}
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3.5">
-          <Link
-            href={status === "authenticated" ? "/accounts" : "/signin"}
+          <a
+            href={primaryHref}
+            onClick={onPrimaryClick}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-2xl text-sm sm:text-base font-bold bg-gradient-to-r from-pink-500 via-rose-500 to-pink-600 hover:from-pink-600 hover:to-rose-600 text-white shadow-lg shadow-pink-500/25 hover:shadow-pink-500/35 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 border border-pink-400/30 group"
           >
-            <span>{status === "authenticated" ? "Truy Cập Dashboard" : "Bắt Đầu Sử Dụng Miễn Phí"}</span>
+            <span>{isAuthenticated ? "Truy Cập Dashboard" : "Bắt Đầu Sử Dụng Miễn Phí"}</span>
             <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-          </Link>
+          </a>
           <a
             href="#features"
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-2xl text-sm sm:text-base font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 hover:border-pink-500/50 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-slate-50 dark:hover:bg-slate-800/80 shadow-xs hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 group"
@@ -312,13 +322,14 @@ export default function LandingPage() {
             Hệ thống hóa toàn bộ dàn kênh, kiểm soát nhân sự chặt chẽ và bứt phá doanh thu ngay hôm nay.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row justify-center gap-4">
-            <Link
-              href={status === "authenticated" ? "/accounts" : "/signin"}
+            <a
+              href={primaryHref}
+              onClick={onPrimaryClick}
               className="inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-2xl font-bold bg-gradient-to-r from-pink-500 via-rose-500 to-cyan-500 text-white shadow-xl shadow-pink-500/30 hover:shadow-pink-500/50 hover:scale-[1.02] transition-all duration-200"
             >
-              <span>{status === "authenticated" ? "Truy Cập Dashboard" : "Đăng Nhập Vào Hệ Thống"}</span>
+              <span>{isAuthenticated ? "Truy Cập Dashboard" : "Đăng Nhập Vào Hệ Thống"}</span>
               <ArrowRight className="w-5 h-5" />
-            </Link>
+            </a>
           </div>
         </div>
       </section>

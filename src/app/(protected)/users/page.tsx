@@ -44,6 +44,8 @@ import {
   Crown,
   User,
   ArrowRight,
+  Monitor,
+  MonitorX,
 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
@@ -410,6 +412,33 @@ function UsersManagementContent() {
     },
   });
 
+  const unlinkMachineMutation = trpc.admin.unlinkUserMachine.useMutation({
+    onSuccess: () => {
+      utils.admin.listUsers.invalidate();
+      utils.admin.listPendingMachineChangeRequests.invalidate();
+      setActionMsg("Đã hủy liên kết máy tính.");
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onError: (err: any) => alert(err.message || "Lỗi hủy liên kết máy"),
+  });
+
+  const { data: pendingMachineRequests = [] } =
+    trpc.admin.listPendingMachineChangeRequests.useQuery(undefined, {
+      enabled: isAdmin,
+      refetchInterval: 60_000,
+    });
+
+  const reviewMachineChangeMutation =
+    trpc.admin.reviewMachineChangeRequest.useMutation({
+      onSuccess: () => {
+        utils.admin.listPendingMachineChangeRequests.invalidate();
+        utils.admin.listUsers.invalidate();
+        setActionMsg("Đã cập nhật yêu cầu đổi máy.");
+        setTimeout(() => setActionMsg(null), 4000);
+      },
+      onError: (err: any) => alert(err.message || "Lỗi duyệt yêu cầu"),
+    });
+
   const parseAndAddEmails = (text: string) => {
     if (!text.trim()) return;
     const tokens = text.split(/[\s,;\n\r\t]+/);
@@ -629,21 +658,21 @@ function UsersManagementContent() {
     switch (role) {
       case "ADMIN":
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
             <Shield className="w-3.5 h-3.5" />
             ADMIN
           </span>
         );
       case "LEAD":
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 shadow-2xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-xl text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 shadow-2xs">
             <ShieldCheck className="w-3.5 h-3.5" />
             LEAD
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 shadow-2xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-xl text-xs font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 shadow-2xs">
             <UserCheck className="w-3.5 h-3.5" />
             STAFF
           </span>
@@ -673,35 +702,35 @@ function UsersManagementContent() {
       <div className="space-y-4">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
-              <UserCog className="w-7 h-7 text-pink-500" />
-              <span>Quản Lý Nhân Sự & Phân Quyền</span>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
+              <UserCog className="w-7 h-7 text-pink-500 shrink-0" />
+              <span className="truncate">Quản Lý Nhân Sự & Phân Quyền</span>
               {loading ? (
-                <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle" />
+                <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle shrink-0" />
               ) : (
-                <span>({totalCount})</span>
+                <span className="shrink-0">({totalCount})</span>
               )}
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
               Quản trị tài khoản thành viên, phân nhóm Team/Group, phân quyền Lead/Staff và theo dõi số lượng tài khoản TikTok phụ trách.
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap">
+          <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0 flex-wrap">
             <Link
               href="/groups"
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs active:scale-95 transition-all cursor-pointer"
+              className="h-10 flex items-center gap-2 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Layers className="w-4 h-4 text-pink-500" />
-              <span>Quản Lý Nhóm ({availableGroups.length})</span>
+              <Layers className="w-4 h-4 text-pink-500 shrink-0" />
+              <span className="truncate">Quản Lý Nhóm ({availableGroups.length})</span>
             </Link>
             <button
               onClick={() => setIsInviteModalOpen(true)}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer"
+              className="h-10 flex items-center gap-2 px-5 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Mail className="w-4 h-4" />
-              <span>Mời Thành Viên Mới</span>
+              <Mail className="w-4 h-4 shrink-0" />
+              <span className="truncate">Mời Thành Viên Mới</span>
             </button>
           </div>
         </div>
@@ -786,23 +815,23 @@ function UsersManagementContent() {
         {/* Filter & Search Toolbar (Sticky only on desktop) */}
         {activeTab === "USERS" && (
           <div className="lg:sticky lg:top-[72px] z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
-            <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
-              {/* Search Input */}
-              <div className="relative w-full md:w-80">
-                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Tìm theo tên, username, email..."
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setPage(1);
-                  }}
-                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2.5 w-full md:w-auto justify-end flex-wrap">
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 w-full min-w-0">
+              {/* Left Group: Search input + Fast Filters + Advanced Filter */}
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                {/* Search Input */}
+                <div className="relative w-full sm:w-48 md:w-56 lg:w-60 min-w-[170px]">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Tìm theo tên, username, email..."
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                      setPage(1);
+                    }}
+                    className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500"
+                  />
+                </div>
                 {/* Quick Role Selector */}
                 <Select
                   value={roleFilter}
@@ -959,7 +988,10 @@ function UsersManagementContent() {
                     </div>
                   </PopoverContent>
                 </Popover>
+              </div>
 
+              {/* Action Controls Group: Sort, View Switcher & Column Customizer (Aligned to left on wrapped row) */}
+              <div className="flex items-center gap-2.5 shrink-0 self-start xl:self-auto xl:ml-auto">
                 {/* Sort Popover */}
                 <Popover>
                   <PopoverTrigger asChild>
@@ -1002,28 +1034,32 @@ function UsersManagementContent() {
                 </Popover>
 
                 {/* View Mode Switcher */}
-                <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-800">
+                <div className="flex items-center p-0.5 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
                   <button
+                    type="button"
                     onClick={() => handleViewModeChange("grid")}
-                    className={`flex items-center justify-center w-7 h-7 rounded-lg text-xs transition-all cursor-pointer ${
+                    className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       viewMode === "grid"
-                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-semibold"
-                        : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                     }`}
-                    title="Dạng lưới thẻ (Grid Cards)"
+                    title="Chế độ xem dạng lưới (Cards)"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Lưới</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleViewModeChange("list")}
-                    className={`flex items-center justify-center w-7 h-7 rounded-lg text-xs transition-all cursor-pointer ${
+                    className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       viewMode === "list"
-                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-semibold"
-                        : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                     }`}
-                    title="Dạng bảng danh sách (Table List)"
+                    title="Chế độ xem dạng danh sách (Bảng)"
                   >
                     <List className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Bảng</span>
                   </button>
                 </div>
 
@@ -1058,7 +1094,7 @@ function UsersManagementContent() {
                               actions: true,
                             })
                           }
-                          className="text-xs text-pink-500 hover:underline font-normal cursor-pointer"
+                          className="px-2 py-0.5 rounded-md text-xs text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors font-medium cursor-pointer"
                         >
                           Mặc định
                         </button>
@@ -1091,7 +1127,7 @@ function UsersManagementContent() {
                                 }));
                               }}
                             />
-                            <span className="text-slate-700 dark:text-slate-300 font-medium">
+                            <span className="text-slate-700 dark:text-slate-300 font-normal">
                               {col.label}
                             </span>
                             {col.locked && (
@@ -1112,6 +1148,62 @@ function UsersManagementContent() {
       </div>
 
       {/* Main Content Area */}
+      {isAdmin && pendingMachineRequests.length > 0 && activeTab === "USERS" && (
+        <div className="mb-4 rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/30 p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-bold text-amber-900 dark:text-amber-200">
+            <Monitor className="w-4 h-4" />
+            Yêu cầu đổi máy đang chờ ({pendingMachineRequests.length})
+          </div>
+          <div className="space-y-2">
+            {pendingMachineRequests.map((req) => (
+              <div
+                key={req.id}
+                className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-xl bg-white/80 dark:bg-slate-900/60 border border-amber-100 dark:border-amber-900/40 px-3 py-2.5 text-xs"
+              >
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">
+                    {req.user?.name || req.user?.username || req.user?.email}
+                  </div>
+                  <div className="text-slate-500 dark:text-slate-400 font-mono truncate">
+                    {req.fromMachineName || req.fromMachineId}
+                    {req.fromOsUsername ? ` · ${req.fromOsUsername}` : ""}
+                  </div>
+                  <div className="text-slate-600 dark:text-slate-300">{req.reason}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={reviewMachineChangeMutation.isPending}
+                    onClick={() =>
+                      reviewMachineChangeMutation.mutate({
+                        requestId: req.id,
+                        decision: "APPROVED",
+                      })
+                    }
+                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"
+                  >
+                    Duyệt
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reviewMachineChangeMutation.isPending}
+                    onClick={() =>
+                      reviewMachineChangeMutation.mutate({
+                        requestId: req.id,
+                        decision: "REJECTED",
+                      })
+                    }
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold hover:bg-slate-300 dark:hover:bg-slate-700 disabled:opacity-50 cursor-pointer"
+                  >
+                    Từ chối
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {activeTab === "USERS" ? (
         loading ? (
           viewMode === "grid" ? (
@@ -1193,10 +1285,10 @@ function UsersManagementContent() {
                           onCheckedChange={() => toggleSelectRow(u.id)}
                           aria-label={`Chọn ${u.username}`}
                         />
-                        {getRoleBadge(u.role)}
                       </div>
 
                       <div className="flex items-center gap-1.5">
+                        {getRoleBadge(u.role)}
                         {/* Status Toggle Button */}
                         <button
                           disabled={u.id === session?.user?.id}
@@ -1208,7 +1300,7 @@ function UsersManagementContent() {
                               ? "Bấm để chặn quyền truy cập"
                               : "Bấm để mở chặn quyền truy cập"
                           }
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold border transition-all ${
+                          className={`h-7 px-2.5 rounded-full inline-flex items-center gap-1.5 text-xs font-bold border transition-all shadow-2xs ${
                             u.id === session?.user?.id
                               ? "opacity-75 cursor-default"
                               : "cursor-pointer"
@@ -1248,7 +1340,7 @@ function UsersManagementContent() {
                             <DropdownMenuItem asChild>
                               <Link
                                 href={`/users/${u.id}`}
-                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
                               >
                                 <Eye className="w-3.5 h-3.5 text-slate-400" />
                                 <span>Xem chi tiết Fleet</span>
@@ -1261,7 +1353,7 @@ function UsersManagementContent() {
                                 setEditRole(u.role);
                                 setIsEditRoleOpen(true);
                               }}
-                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
                             >
                               <Pencil className="w-3.5 h-3.5 text-slate-400" />
                               <span>Đổi vai trò</span>
@@ -1275,9 +1367,9 @@ function UsersManagementContent() {
                                   setCopiedExtensionToken(false);
                                   setIsTokenModalOpen(true);
                                 }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg cursor-pointer font-medium"
+                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
                               >
-                                <Key className="w-3.5 h-3.5 text-amber-500" />
+                                <Key className="w-3.5 h-3.5 text-slate-400" />
                                 <span>Quản lý Extension Token</span>
                               </DropdownMenuItem>
                             )}
@@ -1286,25 +1378,44 @@ function UsersManagementContent() {
                               <DropdownMenuItem
                                 disabled={u.id === session?.user?.id}
                                 onClick={() => openToggleStatusModal(u)}
-                                className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-medium ${
+                                className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-normal ${
                                   u.id === session?.user?.id
                                     ? "opacity-50 cursor-not-allowed text-slate-400"
-                                    : u.isActive
-                                    ? "text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                    : "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                                 }`}
                               >
                                 {u.isActive ? (
                                   <>
-                                    <Ban className="w-3.5 h-3.5 text-rose-500" />
+                                    <Ban className="w-3.5 h-3.5 text-slate-400" />
                                     <span>Chặn quyền truy cập</span>
                                   </>
                                 ) : (
                                   <>
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
                                     <span>Mở chặn quyền truy cập</span>
                                   </>
                                 )}
+                              </DropdownMenuItem>
+                            )}
+
+                            {isAdmin && u.boundMachineId && (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  if (
+                                    confirm(
+                                      `Hủy liên kết máy "${u.boundMachineName || u.boundMachineId}" cho user này?`
+                                    )
+                                  ) {
+                                    unlinkMachineMutation.mutate({
+                                      userId: u.id,
+                                      reason: "admin_unlink_ui",
+                                    });
+                                  }
+                                }}
+                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
+                              >
+                                <MonitorX className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Hủy Liên Kết Máy Tính</span>
                               </DropdownMenuItem>
                             )}
 
@@ -1315,7 +1426,7 @@ function UsersManagementContent() {
                                 setUserToDelete(u);
                                 setIsDeleteOpen(true);
                               }}
-                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg cursor-pointer font-semibold"
+                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg cursor-pointer font-normal"
                             >
                               <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                               <span>Xóa nhân sự</span>
@@ -1385,6 +1496,24 @@ function UsersManagementContent() {
                         </div>
                       </div>
 
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 gap-2">
+                        <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
+                          <Monitor className="w-3 h-3" /> Máy
+                        </span>
+                        <span
+                          className="truncate max-w-[160px] text-right font-mono text-xs"
+                          title={
+                            u.boundMachineId
+                              ? `${u.boundMachineName || u.boundMachineId}${u.boundOsUser ? ` (${u.boundOsUser})` : ""}`
+                              : "Chưa gắn"
+                          }
+                        >
+                          {u.boundMachineId
+                            ? u.boundMachineName || u.boundMachineId.slice(0, 12)
+                            : "Chưa gắn"}
+                        </span>
+                      </div>
+
                       {/* Group Assignment Dropdown */}
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
@@ -1400,23 +1529,23 @@ function UsersManagementContent() {
                             });
                           }}
                         >
-                          <SelectTrigger className="w-36 h-7 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                          <SelectTrigger className="w-36 h-7 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
                             <SelectValue placeholder="Gán nhóm">
                               {u.groupName ? (
-                                <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                <span className="font-normal text-slate-800 dark:text-slate-200 truncate">
                                   {u.groupName}
                                 </span>
                               ) : (
-                                <span className="text-slate-400 italic">Chưa gán</span>
+                                <span className="text-slate-400 font-normal">Chưa gán</span>
                               )}
                             </SelectValue>
                           </SelectTrigger>
                           <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
-                            <SelectItem value="NONE" className="text-xs text-slate-400 cursor-pointer">
+                            <SelectItem value="NONE" className="text-xs text-slate-400 cursor-pointer font-normal">
                               Không gán nhóm (Trống)
                             </SelectItem>
                             {availableGroups.map((g: string) => (
-                              <SelectItem key={g} value={g} className="text-xs cursor-pointer font-medium">
+                              <SelectItem key={g} value={g} className="text-xs cursor-pointer font-normal">
                                 {g}
                               </SelectItem>
                             ))}
@@ -1435,10 +1564,10 @@ function UsersManagementContent() {
                       </div>
 
                       <Link
-                        href={`/accounts?userId=${u.id}`}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
+                        href={`/users/${u.id}`}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-pink-600 dark:text-pink-400 hover:underline hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
                       >
-                        <span>Dàn acc</span>
+                        <span>Chi tiết</span>
                         <ArrowRight className="w-3 h-3" />
                       </Link>
                     </div>
@@ -1660,23 +1789,23 @@ function UsersManagementContent() {
                                   });
                                 }}
                               >
-                                <SelectTrigger className="w-36 h-7.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                <SelectTrigger className="w-36 h-7.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
                                   <SelectValue placeholder="Gán nhóm">
                                     {u.groupName ? (
-                                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                      <span className="font-normal text-slate-800 dark:text-slate-200">
                                         {u.groupName}
                                       </span>
                                     ) : (
-                                      <span className="text-slate-400">Chưa gán nhóm</span>
+                                      <span className="text-slate-400 font-normal">Chưa gán nhóm</span>
                                     )}
                                   </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
-                                  <SelectItem value="NONE" className="text-xs text-slate-400 cursor-pointer">
+                                  <SelectItem value="NONE" className="text-xs text-slate-400 cursor-pointer font-normal">
                                     Không gán nhóm (Trống)
                                   </SelectItem>
                                   {availableGroups.map((g: string) => (
-                                    <SelectItem key={g} value={g} className="text-xs cursor-pointer font-medium">
+                                    <SelectItem key={g} value={g} className="text-xs cursor-pointer font-normal">
                                       {g}
                                     </SelectItem>
                                   ))}
@@ -1777,10 +1906,31 @@ function UsersManagementContent() {
                                         setCopiedExtensionToken(false);
                                         setIsTokenModalOpen(true);
                                       }}
-                                      className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg cursor-pointer font-medium"
+                                      className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
                                     >
-                                      <Key className="w-3.5 h-3.5 text-amber-500" />
+                                      <Key className="w-3.5 h-3.5 text-slate-400" />
                                       <span>Quản lý Extension Token</span>
+                                    </DropdownMenuItem>
+                                  )}
+
+                                  {isAdmin && u.boundMachineId && (
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        if (
+                                          confirm(
+                                            `Hủy liên kết máy "${u.boundMachineName || u.boundMachineId}" cho user này?`
+                                          )
+                                        ) {
+                                          unlinkMachineMutation.mutate({
+                                            userId: u.id,
+                                            reason: "admin_unlink_ui",
+                                          });
+                                        }
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
+                                    >
+                                      <MonitorX className="w-3.5 h-3.5 text-slate-400" />
+                                      <span>Hủy Liên Kết Máy Tính</span>
                                     </DropdownMenuItem>
                                   )}
 
@@ -1788,22 +1938,20 @@ function UsersManagementContent() {
                                     <DropdownMenuItem
                                       disabled={u.id === session?.user?.id}
                                       onClick={() => openToggleStatusModal(u)}
-                                      className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-medium ${
+                                      className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-normal ${
                                         u.id === session?.user?.id
                                           ? "opacity-50 cursor-not-allowed text-slate-400"
-                                          : u.isActive
-                                          ? "text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                          : "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                                       }`}
                                     >
                                       {u.isActive ? (
                                         <>
-                                          <Ban className="w-3.5 h-3.5 text-rose-500" />
+                                          <Ban className="w-3.5 h-3.5 text-slate-400" />
                                           <span>Chặn quyền truy cập</span>
                                         </>
                                       ) : (
                                         <>
-                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
                                           <span>Mở chặn quyền truy cập</span>
                                         </>
                                       )}
@@ -1817,7 +1965,7 @@ function UsersManagementContent() {
                                       setUserToDelete(u);
                                       setIsDeleteOpen(true);
                                     }}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg cursor-pointer font-semibold"
+                                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg cursor-pointer font-normal"
                                   >
                                     <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                                     <span>Xóa nhân sự</span>

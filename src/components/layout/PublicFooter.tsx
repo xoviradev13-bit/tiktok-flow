@@ -27,9 +27,6 @@ export default function PublicFooter() {
                 <span className="font-black text-lg tracking-tight text-slate-900 dark:text-white shrink-0">
                   TIKTOK<span className="text-pink-500">FLOW</span>
                 </span>
-                <span className="px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap shrink-0">
-                  Online 99.9%
-                </span>
               </div>
             </Link>
 

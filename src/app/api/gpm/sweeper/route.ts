@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { gpmClient } from "@/lib/gpm-api";
-import { detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
-import { pMap } from "@/lib/concurrency";
 import { auth } from "@/lib/auth";
 
 export async function POST(req: Request) {
@@ -19,8 +16,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const actorName = session?.user?.name || session?.user?.email || "Deep Sweeper Engine";
-
     let body: any = {};
     try {
       body = await req.json();
@@ -28,20 +23,10 @@ export async function POST(req: Request) {
       body = {};
     }
 
-    const limit = body.limit ? Math.min(Number(body.limit), 50) : 10;
+    const limit = body.limit ? Math.min(Number(body.limit), 100) : 50;
     const forceAll = Boolean(body.forceAll);
 
-    // 1. Optional check for GPMLogin connection (non-blocking: sweeper reads profile data directly from disk)
-    try {
-      const health = await gpmClient.checkConnection();
-      if (!health.isOnline) {
-        console.log("ℹ️ [DeepSweeper] GPMLogin API offline, proceeding with direct disk profile extraction.");
-      }
-    } catch {
-      // Continue with direct disk extraction
-    }
-
-    // 2. Identify stale accounts (no sync in 24h or lastSyncedAt is null)
+    // 1. Identify stale accounts (no sync in 24h or lastSyncedAt is null)
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const staleFilter: any = {
       gpmProfileId: { not: null },
@@ -61,6 +46,9 @@ export async function POST(req: Request) {
         { lastSyncedAt: "asc" },
       ],
       take: limit,
+      include: {
+        assignedUser: true,
+      },
     });
 
     if (accountsToSweep.length === 0) {
@@ -68,96 +56,52 @@ export async function POST(req: Request) {
         success: true,
         message: "Tất cả tài khoản đều đã được cập nhật số liệu mới nhất trong vòng 24h qua.",
         totalScanned: 0,
-        sweptCount: 0,
+        queuedJobs: 0,
       });
     }
 
-    let sweptCount = 0;
-    let failedCount = 0;
-    const details: any[] = [];
+    // 2. Delegate to SyncQueue: Enqueue sync jobs for Client Agents
+    const targetUserIds = new Set<string>();
+    let hasUnassigned = false;
 
-    // 3. Run parallel extraction with safe concurrency limit (2 concurrent headless profiles)
-    await pMap(
-      accountsToSweep,
-      async (account) => {
-        try {
-          if (!account.gpmProfileId) return;
+    for (const acc of accountsToSweep) {
+      if (acc.assignedUserId) {
+        targetUserIds.add(acc.assignedUserId);
+      } else {
+        hasUnassigned = true;
+      }
+    }
 
-          console.log(`🧹 [DeepSweeper] Sweeping account @${account.username} (GPM: ${account.gpmProfileId})...`);
-          const detected = await detectTikTokAccountFromGpm(account.gpmProfileId);
+    const scopes = Array.from(targetUserIds);
+    if (hasUnassigned || scopes.length === 0) {
+      scopes.push("ALL");
+    }
 
-          if (detected) {
-            const updatePayload: any = {
-              lastSyncedAt: new Date(),
-            };
+    let queuedCount = 0;
+    const queuedJobIds: string[] = [];
 
-            if (detected.totalViews !== undefined && detected.totalViews !== null) {
-              updatePayload.totalViews = BigInt(detected.totalViews);
-            }
-            if (detected.followersCount !== undefined && detected.followersCount !== null) {
-              updatePayload.totalFollowers = detected.followersCount;
-            }
-            if (detected.videoCount !== undefined && detected.videoCount !== null) {
-              updatePayload.totalVideos = detected.videoCount;
-            }
-            if (detected.totalRewardsUsd !== undefined && detected.totalRewardsUsd !== null) {
-              updatePayload.totalRevenue = detected.totalRewardsUsd;
-            }
-            if (detected.country && detected.country !== "US" && account.country === "US") {
-              updatePayload.country = detected.country;
-            }
+    for (const scope of scopes) {
+      const existingJob = await prisma.syncQueue.findFirst({
+        where: {
+          targetScope: scope,
+          status: { in: ["PENDING", "PROCESSING"] },
+        },
+      });
 
-            await prisma.tiktokAccount.update({
-              where: { id: account.id },
-              data: updatePayload,
-            });
+      if (!existingJob) {
+        const job = await prisma.syncQueue.create({
+          data: {
+            requestedById: scope === "ALL" ? (session?.user?.id || "system") : scope,
+            targetScope: scope,
+            status: "PENDING",
+          },
+        });
+        queuedCount++;
+        queuedJobIds.push(job.id);
+      }
+    }
 
-            await prisma.accountLog.create({
-              data: {
-                accountId: account.id,
-                newStatus: account.status,
-                logType: "STATUS_CHANGE",
-                message: `[DEEP SWEEPER] Tự động quét vét và cập nhật số liệu TikTok Studio ngầm (${detected.followersCount} followers, ${detected.totalViews} views).`,
-                actorName,
-              },
-            });
-
-            sweptCount++;
-            details.push({
-              username: account.username,
-              gpmProfileId: account.gpmProfileId,
-              status: "SUCCESS",
-              followers: detected.followersCount,
-              views: detected.totalViews,
-            });
-          } else {
-            // Still update lastSyncedAt to avoid tight looping on invalid profiles
-            await prisma.tiktokAccount.update({
-              where: { id: account.id },
-              data: { lastSyncedAt: new Date() },
-            });
-            failedCount++;
-            details.push({
-              username: account.username,
-              gpmProfileId: account.gpmProfileId,
-              status: "FAILED_OR_NOT_LOGGED_IN",
-            });
-          }
-        } catch (sweepErr: any) {
-          console.warn(`[DeepSweeper] Error sweeping account ${account.username}:`, sweepErr.message);
-          failedCount++;
-          details.push({
-            username: account.username,
-            gpmProfileId: account.gpmProfileId,
-            status: "ERROR",
-            error: sweepErr.message,
-          });
-        }
-      },
-      2
-    );
-
-    // 4. Update tiktok_sweeper_schedule config lastRunAt
+    // 3. Update tiktok_sweeper_schedule config lastRunAt
     const now = new Date();
     try {
       const sweeperConfig = await prisma.systemConfig.findUnique({
@@ -177,11 +121,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Đã hoàn thành quét vét ${sweptCount}/${accountsToSweep.length} tài khoản TikTok Studio ngầm.`,
+      message: `Đã đưa ${queuedCount} tác vụ đồng bộ vào hàng đợi (SyncQueue) cho các Client Agent của nhân sự.`,
       totalScanned: accountsToSweep.length,
-      sweptCount,
-      failedCount,
-      details,
+      queuedCount,
+      queuedJobIds,
     });
   } catch (err: any) {
     console.error("[/api/gpm/sweeper] Error:", err);

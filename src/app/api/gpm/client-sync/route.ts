@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fetchTikTokPublicProfileHttp } from "@/lib/tiktok-extractor";
 import { pMap } from "@/lib/concurrency";
 import {
   checkRateLimit,
@@ -46,6 +45,27 @@ export async function GET(req: Request) {
         { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
         { status: 429, headers: { "Retry-After": String(schedLimit.retryAfterSec) } }
       );
+    }
+
+    // Capture GPM Port & Status reported by Client Agent via headers or query params
+    try {
+      const url = new URL(req.url);
+      const rawPort = url.searchParams.get("gpmPort") || req.headers.get("x-gpm-port");
+      const rawOnline = url.searchParams.get("gpmOnline") || req.headers.get("x-gpm-online");
+      const parsedPort = rawPort ? parseInt(rawPort, 10) : null;
+      if (parsedPort && Number.isFinite(parsedPort) && parsedPort > 0) {
+        const isOnline = rawOnline !== "false" && rawOnline !== "0";
+        await prisma.user.update({
+          where: { id: authResult.user.id },
+          data: {
+            gpmPort: parsedPort,
+            gpmIsOnline: isOnline,
+            gpmLastSeenAt: new Date(),
+          },
+        });
+      }
+    } catch {
+      // Ignore background telemetry errors
     }
 
     const configRecord = await prisma.systemConfig.findUnique({
@@ -181,6 +201,51 @@ export async function GET(req: Request) {
       } catch { }
     }
 
+    // Auto-expire stale jobs older than 5 minutes
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    await prisma.syncQueue.updateMany({
+      where: {
+        status: { in: ["PENDING", "PROCESSING"] },
+        requestedAt: { lt: fiveMinutesAgo },
+      },
+      data: {
+        status: "TIMED_OUT",
+        errorMessage: "Quá thời gian chờ (5 phút) - Đã tự động hủy bỏ",
+        completedAt: new Date(),
+      },
+    });
+
+    // Query active job from SyncQueue specifically for this authenticated user (or ALL)
+    const activeSyncJob = await prisma.syncQueue.findFirst({
+      where: {
+        status: { in: ["PENDING", "PROCESSING"] },
+        requestedAt: { gte: fiveMinutesAgo },
+        OR: [
+          { requestedById: authResult.user.id },
+          { targetScope: authResult.user.id },
+          { targetScope: "ALL" },
+        ],
+      },
+      orderBy: { requestedAt: "desc" },
+    });
+
+    const syncJob = activeSyncJob
+      ? {
+          id: activeSyncJob.id,
+          status: activeSyncJob.status,
+          requestedAt: activeSyncJob.requestedAt.getTime(),
+          targetScope: activeSyncJob.targetScope,
+        }
+      : null;
+
+    const syncSignal = activeSyncJob
+      ? {
+          jobId: activeSyncJob.id,
+          requestedAt: activeSyncJob.requestedAt.getTime(),
+          requestedBy: activeSyncJob.requestedById,
+        }
+      : null;
+
     return NextResponse.json({
       autoEnabled: isAutoOn,
       intervalMinutes,
@@ -189,6 +254,8 @@ export async function GET(req: Request) {
       mode: isAutoOn ? "AUTO" : "MANUAL",
       rawSchedule: parsed,
       sweeperSchedule,
+      syncJob,
+      syncSignal,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -281,6 +348,99 @@ export async function POST(req: Request) {
       );
     }
 
+    // Capture GPM Port & Status reported by Client Agent
+    const incomingPort =
+      typeof (body as any).gpmPort === "number"
+        ? (body as any).gpmPort
+        : parseInt(req.headers.get("x-gpm-port") || "", 10) || null;
+    const incomingOnline =
+      typeof (body as any).gpmOnline === "boolean"
+        ? (body as any).gpmOnline
+        : req.headers.get("x-gpm-online") === "true";
+
+    if (incomingPort && Number.isFinite(incomingPort) && incomingPort > 0) {
+      await prisma.user
+        .update({
+          where: { id: user.id },
+          data: {
+            gpmPort: incomingPort,
+            gpmIsOnline: incomingOnline !== false,
+            gpmLastSeenAt: new Date(),
+          },
+        })
+        .catch(() => {});
+
+      if (user.role === "ADMIN" || user.role === "LEAD") {
+        await prisma.systemConfig
+          .upsert({
+            where: { key: "gpm_config" },
+            create: {
+              key: "gpm_config",
+              value: JSON.stringify({
+                baseUrl: `http://127.0.0.1:${incomingPort}/api/v1`,
+                port: incomingPort,
+                isOnline: incomingOnline !== false,
+                lastSeenAt: new Date().toISOString(),
+              }),
+              description: "Cấu hình GPMLogin Local API (Auto-synced from Client Agent)",
+            },
+            update: {
+              value: JSON.stringify({
+                baseUrl: `http://127.0.0.1:${incomingPort}/api/v1`,
+                port: incomingPort,
+                isOnline: incomingOnline !== false,
+                lastSeenAt: new Date().toISOString(),
+              }),
+            },
+          })
+          .catch(() => {});
+      }
+    }
+
+    // Handle queue status reporting actions from Client Agent
+    const rawAction = (body as any).action;
+    const incomingJobId = (body as any).jobId;
+
+    if (rawAction === "start_job" && incomingJobId) {
+      await prisma.syncQueue.update({
+        where: { id: incomingJobId },
+        data: {
+          status: "PROCESSING",
+          startedAt: new Date(),
+          machineId: (body as any).machineId || null,
+          machineName: (body as any).machineName || null,
+        },
+      });
+      return NextResponse.json({ success: true, message: "Đã cập nhật trạng thái: Đang xử lý (PROCESSING)" });
+    }
+
+    if (rawAction === "complete_job" && incomingJobId) {
+      await prisma.syncQueue.update({
+        where: { id: incomingJobId },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          profilesCount: (body as any).profilesCount ?? null,
+          successCount: (body as any).successCount ?? null,
+          failCount: (body as any).failCount ?? 0,
+          resultSummary: (body as any).resultSummary ?? null,
+        },
+      });
+      return NextResponse.json({ success: true, message: "Đã cập nhật trạng thái: Hoàn tất (COMPLETED)" });
+    }
+
+    if (rawAction === "fail_job" && incomingJobId) {
+      await prisma.syncQueue.update({
+        where: { id: incomingJobId },
+        data: {
+          status: "FAILED",
+          completedAt: new Date(),
+          errorMessage: (body as any).errorMessage || "Lỗi không xác định từ Client Agent",
+        },
+      });
+      return NextResponse.json({ success: true, message: "Đã cập nhật trạng thái: Thất bại (FAILED)" });
+    }
+
     if (!profiles || !Array.isArray(profiles) || profiles.length === 0) {
       return NextResponse.json({
         success: true,
@@ -333,9 +493,6 @@ export async function POST(req: Request) {
         else if (lowerName.includes("de")) country = "DE";
         else if (lowerName.includes("fr")) country = "FR";
 
-        // Seed metrics only for brand-new accounts. Never overwrite Agent/Studio metrics on update.
-        const publicMetrics = await fetchTikTokPublicProfileHttp(extractedUsername).catch(() => null);
-
         // 1. INSERT IF NEW
         if (!existing) {
           try {
@@ -347,12 +504,13 @@ export async function POST(req: Request) {
                 country,
                 groupName: p.group_id || "GPM Fleet",
                 gpmProfileId: p.id,
+                gpmPort: incomingPort || undefined,
                 status: "ACTIVE",
                 assignedUserId,
                 isAssignmentLocked: false,
                 totalViews: BigInt(0),
-                totalFollowers: publicMetrics?.followersCount || 0,
-                totalVideos: publicMetrics?.videoCount || 0,
+                totalFollowers: 0,
+                totalVideos: 0,
                 totalRevenue: 0,
                 lastSyncedAt: new Date(),
               },
@@ -392,11 +550,13 @@ export async function POST(req: Request) {
         // 2. Link GPM + fluid handover only (metrics owned by Client Agent / Studio reports)
         const updateData: {
           gpmProfileId: string;
+          gpmPort?: number;
           groupName: string;
           lastSyncedAt: Date;
           assignedUserId?: string;
         } = {
           gpmProfileId: p.id,
+          ...(incomingPort ? { gpmPort: incomingPort } : {}),
           groupName: p.group_id || existing.groupName || "GPM Fleet",
           lastSyncedAt: new Date(),
         };

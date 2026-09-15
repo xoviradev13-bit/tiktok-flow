@@ -14,18 +14,6 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Subdomain routing support (e.g. docs.domain.com -> /docs, api.domain.com -> /api-docs)
-  const host = request.headers.get("host") || "";
-  if (host.startsWith("docs.") && !pathname.startsWith("/docs")) {
-    return NextResponse.rewrite(new URL(`/docs${pathname === "/" ? "" : pathname}`, request.url));
-  }
-  if ((host.startsWith("api.") || host.startsWith("developers.")) && !pathname.startsWith("/api-docs")) {
-    return NextResponse.rewrite(new URL(`/api-docs${pathname === "/" ? "" : pathname}`, request.url));
-  }
-  if ((host.startsWith("trust.") || host.startsWith("legal.")) && !pathname.startsWith("/security")) {
-    return NextResponse.rewrite(new URL(`/security${pathname === "/" ? "" : pathname}`, request.url));
-  }
-
   const isAccessingApiAuthRoute = pathname.startsWith(API_AUTH_PREFIX);
   const isApiRoute = pathname.startsWith("/api");
   const isTrpcRoute = pathname.startsWith("/api/trpc");
@@ -34,6 +22,23 @@ export async function proxy(request: NextRequest) {
   // Allow auth callbacks, tRPC (handled by tRPC context/procedures) and invitation validation
   if (isAccessingApiAuthRoute || isTrpcRoute || isInviteApiRoute) {
     return NextResponse.next();
+  }
+
+  // Subdomain routing support (e.g. docs.domain.com -> /docs, api.domain.com -> /api-docs)
+  // Runs after the API/auth bypass above so subdomain-hosted API/auth traffic
+  // (e.g. api.domain.com/api/trpc/..., docs.domain.com/api/auth/session) is
+  // never rewritten into a page route.
+  const host = request.headers.get("host") || "";
+  if (!isApiRoute) {
+    if (host.startsWith("docs.") && !pathname.startsWith("/docs")) {
+      return NextResponse.rewrite(new URL(`/docs${pathname === "/" ? "" : pathname}`, request.url));
+    }
+    if ((host.startsWith("api.") || host.startsWith("developers.")) && !pathname.startsWith("/api-docs")) {
+      return NextResponse.rewrite(new URL(`/api-docs${pathname === "/" ? "" : pathname}`, request.url));
+    }
+    if ((host.startsWith("trust.") || host.startsWith("legal.")) && !pathname.startsWith("/security")) {
+      return NextResponse.rewrite(new URL(`/security${pathname === "/" ? "" : pathname}`, request.url));
+    }
   }
 
   const isOAuthPopupComplete = pathname.startsWith("/auth/oauth-popup-complete");
@@ -64,10 +69,28 @@ export async function proxy(request: NextRequest) {
     cookieName: SHARED_COOKIE_NAME,
     secureCookie: IS_PRODUCTION,
   });
-  const isAuthenticated = !!token;
+
+  // token.id is normalized in the `jwt` callback (auth.ts): it's set from
+  // user.id or token.sub on sign-in, and explicitly cleared to "" when
+  // dbUser.isActive is false (ACCOUNT_LOCKED). So token.id alone is the
+  // correct signed-in check.
+  const isAccountLocked = (token as any)?.error === "ACCOUNT_LOCKED";
+  const isAuthenticated = !!token?.id;
 
   if (isPublicRoute) {
     return NextResponse.next();
+  }
+
+  // Locked accounts: send to the dedicated error page instead of /signin,
+  // for both protected routes and auth routes (so they can't just retry
+  // sign-in and land in a loop — /auth/error explains why they're blocked).
+  if (isAccountLocked && (isProtectedRoute || isAccessingAuthRoute)) {
+    if (isApiRoute) {
+      return NextResponse.json({ error: "ACCOUNT_LOCKED" }, { status: 403 });
+    }
+    const lockedUrl = new URL("/auth/error", url);
+    lockedUrl.searchParams.set("error", "ACCOUNT_LOCKED");
+    return NextResponse.redirect(lockedUrl);
   }
 
   // Redirect authenticated users away from auth routes, honoring preserved destination
@@ -78,8 +101,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL(safeDest, url));
   }
 
-  // Redirect unauthenticated users to signin, preserving destination
+  // Redirect unauthenticated users to signin, preserving destination.
+  // For API routes, return 401 JSON instead of an HTML redirect so client-side
+  // fetches get a handleable error rather than a redirect response.
   if (!isAuthenticated && isProtectedRoute) {
+    if (isApiRoute) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const loginUrl = new URL("/signin", url);
     const targetDest = pathname + url.search;
     if (!AUTH_ROUTES.some(r => targetDest === r || targetDest.startsWith(r + "/") || targetDest.startsWith(r + "?"))) {

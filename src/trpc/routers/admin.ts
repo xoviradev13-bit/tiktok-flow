@@ -9,6 +9,7 @@ import {
   persistPersonalTokenValue,
   revealPersonalToken,
   revokeExtensionCredentials,
+  writeMachineBindingLog,
 } from "@/lib/extension-auth";
 
 export const adminRouter = router({
@@ -31,6 +32,10 @@ export const adminRouter = router({
         lastActiveAt: true,
         groupId: true,
         extensionToken: true,
+        boundMachineId: true,
+        boundMachineName: true,
+        boundOsUser: true,
+        boundMachineAt: true,
         group: {
           select: { id: true, name: true, color: true },
         },
@@ -1108,5 +1113,197 @@ export const adminRouter = router({
         userId: user.id,
         revoked: true,
       };
+    }),
+
+  unlinkUserMachine: adminProcedure
+    .input(
+      z.object({
+        userId: z.string(),
+        reason: z.string().min(3).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: input.userId },
+        select: {
+          id: true,
+          boundMachineId: true,
+          boundMachineName: true,
+          boundOsUser: true,
+        },
+      });
+      if (!user) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Không tìm thấy người dùng.",
+        });
+      }
+      if (!user.boundMachineId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Người dùng chưa liên kết thiết bị nào.",
+        });
+      }
+
+      const prevMachineId = user.boundMachineId;
+      await ctx.prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: input.userId },
+          data: {
+            boundMachineId: null,
+            boundMachineName: null,
+            boundOsUser: null,
+            boundMachineAt: null,
+            extensionSessionVersion: { increment: 1 },
+          },
+        });
+        await tx.extensionRefreshToken.updateMany({
+          where: { userId: input.userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        await writeMachineBindingLog(tx, {
+          userId: input.userId,
+          action: "UNLINK",
+          machineId: prevMachineId,
+          machineName: user.boundMachineName,
+          osUsername: user.boundOsUser,
+          reason: input.reason ?? "admin_unlink",
+          actorUserId: ctx.session.user.id,
+          actorName:
+            ctx.session.user.name ?? ctx.session.user.email ?? null,
+        });
+      });
+
+      clearUserCache(input.userId);
+      return { success: true };
+    }),
+
+  listPendingMachineChangeRequests: adminProcedure.query(async ({ ctx }) => {
+    return ctx.prisma.machineChangeRequest.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            name: true,
+            boundMachineId: true,
+            boundMachineName: true,
+            boundOsUser: true,
+          },
+        },
+      },
+    });
+  }),
+
+  reviewMachineChangeRequest: adminProcedure
+    .input(
+      z.object({
+        requestId: z.string(),
+        decision: z.enum(["APPROVED", "REJECTED"]),
+        note: z.string().max(500).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const reqRow = await ctx.prisma.machineChangeRequest.findUnique({
+        where: { id: input.requestId },
+      });
+      if (!reqRow || reqRow.status !== "PENDING") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Yêu cầu không hợp lệ.",
+        });
+      }
+
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: reqRow.userId },
+        select: {
+          boundMachineId: true,
+          boundMachineName: true,
+          boundOsUser: true,
+        },
+      });
+      const stillMatches =
+        Boolean(user?.boundMachineId) &&
+        user!.boundMachineId === reqRow.fromMachineId;
+
+      if (input.decision === "APPROVED" && !stillMatches) {
+        await ctx.prisma.machineChangeRequest.update({
+          where: { id: reqRow.id },
+          data: {
+            status: "REJECTED",
+            reviewedById: ctx.session.user.id,
+            reviewedAt: new Date(),
+            reviewNote:
+              input.note ??
+              "auto_stale: boundMachineId no longer matches fromMachineId",
+          },
+        });
+        await writeMachineBindingLog(ctx.prisma, {
+          userId: reqRow.userId,
+          action: "CHANGE_DENIED",
+          machineId: reqRow.fromMachineId,
+          machineName: reqRow.fromMachineName,
+          osUsername: reqRow.fromOsUsername,
+          reason: "stale_request_machine_mismatch",
+          actorUserId: ctx.session.user.id,
+          actorName: ctx.session.user.name ?? ctx.session.user.email ?? null,
+          metadata: {
+            requestId: reqRow.id,
+            currentBoundMachineId: user?.boundMachineId ?? null,
+          },
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Yêu cầu đã lỗi thời (máy hiện tại không còn khớp). Đã đánh dấu từ chối.",
+        });
+      }
+
+      await ctx.prisma.$transaction(async (tx) => {
+        await tx.machineChangeRequest.update({
+          where: { id: reqRow.id },
+          data: {
+            status: input.decision,
+            reviewedById: ctx.session.user.id,
+            reviewedAt: new Date(),
+            reviewNote: input.note ?? null,
+          },
+        });
+        if (input.decision === "APPROVED") {
+          await tx.user.update({
+            where: { id: reqRow.userId },
+            data: {
+              boundMachineId: null,
+              boundMachineName: null,
+              boundOsUser: null,
+              boundMachineAt: null,
+              extensionSessionVersion: { increment: 1 },
+            },
+          });
+          await tx.extensionRefreshToken.updateMany({
+            where: { userId: reqRow.userId, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+        }
+        await writeMachineBindingLog(tx, {
+          userId: reqRow.userId,
+          action:
+            input.decision === "APPROVED"
+              ? "CHANGE_APPROVED"
+              : "CHANGE_DENIED",
+          machineId: reqRow.fromMachineId,
+          machineName: reqRow.fromMachineName,
+          osUsername: reqRow.fromOsUsername,
+          reason: input.note ?? reqRow.reason,
+          actorUserId: ctx.session.user.id,
+          actorName: ctx.session.user.name ?? ctx.session.user.email ?? null,
+          metadata: { requestId: reqRow.id },
+        });
+      });
+      clearUserCache(reqRow.userId);
+      return { success: true };
     }),
 });

@@ -8,7 +8,7 @@ export const settingsRouter = router({
     const configs = await ctx.prisma.systemConfig.findMany({
       where: isLeadOrAdmin
         ? undefined
-        : { key: { in: ["scoring_rules", "app_theme", "app_version"] } },
+        : { key: { in: ["scoring_rules", "app_theme", "app_version", "sync_schedule"] } },
     });
     const configMap: Record<string, any> = {};
     for (const c of configs) {

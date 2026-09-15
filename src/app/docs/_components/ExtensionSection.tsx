@@ -34,6 +34,12 @@ export function ExtensionSection() {
         </p>
       </div>
 
+      <div className="p-4 rounded-2xl bg-cyan-50/80 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-900/50 text-sm text-cyan-900 dark:text-cyan-100 leading-relaxed">
+        <strong className="font-bold">Làm trước:</strong> Cài và chạy Client Agent trên máy (
+        <code className="font-mono text-xs font-bold bg-cyan-100 dark:bg-cyan-900/50 px-1.5 py-0.5 rounded">setup-agent.bat</code>{" "}
+        phím <strong>1</strong>) rồi mới nạp Extension. Extension cần Agent đang chạy trên cùng máy để kích hoạt lần đầu.
+      </div>
+
       {/* Download banner */}
       <div className="p-6 rounded-3xl bg-pink-50/70 dark:bg-gradient-to-r dark:from-pink-950/40 dark:via-purple-950/40 dark:to-slate-950 border border-pink-200 dark:border-pink-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1.5">

@@ -1,8 +1,25 @@
-import { router, protectedProcedure, leadProcedure } from "@/trpc/init";
+import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { calculateWorkdayScore, getCutoffTimeInfo, DEFAULT_SCORING_CONFIG } from "@/lib/scoring-engine";
-import { detectTikTokAccountFromGpm } from "@/lib/tiktok-extractor";
+import { calculateWorkdayScore, getCutoffTimeInfo, DEFAULT_SCORING_CONFIG, ScoringRuleConfig } from "@/lib/scoring-engine";
+
+async function getScoringConfig(prisma: any): Promise<ScoringRuleConfig> {
+  try {
+    const record = await prisma.systemConfig.findUnique({
+      where: { key: "scoring_rules" },
+    });
+    if (record && record.value) {
+      const parsed = JSON.parse(record.value);
+      return {
+        ...DEFAULT_SCORING_CONFIG,
+        ...parsed,
+      };
+    }
+  } catch (e) {
+    console.warn("Failed to load scoring_rules config:", e);
+  }
+  return DEFAULT_SCORING_CONFIG;
+}
 
 function getTodayDateOnly(): Date {
   const now = new Date();
@@ -298,7 +315,8 @@ export const checklistRouter = router({
           ? Math.round((totalPossibleCompletion / formattedChecklists.length) * 10) / 10
           : 0;
 
-      const cutoffInfo = getCutoffTimeInfo(DEFAULT_SCORING_CONFIG);
+      const scoringConfig = await getScoringConfig(ctx.prisma);
+      const cutoffInfo = getCutoffTimeInfo(scoringConfig);
 
       return serializeBigInt({
         isRangeMode,
@@ -306,6 +324,7 @@ export const checklistRouter = router({
         startDate: input?.startDate,
         endDate: input?.endDate,
         cutoffInfo,
+        scoringConfig,
         summary: {
           totalRecords: formattedChecklists.length,
           totalStaff,
@@ -585,101 +604,56 @@ export const checklistRouter = router({
       let postedCount = 0;
       let syncedCount = 0;
 
+      const now = new Date();
+      const todayStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+
+      // Enqueue SyncQueue sweep for the targeted staff members so their Client Agents sweep local GPM
+      for (const checklist of targetChecklists) {
+        try {
+          await ctx.prisma.syncQueue.create({
+            data: {
+              requestedById: ctx.session.user.id,
+              status: "PENDING",
+              targetScope: checklist.userId,
+              requestedAt: new Date(),
+            },
+          });
+        } catch { }
+      }
+
       for (const checklist of targetChecklists) {
         for (const item of checklist.items) {
           totalAccountsScanned++;
-          if (!item.account.gpmProfileId) continue;
+          scannedCount++;
 
-          try {
-            const detected = await detectTikTokAccountFromGpm(item.account.gpmProfileId);
-            if (detected) {
-              scannedCount++;
-              const hasRecentVideo =
-                (detected.videosToday !== undefined && detected.videosToday > 0) ||
-                (detected.videos7d !== undefined && detected.videos7d > 0) ||
-                (detected.totalVideos !== undefined && detected.totalVideos > 0);
+          // Check if account has been synced today by Client Agent or Extension
+          const isSyncedToday = Boolean(
+            item.account.lastSyncedAt && new Date(item.account.lastSyncedAt) >= todayStart
+          );
 
-              const isPosted = hasRecentVideo || item.isPosted;
-              const isSynced = true;
-              const isCompleted = isPosted && isSynced;
+          // Check if there is a revenue record or activity recorded today
+          const hasRevenueToday = await ctx.prisma.dailyRevenue.findFirst({
+            where: {
+              accountId: item.account.id,
+              date: todayStart,
+            },
+          });
 
-              if (isPosted) postedCount++;
-              if (isSynced) syncedCount++;
+          const isPosted = item.isPosted || Boolean(hasRevenueToday);
+          const isSynced = item.isSynced || isSyncedToday;
+          const isCompleted = isPosted && isSynced;
 
-              // Format video details note if detected
-              let notes = item.notes;
-              if (hasRecentVideo && !notes) {
-                const now = new Date();
-                const timeStr = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-                notes = `Đã phát hiện video mới lúc ${timeStr} • ${detected.videoCount || 1} video`;
-              }
+          if (isPosted) postedCount++;
+          if (isSynced) syncedCount++;
 
-              // Update item
-              await ctx.prisma.dailyChecklistItem.update({
-                where: { id: item.id },
-                data: {
-                  isPosted,
-                  isSynced,
-                  isCompleted,
-                  notes,
-                },
-              });
-
-              // Update account stats
-              const updateData: any = { lastSyncedAt: new Date() };
-              if (detected.totalViews > 0) updateData.totalViews = BigInt(detected.totalViews);
-              if (detected.followersCount > 0) updateData.totalFollowers = detected.followersCount;
-              if ((detected.totalVideos || detected.videoCount) > 0) {
-                updateData.totalVideos = detected.totalVideos || detected.videoCount;
-              }
-              if (detected.totalRewardsUsd !== null && detected.totalRewardsUsd !== undefined) {
-                updateData.totalRevenue = detected.totalRewardsUsd;
-              }
-
-              await ctx.prisma.tiktokAccount.update({
-                where: { id: item.account.id },
-                data: updateData,
-              });
-
-              // Upsert DailyRevenue record for today
-              if (detected.totalViews > 0 || (detected.totalRewardsUsd !== null && detected.totalRewardsUsd !== undefined)) {
-                try {
-                  const now = new Date();
-                  const todayOnly = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-                  const revNum = detected.totalRewardsUsd || 0;
-                  const viewsNum = detected.viewsToday || detected.totalViews || 0;
-                  const rpmNum = detected.rpm || (viewsNum > 0 && revNum > 0 ? (revNum * 1000) / viewsNum : 0);
-
-                  await ctx.prisma.dailyRevenue.upsert({
-                    where: {
-                      accountId_date_sourceType: {
-                        accountId: item.account.id,
-                        date: todayOnly,
-                        sourceType: "CREATOR_REWARDS",
-                      },
-                    },
-                    create: {
-                      accountId: item.account.id,
-                      date: todayOnly,
-                      views: BigInt(viewsNum),
-                      revenue: revNum,
-                      rpm: rpmNum,
-                      sourceType: "CREATOR_REWARDS",
-                    },
-                    update: {
-                      views: BigInt(viewsNum),
-                      revenue: revNum,
-                      rpm: rpmNum,
-                    },
-                  });
-                } catch (revErr) {
-                  console.warn(`[autoScanAndCheck] Failed to upsert DailyRevenue for ${item.account.username}:`, revErr);
-                }
-              }
-            }
-          } catch (e: any) {
-            console.warn(`[autoScanAndCheck] Failed for ${item.account.username}:`, e.message);
-          }
+          await ctx.prisma.dailyChecklistItem.update({
+            where: { id: item.id },
+            data: {
+              isPosted,
+              isSynced,
+              isCompleted,
+            },
+          });
         }
 
         // Recalculate total checklist score for this staff
@@ -728,5 +702,40 @@ export const checklistRouter = router({
         },
       });
       return locked;
+    }),
+
+  // 8. Save Scoring Rules & Cutoff Configuration (ADMIN)
+  saveRules: adminProcedure
+    .input(
+      z.object({
+        fullDayThreshold: z.number().min(0).max(100),
+        halfDayThreshold: z.number().min(0).max(100),
+        cutOffHour: z.number().min(0).max(23),
+        cutOffMinute: z.number().min(0).max(59),
+        timezone: z.string().default("Asia/Ho_Chi_Minh"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.fullDayThreshold <= input.halfDayThreshold) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Ngưỡng 1.0 Ngày Công phải lớn hơn ngưỡng 0.5 Ngày Công!",
+        });
+      }
+
+      await ctx.prisma.systemConfig.upsert({
+        where: { key: "scoring_rules" },
+        create: {
+          key: "scoring_rules",
+          value: JSON.stringify(input),
+          description: "Quy tắc tính công & mốc giờ Cutoff",
+        },
+        update: {
+          value: JSON.stringify(input),
+          description: "Quy tắc tính công & mốc giờ Cutoff",
+        },
+      });
+
+      return { success: true, scoringConfig: input };
     }),
 });
