@@ -29,21 +29,9 @@ async function handleSync(req: Request) {
     // Fetch fresh exchange rates and update PostgreSQL SystemConfig
     const rates = await getOrSyncExchangeRates(prisma, { forceLive: true || forceLive });
 
-    // Optional audit log in activityLog if table exists
-    try {
-      await prisma.activityLog.create({
-        data: {
-          action: "EXCHANGE_RATES_SYNCED",
-          entityType: "SYSTEM",
-          entityId: "currency_exchange_rates",
-          message: `Đồng bộ tỷ giá tự động: 1 USD = ${rates.USD_VND.toLocaleString("vi-VN")} ₫, 1 GBP = $${rates.GBP_USD}, 1 EUR = $${rates.EUR_USD}`,
-          actorName: isCronAuthorized ? "Vercel Cron" : session?.user?.name || "Admin",
-          actorId: session?.user?.id || "cron-system",
-        },
-      });
-    } catch {
-      // ActivityLog table may have different required fields; fail silently
-    }
+    console.log(
+      `[ExchangeRates] Synced: 1 USD = ${rates.USD_VND.toLocaleString("vi-VN")} ₫, 1 GBP = $${rates.GBP_USD}, 1 EUR = $${rates.EUR_USD}`
+    );
 
     return NextResponse.json({
       success: true,
