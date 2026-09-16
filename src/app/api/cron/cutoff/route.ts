@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateWorkdayScore, DEFAULT_SCORING_CONFIG, ScoringRuleConfig } from "@/lib/scoring-engine";
 import { auth } from "@/lib/auth";
+import { getOrSyncExchangeRates } from "@/lib/currency";
+import { purgeExpiredExtensionAuthData } from "@/lib/extension-auth";
 
 function getTodayDateOnly(): Date {
   const now = new Date();
@@ -104,11 +106,30 @@ export async function GET(req: Request) {
       });
     }
 
+    // 4. Daily Maintenance: Auto-sync exchange rates & purge expired auth data
+    let ratesSynced = false;
+    try {
+      await getOrSyncExchangeRates(prisma, { forceLive: true });
+      ratesSynced = true;
+    } catch (e) {
+      console.warn("[/api/cron/cutoff] Daily currency sync skipped:", e);
+    }
+
+    let authPurged = false;
+    try {
+      await purgeExpiredExtensionAuthData();
+      authPurged = true;
+    } catch (e) {
+      console.warn("[/api/cron/cutoff] Daily auth purge skipped:", e);
+    }
+
     return NextResponse.json({
       success: true,
       message: `Đã tự động chốt công lúc 10:00 AM cho ${totalChecklistsProcessed} nhân sự (${totalItemsAutoChecked} accounts auto-checked).`,
       checklistsProcessed: totalChecklistsProcessed,
       itemsAutoChecked: totalItemsAutoChecked,
+      ratesSynced,
+      authPurged,
       cutoffTime: new Date().toISOString(),
       results,
     });

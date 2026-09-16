@@ -4,22 +4,6 @@
     {
       "path": "/api/cron/cutoff",
       "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/sync",
-      "schedule": "0 */2 * * *"
-    },
-    {
-      "path": "/api/gpm/sweeper",
-      "schedule": "0 */4 * * *"
-    },
-    {
-      "path": "/api/cron/extension-auth-purge",
-      "schedule": "0 17 * * *"
-    },
-    {
-      "path": "/api/cron/exchange-rates",
-      "schedule": "0 0 * * *"
     }
   ]
 }
