@@ -68,6 +68,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { trpc } from "@/lib/trpc";
 import { launchGpmProfile } from "@/lib/gpm-client-bridge";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 type AccountSortKey =
   | "username"
@@ -224,6 +225,7 @@ const renderUserAvatar = (
 };
 
 function AccountsPageContent() {
+  const { formatAmount } = useCurrency();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -2121,23 +2123,23 @@ function AccountsPageContent() {
                               </div>
                               <div className="flex justify-between gap-4 text-[11px]">
                                 <span className="text-slate-400">7 ngày:</span>
-                                <span className="font-semibold text-cyan-300">${Number((acc as any).analytics?.revenue7d ?? 0).toFixed(2)}</span>
+                                <span className="font-semibold text-cyan-300">{formatAmount((acc as any).analytics?.revenue7d ?? 0, (acc as any).country)}</span>
                               </div>
                               <div className="flex justify-between gap-4 text-[11px]">
                                 <span className="text-slate-400">28 ngày:</span>
-                                <span className="font-semibold text-purple-300">${Number((acc as any).analytics?.revenue28d ?? 0).toFixed(2)}</span>
+                                <span className="font-semibold text-purple-300">{formatAmount((acc as any).analytics?.revenue28d ?? 0, (acc as any).country)}</span>
                               </div>
                               <div className="flex justify-between gap-4 text-[11px]">
                                 <span className="text-slate-400">60 ngày:</span>
-                                <span className="font-semibold text-indigo-300">${Number((acc as any).analytics?.revenue60d ?? 0).toFixed(2)}</span>
+                                <span className="font-semibold text-indigo-300">{formatAmount((acc as any).analytics?.revenue60d ?? 0, (acc as any).country)}</span>
                               </div>
                               <div className="flex justify-between gap-4 text-[11px]">
                                 <span className="text-slate-400">365 ngày:</span>
-                                <span className="font-semibold text-amber-300">${Number((acc as any).analytics?.revenue365d ?? 0).toFixed(2)}</span>
+                                <span className="font-semibold text-amber-300">{formatAmount((acc as any).analytics?.revenue365d ?? 0, (acc as any).country)}</span>
                               </div>
                               <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
                                 <span className="text-slate-300">Toàn bộ:</span>
-                                <span className="text-emerald-400">${Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0).toFixed(2)}</span>
+                                <span className="text-emerald-400">{formatAmount((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0, (acc as any).country)}</span>
                               </div>
                             </TooltipContent>
                           </Tooltip>
@@ -2719,7 +2721,7 @@ function AccountsPageContent() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span className="cursor-help border-b border-dotted border-emerald-500/40">
-                                      ${Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0).toFixed(2)}
+                                      {formatAmount((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0, (acc as any).country)}
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
@@ -2728,11 +2730,11 @@ function AccountsPageContent() {
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">7 ngày:</span>
-                                      <span className="font-semibold text-cyan-300">${Number((acc as any).analytics?.revenue7d ?? 0).toFixed(2)}</span>
+                                      <span className="font-semibold text-cyan-300">{formatAmount((acc as any).analytics?.revenue7d ?? 0, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">28 ngày:</span>
-                                      <span className="font-semibold text-purple-300">${Number((acc as any).analytics?.revenue28d ?? 0).toFixed(2)}</span>
+                                      <span className="font-semibold text-purple-300">{formatAmount((acc as any).analytics?.revenue28d ?? 0, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">60 ngày:</span>

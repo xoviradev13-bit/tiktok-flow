@@ -83,6 +83,7 @@ import {
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { format, subDays } from "date-fns";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 const COUNTRY_MAP: Record<string, string> = {
   unitedstates: "US", "united states": "US", usa: "US", us: "US", "mỹ": "US",
@@ -426,7 +427,9 @@ function AccountDetailPageContent() {
     }
   };
 
-  const currencySymbol = getCurrencySymbol(account?.country);
+  const { currency, formatAmount } = useCurrency();
+  const nativeCurrencySymbol = getCurrencySymbol(account?.country);
+  const currencySymbol = currency === "VND" ? "₫" : "$";
 
   // Status configuration helper
   const getStatusBadge = (status: string) => {
@@ -949,7 +952,7 @@ function AccountDetailPageContent() {
               <DollarSign className="w-4 h-4 text-pink-500 shrink-0" />
             </div>
             <div className="text-xl sm:text-2xl font-black text-pink-600 dark:text-pink-400 mt-2 truncate">
-              {currencySymbol}{totalRevNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatAmount(totalRevNum, account?.country)}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 truncate">
               <span className="truncate">Creator Rewards</span>
@@ -963,7 +966,7 @@ function AccountDetailPageContent() {
               <TrendingUp className="w-4 h-4 text-emerald-500 shrink-0" />
             </div>
             <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2 truncate">
-              {currencySymbol}{calculatedRpm.toFixed(2)}
+              {formatAmount(calculatedRpm, account?.country)}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 truncate">
               <span className="truncate">/ 1,000 views</span>
@@ -1152,7 +1155,7 @@ function AccountDetailPageContent() {
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">7 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-cyan-600 dark:text-cyan-400 mt-1">
                     {(account as any).analytics?.revenue7d != null
-                      ? `${currencySymbol}${Number((account as any).analytics.revenue7d).toFixed(2)}`
+                      ? formatAmount(Number((account as any).analytics.revenue7d), account?.country)
                       : "—"}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1167,7 +1170,7 @@ function AccountDetailPageContent() {
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">28 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 mt-1">
                     {(account as any).analytics?.revenue28d != null
-                      ? `${currencySymbol}${Number((account as any).analytics.revenue28d).toFixed(2)}`
+                      ? formatAmount(Number((account as any).analytics.revenue28d), account?.country)
                       : "—"}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1182,7 +1185,7 @@ function AccountDetailPageContent() {
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">60 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 mt-1">
                     {(account as any).analytics?.revenue60d != null
-                      ? `${currencySymbol}${Number((account as any).analytics.revenue60d).toFixed(2)}`
+                      ? formatAmount(Number((account as any).analytics.revenue60d), account?.country)
                       : "—"}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1197,7 +1200,7 @@ function AccountDetailPageContent() {
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">365 Ngày (1 Năm)</div>
                   <div className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 mt-1">
                     {(account as any).analytics?.revenue365d != null
-                      ? `${currencySymbol}${Number((account as any).analytics.revenue365d).toFixed(2)}`
+                      ? formatAmount(Number((account as any).analytics.revenue365d), account?.country)
                       : "—"}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1211,7 +1214,7 @@ function AccountDetailPageContent() {
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center col-span-2 sm:col-span-1">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Toàn Thời Gian</div>
                   <div className="text-base sm:text-lg font-black text-pink-600 dark:text-pink-400 mt-1">
-                    {currencySymbol}{totalRevNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatAmount(totalRevNum, account?.country)}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {totalViewsNum.toLocaleString()} views
@@ -1748,10 +1751,10 @@ function AccountDetailPageContent() {
                         {rec.views > 0 ? rec.views.toLocaleString() : "—"}
                       </td>
                       <td className="py-3 px-4 font-semibold text-emerald-600 dark:text-emerald-400">
-                        {currencySymbol}{Number(rec.rpm || 0).toFixed(2)}
+                        {formatAmount(Number(rec.rpm || 0), account?.country)}
                       </td>
                       <td className="py-3 px-4 font-black text-pink-600 dark:text-pink-400 text-sm">
-                        {currencySymbol}{Number(rec.revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatAmount(Number(rec.revenue || 0), account?.country)}
                       </td>
                       <td className="py-3 px-4 text-slate-400 text-xs">
                         {rec.createdTime || "—"}

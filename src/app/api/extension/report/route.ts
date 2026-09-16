@@ -46,6 +46,12 @@ export interface ExtensionReportPayload {
   videos14d?: number;
   videos30d?: number;
   totalRevenue?: number;
+  revenue7d?: number;
+  revenue28d?: number;
+  revenue60d?: number;
+  revenue365d?: number;
+  views28d?: number;
+  views60d?: number;
   rpm?: number;
   currency?: string;
   country?: string;
@@ -111,6 +117,12 @@ export async function POST(req: Request) {
       videos14d,
       videos30d,
       totalRevenue,
+      revenue7d,
+      revenue28d,
+      revenue60d,
+      revenue365d,
+      views28d,
+      views60d,
       rpm,
       currency,
       country,
@@ -503,22 +515,71 @@ export async function POST(req: Request) {
       topVideos: topVideos || {},
     };
 
-    try {
-      await prisma.systemConfig.upsert({
-        where: { key: `analytics_${cleanUsername}` },
-        create: {
-          key: `analytics_${cleanUsername}`,
-          value: JSON.stringify(analyticsSnapshot),
-          description: `Detailed analytics snapshot for @${cleanUsername}`,
-        },
-        update: {
-          value: JSON.stringify(analyticsSnapshot),
-          updatedAt: new Date(),
-        },
-      });
-    } catch (cfgErr: any) {
-      console.warn("[ExtensionReport] Failed to save analytics snapshot:", cfgErr.message);
-    }
+      // 5a. Upsert into AccountAnalytics (Single Source of Truth)
+      try {
+        await prisma.accountAnalytics.upsert({
+          where: { accountId: account.id },
+          create: {
+            accountId: account.id,
+            currency: currency || "$",
+            revenue7d: revenue7d || 0,
+            revenue28d: revenue28d || 0,
+            revenue60d: revenue60d || 0,
+            revenue365d: typeof revenue365d === "number" ? revenue365d : null,
+            totalRevenue: effectiveTotalRevenue || 0,
+            views7d: views7d ? BigInt(views7d) : null,
+            views28d: views28d ? BigInt(views28d) : null,
+            views60d: views60d ? BigInt(views60d) : null,
+            views365d: totalViews ? BigInt(totalViews) : null,
+            likes28d: totalLikes || 0,
+            comments28d: commentsCount || 0,
+            shares28d: sharesCount || 0,
+            dailyBreakdown: (body as any).dailyBreakdown || null,
+            activePrograms: (body as any).activePrograms || null,
+            insightsHistory: (body as any).insightsHistory || null,
+            rawSnapshot: analyticsSnapshot as any,
+          },
+          update: {
+            currency: currency || "$",
+            revenue7d: revenue7d || 0,
+            revenue28d: revenue28d || 0,
+            revenue60d: revenue60d || 0,
+            revenue365d: typeof revenue365d === "number" ? revenue365d : undefined,
+            totalRevenue: effectiveTotalRevenue || 0,
+            views7d: views7d ? BigInt(views7d) : undefined,
+            views28d: views28d ? BigInt(views28d) : undefined,
+            views60d: views60d ? BigInt(views60d) : undefined,
+            views365d: totalViews ? BigInt(totalViews) : undefined,
+            likes28d: totalLikes || undefined,
+            comments28d: commentsCount || undefined,
+            shares28d: sharesCount || undefined,
+            dailyBreakdown: (body as any).dailyBreakdown || undefined,
+            activePrograms: (body as any).activePrograms || undefined,
+            insightsHistory: (body as any).insightsHistory || undefined,
+            rawSnapshot: analyticsSnapshot as any,
+          },
+        });
+      } catch (anErr: any) {
+        console.warn("[ExtensionReport] Failed to upsert AccountAnalytics:", anErr.message);
+      }
+
+      // 5b. Dual-write to SystemConfig for legacy compatibility
+      try {
+        await prisma.systemConfig.upsert({
+          where: { key: `analytics_${cleanUsername}` },
+          create: {
+            key: `analytics_${cleanUsername}`,
+            value: JSON.stringify(analyticsSnapshot),
+            description: `Detailed analytics snapshot for @${cleanUsername}`,
+          },
+          update: {
+            value: JSON.stringify(analyticsSnapshot),
+            updatedAt: new Date(),
+          },
+        });
+      } catch (cfgErr: any) {
+        console.warn("[ExtensionReport] Failed to save analytics snapshot:", cfgErr.message);
+      }
     }
 
     // Handle alerts based on login state
@@ -640,7 +701,7 @@ export async function GET(req: Request) {
 
     const account = await prisma.tiktokAccount.findUnique({
       where: { username },
-      select: { id: true, assignedUserId: true },
+      select: { id: true, assignedUserId: true, analytics: true },
     });
 
     const isPrivileged = callerRole === "ADMIN" || callerRole === "LEAD";
@@ -654,6 +715,15 @@ export async function GET(req: Request) {
       );
     }
 
+    // 1. Prioritize reading from AccountAnalytics SSOT
+    if (account?.analytics?.rawSnapshot) {
+      return NextResponse.json({
+        success: true,
+        data: account.analytics.rawSnapshot,
+      });
+    }
+
+    // 2. Fallback to SystemConfig legacy cache
     const config = await prisma.systemConfig.findUnique({
       where: { key: `analytics_${username}` },
     });

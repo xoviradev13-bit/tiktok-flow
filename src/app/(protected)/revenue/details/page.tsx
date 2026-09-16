@@ -58,6 +58,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 type RevenueSortKey =
   | "accountUsername"
@@ -79,6 +80,7 @@ const REVENUE_SORT_OPTIONS: Array<{ key: RevenueSortKey; label: string }> = [
 ];
 
 function RevenueDetailsPageContent() {
+  const { currency, formatAmount } = useCurrency();
   // SaaS URL Query State Synchronization
   const { searchParams, updateUrlParams } = useUrlParams();
 
@@ -642,7 +644,7 @@ function RevenueDetailsPageContent() {
               <div className="h-8 w-24 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-1" />
             ) : (
               <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1 truncate">
-                ${filteredTotalRevenue.toFixed(2)}
+                {formatAmount(filteredTotalRevenue, "USD")}
               </div>
             )}
           </div>
@@ -1354,14 +1356,14 @@ function RevenueDetailsPageContent() {
                         {/* RPM */}
                         {visibleColumns.rpm && (
                           <td className="px-4 py-3.5 font-bold text-emerald-600 dark:text-emerald-400">
-                            ${Number(item.rpm || 0).toFixed(3)}
+                            {formatAmount(Number(item.rpm || 0), (item.account as any)?.country || "USD")}
                           </td>
                         )}
 
                         {/* Revenue */}
                         {visibleColumns.revenue && (
                           <td className="px-4 py-3.5 font-black text-amber-600 dark:text-amber-300">
-                            ${Number(item.revenue || 0).toFixed(2)}
+                            {formatAmount(Number(item.revenue || 0), (item.account as any)?.country || "USD")}
                           </td>
                         )}
 

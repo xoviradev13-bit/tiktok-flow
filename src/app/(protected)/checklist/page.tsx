@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useMemo, Fragment, Suspense } from "react";
 import { useSession } from "next-auth/react";
@@ -50,6 +50,7 @@ import * as XLSX from "xlsx";
 import TimesheetCalendar from "@/features/checklist/components/TimesheetCalendar";
 import TimesheetCharts from "@/features/checklist/components/TimesheetCharts";
 import DayDetailModal from "@/features/checklist/components/DayDetailModal";
+import VideoCrossCheckModal from "@/features/checklist/components/VideoCrossCheckModal";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import type { DateRange } from "react-day-picker";
@@ -218,7 +219,7 @@ function ChecklistPageContent() {
   // Settings Drawer
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
   const [editRules, setEditRules] = useState({
-    cutOffHour: 10,
+    cutOffHour: 22,
     cutOffMinute: 0,
     fullDayThreshold: 85,
     halfDayThreshold: 50,
@@ -244,6 +245,15 @@ function ChecklistPageContent() {
     canEdit: boolean;
   } | null>(null);
   const [noteInputText, setNoteInputText] = useState<string>("");
+
+  // Video Cross-Check Modal State
+  const [crossCheckItem, setCrossCheckItem] = useState<{
+    username: string;
+    accountId: string;
+    dateStr: string;
+    staffName: string;
+    itemId: string;
+  } | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -299,7 +309,7 @@ function ChecklistPageContent() {
   useEffect(() => {
     if (timesheetData?.scoringConfig) {
       setEditRules({
-        cutOffHour: timesheetData.scoringConfig.cutOffHour ?? 10,
+        cutOffHour: timesheetData.scoringConfig.cutOffHour ?? 22,
         cutOffMinute: timesheetData.scoringConfig.cutOffMinute ?? 0,
         fullDayThreshold: timesheetData.scoringConfig.fullDayThreshold ?? 85,
         halfDayThreshold: timesheetData.scoringConfig.halfDayThreshold ?? 50,
@@ -716,7 +726,7 @@ function ChecklistPageContent() {
   const cutoffInfo = timesheetData?.cutoffInfo;
 
   const activeRules = timesheetData?.scoringConfig || {
-    cutOffHour: 10,
+    cutOffHour: 22,
     cutOffMinute: 0,
     fullDayThreshold: 85,
     halfDayThreshold: 50,
@@ -781,7 +791,7 @@ function ChecklistPageContent() {
               <span className="truncate">Bảng Chấm Công & KPI Vận Hành</span>
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-              Theo dõi chấm công hàng ngày, tỷ lệ hoàn thành KPI, tự động chốt công theo mốc 10:00 AM và quản lý lịch sử vận hành.
+              Theo dõi chấm công hàng ngày, tỷ lệ hoàn thành KPI, tự động chốt công theo mốc 10:00 PM và quản lý lịch sử vận hành.
             </p>
           </div>
 
@@ -871,7 +881,7 @@ function ChecklistPageContent() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight">
-                    Mốc Chốt Công Tự Động: {activeCutoffStr} Sáng (Giờ VN)
+                    Mốc Chốt Công Tự Động: {activeCutoffStr} {activeRules.cutOffHour >= 12 ? "Tối" : "Sáng"} (Giờ VN)
                   </span>
                   {liveCutoff.isPast ? (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
@@ -1814,6 +1824,20 @@ function ChecklistPageContent() {
                                                   <div className="text-xs text-slate-400">
                                                     Sync Live gần nhất: <strong>{lastSyncFormatted}</strong>
                                                   </div>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setCrossCheckItem({
+                                                      username: item.account.username,
+                                                      accountId: item.account.id,
+                                                      dateStr: format(new Date(chk.date), "yyyy-MM-dd"),
+                                                      staffName: chk.user.fullName,
+                                                      itemId: item.id,
+                                                    })}
+                                                    className="mt-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-900/60 border border-pink-200/80 dark:border-pink-800 transition-colors cursor-pointer"
+                                                  >
+                                                    <Eye className="w-3 h-3" />
+                                                    <span>Đối soát video</span>
+                                                  </button>
                                                 </div>
                                               </td>
 
@@ -1851,6 +1875,28 @@ function ChecklistPageContent() {
                                               {/* Quick Actions */}
                                               <td className="py-3 px-4 text-right">
                                                 <div className="flex items-center justify-end gap-1">
+                                                  {/* Cross-Check Videos */}
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <button
+                                                        onClick={() => setCrossCheckItem({
+                                                          username: item.account.username,
+                                                          accountId: item.account.id,
+                                                          dateStr: format(new Date(chk.date), "yyyy-MM-dd"),
+                                                          staffName: chk.user.fullName,
+                                                          itemId: item.id,
+                                                        })}
+                                                        className="p-1.5 rounded-lg text-pink-600 hover:bg-pink-50 dark:hover:bg-pink-950/50 transition-colors cursor-pointer"
+                                                        aria-label="Đối soát video đã đăng"
+                                                      >
+                                                        <Eye className="w-3.5 h-3.5" />
+                                                      </button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="top" className="text-xs">
+                                                      Đối soát video đã đăng
+                                                    </TooltipContent>
+                                                  </Tooltip>
+
                                                   {/* Launch GPM */}
                                                   {item.account.gpmProfileId && (
                                                     <Tooltip>
@@ -2127,7 +2173,7 @@ function ChecklistPageContent() {
                     "✅ Đã đăng video hôm nay",
                     "🔄 Đã sync dữ liệu GPM",
                     "⚠️ Lỗi checkpoint / Proxy",
-                    "🎬 Video đăng lúc 10:00 AM",
+                    "🎬 Video đăng lúc 10:00 PM",
                     "📌 Xin phép bù ca / Nửa công",
                   ].map((tag) => (
                     <button
@@ -2189,6 +2235,23 @@ function ChecklistPageContent() {
         </DialogContent>
       </Dialog>
 
+      {/* Video Cross-Check Modal */}
+      <VideoCrossCheckModal
+        isOpen={!!crossCheckItem}
+        onClose={() => setCrossCheckItem(null)}
+        username={crossCheckItem?.username || null}
+        accountId={crossCheckItem?.accountId}
+        dateStr={crossCheckItem?.dateStr || null}
+        staffName={crossCheckItem?.staffName}
+        canApprove={isAdmin || isLeadOrAdmin}
+        onApproveVideo={(itemId) => {
+          toggleItemMutation.mutate({ itemId, field: "isPosted", value: true });
+          setCrossCheckItem(null);
+          showToast("✅ Đã xác nhận đạt video cho tài khoản!", "success");
+        }}
+        onSyncAccount={(accId) => syncAccountMutation.mutate({ accountId: accId })}
+      />
+
       {/* Day Detail Inspector Modal */}
       <DayDetailModal
         isOpen={!!selectedDateForModal}
@@ -2227,6 +2290,7 @@ function ChecklistPageContent() {
         }}
         onLaunchGpm={(gpmId) => startGpmMutation.mutate({ gpmProfileId: gpmId })}
         onSyncAccount={(accId) => syncAccountMutation.mutate({ accountId: accId })}
+        onViewVideos={(acc, dStr) => setCrossCheckItem({ accountId: acc.id, username: acc.username, dateStr: dStr, staffName: "", itemId: "" })}
       />
     </div>
   );

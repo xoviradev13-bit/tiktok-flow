@@ -18,6 +18,7 @@ import {
   Loader2,
   Save,
   Check,
+  Lock,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -222,8 +223,8 @@ export default function BugReportModal({
   });
 
   const updateMutation = trpc.support.updateBugReport.useMutation({
-    onSuccess: (res) => {
-      toast.success(res.message || "Cập nhật sự cố thành công!");
+    onSuccess: () => {
+      toast.success("Cập nhật sự cố thành công!");
       utils.support.listBugReports.invalidate();
       handleReset();
       onClose();
@@ -353,7 +354,6 @@ export default function BugReportModal({
         description: description.trim(),
         category,
         severity,
-        screenshotUrl: uploadedImages[0] || undefined,
         screenshotUrls: uploadedImages,
       });
       return;

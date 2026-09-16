@@ -10,7 +10,7 @@
  */
 
 export interface ScoringRuleConfig {
-  cutOffHour: number; // e.g., 10 (10:00 AM)
+  cutOffHour: number; // e.g., 22 (10:00 PM)
   cutOffMinute: number; // e.g., 0
   timezone: string; // e.g., "Asia/Ho_Chi_Minh"
   fullDayThreshold: number; // e.g., 85 (85%)
@@ -20,7 +20,7 @@ export interface ScoringRuleConfig {
 }
 
 export const DEFAULT_SCORING_CONFIG: ScoringRuleConfig = {
-  cutOffHour: 10,
+  cutOffHour: 22,
   cutOffMinute: 0,
   timezone: "Asia/Ho_Chi_Minh",
   fullDayThreshold: 85,

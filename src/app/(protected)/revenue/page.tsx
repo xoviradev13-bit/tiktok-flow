@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useUrlParams } from "@/hooks/useUrlState";
 import {
@@ -32,6 +32,7 @@ import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigge
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { format, subDays } from "date-fns";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 function RevenuePageContent() {
   // SaaS URL Query State Synchronization
@@ -59,6 +60,8 @@ function RevenuePageContent() {
   const paramMetric = searchParams?.get("metric") as any;
   const initialMetric = ["REVENUE", "VIEWS", "BOTH"].includes(paramMetric) ? paramMetric : "REVENUE";
   const [chartMetric, setChartMetric] = useState<"REVENUE" | "VIEWS" | "BOTH">(initialMetric);
+
+  const { currency, formatAmount, convertToActive } = useCurrency();
 
   // Auto sync active state to URL
   useEffect(() => {
@@ -95,9 +98,17 @@ function RevenuePageContent() {
 
   const { data: overview, isLoading: loading } = trpc.revenue.getOverview.useQuery(queryInput);
 
+  const convertedChartData = useMemo(() => {
+    if (!overview?.chartData) return [];
+    return overview.chartData.map((d: any) => ({
+      ...d,
+      revenue: convertToActive(d.revenue || 0, "USD"),
+    }));
+  }, [overview?.chartData, convertToActive]);
+
   const revenueData = {
     data: overview?.records || [],
-    chartData: overview?.chartData || [],
+    chartData: convertedChartData,
     summary: {
       totalRevenue: overview?.totalRevenue || 0,
       totalViews: overview?.totalViews || 0,
@@ -175,7 +186,7 @@ function RevenuePageContent() {
             Tổng Doanh Thu ({getPeriodLabel()})
           </div>
           <div className="mt-2 text-xl sm:text-2xl lg:text-3xl font-black text-amber-600 dark:text-amber-300 truncate">
-            ${revenueData?.summary?.totalRevenue?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "0.00"}
+            {formatAmount(revenueData.summary.totalRevenue, "USD")}
           </div>
         </div>
 
@@ -193,7 +204,7 @@ function RevenuePageContent() {
             RPM Trung Bình Toàn Dàn
           </div>
           <div className="mt-2 text-xl sm:text-2xl lg:text-3xl font-black text-emerald-600 dark:text-emerald-400 truncate">
-            ${Number(revenueData?.summary?.avgRPM || 0).toFixed(3)}
+            {formatAmount(Number(revenueData.summary.avgRPM || 0), "USD")}
           </div>
         </div>
 
@@ -376,7 +387,7 @@ function RevenuePageContent() {
                     yAxisId="left"
                     stroke="#f59e0b"
                     fontSize={11}
-                    tickFormatter={(val) => `$${val}`}
+                    tickFormatter={(val) => currency === "USD" ? `$${val}` : `${(val / 1000).toFixed(0)}k₫`}
                   />
                   <YAxis
                     yAxisId="right"
@@ -394,14 +405,16 @@ function RevenuePageContent() {
                       color: "var(--foreground)",
                     }}
                     formatter={(value: any, name: any) => {
-                      if (name === "Doanh thu ($)") return [`$${Number(value).toFixed(2)}`, name];
+                      if (name && String(name).includes("Doanh thu")) {
+                        return [currency === "USD" ? `$${Number(value).toFixed(2)}` : `${Number(value).toLocaleString("vi-VN")} ₫`, name];
+                      }
                       if (name === "Lượt views") return [Number(value).toLocaleString(), name];
                       return [value, name];
                     }}
                     labelFormatter={(label) => `Ngày: ${label}`}
                   />
                   <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }} />
-                  <Bar yAxisId="left" dataKey="revenue" name="Doanh thu ($)" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                  <Bar yAxisId="left" dataKey="revenue" name={currency === "USD" ? "Doanh thu ($)" : "Doanh thu (₫)"} fill="#f59e0b" radius={[6, 6, 0, 0]} />
                   <Line yAxisId="right" type="monotone" dataKey="views" name="Lượt views" stroke="#06b6d4" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                 </ComposedChart>
               ) : chartMetric === "VIEWS" ? (
@@ -431,7 +444,7 @@ function RevenuePageContent() {
                 <BarChart data={revenueData.chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-slate-200 dark:text-slate-800" />
                   <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} tickFormatter={(val) => val.slice(5)} />
-                  <YAxis stroke="#f59e0b" fontSize={11} tickFormatter={(val) => `$${val}`} />
+                  <YAxis stroke="#f59e0b" fontSize={11} tickFormatter={(val) => currency === "USD" ? `$${val}` : `${(val / 1000).toFixed(0)}k₫`} />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: "var(--background)",
@@ -440,11 +453,11 @@ function RevenuePageContent() {
                       fontSize: "12px",
                       color: "var(--foreground)",
                     }}
-                    formatter={(value: any) => [`$${Number(value).toFixed(2)}`, "Doanh thu ($)"]}
+                    formatter={(value: any) => [currency === "USD" ? `$${Number(value).toFixed(2)}` : `${Number(value).toLocaleString("vi-VN")} ₫`, currency === "USD" ? "Doanh thu ($)" : "Doanh thu (₫)"]}
                     labelFormatter={(label) => `Ngày: ${label}`}
                   />
                   <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }} />
-                  <Bar dataKey="revenue" name="Doanh thu ($)" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="revenue" name={currency === "USD" ? "Doanh thu ($)" : "Doanh thu (₫)"} fill="#f59e0b" radius={[6, 6, 0, 0]} />
                 </BarChart>
               )}
             </ResponsiveContainer>

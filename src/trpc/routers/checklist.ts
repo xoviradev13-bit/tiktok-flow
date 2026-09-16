@@ -738,4 +738,176 @@ export const checklistRouter = router({
 
       return { success: true, scoringConfig: input };
     }),
+
+  // 9. Get Video List for an Account on a Specific Date (For Checklist Cross-Checking)
+  getAccountVideos: protectedProcedure
+    .input(
+      z.object({
+        username: z.string(),
+        accountId: z.string().optional(),
+        date: z.string(), // YYYY-MM-DD
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const cleanUsername = input.username.replace(/^@/, "").trim().toLowerCase();
+
+      // Look up account with analytics
+      const account = await ctx.prisma.tiktokAccount.findFirst({
+        where: input.accountId ? { id: input.accountId } : { username: cleanUsername },
+        include: {
+          analytics: true,
+          assignedUser: { select: { id: true, name: true, fullName: true, username: true } },
+        },
+      });
+
+      if (!account) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `Không tìm thấy tài khoản @${cleanUsername}`,
+        });
+      }
+
+      // Permission check: Admin, Lead, or assigned operator
+      const userRole = ctx.session.user.role;
+      const isAdminOrLead = userRole === "ADMIN" || userRole === "LEAD";
+      const isAssigned = account.assignedUserId === ctx.session.user.id;
+
+      if (!isAdminOrLead && !isAssigned) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn không có quyền truy cập dữ liệu của tài khoản này.",
+        });
+      }
+
+      // 1. Retrieve video snapshot from AccountAnalytics SSOT or SystemConfig fallback
+      let rawVideos: any[] = [];
+      let lastSnapshotUpdated: string | null = null;
+
+      const rawSnapshot = (account.analytics?.rawSnapshot as any);
+      if (rawSnapshot && Array.isArray(rawSnapshot.videosList)) {
+        rawVideos = rawSnapshot.videosList;
+        lastSnapshotUpdated = rawSnapshot.updatedAt || null;
+      } else {
+        // Fallback to legacy SystemConfig
+        const config = await ctx.prisma.systemConfig.findUnique({
+          where: { key: `analytics_${cleanUsername}` },
+        });
+        if (config && config.value) {
+          try {
+            const parsed = JSON.parse(config.value);
+            if (Array.isArray(parsed.videosList)) {
+              rawVideos = parsed.videosList;
+              lastSnapshotUpdated = parsed.updatedAt || null;
+            }
+          } catch {}
+        }
+      }
+
+      // 2. Fetch DailyChecklistItem for this account on target date
+      const targetDateObj = parseDateOnly(input.date);
+      const checklistItem = await ctx.prisma.dailyChecklistItem.findFirst({
+        where: {
+          accountId: account.id,
+          checklist: { date: targetDateObj },
+        },
+        include: {
+          checklist: {
+            include: {
+              user: { select: { id: true, name: true, fullName: true, username: true } },
+            },
+          },
+        },
+      });
+
+      // Helper to parse date in Vietnam Time (Asia/Ho_Chi_Minh)
+      const parseVideoTime = (v: any) => {
+        let dateObj: Date | null = null;
+        if (v.createTime || v.create_time || v.createtime) {
+          const sec = Number(v.createTime || v.create_time || v.createtime);
+          dateObj = new Date(sec > 1e11 ? sec : sec * 1000);
+        } else if (v.postDate) {
+          const parsed = new Date(v.postDate);
+          if (!isNaN(parsed.getTime())) dateObj = parsed;
+        }
+
+        if (!dateObj || isNaN(dateObj.getTime())) {
+          return { vnDateStr: "", formattedTime: v.postDate || "—", timestampMs: 0 };
+        }
+
+        const vnString = dateObj.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" });
+        const vnDate = new Date(vnString);
+        const y = vnDate.getFullYear();
+        const m = String(vnDate.getMonth() + 1).padStart(2, "0");
+        const d = String(vnDate.getDate()).padStart(2, "0");
+        const vnDateStr = `${y}-${m}-${d}`;
+
+        const hh = String(vnDate.getHours()).padStart(2, "0");
+        const mm = String(vnDate.getMinutes()).padStart(2, "0");
+        const formattedTime = `${hh}:${mm} • ${d}/${m}/${y}`;
+
+        return { vnDateStr, formattedTime, timestampMs: dateObj.getTime() };
+      };
+
+      // 3. Format & partition videos
+      const formattedVideos = rawVideos.map((v: any, index: number) => {
+        const timeInfo = parseVideoTime(v);
+        const id = v.id || v.item_id || String(index);
+        const tiktokUrl = v.id ? `https://www.tiktok.com/@${cleanUsername}/video/${v.id}` : null;
+
+        return {
+          id,
+          title: v.title || v.desc || "Không có tiêu đề",
+          views: Number(v.views || 0),
+          likes: Number(v.likes || 0),
+          comments: Number(v.comments || 0),
+          shares: Number(v.shares || 0),
+          coverUrl: v.coverUrl || v.cover || null,
+          privacy: v.privacy || "Everyone",
+          postDate: v.postDate || "",
+          formattedTime: timeInfo.formattedTime,
+          vnDateStr: timeInfo.vnDateStr,
+          timestampMs: timeInfo.timestampMs,
+          isTargetDate: timeInfo.vnDateStr === input.date,
+          tiktokUrl,
+        };
+      });
+
+      // Sort by timestamp descending
+      formattedVideos.sort((a, b) => b.timestampMs - a.timestampMs);
+
+      const targetDateVideos = formattedVideos.filter((v) => v.isTargetDate);
+      const otherRecentVideos = formattedVideos.filter((v) => !v.isTargetDate);
+
+      return serializeBigInt({
+        account: {
+          id: account.id,
+          username: account.username,
+          country: account.country,
+          status: account.status,
+          totalVideos: account.totalVideos,
+          totalViews: account.totalViews,
+          totalRevenue: account.totalRevenue,
+          currency: account.analytics?.currency || "$",
+          lastSyncedAt: account.lastSyncedAt,
+          gpmProfileId: account.gpmProfileId,
+          assignedUser: account.assignedUser,
+        },
+        targetDate: input.date,
+        lastSnapshotUpdated,
+        checklistItem: checklistItem
+          ? {
+              id: checklistItem.id,
+              isPosted: checklistItem.isPosted,
+              isSynced: checklistItem.isSynced,
+              isCompleted: checklistItem.isCompleted,
+              notes: checklistItem.notes,
+              checklistId: checklistItem.checklistId,
+              operatorName: checklistItem.checklist?.user?.fullName || checklistItem.checklist?.user?.name || "—",
+            }
+          : null,
+        targetDateVideos,
+        otherRecentVideos,
+        totalVideosCount: formattedVideos.length,
+      });
+    }),
 });

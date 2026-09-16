@@ -42,6 +42,10 @@ import {
   X,
   ZoomIn,
   Monitor,
+  Coins,
+  Globe,
+  DollarSign,
+  TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
@@ -52,6 +56,7 @@ import ScheduleModal, {
 import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { useColorTheme, COLOR_THEMES } from "@/components/theme/ColorThemeProvider";
+import { useCurrency } from "@/contexts/CurrencyContext";
 import { toast } from "sonner";
 import {
   Tooltip,
@@ -59,6 +64,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import BugReportsAdminSection from "@/features/settings/BugReportsAdminSection";
+
+export const ALL_SUPPORTED_LANGUAGES = [
+  { code: "en", label: "English" },
+  { code: "fr", label: "Français" },
+  { code: "es-ES", label: "Español (España)" },
+  { code: "es-LA", label: "Español (Latinoamérica)" },
+  { code: "pt", label: "Português (Brasil)" },
+  { code: "de", label: "Deutsch" },
+  { code: "it", label: "Italiano" },
+  { code: "ja", label: "日本語" },
+  { code: "vi", label: "Tiếng Việt" },
+];
 
 type ModalTarget = "GPM_FLEET" | "TIKTOK_SWEEPER" | null;
 type SettingsTab = "profile" | "security" | "appearance" | "integrations" | "admin_system" | "admin_bugs";
@@ -79,6 +96,8 @@ function SettingsPageContent() {
   const isAdmin = String(rawRole).toUpperCase() === "ADMIN";
   const { theme, setTheme } = useTheme();
   const { colorTheme, setColorTheme, activeConfig } = useColorTheme();
+  const { currency, setCurrency, rates, isLiveRates, refreshRates, ratesLastFetched } = useCurrency();
+  const [refreshingRates, setRefreshingRates] = useState(false);
 
   // SaaS URL Query State Synchronization
   const { searchParams, updateUrlParams } = useUrlParams();
@@ -89,7 +108,7 @@ function SettingsPageContent() {
     if (tab === "cron" || tab === "schedule" || tab === "admin_system") return "admin_system";
     if (tab === "security") return "security";
     if (tab === "integrations" || tab === "token") return "integrations";
-    if (tab === "appearance" || tab === "theme") return "appearance";
+    if (tab === "appearance" || tab === "theme" || tab === "tuychon" || tab === "preferences" || tab === "preference" || tab === "currency") return "appearance";
     return "profile";
   };
 
@@ -118,6 +137,18 @@ function SettingsPageContent() {
   const updateProfileMutation = trpc.user.updateProfile.useMutation();
   const updatePasswordMutation = trpc.user.updatePassword.useMutation();
   const regenerateTokenMutation = trpc.user.regenerateToken.useMutation();
+
+  const handleManualRateRefresh = async () => {
+    setRefreshingRates(true);
+    try {
+      await refreshRates();
+      toast.success("Đã đồng bộ tỷ giá hối đoái mới nhất thành công!");
+    } catch {
+      toast.error("Không thể tải tỷ giá trực tuyến. Đang dùng tỷ giá dự phòng.");
+    } finally {
+      setRefreshingRates(false);
+    }
+  };
 
   // Form States - Profile
   const [displayName, setDisplayName] = useState("");
@@ -516,7 +547,7 @@ function SettingsPageContent() {
       <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto scrollbar-none w-full">
         <button
           onClick={() => setActiveTab("profile")}
-          className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "profile"
+          className={`shrink-0 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "profile"
             ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
             : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
@@ -527,7 +558,7 @@ function SettingsPageContent() {
 
         <button
           onClick={() => setActiveTab("security")}
-          className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "security"
+          className={`shrink-0 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "security"
             ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
             : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
@@ -538,18 +569,18 @@ function SettingsPageContent() {
 
         <button
           onClick={() => setActiveTab("appearance")}
-          className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "appearance"
+          className={`shrink-0 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "appearance"
             ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
             : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
         >
           <Palette className="w-4 h-4" />
-          <span>Giao Diện</span>
+          <span>Tùy Chọn</span>
         </button>
 
         <button
           onClick={() => setActiveTab("integrations")}
-          className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "integrations"
+          className={`shrink-0 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "integrations"
             ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
             : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             }`}
@@ -561,7 +592,7 @@ function SettingsPageContent() {
         {isAdmin && (
           <button
             onClick={() => setActiveTab("admin_system")}
-            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "admin_system"
+            className={`shrink-0 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "admin_system"
               ? "bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md shadow-pink-500/20"
               : "text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
               }`}
@@ -574,7 +605,7 @@ function SettingsPageContent() {
         {isAdmin && (
           <button
             onClick={() => setActiveTab("admin_bugs")}
-            className={`flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "admin_bugs"
+            className={`shrink-0 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "admin_bugs"
               ? "bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md shadow-pink-500/20"
               : "text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
               }`}
@@ -1004,14 +1035,28 @@ function SettingsPageContent() {
       {/* ========================================================= */}
       {activeTab === "appearance" && (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs animate-fadeIn space-y-6">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
-              <Palette className="w-5 h-5 text-pink-500" />
-              Chế Độ Giao Diện & Trải Nghiệm Người Dùng
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Chọn chủ đề màu sắc phù hợp với môi trường làm việc của bạn. Giao diện được tối ưu hóa cho màn hình làm việc liên tục.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+                <Palette className="w-5 h-5 text-pink-500" />
+                Tùy Chọn Giao Diện, Tiền Tệ & Ngôn Ngữ
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl leading-relaxed">
+                Cá nhân hóa giao diện làm việc, chủ đề màu sắc, đơn vị tiền tệ doanh thu và tùy chọn ngôn ngữ hệ thống.
+              </p>
+            </div>
+
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 self-start sm:self-auto shrink-0">
+              <span className="w-2 h-2 rounded-full bg-pink-500 animate-pulse" />
+              <span>
+                Đang chọn:{" "}
+                {theme === "light"
+                  ? "Giao Diện Sáng"
+                  : theme === "dark"
+                    ? "Giao Diện Tối"
+                    : "Theo Hệ Thống"}
+              </span>
+            </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
@@ -1102,7 +1147,7 @@ function SettingsPageContent() {
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-pink-500" />
-                  <span>Màu Sắc Nhận Diện Chủ Đạo (Accent Color Theme)</span>
+                  <span>Màu Sắc Nhận Diện Chủ Đạo</span>
                 </h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl leading-relaxed">
                   Tùy chỉnh màu chủ đạo của hệ thống. Màu đã chọn sẽ được áp dụng tự động cho nút bấm, thanh điều hướng, huy hiệu và các điểm nhấn giao diện.
@@ -1228,6 +1273,323 @@ function SettingsPageContent() {
                   <span>Đường viền viền sáng (Focus Ring)</span>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* ========================================================= */}
+          {/* CURRENCY & EXCHANGE RATES SECTION                         */}
+          {/* ========================================================= */}
+          <div className="border-t border-slate-100 dark:border-slate-800/80 pt-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Coins className="w-5 h-5 text-amber-500" />
+                  <span>Đơn Vị Tiền Tệ Hiển Thị & Tỷ Giá Hối Đoái</span>
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                  Lựa chọn loại tiền tệ hiển thị trên toàn bộ bảng điều khiển, trang doanh thu và đối soát.
+                </p>
+              </div>
+
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 self-start sm:self-auto shrink-0">
+                <DollarSign className="w-3.5 h-3.5" />
+                <span>
+                  Đang hiển thị:{" "}
+                  {currency === "USD"
+                    ? "Đô la Mỹ ($ USD)"
+                    : currency === "VND"
+                      ? "Việt Nam Đồng (₫ VND)"
+                      : currency === "GBP"
+                        ? "Bảng Anh (£ GBP)"
+                        : "Đồng Euro (€ EUR)"}
+                </span>
+              </span>
+            </div>
+
+            {/* Currency Choice Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* USD Option */}
+              <div
+                onClick={() => {
+                  setCurrency("USD");
+                  toast.success("Đã chuyển đơn vị tiền tệ hiển thị sang Đô la Mỹ ($ USD)");
+                }}
+                className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${currency === "USD"
+                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.01]"
+                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
+                  }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black text-xl shadow-xs border border-emerald-200 dark:border-emerald-800">
+                      $
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                        USD ($)
+                        {currency === "USD" && (
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                            Mặc định
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Đô la Mỹ
+                      </p>
+                    </div>
+                  </div>
+                  {currency === "USD" && <Check className="w-5 h-5 text-pink-600 dark:text-pink-400 shrink-0" />}
+                </div>
+              </div>
+
+              {/* VND Option */}
+              <div
+                onClick={() => {
+                  setCurrency("VND");
+                  toast.success("Đã chuyển đơn vị tiền tệ hiển thị sang Việt Nam Đồng (₫ VND)");
+                }}
+                className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${currency === "VND"
+                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.01]"
+                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
+                  }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-pink-100 dark:bg-pink-950/60 text-pink-600 dark:text-pink-400 flex items-center justify-center font-black text-xl shadow-xs border border-pink-200 dark:border-pink-800">
+                      ₫
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                        VND (₫)
+                        {currency === "VND" && (
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-950/80 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800">
+                            Đang chọn
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Việt Nam Đồng
+                      </p>
+                    </div>
+                  </div>
+                  {currency === "VND" && <Check className="w-5 h-5 text-pink-600 dark:text-pink-400 shrink-0" />}
+                </div>
+              </div>
+
+              {/* GBP Option */}
+              <div
+                onClick={() => {
+                  setCurrency("GBP");
+                  toast.success("Đã chuyển đơn vị tiền tệ hiển thị sang Bảng Anh (£ GBP)");
+                }}
+                className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${currency === "GBP"
+                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.01]"
+                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
+                  }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center font-black text-xl shadow-xs border border-purple-200 dark:border-purple-800">
+                      £
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                        GBP (£)
+                        {currency === "GBP" && (
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/80 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
+                            Đang chọn
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Bảng Anh
+                      </p>
+                    </div>
+                  </div>
+                  {currency === "GBP" && <Check className="w-5 h-5 text-pink-600 dark:text-pink-400 shrink-0" />}
+                </div>
+              </div>
+
+              {/* EUR Option */}
+              <div
+                onClick={() => {
+                  setCurrency("EUR");
+                  toast.success("Đã chuyển đơn vị tiền tệ hiển thị sang Đồng Euro (€ EUR)");
+                }}
+                className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${currency === "EUR"
+                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.01]"
+                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
+                  }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-black text-xl shadow-xs border border-blue-200 dark:border-blue-800">
+                      €
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                        EUR (€)
+                        {currency === "EUR" && (
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                            Đang chọn
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Đồng Euro
+                      </p>
+                    </div>
+                  </div>
+                  {currency === "EUR" && <Check className="w-5 h-5 text-pink-600 dark:text-pink-400 shrink-0" />}
+                </div>
+              </div>
+            </div>
+
+            {/* Exchange Rate Monitor Card */}
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/50 p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-emerald-500" />
+                  <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                    Tỷ Giá Hối Đoái Thị Trường
+                  </span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                    {isLiveRates ? "Trực tuyến (Live API)" : "Tỷ giá an toàn"}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleManualRateRefresh}
+                  disabled={refreshingRates}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-60 shadow-xs self-start sm:self-auto"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingRates ? "animate-spin text-pink-500" : "text-slate-500"}`} />
+                  <span>{refreshingRates ? "Đang đồng bộ..." : "Làm mới tỷ giá ngay"}</span>
+                </button>
+              </div>
+
+              {/* Rates Badges */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80">
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Đô La Mỹ (USD/VND)</div>
+                  <div className="text-sm font-black text-slate-900 dark:text-white mt-0.5">
+                    1 USD ≈ {rates.USD_VND.toLocaleString("vi-VN")} ₫
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80">
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Bảng Anh (GBP/USD)</div>
+                  <div className="text-sm font-black text-slate-900 dark:text-white mt-0.5">
+                    1 GBP ≈ ${rates.GBP_USD.toFixed(2)} USD
+                    <span className="text-xs font-normal text-slate-400 block sm:inline sm:ml-1">
+                      (≈ {(rates.GBP_USD * rates.USD_VND).toLocaleString("vi-VN")} ₫)
+                    </span>
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80">
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Đồng Euro (EUR/USD)</div>
+                  <div className="text-sm font-black text-slate-900 dark:text-white mt-0.5">
+                    1 EUR ≈ ${rates.EUR_USD.toFixed(2)} USD
+                    <span className="text-xs font-normal text-slate-400 block sm:inline sm:ml-1">
+                      (≈ {(rates.EUR_USD * rates.USD_VND).toLocaleString("vi-VN")} ₫)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1">
+                <span>Nguồn: ExchangeRate-API (Đồng bộ định kỳ 24h/lần hoặc thủ công)</span>
+                <span>
+                  {ratesLastFetched
+                    ? `Cập nhật lúc: ${new Date(ratesLastFetched).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`
+                    : "Tỷ giá dự phòng ổn định"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* ========================================================= */}
+          {/* SYSTEM LANGUAGE SELECTION SECTION                         */}
+          {/* ========================================================= */}
+          <div className="border-t border-slate-100 dark:border-slate-800/80 pt-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Globe className="w-5 h-5 text-cyan-500" />
+                  <span>Ngôn Ngữ Hệ Thống (System Language)</span>
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                  Hệ thống chuẩn hóa hỗ trợ đa ngôn ngữ quốc tế. Hiện tại phiên bản vận hành được tối ưu hóa đầy đủ bằng Tiếng Việt.
+                </p>
+              </div>
+
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 self-start sm:self-auto shrink-0">
+                <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" />
+                <span>Tiếng Việt (vi)</span>
+              </span>
+            </div>
+
+            {/* Languages Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {ALL_SUPPORTED_LANGUAGES.map((lang) => {
+                const isCurrent = lang.code === "vi";
+
+                if (isCurrent) {
+                  return (
+                    <div
+                      key={lang.code}
+                      className="p-4 rounded-2xl border-2 border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-md shadow-pink-500/10 flex items-center justify-between transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-pink-100 dark:bg-pink-950/60 text-pink-600 dark:text-pink-400 flex items-center justify-center font-bold text-xs border border-pink-200 dark:border-pink-800">
+                          {lang.code.toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm text-slate-900 dark:text-white">
+                            {lang.label}
+                          </div>
+                          <div className="text-[11px] text-pink-600 dark:text-pink-400 font-semibold">
+                            Ngôn ngữ mặc định
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 text-xs font-bold text-pink-600 dark:text-pink-400">
+                        <Check className="w-4 h-4" />
+                        <span>Kích hoạt</span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <Tooltip key={lang.code}>
+                    <TooltipTrigger asChild>
+                      <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/30 opacity-60 hover:opacity-75 transition-all cursor-not-allowed select-none flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center font-bold text-xs">
+                            {lang.code.substring(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-medium text-sm text-slate-700 dark:text-slate-300">
+                              {lang.label}
+                            </div>
+                            <div className="text-[11px] text-slate-400 font-mono">
+                              {lang.code}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs text-slate-400 font-medium">
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Khóa</span>
+                        </div>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs max-w-xs font-medium bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl">
+                      Hiện tại hệ thống chỉ hỗ trợ Tiếng Việt (Only Vietnamese is supported right now)
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
             </div>
           </div>
         </div>

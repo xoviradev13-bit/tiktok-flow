@@ -44,6 +44,7 @@ interface DayDetailModalProps {
   onEditNote?: (item: any, staffName: string) => void;
   onLaunchGpm?: (gpmProfileId: string) => void;
   onSyncAccount?: (accountId: string) => void;
+  onViewVideos?: (account: any, dateStr: string) => void;
 }
 
 export default function DayDetailModal({
@@ -55,6 +56,7 @@ export default function DayDetailModal({
   onEditNote,
   onLaunchGpm,
   onSyncAccount,
+  onViewVideos,
 }: DayDetailModalProps) {
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
 
@@ -547,6 +549,25 @@ export default function DayDetailModal({
                                     </TooltipTrigger>
                                     <TooltipContent side="top" className="text-xs">
                                       Đồng bộ Live
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+
+                                {onViewVideos && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onViewVideos(item.account, dateStr)
+                                        }
+                                        className="p-1.5 rounded-lg text-pink-600 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer"
+                                      >
+                                        <Video className="w-3.5 h-3.5" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="text-xs">
+                                      Đối soát video ({format(new Date(dateStr + "T00:00:00"), "dd/MM")})
                                     </TooltipContent>
                                   </Tooltip>
                                 )}

@@ -16,6 +16,10 @@
     {
       "path": "/api/cron/extension-auth-purge",
       "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/exchange-rates",
+      "schedule": "0 0 * * *"
     }
   ]
 }
