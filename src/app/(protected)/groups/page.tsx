@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlState";
 import { useSession } from "next-auth/react";
 import {
   Layers,
@@ -63,6 +64,13 @@ import { trpc } from "@/lib/trpc";
 
 type GroupSortKey = "name" | "membersCount" | "totalAccounts" | "createdAt";
 
+const GROUP_SORT_OPTIONS: Array<{ key: GroupSortKey; label: string }> = [
+  { key: "name", label: "Tên nhóm (Group Name)" },
+  { key: "membersCount", label: "Số lượng thành viên" },
+  { key: "totalAccounts", label: "Số account phụ trách" },
+  { key: "createdAt", label: "Thời gian tạo" },
+];
+
 const COLOR_OPTIONS = [
   { value: "pink", label: "Hồng Neon", class: "bg-pink-500", text: "text-pink-500", border: "border-pink-500/30", bgLight: "bg-pink-500/10" },
   { value: "cyan", label: "Xanh Cyan", class: "bg-cyan-500", text: "text-cyan-500", border: "border-cyan-500/30", bgLight: "bg-cyan-500/10" },
@@ -72,30 +80,71 @@ const COLOR_OPTIONS = [
   { value: "indigo", label: "Xanh Indigo", class: "bg-indigo-500", text: "text-indigo-500", border: "border-indigo-500/30", bgLight: "bg-indigo-500/10" },
 ];
 
+const renderUserAvatar = (
+  u?: { fullName?: string | null; name?: string | null; username?: string | null; avatar?: string | null } | null,
+  size = "w-5 h-5 text-[9px]"
+) => {
+  if (!u) return null;
+  const displayName = u.fullName || u.name || u.username || "U";
+  if (u.avatar) {
+    return (
+      <img
+        src={u.avatar}
+        alt={displayName}
+        className={`${size} rounded-full object-cover shrink-0`}
+      />
+    );
+  }
+  return (
+    <span className={`${size} rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 text-white font-bold flex items-center justify-center shrink-0 uppercase select-none`}>
+      {displayName.slice(0, 2)}
+    </span>
+  );
+};
+
 function GroupsManagementContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // View Mode: read initial value from URL Search Params ("grid" | "list")
-  const urlViewMode = (searchParams?.get("view") === "list" ? "list" : "grid") as "grid" | "list";
-  const [viewMode, setViewMode] = useState<"grid" | "list">(urlViewMode);
+  // SaaS URL Query State Synchronization
+  const { updateUrlParams } = useUrlParams();
 
-  const handleViewModeChange = useCallback(
-    (mode: "grid" | "list") => {
-      setViewMode(mode);
-      const params = new URLSearchParams(searchParams?.toString() || "");
-      if (mode === "grid") {
-        params.delete("view");
-      } else {
-        params.set("view", "list");
+  // View Mode: read initial value from URL Search Params ("v" or "view")
+  const initialViewMode = ((searchParams?.get("v") || searchParams?.get("view")) === "list" ? "list" : "grid") as "grid" | "list";
+  const [viewMode, setViewMode] = useState<"grid" | "list">(initialViewMode);
+
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const [search, setSearch] = useState(initialSearch);
+
+  const initialSortKey = (searchParams?.get("sort") || searchParams?.get("sortBy") || "createdAt") as GroupSortKey;
+  const initialSortDesc = (searchParams?.get("dir") || searchParams?.get("sortOrder")) === "asc" ? false : true;
+  const [sortConfig, setSortConfig] = useState<{ key: GroupSortKey; desc: boolean }>({
+    key: initialSortKey,
+    desc: initialSortDesc,
+  });
+
+  // SaaS URL sync: automatically keep URL in sync without reloading
+  useEffect(() => {
+    updateUrlParams(
+      {
+        v: viewMode,
+        q: search,
+        sort: sortConfig.key,
+        dir: sortConfig.desc ? "desc" : "asc",
+      },
+      {
+        v: "grid",
+        q: "",
+        sort: "createdAt",
+        dir: "desc",
       }
-      const searchStr = params.toString();
-      const newUrl = searchStr ? `${pathname}?${searchStr}` : pathname;
-      window.history.replaceState(null, "", newUrl);
-    },
-    [searchParams, pathname]
-  );
+    );
+  }, [viewMode, search, sortConfig, updateUrlParams]);
+
+  const handleViewModeChange = (mode: "grid" | "list") => {
+    setViewMode(mode);
+  };
 
   const { data: session, status } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
@@ -106,11 +155,11 @@ function GroupsManagementContent() {
     }
   }, [status, isAdmin, router]);
 
-  const [search, setSearch] = useState("");
-  const [sortConfig, setSortConfig] = useState<{ key: GroupSortKey; desc: boolean }>({
-    key: "createdAt",
-    desc: true,
-  });
+  const currentSortOption = useMemo(() => {
+    return GROUP_SORT_OPTIONS.find((opt) => opt.key === sortConfig.key) || { key: sortConfig.key, label: "Mặc định" };
+  }, [sortConfig.key]);
+
+  const sortDirectionText = sortConfig.desc ? "Giảm dần" : "Tăng dần";
 
   // Column visibility state (name is locked and cannot be unchecked)
   const [visibleColumns, setVisibleColumns] = useState({
@@ -139,6 +188,8 @@ function GroupsManagementContent() {
   const [newDesc, setNewDesc] = useState("");
   const [newColor, setNewColor] = useState("pink");
   const [newLeaderId, setNewLeaderId] = useState("");
+  const [newMemberIds, setNewMemberIds] = useState<string[]>([]);
+  const [createMemberSearch, setCreateMemberSearch] = useState("");
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<any>(null);
@@ -146,6 +197,8 @@ function GroupsManagementContent() {
   const [editDesc, setEditDesc] = useState("");
   const [editColor, setEditColor] = useState("pink");
   const [editLeaderId, setEditLeaderId] = useState("");
+  const [editMemberIds, setEditMemberIds] = useState<string[]>([]);
+  const [editMemberSearch, setEditMemberSearch] = useState("");
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [groupToDelete, setGroupToDelete] = useState<any>(null);
@@ -156,6 +209,9 @@ function GroupsManagementContent() {
   const [bulkLeaderId, setBulkLeaderId] = useState("");
   const [isBulkColorOpen, setIsBulkColorOpen] = useState(false);
   const [bulkColorVal, setBulkColorVal] = useState("pink");
+
+  // Member management state
+  const [memberPendingId, setMemberPendingId] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -175,6 +231,8 @@ function GroupsManagementContent() {
       setNewDesc("");
       setNewColor("pink");
       setNewLeaderId("");
+      setNewMemberIds([]);
+      setCreateMemberSearch("");
       setActionMsg("✅ Đã tạo nhóm mới thành công!");
       utils.admin.listGroups.invalidate();
       utils.admin.listUsers.invalidate();
@@ -189,6 +247,8 @@ function GroupsManagementContent() {
     onSuccess: () => {
       setIsEditOpen(false);
       setEditingGroup(null);
+      setEditMemberIds([]);
+      setEditMemberSearch("");
       setActionMsg("✅ Đã cập nhật thông tin nhóm!");
       utils.admin.listGroups.invalidate();
       utils.admin.listUsers.invalidate();
@@ -196,6 +256,32 @@ function GroupsManagementContent() {
     },
     onError: (err: any) => {
       alert(err.message || "Lỗi cập nhật nhóm");
+    },
+  });
+
+  // Add member: assign user to this group
+  const addMemberMutation = trpc.admin.updateUserGroup.useMutation({
+    onSuccess: () => {
+      setMemberPendingId(null);
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
+    },
+    onError: (err: any) => {
+      setMemberPendingId(null);
+      alert(err.message || "Lỗi thêm thành viên");
+    },
+  });
+
+  // Remove member: unassign user from their group
+  const removeMemberMutation = trpc.admin.updateUserGroup.useMutation({
+    onSuccess: () => {
+      setMemberPendingId(null);
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
+    },
+    onError: (err: any) => {
+      setMemberPendingId(null);
+      alert(err.message || "Lỗi xóa thành viên");
     },
   });
 
@@ -265,6 +351,7 @@ function GroupsManagementContent() {
       description: newDesc.trim() || undefined,
       color: newColor,
       leaderId: newLeaderId || null,
+      memberIds: newMemberIds,
     });
   };
 
@@ -274,6 +361,8 @@ function GroupsManagementContent() {
     setEditDesc(group.description || "");
     setEditColor(group.color || "pink");
     setEditLeaderId(group.leader?.id || "");
+    setEditMemberIds((group.members || []).map((m: any) => m.id));
+    setEditMemberSearch("");
     setIsEditOpen(true);
   };
 
@@ -286,6 +375,7 @@ function GroupsManagementContent() {
       description: editDesc.trim() || null,
       color: editColor,
       leaderId: editLeaderId || null,
+      memberIds: editMemberIds,
     });
   };
 
@@ -505,96 +595,146 @@ function GroupsManagementContent() {
         </div>
 
         {/* Search & Action Toolbar (Sticky only on desktop) */}
-        <div className="lg:sticky lg:top-[72px] z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="relative w-full sm:w-96">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Tìm theo tên nhóm, mô tả, trưởng nhóm, thành viên..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500"
-            />
-          </div>
+        <div className="lg:sticky lg:top-[72px] z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-96">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Tìm theo tên nhóm, mô tả, trưởng nhóm, thành viên..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-8 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500 transition-colors"
+              />
+              {search && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-110"
+                      aria-label="Xóa tìm kiếm"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa tìm kiếm</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
 
           <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-auto sm:ml-auto flex-wrap">
-            {/* Sort Popover */}
+            {/* Sort Popover with background effect & hover tooltip */}
             <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all cursor-pointer"
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Sắp xếp</span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
-                <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${
+                        sortConfig.key
+                          ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
+                          : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
+                      }`}
+                    >
+                      <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-pink-600 dark:text-pink-400" : "text-slate-500"}`} />
+                      <span>Sắp xếp</span>
+                      {currentSortOption && (
+                        <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-pink-100/90 dark:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-200/60 dark:border-pink-800/60">
+                          {currentSortOption.label} {sortConfig.desc ? "↓" : "↑"}
+                        </span>
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  Đang sắp xếp: {currentSortOption.label} ({sortDirectionText})
+                </TooltipContent>
+              </Tooltip>
+              <PopoverContent align="end" className="w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1.5">
+                <div className="text-xs font-semibold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
                   Sắp xếp theo cột
                 </div>
-                {[
-                  { key: "name", label: "Tên nhóm (Group Name)" },
-                  { key: "membersCount", label: "Số lượng thành viên" },
-                  { key: "totalAccounts", label: "Số account phụ trách" },
-                  { key: "createdAt", label: "Thời gian tạo" },
-                ].map((item) => (
-                  <button
-                    key={item.key}
-                    onClick={() => handleSort(item.key as GroupSortKey)}
-                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-normal text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                  >
-                    <span>{item.label}</span>
-                    {sortConfig.key === item.key && (
-                      <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
-                        {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
-                      </span>
-                    )}
-                  </button>
-                ))}
+                {GROUP_SORT_OPTIONS.map((item) => {
+                  const isSelected = sortConfig.key === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      onClick={() => handleSort(item.key)}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        isSelected
+                          ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
+                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                      {isSelected && (
+                        <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
+                          {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </PopoverContent>
             </Popover>
 
-            {/* View Mode Switcher */}
+            {/* View Mode Switcher with Tooltip */}
             <div className="flex items-center p-0.5 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-              <button
-                type="button"
-                onClick={() => setViewMode("grid")}
-                className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "grid"
-                    ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
-                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                title="Chế độ xem dạng lưới (Cards)"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Lưới</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("list")}
-                className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "list"
-                    ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
-                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                title="Chế độ xem dạng danh sách (Bảng)"
-              >
-                <List className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Bảng</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("grid")}
+                    className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "grid"
+                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                      }`}
+                    aria-label="Chế độ xem dạng lưới (Cards)"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Lưới</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Chế độ xem dạng lưới (Cards)</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("list")}
+                    className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "list"
+                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                      }`}
+                    aria-label="Chế độ xem dạng danh sách (Bảng)"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Bảng</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Chế độ xem dạng danh sách (Bảng)</TooltipContent>
+              </Tooltip>
             </div>
 
             {/* Column Visibility Popover (List View Only) */}
             {viewMode === "list" && (
               <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
-                    title="Tùy chỉnh cột hiển thị"
-                  >
-                    <Columns3 className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Cột hiển thị</span>
-                  </button>
-                </PopoverTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <button
+                        className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
+                        aria-label="Tùy chỉnh cột hiển thị"
+                      >
+                        <Columns3 className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Cột hiển thị</span>
+                      </button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Tùy chỉnh cột hiển thị</TooltipContent>
+                </Tooltip>
                 <PopoverContent
                   align="end"
                   className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
@@ -660,7 +800,36 @@ function GroupsManagementContent() {
             )}
           </div>
         </div>
+
+        {/* Active Filter Chips */}
+        {search && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+              <span>Tìm: {search}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={() => setSearch("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                    <X className="w-3 h-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+              </Tooltip>
+            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setSearch("")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer ml-1"
+                >
+                  Xóa tất cả
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
+            </Tooltip>
+          </div>
+        )}
       </div>
+    </div>
 
       {/* Main Groups View: Grid or Table */}
       {loading ? (
@@ -818,75 +987,225 @@ function GroupsManagementContent() {
                       {group.description || <span className="italic text-slate-400/80">Không có mô tả</span>}
                     </p>
 
-                    {/* Leader Box */}
-                    {group.leader ? (
-                      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/50 dark:border-amber-900/40">
-                        <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-xs">
-                          {group.leader.name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-bold text-amber-950 dark:text-amber-200 truncate flex items-center gap-1">
-                            <Crown className="w-3 h-3 text-amber-500 shrink-0" />
-                            <span>{group.leader.name}</span>
-                          </div>
-                          <div className="text-xs text-amber-700/80 dark:text-amber-400/80 truncate">
-                            @{group.leader.username}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-dashed border-slate-200 dark:border-slate-800 text-xs text-slate-400">
-                        <span className="flex items-center gap-1.5 text-xs">
-                          <Crown className="w-3.5 h-3.5 opacity-40" /> Chưa có Trưởng nhóm
-                        </span>
-                        {isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEdit(group)}
-                            className="px-2 py-0.5 rounded-md text-xs font-semibold text-pink-600 dark:text-pink-400 hover:bg-pink-100 dark:hover:bg-pink-950/60 transition-colors cursor-pointer"
-                          >
-                            + Gán
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    {/* Leader Box — inline Select dropdown */}
+                    <div>
+                      <Select
+                        value={group.leader?.id || "UNASSIGNED"}
+                        onValueChange={(val) => {
+                          updateGroupMutation.mutate({
+                            id: group.id,
+                            name: group.name,
+                            description: group.description,
+                            color: group.color || "pink",
+                            leaderId: val === "UNASSIGNED" ? null : val,
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                          <SelectValue>
+                            {group.leader ? (
+                              <span className="flex items-center gap-2">
+                                <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0 uppercase">
+                                  {group.leader.name.slice(0, 2)}
+                                </div>
+                                <span className="flex items-center gap-1 font-semibold text-amber-900 dark:text-amber-200">
+                                  <Crown className="w-3 h-3 text-amber-500 shrink-0" />
+                                  {group.leader.name}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1.5 text-slate-400">
+                                <Crown className="w-3.5 h-3.5 opacity-40" />
+                                Chưa có Trưởng nhóm
+                              </span>
+                            )}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl">
+                          <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">-- Không có leader --</SelectItem>
+                          {allUsers.map((u: any) => (
+                            <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                              <div className="flex items-center gap-2">
+                                {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                                <span>{u.name || u.fullName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
                     {/* Members Avatar Row */}
                     <div>
                       <div className="text-xs font-medium text-slate-400 mb-1.5 flex items-center justify-between">
                         <span>Thành viên ({members.length})</span>
                       </div>
+
                       {members.length === 0 ? (
-                        <div className="text-xs text-slate-400 italic py-1">Chưa có thành viên trong nhóm</div>
+                        <div className="flex items-center gap-2 py-1">
+                          {isAdmin && (
+                            <Popover>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="w-7 h-7 rounded-full border-2 border-dashed border-pink-400 dark:border-pink-500 bg-pink-50 dark:bg-pink-950/40 text-pink-500 dark:text-pink-400 flex items-center justify-center hover:scale-110 transition-all cursor-pointer shadow-xs shrink-0"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                    </button>
+                                  </PopoverTrigger>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs font-semibold">
+                                  Thêm thành viên
+                                </TooltipContent>
+                              </Tooltip>
+                              <PopoverContent align="start" className="w-64 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl">
+                                <div className="text-xs font-bold text-slate-900 dark:text-white pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
+                                  <UserPlus className="w-3.5 h-3.5 text-pink-500" />
+                                  Thêm thành viên vào nhóm
+                                </div>
+                                {allUsers.filter((u: any) => !u.groupId || u.groupId !== group.id).length === 0 ? (
+                                  <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong nhóm</div>
+                                ) : (
+                                  <div className="max-h-48 overflow-y-auto space-y-0.5">
+                                    {allUsers
+                                      .filter((u: any) => !u.groupId || u.groupId !== group.id)
+                                      .map((u: any) => (
+                                        <button
+                                          key={u.id}
+                                          type="button"
+                                          disabled={memberPendingId === u.id}
+                                          onClick={() => {
+                                            setMemberPendingId(u.id);
+                                            addMemberMutation.mutate({ userId: u.id, groupName: group.name });
+                                          }}
+                                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
+                                        >
+                                          <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold flex items-center justify-center uppercase shrink-0">
+                                            {u.name?.slice(0, 2)}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
+                                            <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.groupName ? ` · ${u.groupName}` : " · Chưa có nhóm"}</div>
+                                          </div>
+                                        </button>
+                                      ))}
+                                  </div>
+                                )}
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                          <span className="text-xs text-slate-400 italic">Chưa có thành viên trong nhóm</span>
+                        </div>
                       ) : (
                         <div className="flex items-center gap-1.5">
                           <div className="flex items-center -space-x-2 py-1">
                             {displayMembers.map((member: any) => (
-                              <Tooltip key={member.id}>
-                                <TooltipTrigger asChild>
-                                  <Link
-                                    href={`/users/${member.id}`}
-                                    className="inline-flex w-7 h-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-xs font-bold items-center justify-center hover:z-20 hover:scale-125 transition-all uppercase shadow-xs shrink-0 select-none"
-                                  >
-                                    {member.avatar || member.image ? (
-                                      <img
-                                        src={member.avatar || member.image}
-                                        alt={member.name}
-                                        className="w-full h-full rounded-full object-cover"
-                                      />
-                                    ) : (
-                                      <span className="leading-none">{member.name.slice(0, 2)}</span>
-                                    )}
-                                  </Link>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <div className="font-bold text-xs">{member.name}</div>
-                                  <div className="text-xs text-slate-400">
-                                    @{member.username} • {member.accountsCount} accounts
-                                  </div>
-                                </TooltipContent>
-                              </Tooltip>
+                              <div key={member.id} className="relative group/avatar">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Link
+                                      href={`/users/${member.id}`}
+                                      className="inline-flex w-7 h-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-xs font-bold items-center justify-center hover:z-20 hover:scale-110 transition-all uppercase shadow-xs shrink-0 select-none"
+                                    >
+                                      {member.avatar || member.image ? (
+                                        <img
+                                          src={member.avatar || member.image}
+                                          alt={member.name}
+                                          className="w-full h-full rounded-full object-cover"
+                                        />
+                                      ) : (
+                                        <span className="leading-none">{member.name.slice(0, 2)}</span>
+                                      )}
+                                    </Link>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <div className="font-bold text-xs">{member.name}</div>
+                                    <div className="text-xs text-slate-400">
+                                      @{member.username} • {member.accountsCount} accounts
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
+                                {/* Red X remove button on avatar hover — with tooltip at bottom left */}
+                                {isAdmin && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        disabled={memberPendingId === member.id}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          setMemberPendingId(member.id);
+                                          removeMemberMutation.mutate({ userId: member.id, groupName: null });
+                                        }}
+                                        className="absolute -bottom-1 -left-1 w-4 h-4 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 text-white flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-all z-30 hover:bg-rose-600 cursor-pointer shadow-sm disabled:opacity-40"
+                                      >
+                                        <X className="w-2.5 h-2.5" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="text-xs font-semibold">
+                                      Xóa {member.name} khỏi nhóm
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
                             ))}
+
+                            {/* + Add member avatar-circle button — placed inside -space-x-2 for seamless overlap */}
+                            {isAdmin && (
+                              <Popover>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="relative z-10 w-7 h-7 rounded-full ring-2 ring-white dark:ring-slate-900 border-2 border-dashed border-pink-400 dark:border-pink-500 bg-pink-50 dark:bg-pink-950/40 text-pink-500 dark:text-pink-400 flex items-center justify-center hover:z-20 hover:scale-110 transition-all cursor-pointer shadow-xs shrink-0"
+                                      >
+                                        <Plus className="w-3.5 h-3.5" />
+                                      </button>
+                                    </PopoverTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="text-xs font-semibold">
+                                    Thêm thành viên
+                                  </TooltipContent>
+                                </Tooltip>
+                                <PopoverContent align="start" className="w-64 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl">
+                                  <div className="text-xs font-bold text-slate-900 dark:text-white pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
+                                    <UserPlus className="w-3.5 h-3.5 text-pink-500" />
+                                    Thêm thành viên vào nhóm
+                                  </div>
+                                  {allUsers.filter((u: any) => !u.groupId || u.groupId !== group.id).length === 0 ? (
+                                    <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong nhóm</div>
+                                  ) : (
+                                    <div className="max-h-48 overflow-y-auto space-y-0.5">
+                                      {allUsers
+                                        .filter((u: any) => !u.groupId || u.groupId !== group.id)
+                                        .map((u: any) => (
+                                          <button
+                                            key={u.id}
+                                            type="button"
+                                            disabled={memberPendingId === u.id}
+                                            onClick={() => {
+                                              setMemberPendingId(u.id);
+                                              addMemberMutation.mutate({ userId: u.id, groupName: group.name });
+                                            }}
+                                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
+                                          >
+                                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold flex items-center justify-center uppercase shrink-0">
+                                              {u.name?.slice(0, 2)}
+                                            </div>
+                                            <div className="min-w-0">
+                                              <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
+                                              <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.groupName ? ` · ${u.groupName}` : " · Chưa có nhóm"}</div>
+                                            </div>
+                                          </button>
+                                        ))}
+                                    </div>
+                                  )}
+                                </PopoverContent>
+                              </Popover>
+                            )}
                           </div>
 
                           {hasMore && (
@@ -962,8 +1281,9 @@ function GroupsManagementContent() {
                     <button
                       type="button"
                       onClick={() => handleOpenEdit(group)}
-                      className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+                      className="group/edit flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-all cursor-pointer"
                     >
+                      <Pencil className="w-3 h-3 opacity-60 group-hover/edit:opacity-100 transition-opacity" />
                       Chỉnh sửa
                     </button>
                   )}
@@ -980,7 +1300,7 @@ function GroupsManagementContent() {
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800 select-none">
                 <tr>
                   {isAdmin && (
-                    <th className="py-3.5 px-3 w-10 min-w-[40px] max-w-[40px] text-center sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs">
+                    <th className="py-3.5 px-3 w-10 min-w-[40px] max-w-[40px] text-center sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800">
                       <button
                         type="button"
                         onClick={toggleSelectAll}
@@ -999,14 +1319,14 @@ function GroupsManagementContent() {
                       </button>
                     </th>
                   )}
-                  <th className={`py-3.5 px-2 w-10 min-w-[40px] max-w-[40px] text-center sticky ${isAdmin ? "left-[40px]" : "left-0"} z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs`}>
+                  <th className={`py-3.5 px-2 w-10 min-w-[40px] max-w-[40px] text-center sticky ${isAdmin ? "left-[40px]" : "left-0"} z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800`}>
                     #
                   </th>
                   {visibleColumns.name && (
                     <th
                       onClick={() => handleSort("name")}
                       className={`py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky ${isAdmin ? "left-[80px]" : "left-[40px]"
-                        } z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]`}
+                        } z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]`}
                     >
                       <div className="flex items-center gap-1.5">
                         <span>Tên nhóm</span>
@@ -1054,7 +1374,7 @@ function GroupsManagementContent() {
                     </th>
                   )}
                   {visibleColumns.actions && (
-                    <th className="py-3.5 px-6 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
+                    <th className="py-3.5 px-6 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
                       Thao tác
                     </th>
                   )}
@@ -1135,69 +1455,212 @@ function GroupsManagementContent() {
                         )}
 
                         {visibleColumns.leader && (
-                          <td className="py-4 px-4 align-middle whitespace-nowrap">
-                            {group.leader ? (
-                              <div className="flex items-center gap-1.5">
-                                {group.leader.avatar || group.leader.image ? (
-                                  <img
-                                    src={group.leader.avatar || group.leader.image}
-                                    alt={group.leader.name}
-                                    className="w-5 h-5 rounded-full object-cover ring-1 ring-amber-400/40 shadow-2xs shrink-0"
-                                  />
-                                ) : (
-                                  <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0 shadow-2xs uppercase">
-                                    {group.leader.name.slice(0, 2)}
-                                  </div>
-                                )}
-                                <div>
-                                  <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1">
-                                    <Crown className="w-3 h-3 text-amber-500" />
-                                    <span>{group.leader.name}</span>
-                                  </div>
-                                  <div className="text-xs text-slate-400">
-                                    @{group.leader.username}
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-xs italic">Chưa có Leader</span>
-                            )}
+                          <td className="py-4 px-4 align-middle whitespace-nowrap min-w-[200px]">
+                            <Select
+                              value={group.leader?.id || "UNASSIGNED"}
+                              onValueChange={(val) => {
+                                updateGroupMutation.mutate({
+                                  id: group.id,
+                                  name: group.name,
+                                  description: group.description,
+                                  color: group.color || "pink",
+                                  leaderId: val === "UNASSIGNED" ? null : val,
+                                });
+                              }}
+                            >
+                              <SelectTrigger className="h-8 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer w-full max-w-[180px]">
+                                <SelectValue>
+                                  {group.leader ? (
+                                    <span className="flex items-center gap-1.5">
+                                      <Crown className="w-3 h-3 text-amber-500 shrink-0" />
+                                      <span className="truncate">{group.leader.name}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 italic">Chưa có Leader</span>
+                                  )}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent className="rounded-2xl">
+                                <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">-- Không có leader --</SelectItem>
+                                {allUsers.map((u: any) => (
+                                  <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                                    <div className="flex items-center gap-2">
+                                      {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                                      <span>{u.name || u.fullName}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </td>
                         )}
 
                         {visibleColumns.members && (
                           <td className="py-4 px-4 align-middle whitespace-nowrap">
                             {members.length === 0 ? (
-                              <span className="text-slate-400 text-xs italic">0 thành viên</span>
+                              <div className="flex items-center gap-2">
+                                {isAdmin && (
+                                  <Popover>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <PopoverTrigger asChild>
+                                          <button
+                                            type="button"
+                                            className="w-6 h-6 rounded-full border-2 border-dashed border-pink-400 dark:border-pink-500 bg-pink-50 dark:bg-pink-950/40 text-pink-500 dark:text-pink-400 flex items-center justify-center hover:scale-110 transition-all cursor-pointer shadow-xs shrink-0"
+                                          >
+                                            <Plus className="w-3 h-3" />
+                                          </button>
+                                        </PopoverTrigger>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="text-xs font-semibold">
+                                        Thêm thành viên
+                                      </TooltipContent>
+                                    </Tooltip>
+                                    <PopoverContent align="start" className="w-64 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl">
+                                      <div className="text-xs font-bold text-slate-900 dark:text-white pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
+                                        <UserPlus className="w-3.5 h-3.5 text-pink-500" />
+                                        Thêm thành viên vào {group.name}
+                                      </div>
+                                      {allUsers.filter((u: any) => !u.groupId || u.groupId !== group.id).length === 0 ? (
+                                        <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong nhóm</div>
+                                      ) : (
+                                        <div className="max-h-48 overflow-y-auto space-y-0.5">
+                                          {allUsers
+                                            .filter((u: any) => !u.groupId || u.groupId !== group.id)
+                                            .map((u: any) => (
+                                              <button
+                                                key={u.id}
+                                                type="button"
+                                                disabled={memberPendingId === u.id}
+                                                onClick={() => {
+                                                  setMemberPendingId(u.id);
+                                                  addMemberMutation.mutate({ userId: u.id, groupName: group.name });
+                                                }}
+                                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
+                                              >
+                                                <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center uppercase shrink-0">
+                                                  {u.name?.slice(0, 2)}
+                                                </div>
+                                                <div className="min-w-0">
+                                                  <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
+                                                  <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.groupName ? ` · ${u.groupName}` : " · Chưa có nhóm"}</div>
+                                                </div>
+                                              </button>
+                                            ))}
+                                        </div>
+                                      )}
+                                    </PopoverContent>
+                                  </Popover>
+                                )}
+                                <span className="text-slate-400 text-xs italic">0 thành viên</span>
+                              </div>
                             ) : (
                               <div className="flex items-center gap-1.5 h-6">
                                 <div className="flex items-center -space-x-1.5 py-1">
                                   {displayMembers.map((member: any) => (
-                                    <Tooltip key={member.id}>
-                                      <TooltipTrigger asChild>
-                                        <Link
-                                          href={`/users/${member.id}`}
-                                          className="inline-flex w-6 h-6 rounded-full ring-2 ring-white dark:ring-slate-900 bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold items-center justify-center hover:z-20 hover:scale-125 transition-all uppercase shadow-xs shrink-0 select-none"
-                                        >
-                                          {member.avatar || member.image ? (
-                                            <img
-                                              src={member.avatar || member.image}
-                                              alt={member.name}
-                                              className="w-full h-full rounded-full object-cover"
-                                            />
-                                          ) : (
-                                            <span className="leading-none">{member.name.slice(0, 2)}</span>
-                                          )}
-                                        </Link>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <div className="font-bold text-xs">{member.name}</div>
-                                        <div className="text-xs text-slate-400">
-                                          @{member.username} • {member.accountsCount} accounts phụ trách
-                                        </div>
-                                      </TooltipContent>
-                                    </Tooltip>
+                                    <div key={member.id} className="relative group/avatar">
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Link
+                                            href={`/users/${member.id}`}
+                                            className="inline-flex w-6 h-6 rounded-full ring-2 ring-white dark:ring-slate-900 bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold items-center justify-center hover:z-20 hover:scale-125 transition-all uppercase shadow-xs shrink-0 select-none"
+                                          >
+                                            {member.avatar || member.image ? (
+                                              <img
+                                                src={member.avatar || member.image}
+                                                alt={member.name}
+                                                className="w-full h-full rounded-full object-cover"
+                                              />
+                                            ) : (
+                                              <span className="leading-none">{member.name.slice(0, 2)}</span>
+                                            )}
+                                          </Link>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <div className="font-bold text-xs">{member.name}</div>
+                                          <div className="text-xs text-slate-400">
+                                            @{member.username} • {member.accountsCount} accounts phụ trách
+                                          </div>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                      {isAdmin && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <button
+                                              type="button"
+                                              disabled={memberPendingId === member.id}
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                setMemberPendingId(member.id);
+                                                removeMemberMutation.mutate({ userId: member.id, groupName: null });
+                                              }}
+                                              className="absolute -bottom-1 -left-1 w-3.5 h-3.5 rounded-full bg-rose-500 ring-1 ring-white dark:ring-slate-900 text-white flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-all z-30 hover:bg-rose-600 cursor-pointer shadow-sm disabled:opacity-40"
+                                            >
+                                              <X className="w-2 h-2" />
+                                            </button>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="bottom" className="text-xs font-semibold">
+                                            Xóa {member.name} khỏi nhóm
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                    </div>
                                   ))}
+
+                                  {/* Table Add button inside avatar stack */}
+                                  {isAdmin && (
+                                    <Popover>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <PopoverTrigger asChild>
+                                            <button
+                                              type="button"
+                                              className="relative z-10 w-6 h-6 rounded-full ring-2 ring-white dark:ring-slate-900 border-2 border-dashed border-pink-400 dark:border-pink-500 bg-pink-50 dark:bg-pink-950/40 text-pink-500 dark:text-pink-400 flex items-center justify-center hover:z-20 hover:scale-110 transition-all cursor-pointer shadow-xs shrink-0"
+                                            >
+                                              <Plus className="w-3 h-3" />
+                                            </button>
+                                          </PopoverTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="text-xs font-semibold">
+                                          Thêm thành viên
+                                        </TooltipContent>
+                                      </Tooltip>
+                                      <PopoverContent align="start" className="w-64 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl">
+                                        <div className="text-xs font-bold text-slate-900 dark:text-white pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
+                                          <UserPlus className="w-3.5 h-3.5 text-pink-500" />
+                                          Thêm thành viên vào {group.name}
+                                        </div>
+                                        {allUsers.filter((u: any) => !u.groupId || u.groupId !== group.id).length === 0 ? (
+                                          <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong nhóm</div>
+                                        ) : (
+                                          <div className="max-h-48 overflow-y-auto space-y-0.5">
+                                            {allUsers
+                                              .filter((u: any) => !u.groupId || u.groupId !== group.id)
+                                              .map((u: any) => (
+                                                <button
+                                                  key={u.id}
+                                                  type="button"
+                                                  disabled={memberPendingId === u.id}
+                                                  onClick={() => {
+                                                    setMemberPendingId(u.id);
+                                                    addMemberMutation.mutate({ userId: u.id, groupName: group.name });
+                                                  }}
+                                                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
+                                                >
+                                                  <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center uppercase shrink-0">
+                                                    {u.name?.slice(0, 2)}
+                                                  </div>
+                                                  <div className="min-w-0">
+                                                    <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
+                                                    <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.groupName ? ` · ${u.groupName}` : " · Chưa có nhóm"}</div>
+                                                  </div>
+                                                </button>
+                                              ))}
+                                          </div>
+                                        )}
+                                      </PopoverContent>
+                                    </Popover>
+                                  )}
                                 </div>
 
                                 {hasMore && (
@@ -1412,7 +1875,19 @@ function GroupsManagementContent() {
                   onValueChange={(val) => setNewLeaderId(val === "UNASSIGNED" ? "" : val)}
                 >
                   <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
-                    <SelectValue placeholder="-- Chưa chỉ định leader --" />
+                    <SelectValue placeholder="-- Chưa chỉ định leader --">
+                      {(() => {
+                        const leader = allUsers.find((u: any) => u.id === newLeaderId);
+                        return leader ? (
+                          <div className="flex items-center gap-2 min-w-0">
+                            {renderUserAvatar(leader, "w-4 h-4 text-[8px]")}
+                            <span className="truncate">{leader.fullName || leader.name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">-- Chưa chỉ định leader --</span>
+                        );
+                      })()}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent className="rounded-2xl max-h-56">
                     <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
@@ -1420,11 +1895,115 @@ function GroupsManagementContent() {
                     </SelectItem>
                     {allUsers.map((u: any) => (
                       <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                        {u.fullName || u.name} ({u.role})
+                        <div className="flex items-center gap-2">
+                          {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                          <span>{u.fullName || u.name} ({u.role})</span>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Member Management in Create Modal */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                  Thành Viên Nhóm ({newMemberIds.length})
+                </label>
+                
+                {/* Member chips */}
+                <div className="min-h-[44px] p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-wrap items-center gap-1.5 mb-2">
+                  {newMemberIds.length === 0 ? (
+                    <span className="text-xs text-slate-400 italic px-1">Chưa chọn thành viên nào</span>
+                  ) : (
+                    newMemberIds.map((userId) => {
+                      const u = allUsers.find((x: any) => x.id === userId);
+                      if (!u) return null;
+                      return (
+                        <span
+                          key={userId}
+                          className="inline-flex items-center gap-1.5 pl-1.5 pr-1.5 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-800 dark:text-slate-200 shadow-2xs"
+                        >
+                          <span className="w-5 h-5 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center uppercase shrink-0">
+                            {u.name?.slice(0, 2) || "U"}
+                          </span>
+                          <span className="max-w-[110px] truncate">{u.name || u.fullName}</span>
+                          <button
+                            type="button"
+                            onClick={() => setNewMemberIds((prev) => prev.filter((id) => id !== userId))}
+                            className="w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer transition-colors shrink-0 shadow-2xs"
+                            title={`Xóa ${u.name}`}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </span>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Add member popover */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full py-2 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-pink-400 dark:hover:border-pink-500 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 flex items-center justify-center gap-1.5 transition-colors cursor-pointer bg-slate-50/50 dark:bg-slate-950/50"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Thêm Thành Viên Vào Nhóm</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-72 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
+                    <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
+                      <UserPlus className="w-3.5 h-3.5 text-pink-500" />
+                      Chọn thành viên thêm vào
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Tìm theo tên hoặc username..."
+                      value={createMemberSearch}
+                      onChange={(e) => setCreateMemberSearch(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
+                    />
+                    <div className="max-h-48 overflow-y-auto space-y-0.5">
+                      {allUsers
+                        .filter((u: any) => !newMemberIds.includes(u.id))
+                        .filter((u: any) => {
+                          if (!createMemberSearch.trim()) return true;
+                          const q = createMemberSearch.toLowerCase();
+                          return (
+                            (u.name && u.name.toLowerCase().includes(q)) ||
+                            (u.fullName && u.fullName.toLowerCase().includes(q)) ||
+                            (u.username && u.username.toLowerCase().includes(q))
+                          );
+                        })
+                        .map((u: any) => (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={() => {
+                              setNewMemberIds((prev) => [...prev, u.id]);
+                            }}
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left"
+                          >
+                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold flex items-center justify-center uppercase shrink-0">
+                              {u.name?.slice(0, 2)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
+                              <div className="text-[10px] text-slate-400 truncate">
+                                @{u.username} {u.groupName ? `· Nhóm: ${u.groupName}` : "· Chưa có nhóm"}
+                              </div>
+                            </div>
+                            <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                          </button>
+                        ))}
+                      {allUsers.filter((u: any) => !newMemberIds.includes(u.id)).length === 0 && (
+                        <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả nhân sự đã được chọn</div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
@@ -1521,7 +2100,19 @@ function GroupsManagementContent() {
                   onValueChange={(val) => setEditLeaderId(val === "UNASSIGNED" ? "" : val)}
                 >
                   <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
-                    <SelectValue placeholder="-- Chưa chỉ định leader --" />
+                    <SelectValue placeholder="-- Chưa chỉ định leader --">
+                      {(() => {
+                        const leader = allUsers.find((u: any) => u.id === editLeaderId);
+                        return leader ? (
+                          <div className="flex items-center gap-2 min-w-0">
+                            {renderUserAvatar(leader, "w-4 h-4 text-[8px]")}
+                            <span className="truncate">{leader.fullName || leader.name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">-- Chưa chỉ định leader --</span>
+                        );
+                      })()}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent className="rounded-2xl max-h-56">
                     <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
@@ -1529,11 +2120,115 @@ function GroupsManagementContent() {
                     </SelectItem>
                     {allUsers.map((u: any) => (
                       <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                        {u.fullName || u.name} ({u.role})
+                        <div className="flex items-center gap-2">
+                          {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                          <span>{u.fullName || u.name} ({u.role})</span>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Member Management in Edit Modal */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                  Thành Viên Nhóm ({editMemberIds.length})
+                </label>
+                
+                {/* Member chips */}
+                <div className="min-h-[44px] p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-wrap items-center gap-1.5 mb-2">
+                  {editMemberIds.length === 0 ? (
+                    <span className="text-xs text-slate-400 italic px-1">Chưa có thành viên nào trong nhóm</span>
+                  ) : (
+                    editMemberIds.map((userId) => {
+                      const u = allUsers.find((x: any) => x.id === userId) || editingGroup.members?.find((x: any) => x.id === userId);
+                      if (!u) return null;
+                      return (
+                        <span
+                          key={userId}
+                          className="inline-flex items-center gap-1.5 pl-1.5 pr-1.5 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-800 dark:text-slate-200 shadow-2xs"
+                        >
+                          <span className="w-5 h-5 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center uppercase shrink-0">
+                            {u.name?.slice(0, 2) || "U"}
+                          </span>
+                          <span className="max-w-[110px] truncate">{u.name || u.fullName}</span>
+                          <button
+                            type="button"
+                            onClick={() => setEditMemberIds((prev) => prev.filter((id) => id !== userId))}
+                            className="w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer transition-colors shrink-0 shadow-2xs"
+                            title={`Xóa ${u.name}`}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </span>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Add member popover */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full py-2 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-pink-400 dark:hover:border-pink-500 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 flex items-center justify-center gap-1.5 transition-colors cursor-pointer bg-slate-50/50 dark:bg-slate-950/50"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Thêm Thành Viên Vào Nhóm</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-72 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
+                    <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
+                      <UserPlus className="w-3.5 h-3.5 text-pink-500" />
+                      Chọn thành viên thêm vào
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Tìm theo tên hoặc username..."
+                      value={editMemberSearch}
+                      onChange={(e) => setEditMemberSearch(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
+                    />
+                    <div className="max-h-48 overflow-y-auto space-y-0.5">
+                      {allUsers
+                        .filter((u: any) => !editMemberIds.includes(u.id))
+                        .filter((u: any) => {
+                          if (!editMemberSearch.trim()) return true;
+                          const q = editMemberSearch.toLowerCase();
+                          return (
+                            (u.name && u.name.toLowerCase().includes(q)) ||
+                            (u.fullName && u.fullName.toLowerCase().includes(q)) ||
+                            (u.username && u.username.toLowerCase().includes(q))
+                          );
+                        })
+                        .map((u: any) => (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={() => {
+                              setEditMemberIds((prev) => [...prev, u.id]);
+                            }}
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left"
+                          >
+                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold flex items-center justify-center uppercase shrink-0">
+                              {u.name?.slice(0, 2)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
+                              <div className="text-[10px] text-slate-400 truncate">
+                                @{u.username} {u.groupName ? `· Nhóm: ${u.groupName}` : "· Chưa có nhóm"}
+                              </div>
+                            </div>
+                            <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                          </button>
+                        ))}
+                      {allUsers.filter((u: any) => !editMemberIds.includes(u.id)).length === 0 && (
+                        <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả nhân sự đã trong nhóm</div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">

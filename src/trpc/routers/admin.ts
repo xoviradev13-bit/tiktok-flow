@@ -203,6 +203,7 @@ export const adminRouter = router({
         description: z.string().optional(),
         color: z.string().optional().default("pink"),
         leaderId: z.string().optional().nullable(),
+        memberIds: z.array(z.string()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -228,6 +229,13 @@ export const adminRouter = router({
         },
       });
 
+      if (input.memberIds && input.memberIds.length > 0) {
+        await ctx.prisma.user.updateMany({
+          where: { id: { in: input.memberIds } },
+          data: { groupId: group.id },
+        });
+      }
+
       return group;
     }),
 
@@ -240,6 +248,7 @@ export const adminRouter = router({
         description: z.string().optional().nullable(),
         color: z.string().optional().default("pink"),
         leaderId: z.string().optional().nullable(),
+        memberIds: z.array(z.string()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -264,6 +273,21 @@ export const adminRouter = router({
           leaderId: input.leaderId || null,
         },
       });
+
+      if (input.memberIds !== undefined) {
+        // Unassign users previously in this group that are not in memberIds
+        await ctx.prisma.user.updateMany({
+          where: { groupId: group.id, id: { notIn: input.memberIds } },
+          data: { groupId: null },
+        });
+        // Assign new users to this group
+        if (input.memberIds.length > 0) {
+          await ctx.prisma.user.updateMany({
+            where: { id: { in: input.memberIds } },
+            data: { groupId: group.id },
+          });
+        }
+      }
 
       return group;
     }),

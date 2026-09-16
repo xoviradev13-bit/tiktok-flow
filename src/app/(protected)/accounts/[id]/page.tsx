@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlState";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -178,7 +179,7 @@ const COUNTRY_OPTIONS = [
   { value: "EG", label: "🇪🇬 EG - Egypt (Ai Cập)" },
 ];
 
-export default function AccountDetailPage() {
+function AccountDetailPageContent() {
   const { data: session } = useSession();
   const isLeadOrAdmin = (session?.user as any)?.role === "ADMIN" || (session?.user as any)?.role === "LEAD";
 
@@ -186,16 +187,50 @@ export default function AccountDetailPage() {
   const router = useRouter();
   const accountId = (params?.id as string) || "";
 
-  const [activeTab, setActiveTab] = useState<"overview" | "history" | "logs" | "alerts">("overview");
-  const [selectedTimeRange, setSelectedTimeRange] = useState<"7d" | "28d" | "60d" | "365d" | "all" | "custom">("28d");
-  const [customStartDate, setCustomStartDate] = useState<string>("");
-  const [customEndDate, setCustomEndDate] = useState<string>("");
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  const validTabs = ["overview", "history", "logs", "alerts"] as const;
+  const paramTab = searchParams?.get("tab") as any;
+  const initialTab = validTabs.includes(paramTab) ? paramTab : "overview";
+  const [activeTab, setActiveTab] = useState<"overview" | "history" | "logs" | "alerts">(initialTab);
+
+  const validRanges = ["7d", "28d", "60d", "365d", "all", "custom"] as const;
+  const paramRange = (searchParams?.get("range") || "28d") as any;
+  const initialRange = validRanges.includes(paramRange) ? paramRange : "28d";
+  const [selectedTimeRange, setSelectedTimeRange] = useState<"7d" | "28d" | "60d" | "365d" | "all" | "custom">(initialRange);
+
+  const initialFrom = searchParams?.get("from") || "";
+  const initialTo = searchParams?.get("to") || "";
+  const [customStartDate, setCustomStartDate] = useState<string>(initialFrom);
+  const [customEndDate, setCustomEndDate] = useState<string>(initialTo);
+
   const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
   const [rangeSelection, setRangeSelection] = useState<DateRange | undefined>(() => {
+    if (initialFrom && initialTo) {
+      return { from: new Date(initialFrom + "T00:00:00"), to: new Date(initialTo + "T00:00:00") };
+    }
     const to = new Date();
     const from = subDays(to, 27);
     return { from, to };
   });
+
+  // Auto sync active state to URL
+  useEffect(() => {
+    updateUrlParams(
+      {
+        tab: activeTab,
+        range: selectedTimeRange,
+        from: customStartDate,
+        to: customEndDate,
+      },
+      {
+        range: "28d",
+        from: "",
+        to: "",
+      }
+    );
+  }, [activeTab, selectedTimeRange, customStartDate, customEndDate, updateUrlParams]);
 
   // Separate time range filter state for "Biểu Đồ & Lịch Sử Doanh Thu" tab
   const [historyTimeRange, setHistoryTimeRange] = useState<"7d" | "28d" | "60d" | "365d" | "all" | "custom">("28d");
@@ -2112,5 +2147,13 @@ export default function AccountDetailPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function AccountDetailPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 text-xs">Đang tải chi tiết tài khoản...</div>}>
+      <AccountDetailPageContent />
+    </Suspense>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useSession } from "next-auth/react";
+import { useUrlParams } from "@/hooks/useUrlState";
 import { trpc } from "@/lib/trpc";
 import {
   BarChart3,
@@ -28,16 +29,67 @@ import { toast } from "sonner";
 
 type TabKey = "OVERVIEW" | "REVENUE" | "FLEET" | "OPERATIONS" | "RISK";
 
-export default function AnalyticsPage() {
+function AnalyticsPageContent() {
   const { data: session } = useSession();
-  const [activeTab, setActiveTab] = useState<TabKey>("OVERVIEW");
-  const [period, setPeriod] = useState<PeriodType>("28D");
-  const [startDate, setStartDate] = useState<string | undefined>(undefined);
-  const [endDate, setEndDate] = useState<string | undefined>(undefined);
-  const [operatorId, setOperatorId] = useState<string | null>(null);
-  const [groupId, setGroupId] = useState<string | null>(null);
-  const [country, setCountry] = useState<string | null>(null);
+
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  const validTabs: TabKey[] = ["OVERVIEW", "REVENUE", "FLEET", "OPERATIONS", "RISK"];
+  const paramTab = searchParams?.get("tab")?.toUpperCase() as TabKey;
+  const initialTab = validTabs.includes(paramTab) ? paramTab : "OVERVIEW";
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+
+  const initialPeriod = (searchParams?.get("period") || "28D") as PeriodType;
+  const [period, setPeriod] = useState<PeriodType>(initialPeriod);
+
+  const initialFrom = searchParams?.get("from") || undefined;
+  const initialTo = searchParams?.get("to") || undefined;
+  const [startDate, setStartDate] = useState<string | undefined>(initialFrom);
+  const [endDate, setEndDate] = useState<string | undefined>(initialTo);
+
+  const initialUser = searchParams?.get("user") || null;
+  const [operatorId, setOperatorId] = useState<string | null>(initialUser);
+
+  const initialGroup = searchParams?.get("group") || null;
+  const [groupId, setGroupId] = useState<string | null>(initialGroup);
+
+  const initialCountry = searchParams?.get("country") || null;
+  const [country, setCountry] = useState<string | null>(initialCountry);
+
   const [status, setStatus] = useState<any | null>(null);
+
+  // Auto sync active state to URL
+  useEffect(() => {
+    updateUrlParams(
+      {
+        tab: activeTab,
+        period: period,
+        from: startDate,
+        to: endDate,
+        user: operatorId,
+        group: groupId,
+        country: country,
+      },
+      {
+        period: "28D",
+        from: undefined,
+        to: undefined,
+        user: null,
+        group: null,
+        country: null,
+      }
+    );
+  }, [
+    activeTab,
+    period,
+    startDate,
+    endDate,
+    operatorId,
+    groupId,
+    country,
+    updateUrlParams,
+  ]);
 
   const utils = trpc.useUtils();
 
@@ -245,5 +297,13 @@ export default function AnalyticsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 text-xs">Đang tải thống kê...</div>}>
+      <AnalyticsPageContent />
+    </Suspense>
   );
 }

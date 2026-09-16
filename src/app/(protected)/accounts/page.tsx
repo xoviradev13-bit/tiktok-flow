@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlState";
 import {
   Users,
   Search,
@@ -70,6 +71,7 @@ import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 
 type AccountSortKey =
   | "username"
+  | "groupName"
   | "gpmProfileId"
   | "country"
   | "status"
@@ -80,6 +82,19 @@ type AccountSortKey =
   | "totalRevenue"
   | "alertsCount"
   | "updatedAt";
+
+const ACCOUNT_SORT_OPTIONS: Array<{ key: AccountSortKey; label: string }> = [
+  { key: "totalRevenue", label: "Doanh thu" },
+  { key: "totalViews", label: "Lượt xem" },
+  { key: "totalFollowers", label: "Lượt theo dõi" },
+  { key: "totalVideos", label: "Số lượng video" },
+  { key: "username", label: "Tên tài khoản" },
+  { key: "groupName", label: "GPM Group" },
+  { key: "gpmProfileId", label: "GPM Profile ID" },
+  { key: "country", label: "Quốc gia" },
+  { key: "status", label: "Trạng thái" },
+  { key: "updatedAt", label: "Thời gian cập nhật" },
+];
 
 const COUNTRY_MAP: Record<string, string> = {
   us: "US", "united states": "US", usa: "US", "u.s.": "US", "u.s.a.": "US", america: "US",
@@ -186,6 +201,28 @@ const normalizeCountry = (country?: string | null): string => {
   return country.trim().toUpperCase();
 };
 
+const renderUserAvatar = (
+  u?: { fullName?: string | null; name?: string | null; username?: string | null; avatar?: string | null } | null,
+  size = "w-5 h-5 text-[9px]"
+) => {
+  if (!u) return null;
+  const displayName = u.fullName || u.name || u.username || "U";
+  if (u.avatar) {
+    return (
+      <img
+        src={u.avatar}
+        alt={displayName}
+        className={`${size} rounded-full object-cover shrink-0`}
+      />
+    );
+  }
+  return (
+    <span className={`${size} rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white font-bold flex items-center justify-center shrink-0 uppercase select-none`}>
+      {displayName.slice(0, 2)}
+    </span>
+  );
+};
+
 function AccountsPageContent() {
   const router = useRouter();
   const pathname = usePathname();
@@ -195,86 +232,139 @@ function AccountsPageContent() {
   const isLeadOrAdmin =
     (session?.user as any)?.role === "ADMIN" || (session?.user as any)?.role === "LEAD";
 
-  // View Mode: read initial value from URL Search Params ("grid" | "list")
-  const urlViewMode = (searchParams?.get("view") === "list" ? "list" : "grid") as "grid" | "list";
-  const [viewMode, setViewMode] = useState<"grid" | "list">(urlViewMode);
+  // SaaS URL Query State Synchronization
+  const { updateUrlParams } = useUrlParams();
+
+  // View Mode: read initial value from URL Search Params ("v" or "view")
+  const initialViewMode = ((searchParams?.get("v") || searchParams?.get("view")) === "list" ? "list" : "grid") as "grid" | "list";
+  const [viewMode, setViewMode] = useState<"grid" | "list">(initialViewMode);
 
   // Fast filters
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<any>("ALL");
-  const [onlineFilter, setOnlineFilter] = useState<"ALL" | "ONLINE" | "OFFLINE">("ALL");
-  const [countryFilter, setCountryFilter] = useState("ALL");
-  const [assignedFilter, setAssignedFilter] = useState("ALL");
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const [search, setSearch] = useState(initialSearch);
+
+  const initialStatus = searchParams?.get("status") || "ALL";
+  const [statusFilter, setStatusFilter] = useState<any>(initialStatus);
+
+  const initialOnline = (searchParams?.get("online") || "ALL") as "ALL" | "ONLINE" | "OFFLINE";
+  const [onlineFilter, setOnlineFilter] = useState<"ALL" | "ONLINE" | "OFFLINE">(initialOnline);
+
+  const initialCountry = searchParams?.get("country") || "ALL";
+  const [countryFilter, setCountryFilter] = useState(initialCountry);
+
+  const initialAssigned = searchParams?.get("user") || searchParams?.get("assigned") || "ALL";
+  const [assignedFilter, setAssignedFilter] = useState(initialAssigned);
 
   // Advanced filters
-  const [warningFilter, setWarningFilter] = useState<"ALL" | "HAS_WARNING" | "NO_WARNING">("ALL");
-  const [gpmFilter, setGpmFilter] = useState<"ALL" | "LINKED" | "UNLINKED">("ALL");
-  const [minViews, setMinViews] = useState<string>("");
-  const [minRevenue, setMinRevenue] = useState<string>("");
+  const initialWarning = (searchParams?.get("warn") || searchParams?.get("warning") || "ALL") as "ALL" | "HAS_WARNING" | "NO_WARNING";
+  const [warningFilter, setWarningFilter] = useState<"ALL" | "HAS_WARNING" | "NO_WARNING">(initialWarning);
+
+  const initialGpm = (searchParams?.get("gpm") || "ALL") as "ALL" | "LINKED" | "UNLINKED";
+  const [gpmFilter, setGpmFilter] = useState<"ALL" | "LINKED" | "UNLINKED">(initialGpm);
+
+  const initialMinViews = searchParams?.get("minV") || searchParams?.get("minViews") || "";
+  const [minViews, setMinViews] = useState<string>(initialMinViews);
+
+  const initialMinRevenue = searchParams?.get("minRev") || searchParams?.get("minRevenue") || "";
+  const [minRevenue, setMinRevenue] = useState<string>(initialMinRevenue);
 
   // Sorting
+  const initialSortKey = (searchParams?.get("sort") || searchParams?.get("sortBy") || "updatedAt") as AccountSortKey;
+  const initialSortDesc = (searchParams?.get("dir") || searchParams?.get("sortOrder")) === "asc" ? false : true;
   const [sortConfig, setSortConfig] = useState<{ key: AccountSortKey; desc: boolean }>({
-    key: "updatedAt",
-    desc: true,
+    key: initialSortKey,
+    desc: initialSortDesc,
   });
 
+  const currentSortOption = useMemo(() => {
+    return ACCOUNT_SORT_OPTIONS.find((opt) => opt.key === sortConfig.key) || { key: sortConfig.key, label: "Mặc định" };
+  }, [sortConfig.key]);
+
+  const sortDirectionText = sortConfig.desc ? "Giảm dần" : "Tăng dần";
+
   const initialPage = useMemo(() => {
-    const p = searchParams?.get("page");
+    const p = searchParams?.get("p") || searchParams?.get("page");
     const num = p ? parseInt(p, 10) : 1;
     return isNaN(num) || num < 1 ? 1 : num;
   }, [searchParams]);
 
   const initialPageSize = useMemo(() => {
-    const ps = searchParams?.get("pageSize");
-    const fallback = urlViewMode === "grid" ? 12 : 10;
+    const ps = searchParams?.get("ps") || searchParams?.get("pageSize");
+    const fallback = initialViewMode === "grid" ? 12 : 10;
     const num = ps ? parseInt(ps, 10) : fallback;
     return isNaN(num) || num < 1 ? fallback : num;
-  }, [searchParams, urlViewMode]);
+  }, [searchParams, initialViewMode]);
 
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
 
-  // Sync URL search parameters
-  const updateUrlParams = useCallback(
-    (updates: Record<string, string | number | undefined | null>) => {
-      const params = new URLSearchParams(searchParams?.toString() || "");
-      Object.entries(updates).forEach(([key, val]) => {
-        if (
-          val === undefined ||
-          val === null ||
-          val === "" ||
-          (key === "page" && Number(val) === 1) ||
-          (key === "view" && val === "grid")
-        ) {
-          params.delete(key);
-        } else {
-          params.set(key, String(val));
-        }
-      });
-      const searchStr = params.toString();
-      const newUrl = searchStr ? `${pathname}?${searchStr}` : pathname;
-      window.history.replaceState(null, "", newUrl);
-    },
-    [searchParams, pathname]
-  );
+  // SaaS URL sync: automatically keep URL in sync with all active state without reloading
+  useEffect(() => {
+    updateUrlParams(
+      {
+        v: viewMode,
+        p: page,
+        ps: pageSize,
+        q: search,
+        status: statusFilter,
+        online: onlineFilter,
+        country: countryFilter,
+        user: assignedFilter,
+        warn: warningFilter,
+        gpm: gpmFilter,
+        minV: minViews,
+        minRev: minRevenue,
+        sort: sortConfig.key,
+        dir: sortConfig.desc ? "desc" : "asc",
+      },
+      {
+        v: "grid",
+        p: 1,
+        ps: viewMode === "grid" ? 12 : 10,
+        q: "",
+        status: "ALL",
+        online: "ALL",
+        country: "ALL",
+        user: "ALL",
+        warn: "ALL",
+        gpm: "ALL",
+        minV: "",
+        minRev: "",
+        sort: "updatedAt",
+        dir: "desc",
+      }
+    );
+  }, [
+    viewMode,
+    page,
+    pageSize,
+    search,
+    statusFilter,
+    onlineFilter,
+    countryFilter,
+    assignedFilter,
+    warningFilter,
+    gpmFilter,
+    minViews,
+    minRevenue,
+    sortConfig,
+    updateUrlParams,
+  ]);
 
   const handleViewModeChange = (mode: "grid" | "list") => {
     setViewMode(mode);
     const defaultSize = mode === "grid" ? 12 : 10;
     setPageSize(defaultSize);
     setPage(1);
-    updateUrlParams({ view: mode, pageSize: defaultSize, page: 1 });
   };
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
-    updateUrlParams({ page: newPage });
   };
 
   const handlePageSizeChange = (newSize: number) => {
     setPageSize(newSize);
     setPage(1);
-    updateUrlParams({ pageSize: newSize, page: 1 });
   };
 
   // Selection
@@ -283,11 +373,13 @@ function AccountsPageContent() {
   // Column visibility state (username is locked and cannot be unchecked)
   const [visibleColumns, setVisibleColumns] = useState({
     username: true,
+    gpmGroup: true,
     gpmProfileId: true,
     country: true,
     status: true,
     assignedUser: true,
     totalViews: true,
+    totalFollowers: true,
     totalVideos: true,
     totalRevenue: true,
     alertsCount: true,
@@ -322,7 +414,7 @@ function AccountsPageContent() {
   // Form states
   const [newUsername, setNewUsername] = useState("");
   const [newCountry, setNewCountry] = useState("US");
-  const [newGroup, setNewGroup] = useState("Team US");
+  const [newGroup, setNewGroup] = useState("Default group");
   const [newGpmId, setNewGpmId] = useState("");
   const [newAssignedUser, setNewAssignedUser] = useState("");
 
@@ -377,6 +469,13 @@ function AccountsPageContent() {
       u.username ||
       "-- Chưa gán --"
     );
+  };
+
+  const getAssigneeUser = (acc: any) => {
+    if (!acc?.assignedUserId) return null;
+    const fromList = users.find((u: any) => u.id === acc.assignedUserId);
+    if (fromList) return fromList;
+    return acc.assignedUser || null;
   };
 
   const toggleLockMutation = trpc.accounts.toggleLockAssignment.useMutation({
@@ -499,12 +598,12 @@ function AccountsPageContent() {
 
   const handleCreateAccount = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUsername.trim() || !newGpmId.trim()) return;
+    if (!newUsername.trim()) return;
     createMutation.mutate({
       username: newUsername.trim(),
       country: newCountry,
       groupName: newGroup || null,
-      gpmProfileId: newGpmId.trim(),
+      gpmProfileId: newGpmId.trim() || null,
       assignedUserId: newAssignedUser || null,
     });
   };
@@ -534,12 +633,11 @@ function AccountsPageContent() {
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editGpmId.trim()) return;
     updateMutation.mutate({
       id: editId,
       country: editCountry,
-      groupName: editGroup || null,
-      gpmProfileId: editGpmId.trim(),
+      groupName: editGroup?.trim() || null,
+      gpmProfileId: editGpmId?.trim() || null,
       assignedUserId: editAssignedUser || null,
     });
   };
@@ -688,6 +786,7 @@ function AccountsPageContent() {
 
   // Active filter count
   const activeAdvancedCount =
+    (onlineFilter !== "ALL" ? 1 : 0) +
     (countryFilter !== "ALL" ? 1 : 0) +
     (warningFilter !== "ALL" ? 1 : 0) +
     (gpmFilter !== "ALL" ? 1 : 0) +
@@ -697,7 +796,6 @@ function AccountsPageContent() {
   const totalActiveFiltersCount =
     (search ? 1 : 0) +
     (statusFilter !== "ALL" ? 1 : 0) +
-    (onlineFilter !== "ALL" ? 1 : 0) +
     (assignedFilter !== "ALL" ? 1 : 0) +
     activeAdvancedCount;
 
@@ -939,80 +1037,124 @@ function AccountsPageContent() {
                     setSearch(e.target.value);
                     setPage(1);
                   }}
-                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500"
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-8 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500 transition-colors"
                 />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      setPage(1);
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                    title="Xóa tìm kiếm"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
-              {/* Online / Offline Fast Filter */}
-              <Select
-                value={onlineFilter}
-                onValueChange={(val: any) => {
-                  setOnlineFilter(val);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate shrink-0">
-                  <SelectValue placeholder="Kết nối" />
-                </SelectTrigger>
-                <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả kết nối</SelectItem>
-                  <SelectItem value="ONLINE" className="text-xs font-normal cursor-pointer">
-                    <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50" />
-                      <span>Đang Online</span>
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="OFFLINE" className="text-xs font-normal cursor-pointer">
-                    <span className="inline-flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium">
-                      <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
-                      <span>Đang Offline</span>
-                    </span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-
               {/* Status Fast Filter */}
-              <Select
-                value={statusFilter}
-                onValueChange={(val) => {
-                  setStatusFilter(val);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate shrink-0">
-                  <SelectValue placeholder="Trạng thái" />
-                </SelectTrigger>
-                <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
-                  <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
-                  <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
-                  <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
-                  <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
-                  <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Assigned Staff Fast Filter (Admin and Lead only) */}
-              {isLeadOrAdmin && (
+              <div className="relative shrink-0">
                 <Select
-                  value={assignedFilter}
+                  value={statusFilter}
                   onValueChange={(val) => {
-                    setAssignedFilter(val);
+                    setStatusFilter(val);
                     setPage(1);
                   }}
                 >
-                  <SelectTrigger className="w-40 sm:w-44 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate shrink-0">
-                    <SelectValue placeholder="Nhân sự" />
+                  <SelectTrigger
+                    className={`w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${
+                      statusFilter !== "ALL"
+                        ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                        : ""
+                    }`}
+                  >
+                    <SelectValue placeholder="Trạng thái" />
                   </SelectTrigger>
-                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
-                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nhân sự</SelectItem>
-                    {users.map((u: any) => (
-                      <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
-                        {u.fullName}
-                      </SelectItem>
-                    ))}
+                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
+                    <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
+                    <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
+                    <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
+                    <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
+                    <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
                   </SelectContent>
                 </Select>
+                {statusFilter !== "ALL" && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setStatusFilter("ALL");
+                          setPage(1);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                        aria-label="Xóa chọn trạng thái"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+
+              {/* Assigned Staff Fast Filter (Admin and Lead only) */}
+              {isLeadOrAdmin && (
+                <div className="relative shrink-0">
+                  <Select
+                    value={assignedFilter}
+                    onValueChange={(val) => {
+                      setAssignedFilter(val);
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger
+                      className={`w-40 sm:w-44 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${
+                        assignedFilter !== "ALL"
+                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                          : ""
+                      }`}
+                    >
+                      <SelectValue placeholder="Nhân sự" />
+                    </SelectTrigger>
+                    <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nhân sự</SelectItem>
+                      {users.map((u: any) => (
+                        <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
+                          <div className="flex items-center gap-2">
+                            {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                            <span className="truncate">{u.fullName}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {assignedFilter !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setAssignedFilter("ALL");
+                            setPage(1);
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn nhân sự"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn nhân sự</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
               )}
 
               {/* Advanced Filter Popover */}
@@ -1021,16 +1163,36 @@ function AccountsPageContent() {
                   <button
                     type="button"
                     className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-normal border transition-all cursor-pointer shrink-0 whitespace-nowrap ${activeAdvancedCount > 0
-                        ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
-                        : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
+                      ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
+                      : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
                       }`}
                   >
                     <Filter className="w-3.5 h-3.5" />
                     <span>Bộ lọc nâng cao</span>
                     {activeAdvancedCount > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
-                        {activeAdvancedCount}
-                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              setOnlineFilter("ALL");
+                              setCountryFilter("ALL");
+                              setWarningFilter("ALL");
+                              setGpmFilter("ALL");
+                              setMinViews("");
+                              setMinRevenue("");
+                              setPage(1);
+                            }}
+                            className="group/badge relative ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-purple-600 hover:bg-rose-600 text-white text-[10px] font-bold transition-colors cursor-pointer shadow-2xs"
+                            aria-label="Xóa tất cả bộ lọc nâng cao"
+                          >
+                            <span className="group-hover/badge:hidden">{activeAdvancedCount}</span>
+                            <X className="w-2.5 h-2.5 hidden group-hover/badge:block stroke-[2.5]" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Xóa tất cả bộ lọc nâng cao</TooltipContent>
+                      </Tooltip>
                     )}
                   </button>
                 </PopoverTrigger>
@@ -1040,6 +1202,7 @@ function AccountsPageContent() {
                     {activeAdvancedCount > 0 && (
                       <button
                         onClick={() => {
+                          setOnlineFilter("ALL");
                           setCountryFilter("ALL");
                           setWarningFilter("ALL");
                           setGpmFilter("ALL");
@@ -1047,83 +1210,228 @@ function AccountsPageContent() {
                           setMinRevenue("");
                           setPage(1);
                         }}
-                        className="text-xs font-semibold text-pink-600 hover:underline cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/50 transition-colors cursor-pointer"
                       >
                         Đặt lại
                       </button>
                     )}
                   </div>
 
+                  {/* Trạng thái kết nối (Online / Offline) */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Trạng thái kết nối
+                    </label>
+                    <div className="relative">
+                      <Select
+                        value={onlineFilter}
+                        onValueChange={(val: any) => {
+                          setOnlineFilter(val);
+                          setPage(1);
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                            onlineFilter !== "ALL"
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
+                          }`}
+                        >
+                          <SelectValue placeholder="Tất cả kết nối" />
+                        </SelectTrigger>
+                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả kết nối</SelectItem>
+                          <SelectItem value="ONLINE" className="text-xs font-normal cursor-pointer">
+                            <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50" />
+                              <span>Đang Online</span>
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="OFFLINE" className="text-xs font-normal cursor-pointer">
+                            <span className="inline-flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium">
+                              <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
+                              <span>Đang Offline</span>
+                            </span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {onlineFilter !== "ALL" && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setOnlineFilter("ALL");
+                                setPage(1);
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                              aria-label="Xóa chọn kết nối"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Xóa chọn kết nối</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Quốc gia */}
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
                       Quốc gia
                     </label>
-                    <Select
-                      value={countryFilter}
-                      onValueChange={(val) => {
-                        setCountryFilter(val);
-                        setPage(1);
-                      }}
-                    >
-                      <SelectTrigger className="w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                        <SelectValue placeholder="Tất cả quốc gia" />
-                      </SelectTrigger>
-                      <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
-                        <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
-                        {COUNTRY_OPTIONS.map((c) => (
-                          <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
-                            {c.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="relative">
+                      <Select
+                        value={countryFilter}
+                        onValueChange={(val) => {
+                          setCountryFilter(val);
+                          setPage(1);
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                            countryFilter !== "ALL"
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
+                          }`}
+                        >
+                          <SelectValue placeholder="Tất cả quốc gia" />
+                        </SelectTrigger>
+                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
+                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
+                          {COUNTRY_OPTIONS.map((c) => (
+                            <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
+                              {c.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {countryFilter !== "ALL" && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setCountryFilter("ALL");
+                                setPage(1);
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                              aria-label="Xóa chọn quốc gia"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Xóa chọn quốc gia</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
 
                   {/* Cảnh báo vi phạm */}
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
                       Cảnh báo vi phạm
                     </label>
-                    <Select
-                      value={warningFilter}
-                      onValueChange={(val) => {
-                        setWarningFilter(val as any);
-                        setPage(1);
-                      }}
-                    >
-                      <SelectTrigger className="w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                        <SelectValue placeholder="Tất cả" />
-                      </SelectTrigger>
-                      <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                        <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
-                        <SelectItem value="HAS_WARNING" className="text-xs font-normal cursor-pointer">Có cảnh báo vi phạm</SelectItem>
-                        <SelectItem value="CLEAN" className="text-xs font-normal cursor-pointer">Sạch sẽ (Không cảnh báo)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div className="relative">
+                      <Select
+                        value={warningFilter}
+                        onValueChange={(val) => {
+                          setWarningFilter(val as any);
+                          setPage(1);
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                            warningFilter !== "ALL"
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
+                          }`}
+                        >
+                          <SelectValue placeholder="Tất cả" />
+                        </SelectTrigger>
+                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
+                          <SelectItem value="HAS_WARNING" className="text-xs font-normal cursor-pointer">Có cảnh báo vi phạm</SelectItem>
+                          <SelectItem value="CLEAN" className="text-xs font-normal cursor-pointer">Sạch sẽ (Không cảnh báo)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {warningFilter !== "ALL" && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setWarningFilter("ALL");
+                                setPage(1);
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                              aria-label="Xóa chọn cảnh báo"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Xóa chọn cảnh báo</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
 
                   {/* Đồng bộ GPM-Login */}
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
                       Đồng bộ GPM-Login
                     </label>
-                    <Select
-                      value={gpmFilter}
-                      onValueChange={(val) => {
-                        setGpmFilter(val as any);
-                        setPage(1);
-                      }}
-                    >
-                      <SelectTrigger className="w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                        <SelectValue placeholder="Tất cả" />
-                      </SelectTrigger>
-                      <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                        <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
-                        <SelectItem value="LINKED" className="text-xs font-normal cursor-pointer">Đã liên kết Profile GPM</SelectItem>
-                        <SelectItem value="NOT_LINKED" className="text-xs font-normal cursor-pointer">Chưa liên kết Profile GPM</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div className="relative">
+                      <Select
+                        value={gpmFilter}
+                        onValueChange={(val) => {
+                          setGpmFilter(val as any);
+                          setPage(1);
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                            gpmFilter !== "ALL"
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
+                          }`}
+                        >
+                          <SelectValue placeholder="Tất cả" />
+                        </SelectTrigger>
+                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
+                          <SelectItem value="LINKED" className="text-xs font-normal cursor-pointer">Đã liên kết Profile GPM</SelectItem>
+                          <SelectItem value="NOT_LINKED" className="text-xs font-normal cursor-pointer">Chưa liên kết Profile GPM</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {gpmFilter !== "ALL" && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setGpmFilter("ALL");
+                                setPage(1);
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                              aria-label="Xóa chọn GPM"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Xóa chọn GPM</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
 
                   {/* Lượt xem tối thiểu */}
@@ -1165,88 +1473,117 @@ function AccountsPageContent() {
 
             {/* Action Controls Group: Sort, View Switcher & Column Customizer (Aligned to left on wrapped row) */}
             <div className="flex items-center gap-2.5 shrink-0 self-start xl:self-auto xl:ml-auto">
-              {/* Sort Popover */}
+              {/* Sort Popover with background effect & hover tooltip */}
               <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all cursor-pointer"
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Sắp xếp</span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
-                  <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${
+                          sortConfig.key
+                            ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
+                            : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
+                        }`}
+                      >
+                        <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-pink-600 dark:text-pink-400" : "text-slate-500"}`} />
+                        <span>Sắp xếp</span>
+                        {currentSortOption && (
+                          <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-pink-100/90 dark:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-200/60 dark:border-pink-800/60">
+                            {currentSortOption.label} {sortConfig.desc ? "↓" : "↑"}
+                          </span>
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    Đang sắp xếp: {currentSortOption.label} ({sortDirectionText})
+                  </TooltipContent>
+                </Tooltip>
+                <PopoverContent align="end" className="w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1.5">
+                  <div className="text-xs font-semibold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
                     Sắp xếp theo cột
                   </div>
-                  {[
-                    { key: "totalRevenue", label: "Doanh thu" },
-                    { key: "totalViews", label: "Lượt xem" },
-                    { key: "totalFollowers", label: "Lượt theo dõi" },
-                    { key: "totalVideos", label: "Số lượng video" },
-                    { key: "username", label: "Tên tài khoản" },
-                    { key: "gpmProfileId", label: "GPM Profile ID" },
-                    { key: "country", label: "Quốc gia" },
-                    { key: "status", label: "Trạng thái" },
-                    { key: "updatedAt", label: "Thời gian cập nhật" },
-                  ].map((item) => (
-                    <button
-                      key={item.key}
-                      onClick={() => handleSort(item.key as AccountSortKey)}
-                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-normal text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                    >
-                      <span>{item.label}</span>
-                      {sortConfig.key === item.key && (
-                        <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
-                          {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
-                        </span>
-                      )}
-                    </button>
-                  ))}
+                  {ACCOUNT_SORT_OPTIONS.map((item) => {
+                    const isSelected = sortConfig.key === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => handleSort(item.key)}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
+                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
+                        }`}
+                      >
+                        <span>{item.label}</span>
+                        {isSelected && (
+                          <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
+                            {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </PopoverContent>
               </Popover>
 
-              {/* View Mode Switcher */}
+              {/* View Mode Switcher with Tooltip */}
               <div className="flex items-center p-0.5 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-                <button
-                  type="button"
-                  onClick={() => handleViewModeChange("grid")}
-                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "grid"
-                      ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
-                      : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                    }`}
-                  title="Chế độ xem dạng lưới (Cards)"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Lưới</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleViewModeChange("list")}
-                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "list"
-                      ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
-                      : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                    }`}
-                  title="Chế độ xem dạng danh sách (Bảng)"
-                >
-                  <List className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Bảng</span>
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => handleViewModeChange("grid")}
+                      className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "grid"
+                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                        }`}
+                      aria-label="Chế độ xem dạng lưới (Cards)"
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Lưới</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Chế độ xem dạng lưới (Cards)</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => handleViewModeChange("list")}
+                      className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "list"
+                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                        }`}
+                      aria-label="Chế độ xem dạng danh sách (Bảng)"
+                    >
+                      <List className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Bảng</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Chế độ xem dạng danh sách (Bảng)</TooltipContent>
+                </Tooltip>
               </div>
 
               {/* Column Visibility Popover (List View Only) */}
               {viewMode === "list" && (
                 <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
-                      title="Tùy chỉnh cột hiển thị"
-                    >
-                      <Columns3 className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Cột hiển thị</span>
-                    </button>
-                  </PopoverTrigger>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <button
+                          className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
+                          aria-label="Tùy chỉnh cột hiển thị"
+                        >
+                          <Columns3 className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Cột hiển thị</span>
+                        </button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Tùy chỉnh cột hiển thị</TooltipContent>
+                  </Tooltip>
                   <PopoverContent
                     align="end"
                     className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
@@ -1257,11 +1594,13 @@ function AccountsPageContent() {
                         onClick={() =>
                           setVisibleColumns({
                             username: true,
+                            gpmGroup: true,
                             gpmProfileId: true,
                             country: true,
                             status: true,
                             assignedUser: true,
                             totalViews: true,
+                            totalFollowers: true,
                             totalVideos: true,
                             totalRevenue: true,
                             alertsCount: true,
@@ -1276,11 +1615,13 @@ function AccountsPageContent() {
                     <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
                       {[
                         { key: "username", label: "Tài khoản & nhóm", locked: true },
+                        { key: "gpmGroup", label: "GPM Group" },
                         { key: "gpmProfileId", label: "GPM Profile ID" },
                         { key: "country", label: "Quốc gia" },
                         { key: "status", label: "Trạng thái" },
                         { key: "assignedUser", label: "Người phụ trách" },
-                        { key: "totalViews", label: "Views / Follow" },
+                        { key: "totalViews", label: "Số views" },
+                        { key: "totalFollowers", label: "Số followers" },
                         { key: "totalVideos", label: "Số video" },
                         { key: "totalRevenue", label: "Doanh thu" },
                         { key: "alertsCount", label: "Cảnh báo" },
@@ -1321,77 +1662,136 @@ function AccountsPageContent() {
 
           {/* Active Filter Chips */}
           {totalActiveFiltersCount > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+            <div className="flex flex-wrap items-center gap-2">
               {search && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                   <span>Tìm: {search}</span>
-                  <button onClick={() => setSearch("")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setSearch("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {statusFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
                   <span>Trạng thái: {statusFilter}</span>
-                  <button onClick={() => setStatusFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setStatusFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
+                </span>
+              )}
+              {onlineFilter !== "ALL" && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${onlineFilter === "ONLINE" ? "bg-emerald-500 shadow-xs shadow-emerald-500/50" : "bg-slate-400 dark:bg-slate-500"}`} />
+                  <span>{onlineFilter === "ONLINE" ? "Đang Online" : "Đang Offline"}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setOnlineFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {countryFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
-                  <span>Quốc gia: {countryFilter}</span>
-                  <button onClick={() => setCountryFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <span>Quốc gia: {COUNTRY_OPTIONS.find((c) => c.value === countryFilter)?.label || countryFilter}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setCountryFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {isLeadOrAdmin && assignedFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
                   <span>Nhân sự: {users.find((u: any) => u.id === assignedFilter)?.fullName || assignedFilter}</span>
-                  <button onClick={() => setAssignedFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setAssignedFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {warningFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
                   <span>{warningFilter === "HAS_WARNING" ? "Có cảnh báo" : "Không có cảnh báo"}</span>
-                  <button onClick={() => setWarningFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setWarningFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {gpmFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300">
                   <span>{gpmFilter === "LINKED" ? "GPM Linked" : "Chưa gắn GPM"}</span>
-                  <button onClick={() => setGpmFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setGpmFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {minViews && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                   <span>Views ≥ {Number(minViews).toLocaleString()}</span>
-                  <button onClick={() => setMinViews("")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setMinViews("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {minRevenue && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
                   <span>Doanh thu ≥ ${minRevenue}</span>
-                  <button onClick={() => setMinRevenue("")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setMinRevenue("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
-              <button
-                onClick={clearAllFilters}
-                className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white underline cursor-pointer ml-1"
-              >
-                Xóa tất cả
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={clearAllFilters}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer ml-1"
+                  >
+                    Xóa tất cả
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
+              </Tooltip>
             </div>
           )}
         </div>
@@ -1467,8 +1867,8 @@ function AccountsPageContent() {
                   <div
                     key={acc.id}
                     className={`group relative flex flex-col bg-white dark:bg-slate-900/90 rounded-2xl border transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5 overflow-hidden ${isSelected
-                        ? "border-pink-500 ring-2 ring-pink-500/20 bg-pink-50/10 dark:bg-pink-950/10 shadow-md"
-                        : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs"
+                      ? "border-pink-500 ring-2 ring-pink-500/20 bg-pink-50/10 dark:bg-pink-950/10 shadow-md"
+                      : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs"
                       }`}
                   >
                     {/* Top Bar: Checkbox + Online & Status Badges + Actions */}
@@ -1756,9 +2156,12 @@ function AccountsPageContent() {
                               }
                               disabled={!!acc.isAssignmentLocked}
                             >
-                              <SelectTrigger className="h-6.5 px-2 text-xs font-normal rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer max-w-[140px]">
+                              <SelectTrigger className="h-6.5 px-2 text-xs font-normal rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer max-w-[150px]">
                                 <SelectValue placeholder="-- Chưa gán --">
-                                  <span className="truncate">{getAssigneeLabel(acc)}</span>
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    {renderUserAvatar(getAssigneeUser(acc), "w-3.5 h-3.5 text-[8px]")}
+                                    <span className="truncate">{getAssigneeLabel(acc)}</span>
+                                  </div>
                                 </SelectValue>
                               </SelectTrigger>
                               <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
@@ -1767,17 +2170,21 @@ function AccountsPageContent() {
                                 </SelectItem>
                                 {users.map((u: any) => (
                                   <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
-                                    {u.fullName}
+                                    <div className="flex items-center gap-2">
+                                      {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                                      <span>{u.fullName}</span>
+                                    </div>
                                   </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
                           ) : (
                             <span
-                              className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[140px]"
+                              className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[140px] inline-flex items-center gap-1.5"
                               title={getAssigneeLabel(acc)}
                             >
-                              {getAssigneeLabel(acc)}
+                              {renderUserAvatar(getAssigneeUser(acc), "w-3.5 h-3.5 text-[8px]")}
+                              <span className="truncate">{getAssigneeLabel(acc)}</span>
                             </span>
                           )}
                           {isLeadOrAdmin ? (
@@ -1793,8 +2200,8 @@ function AccountsPageContent() {
                                   }
                                   disabled={toggleLockMutation.isPending}
                                   className={`shrink-0 p-1 rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${acc.isAssignmentLocked
-                                      ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
-                                      : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                                    ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
+                                    : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
                                     }`}
                                   aria-label={
                                     acc.isAssignmentLocked
@@ -1883,7 +2290,7 @@ function AccountsPageContent() {
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none">
                     <tr>
                       {/* Checkbox All (Frozen Left) */}
-                      <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs">
+                      <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800">
                         <Checkbox
                           checked={isAllPageSelected}
                           onCheckedChange={(val) => toggleSelectAll(!!val)}
@@ -1895,11 +2302,24 @@ function AccountsPageContent() {
                       {visibleColumns.username && (
                         <th
                           onClick={() => handleSort("username")}
-                          className="px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]"
+                          className="px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]"
                         >
                           <div className="flex items-center gap-1.5">
                             <span>Tài khoản & nhóm</span>
                             {renderSortIndicator("username")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* GPM Group */}
+                      {visibleColumns.gpmGroup && (
+                        <th
+                          onClick={() => handleSort("groupName")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[130px] whitespace-nowrap"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>GPM Group</span>
+                            {renderSortIndicator("groupName")}
                           </div>
                         </th>
                       )}
@@ -1956,15 +2376,28 @@ function AccountsPageContent() {
                         </th>
                       )}
 
-                      {/* Views / Follow */}
+                      {/* Views */}
                       {visibleColumns.totalViews && (
                         <th
                           onClick={() => handleSort("totalViews")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[130px]"
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[110px]"
                         >
                           <div className="flex items-center gap-1.5">
-                            <span>Views / Follow</span>
+                            <span>Số views</span>
                             {renderSortIndicator("totalViews")}
+                          </div>
+                        </th>
+                      )}
+
+                      {/* Followers */}
+                      {visibleColumns.totalFollowers && (
+                        <th
+                          onClick={() => handleSort("totalFollowers")}
+                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[150px] whitespace-nowrap"
+                        >
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="whitespace-nowrap">Số followers</span>
+                            {renderSortIndicator("totalFollowers")}
                           </div>
                         </th>
                       )}
@@ -2010,7 +2443,7 @@ function AccountsPageContent() {
 
                       {/* Actions (Frozen Right) */}
                       {visibleColumns.actions && (
-                        <th className="px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
+                        <th className="px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
                           Thao tác
                         </th>
                       )}
@@ -2063,6 +2496,15 @@ function AccountsPageContent() {
                                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                                   <span>{acc.groupName || "Chưa phân nhóm"}</span>
                                 </div>
+                              </td>
+                            )}
+
+                            {/* GPM Group */}
+                            {visibleColumns.gpmGroup && (
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                <span className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
+                                  {acc.groupName || "--"}
+                                </span>
                               </td>
                             )}
 
@@ -2170,9 +2612,12 @@ function AccountsPageContent() {
                                       }
                                       disabled={!!acc.isAssignmentLocked}
                                     >
-                                      <SelectTrigger className="h-7.5 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                      <SelectTrigger className="h-7.5 w-40 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
                                         <SelectValue placeholder="-- Chưa gán --">
-                                          <span className="truncate">{getAssigneeLabel(acc)}</span>
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            {renderUserAvatar(getAssigneeUser(acc), "w-4 h-4 text-[8px]")}
+                                            <span className="truncate">{getAssigneeLabel(acc)}</span>
+                                          </div>
                                         </SelectValue>
                                       </SelectTrigger>
                                       <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
@@ -2181,17 +2626,21 @@ function AccountsPageContent() {
                                         </SelectItem>
                                         {users.map((u: any) => (
                                           <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
-                                            {u.fullName}
+                                            <div className="flex items-center gap-2">
+                                              {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                                              <span>{u.fullName}</span>
+                                            </div>
                                           </SelectItem>
                                         ))}
                                       </SelectContent>
                                     </Select>
                                   ) : (
                                     <span
-                                      className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-36 block"
+                                      className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-36 inline-flex items-center gap-1.5"
                                       title={getAssigneeLabel(acc)}
                                     >
-                                      {getAssigneeLabel(acc)}
+                                      {renderUserAvatar(getAssigneeUser(acc), "w-4 h-4 text-[8px]")}
+                                      <span className="truncate">{getAssigneeLabel(acc)}</span>
                                     </span>
                                   )}
                                   {isLeadOrAdmin ? (
@@ -2207,8 +2656,8 @@ function AccountsPageContent() {
                                           }
                                           disabled={toggleLockMutation.isPending}
                                           className={`shrink-0 p-1.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-50 ${acc.isAssignmentLocked
-                                              ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
-                                              : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                                            ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
+                                            : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
                                             }`}
                                           aria-label={
                                             acc.isAssignmentLocked
@@ -2243,15 +2692,17 @@ function AccountsPageContent() {
                               </td>
                             )}
 
-                            {/* Total Views / Follow */}
+                            {/* Total Views */}
                             {visibleColumns.totalViews && (
                               <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
-                                <div className="flex flex-col">
-                                  <span>{Number(acc.totalViews || 0).toLocaleString()} views</span>
-                                  <span className="text-xs text-slate-400">
-                                    {Number(acc.totalFollowers || 0).toLocaleString()} followers
-                                  </span>
-                                </div>
+                                <span>{Number(acc.totalViews || 0).toLocaleString()} views</span>
+                              </td>
+                            )}
+
+                            {/* Total Followers */}
+                            {visibleColumns.totalFollowers && (
+                              <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                                <span>{Number(acc.totalFollowers || 0).toLocaleString()} followers</span>
                               </td>
                             )}
 
@@ -2487,7 +2938,7 @@ function AccountsPageContent() {
             <form onSubmit={handleCreateAccount} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Username * (không cần @)
+                  Username <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -2495,7 +2946,7 @@ function AccountsPageContent() {
                   placeholder="e.g. dailyvibes_us"
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
                 />
               </div>
 
@@ -2505,7 +2956,7 @@ function AccountsPageContent() {
                     Quốc Gia
                   </label>
                   <Select value={newCountry} onValueChange={setNewCountry}>
-                    <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white cursor-pointer">
+                    <SelectTrigger className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white cursor-pointer">
                       <SelectValue placeholder="Chọn quốc gia" />
                     </SelectTrigger>
                     <SelectContent className="rounded-2xl max-h-60">
@@ -2520,29 +2971,28 @@ function AccountsPageContent() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Group / Nhóm
+                    GPM Group
                   </label>
                   <input
                     type="text"
-                    placeholder="Team US #1"
+                    placeholder="Default group"
                     value={newGroup}
                     onChange={(e) => setNewGroup(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none"
+                    className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white focus:outline-none"
                   />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  GPM Profile ID * (Bắt buộc để sync số liệu & tự động chấm công)
+                  GPM Profile ID
                 </label>
                 <input
                   type="text"
-                  required
                   placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
                   value={newGpmId}
                   onChange={(e) => setNewGpmId(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs font-mono text-cyan-700 dark:text-cyan-300 focus:outline-none focus:border-pink-500"
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs font-mono text-cyan-700 dark:text-cyan-300 focus:outline-none focus:border-pink-500"
                 />
               </div>
 
@@ -2551,16 +3001,19 @@ function AccountsPageContent() {
                   Phân Công Nhân Sự Phụ Trách
                 </label>
                 <Select value={newAssignedUser || "UNASSIGNED"} onValueChange={(val) => setNewAssignedUser(val === "UNASSIGNED" ? "" : val)}>
-                  <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white cursor-pointer">
+                  <SelectTrigger className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white cursor-pointer">
                     <SelectValue placeholder="-- Chưa phân công --" />
                   </SelectTrigger>
-                  <SelectContent className="rounded-2xl max-h-60">
+                    <SelectContent className="rounded-2xl max-h-60">
                     <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
                       -- Chưa phân công --
                     </SelectItem>
                     {users.map((u: any) => (
                       <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                        {u.fullName} ({u.role})
+                        <div className="flex items-center gap-2">
+                          {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                          <span>{u.fullName} ({u.role})</span>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2591,7 +3044,7 @@ function AccountsPageContent() {
       {/* Modal: Edit Account */}
       {isEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Pencil className="w-4 h-4 text-pink-500" />
@@ -2606,16 +3059,16 @@ function AccountsPageContent() {
             </div>
 
             <form onSubmit={handleSaveEdit} className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Quốc Gia
                   </label>
                   <Select value={editCountry} onValueChange={setEditCountry}>
-                    <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white cursor-pointer">
+                    <SelectTrigger className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white cursor-pointer [&>span]:truncate">
                       <SelectValue placeholder="Chọn quốc gia" />
                     </SelectTrigger>
-                    <SelectContent className="rounded-2xl max-h-60">
+                    <SelectContent className="rounded-2xl max-h-60 w-64">
                       {COUNTRY_OPTIONS.map((c) => (
                         <SelectItem key={c.value} value={c.value} className="text-xs cursor-pointer">
                           {c.label}
@@ -2631,29 +3084,34 @@ function AccountsPageContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Group / Nhóm
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      GPM Group
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-mono">(Chỉ đọc)</span>
+                  </div>
                   <input
                     type="text"
-                    value={editGroup}
-                    onChange={(e) => setEditGroup(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none"
+                    readOnly
+                    value={editGroup || "-- Không có nhóm --"}
+                    className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  GPM Profile ID * (Bắt buộc)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    GPM Profile ID
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-mono">(Chỉ đọc)</span>
+                </div>
                 <input
                   type="text"
-                  required
-                  placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
+                  readOnly
+                  placeholder="Chưa liên kết GPM Profile"
                   value={editGpmId}
-                  onChange={(e) => setEditGpmId(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs font-mono text-cyan-700 dark:text-cyan-300 focus:outline-none focus:border-pink-500"
+                  className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs font-mono text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
                 />
               </div>
 
@@ -2663,7 +3121,7 @@ function AccountsPageContent() {
                     Phân Công Nhân Sự
                   </label>
                   <Select value={editAssignedUser || "UNASSIGNED"} onValueChange={(val) => setEditAssignedUser(val === "UNASSIGNED" ? "" : val)}>
-                    <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white cursor-pointer">
+                    <SelectTrigger className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white cursor-pointer">
                       <SelectValue placeholder="-- Chưa phân công --" />
                     </SelectTrigger>
                     <SelectContent className="rounded-2xl max-h-60">
@@ -2672,7 +3130,10 @@ function AccountsPageContent() {
                       </SelectItem>
                       {users.map((u: any) => (
                         <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                          {u.fullName} ({u.role})
+                          <div className="flex items-center gap-2">
+                            {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                            <span>{u.fullName} ({u.role})</span>
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -2872,7 +3333,10 @@ function AccountsPageContent() {
                   </SelectItem>
                   {users.map((u: any) => (
                     <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                      {u.fullName} ({u.role})
+                      <div className="flex items-center gap-2">
+                        {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                        <span>{u.fullName} ({u.role})</span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>

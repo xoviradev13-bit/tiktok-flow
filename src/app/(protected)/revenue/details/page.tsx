@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useUrlParams } from "@/hooks/useUrlState";
+import { useSession } from "next-auth/react";
 import {
   DollarSign,
   Search,
@@ -19,6 +21,9 @@ import {
   FileSpreadsheet,
   Check,
   Columns3,
+  Edit2,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Pagination } from "@/components/ui/pagination";
@@ -32,6 +37,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -56,27 +68,105 @@ type RevenueSortKey =
   | "revenue"
   | "sourceType";
 
-export default function RevenueDetailsPage() {
-  const [search, setSearch] = useState("");
-  const [sourceTypeFilter, setSourceTypeFilter] = useState("ALL");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+const REVENUE_SORT_OPTIONS: Array<{ key: RevenueSortKey; label: string }> = [
+  { key: "date", label: "Ngày ghi nhận" },
+  { key: "revenue", label: "Doanh thu ($)" },
+  { key: "views", label: "Lượt xem (Views)" },
+  { key: "rpm", label: "RPM ($)" },
+  { key: "accountUsername", label: "Tài khoản" },
+  { key: "assignedUser", label: "Người phụ trách" },
+  { key: "sourceType", label: "Nguồn thu" },
+];
+
+function RevenueDetailsPageContent() {
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const [search, setSearch] = useState(initialSearch);
+
+  const initialSource = searchParams?.get("source") || "ALL";
+  const [sourceTypeFilter, setSourceTypeFilter] = useState(initialSource);
+
+  const initialFrom = searchParams?.get("from") || "";
+  const initialTo = searchParams?.get("to") || "";
+  const [startDate, setStartDate] = useState(initialFrom);
+  const [endDate, setEndDate] = useState(initialTo);
+
   const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
   const [rangeSelection, setRangeSelection] = useState<DateRange | undefined>(() => {
+    if (initialFrom && initialTo) {
+      return { from: new Date(initialFrom + "T00:00:00"), to: new Date(initialTo + "T00:00:00") };
+    }
     const to = new Date();
     const from = subDays(to, 27);
     return { from, to };
   });
-  const [minRevenue, setMinRevenue] = useState("");
-  const [minViews, setMinViews] = useState("");
 
+  const initialMinRev = searchParams?.get("minRev") || searchParams?.get("minRevenue") || "";
+  const [minRevenue, setMinRevenue] = useState(initialMinRev);
+
+  const initialMinV = searchParams?.get("minV") || searchParams?.get("minViews") || "";
+  const [minViews, setMinViews] = useState(initialMinV);
+
+  const initialSortKey = (searchParams?.get("sort") || searchParams?.get("sortBy") || "date") as RevenueSortKey;
+  const initialSortDesc = (searchParams?.get("dir") || searchParams?.get("sortOrder")) === "asc" ? false : true;
   const [sortConfig, setSortConfig] = useState<{ key: RevenueSortKey; desc: boolean }>({
-    key: "date",
-    desc: true,
+    key: initialSortKey,
+    desc: initialSortDesc,
   });
 
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(15);
+  const currentSortOption = useMemo(() => {
+    return REVENUE_SORT_OPTIONS.find((opt) => opt.key === sortConfig.key) || { key: sortConfig.key, label: "Mặc định" };
+  }, [sortConfig.key]);
+
+  const sortDirectionText = sortConfig.desc ? "Giảm dần" : "Tăng dần";
+
+  const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
+  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 15;
+  const [page, setPage] = useState(initialPage);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+
+  // Auto sync active state to URL
+  useEffect(() => {
+    updateUrlParams(
+      {
+        q: search,
+        source: sourceTypeFilter,
+        from: startDate,
+        to: endDate,
+        minRev: minRevenue,
+        minV: minViews,
+        sort: sortConfig.key,
+        dir: sortConfig.desc ? "desc" : "asc",
+        p: page,
+        ps: pageSize,
+      },
+      {
+        q: "",
+        source: "ALL",
+        from: "",
+        to: "",
+        minRev: "",
+        minV: "",
+        sort: "date",
+        dir: "desc",
+        p: 1,
+        ps: 15,
+      }
+    );
+  }, [
+    search,
+    sourceTypeFilter,
+    startDate,
+    endDate,
+    minRevenue,
+    minViews,
+    sortConfig,
+    page,
+    pageSize,
+    updateUrlParams,
+  ]);
 
   // Column visibility state (accountUsername is locked and cannot be unchecked)
   const [visibleColumns, setVisibleColumns] = useState({
@@ -89,14 +179,32 @@ export default function RevenueDetailsPage() {
     sourceType: true,
   });
 
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "ADMIN" || (session?.user as any)?.userType === "ADMIN";
+  const isLeadOrAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "LEAD";
+
   const visibleColumnCount = useMemo(() => {
-    return 1 /* checkbox */ + Object.values(visibleColumns).filter(Boolean).length;
+    return 1 /* checkbox */ + Object.values(visibleColumns).filter(Boolean).length + 1 /* Thao tác */;
   }, [visibleColumns]);
 
-  // Selection
+  // Selection & Actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+
+  // Edit / Delete states
+  const [editingRecord, setEditingRecord] = useState<any | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editViews, setEditViews] = useState<number | string>(0);
+  const [editRpm, setEditRpm] = useState<number | string>(0);
+  const [editRevenue, setEditRevenue] = useState<number | string>(0);
+  const [editSourceType, setEditSourceType] = useState("CREATOR_REWARDS");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const bulkDeleteMutation = trpc.revenue.bulkDelete.useMutation();
+  const updateRecordMutation = trpc.revenue.updateRecord.useMutation();
 
   const applyPresetRange = (days: number) => {
     if (days === 0) {
@@ -314,6 +422,84 @@ export default function RevenueDetailsPage() {
     XLSX.writeFile(wb, `DoanhThu_TikTok_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  // Action handlers
+  const openEditModal = (item: any) => {
+    setEditingRecord(item);
+    setEditDate(item.date ? item.date.slice(0, 10) : "");
+    setEditViews(Number(item.views || 0));
+    setEditRpm(Number(item.rpm || 0));
+    setEditRevenue(Number(item.revenue || 0));
+    setEditSourceType(item.sourceType || "CREATOR_REWARDS");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingRecord) return;
+    try {
+      setIsSavingEdit(true);
+      await updateRecordMutation.mutateAsync({
+        id: editingRecord.id,
+        date: editDate || undefined,
+        views: Number(editViews) || 0,
+        rpm: Number(editRpm) || 0,
+        revenue: Number(editRevenue) || 0,
+        sourceType: editSourceType,
+      });
+      setActionMsg("✅ Cập nhật bản ghi doanh thu thành công!");
+      utils.revenue.listDetails.invalidate();
+      utils.revenue.getOverview.invalidate();
+      setEditingRecord(null);
+    } catch (err: any) {
+      setActionMsg(`❌ Lỗi cập nhật: ${err.message}`);
+    } finally {
+      setIsSavingEdit(false);
+      setTimeout(() => setActionMsg(null), 4000);
+    }
+  };
+
+  const handleDeleteSingle = async (item: any) => {
+    if (item.id.startsWith("auto-")) {
+      alert("Bản ghi này được đồng bộ tự động từ Analytics, không thể xóa trực tiếp.");
+      return;
+    }
+    if (!confirm(`Bạn có chắc chắn muốn xóa bản ghi doanh thu ngày ${item.date ? item.date.slice(0, 10) : ""} của @${item.account?.username}?`)) return;
+    try {
+      setDeletingId(item.id);
+      await bulkDeleteMutation.mutateAsync({ ids: [item.id] });
+      setActionMsg("✅ Đã xóa bản ghi doanh thu!");
+      selectedIds.delete(item.id);
+      setSelectedIds(new Set(selectedIds));
+      utils.revenue.listDetails.invalidate();
+      utils.revenue.getOverview.invalidate();
+    } catch (err: any) {
+      setActionMsg(`❌ Lỗi xóa: ${err.message}`);
+    } finally {
+      setDeletingId(null);
+      setTimeout(() => setActionMsg(null), 4000);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const realIds = Array.from(selectedIds).filter((id) => !id.startsWith("auto-"));
+    if (realIds.length === 0) {
+      alert("Các bản ghi đã chọn đều là bản ghi tự động từ Analytics, không thể xóa thủ công.");
+      return;
+    }
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${realIds.length} bản ghi doanh thu đã chọn?`)) return;
+    try {
+      setIsDeletingBulk(true);
+      await bulkDeleteMutation.mutateAsync({ ids: realIds });
+      setActionMsg(`✅ Đã xóa thành công ${realIds.length} bản ghi!`);
+      setSelectedIds(new Set());
+      utils.revenue.listDetails.invalidate();
+      utils.revenue.getOverview.invalidate();
+    } catch (err: any) {
+      setActionMsg(`❌ Lỗi xóa hàng loạt: ${err.message}`);
+    } finally {
+      setIsDeletingBulk(false);
+      setTimeout(() => setActionMsg(null), 4000);
+    }
+  };
+
   // Total active filters count across all inputs
   const activeFiltersCount =
     (search ? 1 : 0) +
@@ -401,24 +587,26 @@ export default function RevenueDetailsPage() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0 flex-nowrap self-start xl:self-auto">
-            {/* File Upload Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <label className="h-10 flex items-center gap-1.5 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-cyan-600 dark:text-cyan-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs active:scale-95 whitespace-nowrap shrink-0">
-                  <Upload className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{importing ? "Đang Import..." : "Import File Excel/CSV"}</span>
-                  <input
-                    type="file"
-                    accept=".csv, .xlsx, .xls"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                </label>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs font-normal">
-                Nhập file dữ liệu doanh thu (.xlsx, .xls, .csv)
-              </TooltipContent>
-            </Tooltip>
+            {/* File Upload Button - Admin Only */}
+            {isAdmin && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <label className="h-10 flex items-center gap-1.5 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-cyan-600 dark:text-cyan-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs active:scale-95 whitespace-nowrap shrink-0">
+                    <Upload className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{importing ? "Đang Import..." : "Import File Excel/CSV"}</span>
+                    <input
+                      type="file"
+                      accept=".csv, .xlsx, .xls"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs font-normal">
+                  Nhập file dữ liệu doanh thu (.xlsx, .xls, .csv)
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             {/* Export Excel Button */}
             <Tooltip>
@@ -484,8 +672,8 @@ export default function RevenueDetailsPage() {
           </div>
         </div>
 
-        {/* Filter & Toolbar */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-sm">
+        {/* Filter & Toolbar Area (Sticky only on desktop) */}
+        <div className="lg:sticky lg:top-[72px] z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3 w-full">
             {/* Left: Search input & Date presets with Tùy chọn */}
             <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
@@ -499,8 +687,26 @@ export default function RevenueDetailsPage() {
                     setSearch(e.target.value);
                     setPage(1);
                   }}
-                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-amber-500"
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-8 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-amber-500 transition-colors"
                 />
+                {search && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearch("");
+                          setPage(1);
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-110"
+                        aria-label="Xóa tìm kiếm"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa tìm kiếm</TooltipContent>
+                  </Tooltip>
+                )}
               </div>
 
               {/* Quick Presets Chips + Tùy chọn */}
@@ -617,24 +823,51 @@ export default function RevenueDetailsPage() {
             {/* Right: Tất cả nguồn thu + Bộ lọc nâng cao + Sắp xếp + Cột hiển thị */}
             <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap justify-start">
               {/* Source Type Filter */}
-              <Select
-                value={sourceTypeFilter}
-                onValueChange={(val) => {
-                  setSourceTypeFilter(val);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-36 sm:w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                  <SelectValue placeholder="Tất cả nguồn thu" />
-                </SelectTrigger>
-                <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nguồn thu</SelectItem>
-                  <SelectItem value="CREATOR_REWARDS" className="text-xs font-normal cursor-pointer">CREATOR_REWARDS</SelectItem>
-                  <SelectItem value="AFFILIATE" className="text-xs font-normal cursor-pointer">AFFILIATE</SelectItem>
-                  <SelectItem value="SHOP" className="text-xs font-normal cursor-pointer">TIKTOK SHOP</SelectItem>
-                  <SelectItem value="OTHER" className="text-xs font-normal cursor-pointer">KHÁC</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="relative shrink-0">
+                <Select
+                  value={sourceTypeFilter}
+                  onValueChange={(val) => {
+                    setSourceTypeFilter(val);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger
+                    className={`w-36 sm:w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${sourceTypeFilter !== "ALL"
+                        ? "pr-8 border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/25 text-amber-700 dark:text-amber-300 [&_svg]:hidden"
+                        : ""
+                      }`}
+                  >
+                    <SelectValue placeholder="Tất cả nguồn thu" />
+                  </SelectTrigger>
+                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nguồn thu</SelectItem>
+                    <SelectItem value="CREATOR_REWARDS" className="text-xs font-normal cursor-pointer">CREATOR_REWARDS</SelectItem>
+                    <SelectItem value="AFFILIATE" className="text-xs font-normal cursor-pointer">AFFILIATE</SelectItem>
+                    <SelectItem value="SHOP" className="text-xs font-normal cursor-pointer">TIKTOK SHOP</SelectItem>
+                    <SelectItem value="OTHER" className="text-xs font-normal cursor-pointer">KHÁC</SelectItem>
+                  </SelectContent>
+                </Select>
+                {sourceTypeFilter !== "ALL" && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setSourceTypeFilter("ALL");
+                          setPage(1);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                        aria-label="Xóa chọn nguồn thu"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa chọn nguồn thu</TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
 
               {/* Advanced Filter Popover */}
               <Popover>
@@ -649,9 +882,23 @@ export default function RevenueDetailsPage() {
                     <Filter className="w-3.5 h-3.5" />
                     <span>Bộ lọc nâng cao</span>
                     {advancedFiltersCount > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
-                        {advancedFiltersCount}
-                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              clearAdvancedFilters();
+                            }}
+                            className="group/badge relative ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-purple-600 hover:bg-rose-600 text-white text-[10px] font-bold transition-colors cursor-pointer shadow-2xs"
+                            aria-label="Xóa tất cả bộ lọc nâng cao"
+                          >
+                            <span className="group-hover/badge:hidden">{advancedFiltersCount}</span>
+                            <X className="w-2.5 h-2.5 hidden group-hover/badge:block stroke-[2.5]" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Xóa tất cả bộ lọc nâng cao</TooltipContent>
+                      </Tooltip>
                     )}
                   </button>
                 </PopoverTrigger>
@@ -661,7 +908,7 @@ export default function RevenueDetailsPage() {
                     {advancedFiltersCount > 0 && (
                       <button
                         onClick={clearAdvancedFilters}
-                        className="text-xs font-semibold text-pink-600 hover:underline cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/50 transition-colors cursor-pointer"
                       >
                         Đặt lại
                       </button>
@@ -704,57 +951,75 @@ export default function RevenueDetailsPage() {
                 </PopoverContent>
               </Popover>
 
-              {/* Sort Popover */}
+              {/* Sort Popover with background effect & hover tooltip */}
               <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all cursor-pointer whitespace-nowrap"
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Sắp xếp</span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
-                  <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs transition-all cursor-pointer whitespace-nowrap ${sortConfig.key
+                            ? "bg-amber-50/80 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/80 hover:bg-amber-100 dark:hover:bg-amber-900/50 shadow-2xs font-medium"
+                            : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
+                          }`}
+                      >
+                        <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-amber-600 dark:text-amber-400" : "text-slate-500"}`} />
+                        <span>Sắp xếp</span>
+                        {currentSortOption && (
+                          <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100/90 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60">
+                            {currentSortOption.label} {sortConfig.desc ? "↓" : "↑"}
+                          </span>
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    Đang sắp xếp: {currentSortOption.label} ({sortDirectionText})
+                  </TooltipContent>
+                </Tooltip>
+                <PopoverContent align="end" className="w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1.5">
+                  <div className="text-xs font-semibold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
                     Sắp xếp theo cột
                   </div>
-                  {[
-                    { key: "date", label: "Ngày ghi nhận" },
-                    { key: "revenue", label: "Doanh thu ($)" },
-                    { key: "views", label: "Lượt xem (Views)" },
-                    { key: "rpm", label: "RPM ($)" },
-                    { key: "accountUsername", label: "Tài khoản" },
-                    { key: "assignedUser", label: "Người phụ trách" },
-                    { key: "sourceType", label: "Nguồn thu" },
-                  ].map((item) => (
-                    <button
-                      key={item.key}
-                      onClick={() => handleSort(item.key as RevenueSortKey)}
-                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-normal text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                    >
-                      <span>{item.label}</span>
-                      {sortConfig.key === item.key && (
-                        <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
-                          {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
-                        </span>
-                      )}
-                    </button>
-                  ))}
+                  {REVENUE_SORT_OPTIONS.map((item) => {
+                    const isSelected = sortConfig.key === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => handleSort(item.key as RevenueSortKey)}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${isSelected
+                            ? "bg-amber-50/80 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 font-semibold border border-amber-200/80 dark:border-amber-900/60"
+                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
+                          }`}
+                      >
+                        <span>{item.label}</span>
+                        {isSelected && (
+                          <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                            {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </PopoverContent>
               </Popover>
 
               {/* Column Visibility Popover */}
               <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
-                    title="Tùy chỉnh cột hiển thị"
-                  >
-                    <Columns3 className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Cột hiển thị</span>
-                  </button>
-                </PopoverTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <button
+                        className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
+                        aria-label="Tùy chỉnh cột hiển thị"
+                      >
+                        <Columns3 className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Cột hiển thị</span>
+                      </button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Tùy chỉnh cột hiển thị</TooltipContent>
+                </Tooltip>
                 <PopoverContent
                   align="end"
                   className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
@@ -804,7 +1069,7 @@ export default function RevenueDetailsPage() {
                             }));
                           }}
                         />
-                        <span className="text-slate-700 dark:text-slate-300 font-medium">
+                        <span className="text-slate-700 dark:text-slate-300 font-normal">
                           {col.label}
                         </span>
                         {col.locked && (
@@ -822,61 +1087,96 @@ export default function RevenueDetailsPage() {
 
           {/* Active Filter Chips */}
           {activeFiltersCount > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+            <div className="flex flex-wrap items-center gap-2">
               {search && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                   <span>Tìm: {search}</span>
-                  <button onClick={() => setSearch("")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setSearch("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {sourceTypeFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
                   <span>Nguồn: {sourceTypeFilter}</span>
-                  <button onClick={() => setSourceTypeFilter("ALL")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setSourceTypeFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {startDate && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
                   <span>Từ: {format(new Date(startDate + "T00:00:00"), "dd/MM/yyyy")}</span>
-                  <button onClick={() => setStartDate("")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setStartDate("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {endDate && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
                   <span>Đến: {format(new Date(endDate + "T00:00:00"), "dd/MM/yyyy")}</span>
-                  <button onClick={() => setEndDate("")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setEndDate("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {minRevenue && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
                   <span>Doanh thu ≥ ${minRevenue}</span>
-                  <button onClick={() => setMinRevenue("")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setMinRevenue("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
               {minViews && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
                   <span>Views ≥ {Number(minViews).toLocaleString()}</span>
-                  <button onClick={() => setMinViews("")} className="hover:text-rose-500 cursor-pointer">
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setMinViews("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
                 </span>
               )}
-              <button
-                onClick={clearAllFilters}
-                className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white underline cursor-pointer ml-1"
-              >
-                Xóa tất cả
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={clearAllFilters}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer ml-1"
+                  >
+                    Xóa tất cả
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
+              </Tooltip>
             </div>
           )}
         </div>
@@ -888,11 +1188,11 @@ export default function RevenueDetailsPage() {
       ) : (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 min-w-[900px]">
+            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 min-w-[950px]">
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none normal-case">
                 <tr>
-                  {/* Checkbox All */}
-                  <th className="py-3.5 px-4 w-10">
+                  {/* Checkbox All - Sticky Left 0 */}
+                  <th className="sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs py-3.5 px-4 w-10 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800">
                     <Checkbox
                       checked={isAllPageSelected}
                       onCheckedChange={(val) => toggleSelectAll(!!val)}
@@ -900,10 +1200,11 @@ export default function RevenueDetailsPage() {
                     />
                   </th>
 
+                  {/* Account - Sticky Left 10 */}
                   {visibleColumns.accountUsername && (
                     <th
                       onClick={() => handleSort("accountUsername")}
-                      className="px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
+                      className="sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[170px]"
                     >
                       <div className="flex items-center gap-1.5">
                         <span>Tài khoản</span>
@@ -983,6 +1284,11 @@ export default function RevenueDetailsPage() {
                       </div>
                     </th>
                   )}
+
+                  {/* Actions Column - Sticky Right 0 */}
+                  <th className="sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] px-4 py-3.5 text-center min-w-[100px]">
+                    Thao tác
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -995,6 +1301,7 @@ export default function RevenueDetailsPage() {
                 ) : (
                   paginatedRecords.map((item: any) => {
                     const isSelected = selectedIds.has(item.id);
+                    const isAuto = item.id.startsWith("auto-");
 
                     return (
                       <tr
@@ -1004,8 +1311,8 @@ export default function RevenueDetailsPage() {
                           : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
                           }`}
                       >
-                        {/* Checkbox */}
-                        <td className="py-3.5 px-4">
+                        {/* Checkbox - Sticky Left 0 */}
+                        <td className={`sticky left-0 z-10 py-3.5 px-4 backdrop-blur-xs ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}>
                           <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => toggleSelectRow(item.id)}
@@ -1013,9 +1320,9 @@ export default function RevenueDetailsPage() {
                           />
                         </td>
 
-                        {/* Account */}
+                        {/* Account - Sticky Left 10 */}
                         {visibleColumns.accountUsername && (
-                          <td className="px-5 py-3.5 font-bold text-slate-900 dark:text-slate-200">
+                          <td className={`sticky left-10 z-10 px-5 py-3.5 font-bold text-slate-900 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] backdrop-blur-xs ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}>
                             @{item.account?.username}
                           </td>
                         )}
@@ -1066,6 +1373,48 @@ export default function RevenueDetailsPage() {
                             </span>
                           </td>
                         )}
+
+                        {/* Thao tác - Sticky Right 0 */}
+                        <td className={`sticky right-0 z-10 px-4 py-3.5 text-center border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] backdrop-blur-xs ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}>
+                          {isAuto ? (
+                            <span className="text-[11px] text-slate-400 italic" title="Bản ghi đồng bộ tự động từ Analytics">
+                              Tự động
+                            </span>
+                          ) : isLeadOrAdmin ? (
+                            <div className="flex items-center justify-center gap-1.5">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={() => openEditModal(item)}
+                                    className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 transition-colors cursor-pointer"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs">Sửa bản ghi</TooltipContent>
+                              </Tooltip>
+
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={() => handleDeleteSingle(item)}
+                                    disabled={deletingId === item.id}
+                                    className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer disabled:opacity-50"
+                                  >
+                                    {deletingId === item.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs">Xóa bản ghi</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })
@@ -1112,8 +1461,152 @@ export default function RevenueDetailsPage() {
             <Download className="w-3.5 h-3.5" />
             <span>Xuất đã chọn ({selectedIds.size})</span>
           </button>
+          {isLeadOrAdmin && (
+            <button
+              onClick={handleBulkDelete}
+              disabled={isDeletingBulk}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {isDeletingBulk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              <span>Xóa đã chọn</span>
+            </button>
+          )}
         </div>
       )}
+
+      {/* Edit Record Modal */}
+      {editingRecord && (
+        <Dialog open={!!editingRecord} onOpenChange={(open) => !open && setEditingRecord(null)}>
+          <DialogContent className="sm:max-w-md bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-amber-500" />
+                Cập nhật bản ghi doanh thu
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Tài khoản TikTok
+                </label>
+                <Input
+                  value={`@${editingRecord.account?.username || ""}`}
+                  readOnly
+                  className="bg-slate-100 dark:bg-slate-800 text-slate-500 font-semibold cursor-not-allowed"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Ngày ghi nhận
+                  </label>
+                  <Input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Nguồn thu
+                  </label>
+                  <Select value={editSourceType} onValueChange={setEditSourceType}>
+                    <SelectTrigger className="w-full h-9 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CREATOR_REWARDS" className="text-xs">CREATOR_REWARDS</SelectItem>
+                      <SelectItem value="AFFILIATE" className="text-xs">AFFILIATE</SelectItem>
+                      <SelectItem value="SHOP" className="text-xs">TIKTOK SHOP</SelectItem>
+                      <SelectItem value="OTHER" className="text-xs">KHÁC</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Lượt xem (Views)
+                  </label>
+                  <Input
+                    type="number"
+                    value={editViews}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditViews(val);
+                      if (editRpm && Number(editRpm) > 0) {
+                        setEditRevenue(Math.round(((Number(val) / 1000) * Number(editRpm)) * 100) / 100);
+                      }
+                    }}
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    RPM ($)
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.001"
+                    value={editRpm}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditRpm(val);
+                      if (editViews && Number(editViews) > 0) {
+                        setEditRevenue(Math.round(((Number(editViews) / 1000) * Number(val)) * 100) / 100);
+                      }
+                    }}
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Doanh thu ($)
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={editRevenue}
+                    onChange={(e) => setEditRevenue(e.target.value)}
+                    className="h-9 text-xs font-bold text-amber-600 dark:text-amber-400"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setEditingRecord(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit}
+                className="px-4 py-2 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+              >
+                {isSavingEdit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Lưu thay đổi
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
+  );
+}
+
+export default function RevenueDetailsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 text-xs">Đang tải chi tiết doanh thu...</div>}>
+      <RevenueDetailsPageContent />
+    </Suspense>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
+import { useUrlParams } from "@/hooks/useUrlState";
 import {
   Bot,
   RefreshCw,
@@ -34,14 +35,42 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-export default function GpmHubPage() {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+function GpmHubPageContent() {
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
+  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 10;
+  const [page, setPage] = useState(initialPage);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const [searchQuery, setSearchQuery] = useState(initialSearch);
+
+  const initialStatus = searchParams?.get("status") || "ALL";
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
+
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [runningProfiles, setRunningProfiles] = useState<Set<string>>(new Set());
   const [startingId, setStartingId] = useState<string | null>(null);
+
+  // Auto sync active state to URL
+  useEffect(() => {
+    updateUrlParams(
+      {
+        p: page,
+        ps: pageSize,
+        q: searchQuery,
+        status: statusFilter,
+      },
+      {
+        p: 1,
+        ps: 10,
+        q: "",
+        status: "ALL",
+      }
+    );
+  }, [page, pageSize, searchQuery, statusFilter, updateUrlParams]);
 
   const utils = trpc.useUtils();
 
@@ -645,5 +674,13 @@ export default function GpmHubPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function GpmHubPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 text-xs">Đang tải GPM Hub...</div>}>
+      <GpmHubPageContent />
+    </Suspense>
   );
 }

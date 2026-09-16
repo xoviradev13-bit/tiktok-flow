@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useUrlParams } from "@/hooks/useUrlState";
 import {
   Trophy,
   Medal,
@@ -20,10 +21,35 @@ import { LeaderboardPageSkeleton } from "@/components/skeletons/PageSkeletons";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
 
-export default function LeaderboardPage() {
-  const [period, setPeriod] = useState<"TODAY" | "THIS_WEEK" | "THIS_MONTH" | "ALL_TIME">("THIS_MONTH");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+function LeaderboardPageContent() {
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  const validPeriods = ["TODAY", "THIS_WEEK", "THIS_MONTH", "ALL_TIME"] as const;
+  const paramPeriod = searchParams?.get("period") as any;
+  const initialPeriod = validPeriods.includes(paramPeriod) ? paramPeriod : "THIS_MONTH";
+  const [period, setPeriod] = useState<"TODAY" | "THIS_WEEK" | "THIS_MONTH" | "ALL_TIME">(initialPeriod);
+
+  const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
+  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 10;
+  const [page, setPage] = useState(initialPage);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+
+  // Auto sync active state to URL
+  useEffect(() => {
+    updateUrlParams(
+      {
+        period: period,
+        p: page,
+        ps: pageSize,
+      },
+      {
+        period: "THIS_MONTH",
+        p: 1,
+        ps: 10,
+      }
+    );
+  }, [period, page, pageSize, updateUrlParams]);
 
   const utils = trpc.useUtils();
 
@@ -316,5 +342,13 @@ export default function LeaderboardPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function LeaderboardPage() {
+  return (
+    <Suspense fallback={<LeaderboardPageSkeleton />}>
+      <LeaderboardPageContent />
+    </Suspense>
   );
 }

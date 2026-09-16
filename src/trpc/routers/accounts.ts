@@ -442,7 +442,7 @@ export const accountsRouter = router({
             where: { checklistId: openChecklistItem.checklistId },
           });
           const totalAssigned = allItems.length;
-          const completedCount = allItems.filter((i) => i.isCompleted || (i.isPosted && i.isSynced)).length;
+          const completedCount = allItems.filter((i) => i.isCompleted || i.isPosted).length;
           const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount);
 
           await ctx.prisma.dailyChecklist.update({

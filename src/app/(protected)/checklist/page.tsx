@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Fragment, Suspense } from "react";
 import { useSession } from "next-auth/react";
+import { useUrlParams } from "@/hooks/useUrlState";
 import Link from "next/link";
 import {
   CheckSquare,
@@ -37,9 +38,18 @@ import {
   MoreVertical,
   MoreHorizontal,
 } from "lucide-react";
-import { format } from "date-fns";
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+} from "date-fns";
 import confetti from "canvas-confetti";
 import * as XLSX from "xlsx";
+import TimesheetCalendar from "@/features/checklist/components/TimesheetCalendar";
+import TimesheetCharts from "@/features/checklist/components/TimesheetCharts";
+import DayDetailModal from "@/features/checklist/components/DayDetailModal";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import type { DateRange } from "react-day-picker";
@@ -79,27 +89,58 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { TimePickerField } from "@/features/schedule/ScheduleModal";
 
-export default function ChecklistPage() {
+function ChecklistPageContent() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN" || (session?.user as any)?.userType === "ADMIN";
   const isLeadOrAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "LEAD";
 
-  // Mode: "daily" (Roll call for all staff on 1 date) or "range" (Timeline for 1 user / org)
-  const [viewMode, setViewMode] = useState<"daily" | "range">("daily");
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  // Primary View Mode: "table" (Bảng chi tiết) | "calendar" (Lịch chấm công) | "charts" (Biểu đồ & thống kê)
+  const initialViewType = (searchParams?.get("view") || "table") as "table" | "calendar" | "charts";
+  const [viewType, setViewType] = useState<"table" | "calendar" | "charts">(initialViewType);
+
+  // Mode inside Table View: "daily" (Roll call 1 date) or "range" (Timeline for range)
+  const initialMode = searchParams?.get("mode") === "range" ? "range" : "daily";
+  const [viewMode, setViewMode] = useState<"daily" | "range">(initialMode);
+
+  // Calendar Month State (Defaults to current month)
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
+
+  // Day Inspector Modal State
+  const [selectedDateForModal, setSelectedDateForModal] = useState<string | null>(null);
 
   // Filter States
-  const [selectedUserId, setSelectedUserId] = useState<string>("ALL");
-  const [dateStr, setDateStr] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [startDateStr, setStartDateStr] = useState<string>(() => {
+  const initialUser = searchParams?.get("user") || "ALL";
+  const [selectedUserId, setSelectedUserId] = useState<string>(initialUser);
+
+  // STAFF users can only see their own data — lock to their session ID
+  const resolvedUserId = !isLeadOrAdmin && session?.user?.id
+    ? session.user.id
+    : selectedUserId;
+
+  const initialDate = searchParams?.get("date") || new Date().toISOString().split("T")[0];
+  const [dateStr, setDateStr] = useState<string>(initialDate);
+
+  const initialFrom = searchParams?.get("from") || (() => {
     const d = new Date();
     d.setDate(d.getDate() - 7);
     return d.toISOString().split("T")[0];
-  });
-  const [endDateStr, setEndDateStr] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [activeRangePreset, setActiveRangePreset] = useState<string>("7d");
+  })();
+  const [startDateStr, setStartDateStr] = useState<string>(initialFrom);
 
-  const [search, setSearch] = useState<string>("");
-  const [scoreFilter, setScoreFilter] = useState<"ALL" | "FULL" | "HALF" | "ZERO">("ALL");
+  const initialTo = searchParams?.get("to") || new Date().toISOString().split("T")[0];
+  const [endDateStr, setEndDateStr] = useState<string>(initialTo);
+
+  const initialPreset = searchParams?.get("preset") || "7d";
+  const [activeRangePreset, setActiveRangePreset] = useState<string>(initialPreset);
+
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const [search, setSearch] = useState<string>(initialSearch);
+
+  const initialScore = (searchParams?.get("score") || "ALL") as "ALL" | "FULL" | "HALF" | "ZERO";
+  const [scoreFilter, setScoreFilter] = useState<"ALL" | "FULL" | "HALF" | "ZERO">(initialScore);
 
   // Date picker popovers
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -108,6 +149,46 @@ export default function ChecklistPage() {
     from: new Date(startDateStr + "T00:00:00"),
     to: new Date(endDateStr + "T00:00:00"),
   }));
+
+  // Auto sync active state to URL
+  useEffect(() => {
+    const today = new Date().toISOString().split("T")[0];
+    updateUrlParams(
+      {
+        view: viewType,
+        mode: viewType === "table" ? viewMode : undefined,
+        date: viewType === "table" && viewMode === "daily" ? dateStr : undefined,
+        from: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? startDateStr : undefined,
+        to: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? endDateStr : undefined,
+        preset: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? activeRangePreset : undefined,
+        user: selectedUserId,
+        q: search,
+        score: scoreFilter,
+      },
+      {
+        view: "table",
+        mode: "daily",
+        date: today,
+        from: undefined,
+        to: undefined,
+        preset: "7d",
+        user: "ALL",
+        q: "",
+        score: "ALL",
+      }
+    );
+  }, [
+    viewType,
+    viewMode,
+    dateStr,
+    startDateStr,
+    endDateStr,
+    activeRangePreset,
+    selectedUserId,
+    search,
+    scoreFilter,
+    updateUrlParams,
+  ]);
 
   // Date helpers for Daily Mode
   const todayStr = format(new Date(), "yyyy-MM-dd");
@@ -118,6 +199,21 @@ export default function ChecklistPage() {
   const isDailyToday = dateStr === todayStr;
   const isDailyYesterday = dateStr === yesterdayStr;
   const isDailyCustom = !isDailyToday && !isDailyYesterday;
+
+  // Automatically sync calendar month whenever dateStr changes (Hôm nay, Hôm qua, or date picker)
+  useEffect(() => {
+    if (dateStr) {
+      const d = new Date(dateStr + "T00:00:00");
+      if (!isNaN(d.getTime())) {
+        setCalendarMonth((prev) => {
+          if (prev.getMonth() !== d.getMonth() || prev.getFullYear() !== d.getFullYear()) {
+            return d;
+          }
+          return prev;
+        });
+      }
+    }
+  }, [dateStr]);
 
   // Settings Drawer
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
@@ -131,6 +227,7 @@ export default function ChecklistPage() {
 
   // Expanded Staff Accordion Rows (Set of checklist IDs or row keys)
   const [expandedRowIds, setExpandedRowIds] = useState<Set<string>>(new Set());
+  const [optimisticToggles, setOptimisticToggles] = useState<Record<string, { isPosted?: boolean; isSynced?: boolean }>>({});
 
   // Action status / toast banner
   const [actionMsg, setActionMsg] = useState<{ text: string; type: "success" | "info" | "error" } | null>(null);
@@ -158,11 +255,32 @@ export default function ChecklistPage() {
   // Fetch Staff List for filter dropdown
   const { data: staffList = [] } = trpc.user.listStaff.useQuery();
 
+  // Calculate Date Intervals depending on active View
+  const calStartStr = format(startOfWeek(startOfMonth(calendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd");
+  const calEndStr = format(endOfWeek(endOfMonth(calendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd");
+
+  const queryStartDate =
+    viewType === "calendar"
+      ? calStartStr
+      : viewType === "charts" || viewMode === "range"
+        ? startDateStr
+        : undefined;
+
+  const queryEndDate =
+    viewType === "calendar"
+      ? calEndStr
+      : viewType === "charts" || viewMode === "range"
+        ? endDateStr
+        : undefined;
+
+  const queryDate =
+    viewType === "table" && viewMode === "daily" ? dateStr : undefined;
+
   // Query Timesheet / Checklist Data
   const { data: timesheetData, isLoading: loading, refetch } = trpc.checklist.getByDate.useQuery({
-    date: viewMode === "daily" ? dateStr : undefined,
-    startDate: viewMode === "range" ? startDateStr : undefined,
-    endDate: viewMode === "range" ? endDateStr : undefined,
+    date: queryDate,
+    startDate: queryStartDate,
+    endDate: queryEndDate,
     userId: selectedUserId === "ALL" ? undefined : selectedUserId,
     search: search || undefined,
     scoreFilter: scoreFilter !== "ALL" ? scoreFilter : undefined,
@@ -341,11 +459,43 @@ export default function ChecklistPage() {
   };
 
   const handleToggleItemField = (item: any, field: "isPosted" | "isSynced" | "isCompleted") => {
-    toggleItemMutation.mutate({
-      itemId: item.id,
-      field,
-      value: !item[field],
-    });
+    if (!isAdmin) {
+      showToast("Chỉ Quản trị viên (Admin) mới có quyền chỉnh sửa trạng thái kiểm tra", "error");
+      return;
+    }
+    const currentOpt = optimisticToggles[item.id]?.[field as "isPosted" | "isSynced"];
+    const currentValue = currentOpt !== undefined ? currentOpt : item[field];
+    const nextValue = !currentValue;
+
+    // Optimistically update UI immediately
+    setOptimisticToggles((prev) => ({
+      ...prev,
+      [item.id]: {
+        ...prev[item.id],
+        [field]: nextValue,
+      },
+    }));
+
+    toggleItemMutation.mutate(
+      {
+        itemId: item.id,
+        field,
+        value: nextValue,
+      },
+      {
+        onError: (err) => {
+          // Revert optimistic update on error
+          setOptimisticToggles((prev) => ({
+            ...prev,
+            [item.id]: {
+              ...prev[item.id],
+              [field]: currentValue,
+            },
+          }));
+          showToast(err.message || "Lỗi cập nhật trạng thái", "error");
+        },
+      }
+    );
   };
 
   const handleExportExcel = () => {
@@ -460,28 +610,49 @@ export default function ChecklistPage() {
     }
   };
 
-  const getWorkdayBadge = (scoreNum: number, rateNum: number) => {
+  const getWorkdayBadge = (scoreNum: number, rateNum?: number) => {
     if (scoreNum >= 1.0) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-2xs">
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          <span>1.0 Công (Đạt)</span>
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-2xs cursor-default">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>1.0 Công</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs font-semibold">
+            Đạt chỉ tiêu KPI
+          </TooltipContent>
+        </Tooltip>
       );
     }
     if (scoreNum === 0.5) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-2xs">
-          <Clock className="w-3.5 h-3.5" />
-          <span>0.5 Công (Nửa ngày)</span>
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-2xs cursor-default">
+              <Clock className="w-3.5 h-3.5" />
+              <span>0.5 Công</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs font-semibold">
+            Nửa ngày công
+          </TooltipContent>
+        </Tooltip>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-black bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 shadow-2xs">
-        <AlertCircle className="w-3.5 h-3.5" />
-        <span>0 Công (Không đạt)</span>
-      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-black bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 shadow-2xs cursor-default">
+            <AlertCircle className="w-3.5 h-3.5" />
+            <span>0 Công</span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs font-semibold">
+          Không đạt
+        </TooltipContent>
+      </Tooltip>
     );
   };
 
@@ -489,25 +660,46 @@ export default function ChecklistPage() {
     switch (role) {
       case "ADMIN":
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
-            <Shield className="w-3.5 h-3.5" /> ADMIN
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs whitespace-nowrap">
+            <Shield className="w-3.5 h-3.5 shrink-0" /> Quản trị viên
           </span>
         );
       case "LEAD":
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 shadow-2xs">
-            <ShieldCheck className="w-3.5 h-3.5" /> LEAD
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-xl text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 shadow-2xs whitespace-nowrap">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" /> Trưởng nhóm
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 shadow-2xs">
-            <UserCheck className="w-3.5 h-3.5" /> STAFF
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-xl text-xs font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 shadow-2xs whitespace-nowrap">
+            <UserCheck className="w-3.5 h-3.5 shrink-0" /> Nhân viên
           </span>
         );
     }
   };
 
+  const renderUserAvatar = (
+    u?: { fullName?: string | null; name?: string | null; username?: string | null; avatar?: string | null } | null,
+    size = "w-5 h-5 text-[9px]"
+  ) => {
+    if (!u) return null;
+    const displayName = u.fullName || u.name || u.username || "U";
+    if (u.avatar) {
+      return (
+        <img
+          src={u.avatar}
+          alt={displayName}
+          className={`${size} rounded-full object-cover shrink-0`}
+        />
+      );
+    }
+    return (
+      <span className={`${size} rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white font-bold flex items-center justify-center shrink-0 uppercase select-none`}>
+        {displayName.slice(0, 2)}
+      </span>
+    );
+  };
 
   const summary = timesheetData?.summary || {
     totalRecords: 0,
@@ -748,36 +940,77 @@ export default function ChecklistPage() {
 
         {/* Filter & Toolbar Box */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-3.5 sm:p-4 shadow-sm space-y-3.5">
-          {/* Row 1: Mode Switcher & Time Presets */}
+          {/* Row 1: Primary View Switcher (Table | Calendar | Charts) & Time Presets */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            {/* View Mode Toggle */}
-            <div className="w-full sm:w-auto grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
+            {/* View Type Tabs */}
+            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
               <button
                 type="button"
-                onClick={() => setViewMode("daily")}
-                className={`px-3 py-2 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 min-w-0 ${viewMode === "daily"
-                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                onClick={() => setViewType("table")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${viewType === "table"
+                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
               >
-                <span className="shrink-0">📅</span>
-                <span className="truncate whitespace-nowrap">Theo Ngày (Roll Call)</span>
+                <CheckSquare className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Bảng Dữ Liệu</span>
               </button>
+
               <button
                 type="button"
-                onClick={() => setViewMode("range")}
-                className={`px-3 py-2 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 min-w-0 ${viewMode === "range"
-                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                onClick={() => setViewType("calendar")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${viewType === "calendar"
+                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
               >
-                <span className="shrink-0">📈</span>
-                <span className="truncate whitespace-nowrap">Khoảng Ngày (Timesheet)</span>
+                <CalendarIcon className="w-3.5 h-3.5 text-pink-500" />
+                <span>Lịch Chấm Công</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewType("charts")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${viewType === "charts"
+                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+              >
+                <TrendingUp className="w-3.5 h-3.5 text-cyan-500" />
+                <span>Biểu Đồ & Thống Kê</span>
               </button>
             </div>
 
-            {/* Quick Date Presets */}
-            {viewMode === "range" ? (
+            {/* In Table View: Sub-mode Toggle (Daily vs Range) */}
+            {viewType === "table" && (
+              <div className="w-full sm:w-auto grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("daily")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 min-w-0 ${viewMode === "daily"
+                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                    }`}
+                >
+                  <span className="shrink-0">📅</span>
+                  <span className="truncate whitespace-nowrap">Theo Ngày (Roll Call)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("range")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 min-w-0 ${viewMode === "range"
+                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                    }`}
+                >
+                  <span className="shrink-0">📈</span>
+                  <span className="truncate whitespace-nowrap">Khoảng Ngày (Timesheet)</span>
+                </button>
+              </div>
+            )}
+
+            {/* Quick Date Presets: Displayed for Charts View or Table Range Mode */}
+            {viewType === "charts" || (viewType === "table" && viewMode === "range") ? (
               <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none py-1">
                 {[
                   { id: "7d", label: "7 Ngày", action: () => applyRangePreset(7, "7d") },
@@ -1005,35 +1238,69 @@ export default function ChecklistPage() {
 
             {/* Dropdown Filters Group */}
             <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
-              {/* Staff / Operator Selector */}
-              <div className="w-full sm:w-60 md:w-64">
-                <Select
-                  value={selectedUserId}
-                  onValueChange={(val) => setSelectedUserId(val)}
-                >
-                  <SelectTrigger className="w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap">
-                    <SelectValue placeholder="Tất cả nhân sự" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-2xl max-h-72">
-                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
-                      👥 Tất cả nhân sự ({staffList.length} thành viên)
-                    </SelectItem>
-                    {staffList.map((s: any) => (
-                      <SelectItem key={s.id} value={s.id} className="text-xs font-normal cursor-pointer">
-                        {s.fullName} (@{s.username}) — {s.role}
+              {/* Staff / Operator Selector - Only visible for Lead / Admin */}
+              {isLeadOrAdmin && (
+                <div className="relative w-full sm:w-60 md:w-64">
+                  <Select
+                    value={selectedUserId}
+                    onValueChange={(val) => setSelectedUserId(val)}
+                  >
+                    <SelectTrigger
+                      className={`w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap transition-colors ${selectedUserId !== "ALL"
+                        ? "pr-8 border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/25 text-emerald-700 dark:text-emerald-300 [&_svg]:hidden"
+                        : ""
+                        }`}
+                    >
+                      <SelectValue placeholder="Tất cả nhân sự" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl max-h-72">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
+                        👥 Tất cả nhân sự ({staffList.length} thành viên)
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                      {staffList.map((s: any) => (
+                        <SelectItem key={s.id} value={s.id} className="text-xs font-normal cursor-pointer">
+                          <div className="flex items-center gap-2">
+                            {renderUserAvatar(s, "w-4 h-4 text-[8px]")}
+                            <span className="truncate">{s.fullName} (@{s.username}) — {s.role}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedUserId !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setSelectedUserId("ALL");
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn nhân sự"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn nhân sự</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              )}
 
               {/* Score Filter */}
-              <div className="w-full sm:w-40 md:w-44">
+              <div className="relative w-full sm:w-40 md:w-44">
                 <Select
                   value={scoreFilter}
                   onValueChange={(val: any) => setScoreFilter(val)}
                 >
-                  <SelectTrigger className="w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap">
+                  <SelectTrigger
+                    className={`w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap transition-colors ${scoreFilter !== "ALL"
+                      ? "pr-8 border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/25 text-emerald-700 dark:text-emerald-300 [&_svg]:hidden"
+                      : ""
+                      }`}
+                  >
                     <SelectValue placeholder="Tất cả kết quả" />
                   </SelectTrigger>
                   <SelectContent className="rounded-2xl">
@@ -1060,23 +1327,46 @@ export default function ChecklistPage() {
                     </SelectItem>
                   </SelectContent>
                 </Select>
+                {scoreFilter !== "ALL" && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setScoreFilter("ALL");
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                        aria-label="Xóa chọn kết quả công"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa chọn kết quả công</TooltipContent>
+                  </Tooltip>
+                )}
               </div>
 
               {/* Quick Reset Filters Button when any filter active */}
               {(search || selectedUserId !== "ALL" || scoreFilter !== "ALL") && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearch("");
-                    setSelectedUserId("ALL");
-                    setScoreFilter("ALL");
-                  }}
-                  className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
-                  title="Đặt lại bộ lọc"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Đặt lại</span>
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearch("");
+                        setSelectedUserId("ALL");
+                        setScoreFilter("ALL");
+                      }}
+                      className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Xóa bộ lọc</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
+                </Tooltip>
               )}
             </div>
           </div>
@@ -1111,8 +1401,31 @@ export default function ChecklistPage() {
         </div>
       </div>
 
-      {/* Main Timesheet Table */}
-      {loading ? (
+      {/* Dynamic View Body: Calendar, Charts, or Table */}
+      {viewType === "calendar" ? (
+        <TimesheetCalendar
+          checklists={timesheetData?.checklists || []}
+          selectedMonthDate={calendarMonth}
+          onMonthChange={setCalendarMonth}
+          selectedDate={dateStr}
+          selectedUserId={resolvedUserId}
+          staffList={staffList}
+          onNavigateDate={(dStr) => setDateStr(dStr)}
+          onSelectDate={(dStr) => {
+            setDateStr(dStr);
+            setSelectedDateForModal(dStr);
+          }}
+          isLoading={loading}
+        />
+      ) : viewType === "charts" ? (
+        <TimesheetCharts
+          checklists={timesheetData?.checklists || []}
+          selectedUserId={resolvedUserId}
+          staffList={staffList}
+          onSelectDate={(dStr) => setSelectedDateForModal(dStr)}
+          isLoading={loading}
+        />
+      ) : loading ? (
         <DataTableSkeleton columnCount={8} rowCount={8} />
       ) : timesheetData?.checklists.length === 0 ? (
         <div className="text-center py-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 space-y-4 shadow-sm">
@@ -1127,12 +1440,13 @@ export default function ChecklistPage() {
       ) : (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse min-w-[980px]">
+            <table className="w-full text-left text-xs border-collapse min-w-[1080px]">
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none normal-case">
                 <tr>
-                  <th className="py-3.5 px-3 w-10 text-center">#</th>
+                  <th className="py-3.5 px-3 w-10 min-w-10 max-w-10 text-center">#</th>
                   {viewMode === "range" && <th className="py-3.5 px-3 w-28">Ngày chấm</th>}
-                  <th className="py-3.5 px-4">Nhân sự</th>
+                  <th className="py-3.5 px-4 w-[240px] min-w-[240px] max-w-[240px]">Nhân sự</th>
+                  <th className="py-3.5 px-3 w-36 text-center">Chức vụ</th>
                   <th className="py-3.5 px-2 w-28 text-center">Số acc</th>
                   <th className="py-3.5 px-2 w-28 text-center">Đã đăng</th>
                   <th className="py-3.5 px-2 w-28 text-center">Đã sync GPM</th>
@@ -1153,24 +1467,24 @@ export default function ChecklistPage() {
                   const dateFormatted = format(new Date(chk.date), "dd/MM/yyyy");
 
                   return (
-                    <tr key={chk.id} className="group hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
-                      <td colSpan={viewMode === "range" ? 10 : 9} className="p-0">
-                        {/* Master Staff Row */}
-                        <div className="flex items-center w-full py-3 px-3 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                          {/* Col 0: Index */}
-                          <div className="w-10 text-center text-slate-400 font-mono text-xs shrink-0">
-                            {idx + 1}
-                          </div>
+                    <Fragment key={chk.id}>
+                      {/* Master Staff Row */}
+                      <tr className="group hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
+                        {/* Col 0: Index */}
+                        <td className="w-10 min-w-10 max-w-10 text-center text-slate-400 font-mono text-xs py-3 px-3">
+                          {idx + 1}
+                        </td>
 
-                          {/* Range Mode: Date */}
-                          {viewMode === "range" && (
-                            <div className="w-28 px-2 font-mono text-xs font-bold text-slate-700 dark:text-slate-300 shrink-0">
-                              {dateFormatted}
-                            </div>
-                          )}
+                        {/* Range Mode: Date */}
+                        {viewMode === "range" && (
+                          <td className="w-28 px-3 font-mono text-xs font-bold text-slate-700 dark:text-slate-300 py-3">
+                            {dateFormatted}
+                          </td>
+                        )}
 
-                          {/* Col 1: Staff Info */}
-                          <div className="flex-1 min-w-[200px] px-3 flex items-center gap-2.5">
+                        {/* Col 1: Staff Info */}
+                        <td className="w-[240px] min-w-[240px] max-w-[240px] px-4 py-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
                             <Link
                               href={`/users/${chk.user.id}`}
                               className="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-500 text-white font-bold text-xs flex items-center justify-center uppercase shrink-0 shadow-xs hover:scale-105 transition-transform"
@@ -1178,97 +1492,103 @@ export default function ChecklistPage() {
                               {chk.user.fullName.slice(0, 2)}
                             </Link>
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <Link
-                                  href={`/users/${chk.user.id}`}
-                                  className="font-bold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline transition-colors truncate"
-                                >
-                                  {chk.user.fullName}
-                                </Link>
-                                {getRoleBadge(chk.user.role)}
-                              </div>
+                              <Link
+                                href={`/users/${chk.user.id}`}
+                                className="font-bold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline transition-colors truncate block"
+                              >
+                                {chk.user.fullName}
+                              </Link>
                               <div className="text-xs font-mono text-slate-400 truncate">
                                 @{chk.user.username}
                               </div>
                             </div>
                           </div>
+                        </td>
 
-                          {/* Col 2: Total Accounts */}
-                          <div className="w-28 text-center px-2 shrink-0">
-                            <span className="font-extrabold text-slate-800 dark:text-slate-200">
-                              {totalAcc}
-                            </span>{" "}
-                            <span className="text-slate-400 text-xs">accounts</span>
+                        {/* Col 1.5: Role / Chức vụ */}
+                        <td className="w-36 text-center px-3 py-3">
+                          <div className="flex items-center justify-center">
+                            {getRoleBadge(chk.user.role)}
                           </div>
+                        </td>
 
-                          {/* Col 3: Posted Count */}
-                          <div className="w-28 text-center px-2 shrink-0">
-                            <span
-                              className={`inline-flex items-center gap-1 font-bold ${postedCount === totalAcc && totalAcc > 0
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : "text-slate-700 dark:text-slate-300"
-                                }`}
-                            >
-                              <Video className="w-3.5 h-3.5 text-pink-500" />
-                              {postedCount}/{totalAcc}
+                        {/* Col 2: Total Accounts */}
+                        <td className="w-28 text-center px-2 py-3">
+                          <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                            {totalAcc}
+                          </span>{" "}
+                          <span className="text-slate-400 text-xs">accounts</span>
+                        </td>
+
+                        {/* Col 3: Posted Count */}
+                        <td className="w-28 text-center px-2 py-3">
+                          <span
+                            className={`inline-flex items-center gap-1 font-bold ${postedCount === totalAcc && totalAcc > 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-slate-700 dark:text-slate-300"
+                              }`}
+                          >
+                            <Video className="w-3.5 h-3.5 text-pink-500" />
+                            {postedCount}/{totalAcc}
+                          </span>
+                        </td>
+
+                        {/* Col 4: Synced GPM Count */}
+                        <td className="w-28 text-center px-2 py-3">
+                          <span
+                            className={`inline-flex items-center gap-1 font-bold ${syncedCount === totalAcc && totalAcc > 0
+                              ? "text-cyan-600 dark:text-cyan-400"
+                              : "text-slate-700 dark:text-slate-300"
+                              }`}
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 text-cyan-500" />
+                            {syncedCount}/{totalAcc}
+                          </span>
+                        </td>
+
+                        {/* Col 5: Completion Progress */}
+                        <td className="w-44 px-3 py-3">
+                          <div className="flex items-center justify-between text-xs font-bold mb-1">
+                            <span className="text-slate-700 dark:text-slate-300">{rate}% Hoàn thành</span>
+                            <span className="text-slate-400 font-normal">
+                              {chk.completedCount}/{totalAcc}
                             </span>
                           </div>
-
-                          {/* Col 4: Synced GPM Count */}
-                          <div className="w-28 text-center px-2 shrink-0">
-                            <span
-                              className={`inline-flex items-center gap-1 font-bold ${syncedCount === totalAcc && totalAcc > 0
-                                ? "text-cyan-600 dark:text-cyan-400"
-                                : "text-slate-700 dark:text-slate-300"
+                          <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${rate >= activeRules.fullDayThreshold
+                                ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                                : rate >= activeRules.halfDayThreshold
+                                  ? "bg-gradient-to-r from-amber-500 to-yellow-400"
+                                  : "bg-gradient-to-r from-rose-500 to-pink-500"
                                 }`}
-                            >
-                              <RefreshCw className="w-3.5 h-3.5 text-cyan-500" />
-                              {syncedCount}/{totalAcc}
-                            </span>
+                              style={{ width: `${Math.min(100, rate)}%` }}
+                            />
                           </div>
+                        </td>
 
-                          {/* Col 5: Completion Progress */}
-                          <div className="w-44 px-3 shrink-0">
-                            <div className="flex items-center justify-between text-xs font-bold mb-1">
-                              <span className="text-slate-700 dark:text-slate-300">{rate}% Hoàn thành</span>
-                              <span className="text-slate-400 font-normal">
-                                {chk.completedCount}/{totalAcc}
-                              </span>
-                            </div>
-                            <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all ${rate >= activeRules.fullDayThreshold
-                                  ? "bg-gradient-to-r from-emerald-500 to-teal-400"
-                                  : rate >= activeRules.halfDayThreshold
-                                    ? "bg-gradient-to-r from-amber-500 to-yellow-400"
-                                    : "bg-gradient-to-r from-rose-500 to-pink-500"
-                                  }`}
-                                style={{ width: `${Math.min(100, rate)}%` }}
-                              />
-                            </div>
-                          </div>
+                        {/* Col 6: Workday Score Badge */}
+                        <td className="w-40 text-center px-3 py-3">
+                          {getWorkdayBadge(score, rate)}
+                        </td>
 
-                          {/* Col 6: Workday Score Badge */}
-                          <div className="w-40 text-center px-2 shrink-0">
-                            {getWorkdayBadge(score, rate)}
-                          </div>
+                        {/* Col 7: Accordion Expand Chi Tiết Button */}
+                        <td className="w-28 text-center px-2 py-3">
+                          <button
+                            onClick={() => handleToggleRowExpand(chk.id)}
+                            className={`inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${isExpanded
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
+                              }`}
+                          >
+                            {isExpanded ? <Minus className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                            <span>{isExpanded ? "Thu gọn" : "Chi tiết"}</span>
+                          </button>
+                        </td>
 
-                          {/* Col 7: Accordion Expand Chi Tiết Button */}
-                          <div className="w-28 text-center px-2 shrink-0">
-                            <button
-                              onClick={() => handleToggleRowExpand(chk.id)}
-                              className={`inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${isExpanded
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
-                                : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
-                                }`}
-                            >
-                              {isExpanded ? <Minus className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                              <span>{isExpanded ? "Thu gọn" : "Chi tiết"}</span>
-                            </button>
-                          </div>
-
-                          {/* Col 8: More Actions Dropdown */}
-                          <div className="w-28 text-center px-2 shrink-0 flex justify-center">
+                        {/* Col 8: More Actions Dropdown */}
+                        <td className="w-28 text-center px-3 py-3">
+                          <div className="flex justify-center">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <button
@@ -1320,222 +1640,281 @@ export default function ChecklistPage() {
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
-                        </div>
+                        </td>
+                      </tr>
 
-                        {/* Expandable Inner Sub-Table: Assigned Accounts for this staff */}
-                        {isExpanded && (
-                          <div className="bg-slate-50/90 dark:bg-slate-950/80 p-4 border-t border-b border-slate-200/80 dark:border-slate-800/80 animate-in slide-in-from-top-2 duration-200">
-                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
-                              <div className="px-4 py-2.5 bg-slate-100/80 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                                <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                                  <Users className="w-4 h-4 text-pink-500" />
-                                  <span>Danh sách {chk.items.length} tài khoản giao việc cho {chk.user.fullName}</span>
+                      {/* Expandable Inner Sub-Table: Assigned Accounts for this staff */}
+                      {isExpanded && (
+                        <tr className="bg-slate-50/50 dark:bg-slate-950/40">
+                          <td colSpan={viewMode === "range" ? 11 : 10} className="p-0">
+                            <div className="bg-slate-50/90 dark:bg-slate-950/80 p-4 border-t border-b border-slate-200/80 dark:border-slate-800/80 animate-in slide-in-from-top-2 duration-200">
+                              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+                                <div className="px-4 py-2.5 bg-slate-100/80 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                                  <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                    <Users className="w-4 h-4 text-pink-500" />
+                                    <span>Danh sách {chk.items.length} tài khoản giao việc cho {chk.user.fullName}</span>
+                                  </div>
                                 </div>
-                                <div className="text-xs text-slate-400">
-                                  Bấm vào các ô Đã đăng / Đã sync để chấm công trực tiếp
-                                </div>
-                              </div>
 
-                              {chk.items.length === 0 ? (
-                                <div className="p-6 text-center text-xs text-slate-400">
-                                  Nhân viên này chưa được gán tài khoản TikTok nào. Vui lòng vào trang Quản lý tài khoản để phân công.
-                                </div>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-left text-xs min-w-[720px]">
-                                    <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-100 dark:border-slate-800 normal-case">
-                                      <tr>
-                                        <th className="py-2.5 px-4">Tài khoản TikTok</th>
-                                        <th className="py-2.5 px-4 text-center">Đã đăng video</th>
-                                        <th className="py-2.5 px-4 text-center">Đã sync GPM</th>
-                                        <th className="py-2.5 px-4 text-center">Trạng thái KPI</th>
-                                        <th className="py-2.5 px-4">Giờ đăng & tiêu đề video mới nhất</th>
-                                        <th className="py-2.5 px-4">Ghi chú vận hành</th>
-                                        <th className="py-2.5 px-4 text-right">Thao tác</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                                      {chk.items.map((item: any) => {
-                                        const isItemCompleted = item.isCompleted || (item.isPosted && item.isSynced);
-                                        const lastSyncFormatted = item.account.lastSyncedAt
-                                          ? format(new Date(item.account.lastSyncedAt), "HH:mm dd/MM")
-                                          : "Chưa sync";
+                                {chk.items.length === 0 ? (
+                                  <div className="p-6 text-center text-xs text-slate-400">
+                                    Nhân viên này chưa được gán tài khoản TikTok nào. Vui lòng vào trang Quản lý tài khoản để phân công.
+                                  </div>
+                                ) : (
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-xs min-w-[760px]">
+                                      <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-100 dark:border-slate-800 normal-case">
+                                        <tr>
+                                          <th className="py-2.5 px-4 w-[263px] min-w-[263px] max-w-[263px]">
+                                            Tài khoản TikTok
+                                          </th>
+                                          <th className="py-2.5 px-4 text-center">Đã đăng video</th>
+                                          <th className="py-2.5 px-4 text-center">Đã sync GPM</th>
+                                          <th className="py-2.5 px-4 text-center">Trạng thái KPI</th>
+                                          <th className="py-2.5 px-4">Giờ đăng & tiêu đề video mới nhất</th>
+                                          <th className="py-2.5 px-4">Ghi chú vận hành</th>
+                                          <th className="py-2.5 px-4 text-right min-w-[100px]">
+                                            Thao tác
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                        {chk.items.map((item: any) => {
+                                          const optPosted = optimisticToggles[item.id]?.isPosted !== undefined ? optimisticToggles[item.id].isPosted : item.isPosted;
+                                          const optSynced = optimisticToggles[item.id]?.isSynced !== undefined ? optimisticToggles[item.id].isSynced : item.isSynced;
+                                          const isItemCompleted = item.isCompleted || (optPosted && optSynced);
+                                          const lastSyncFormatted = item.account.lastSyncedAt
+                                            ? format(new Date(item.account.lastSyncedAt), "HH:mm dd/MM")
+                                            : "Chưa sync";
+                                          const isAccountFailed = item.account.status === "BANNED" || item.account.status === "RESTRICTED" || item.account.status === "STOPPED";
+                                          const isGpmMissing = !item.account.gpmProfileId;
 
-                                        return (
-                                          <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                                            {/* Account Name & Link */}
-                                            <td className="py-3 px-4">
-                                              <div className="flex items-center gap-2">
-                                                {getCountryBadge(item.account.country)}
-                                                <div>
+                                          return (
+                                            <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                                              {/* Account Name & Link */}
+                                              <td className="py-3 px-4 w-[263px] min-w-[263px] max-w-[263px]">
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                  <div className="w-6.5 h-6.5 rounded-lg bg-gradient-to-tr from-pink-500/20 via-rose-500/20 to-purple-500/20 border border-pink-500/30 flex items-center justify-center text-pink-600 dark:text-pink-400 font-bold text-xs shrink-0 shadow-2xs">
+                                                    {item.account.username ? item.account.username.slice(0, 2).toUpperCase() : "TK"}
+                                                  </div>
                                                   <Link
                                                     href={`/accounts/${item.account.id}`}
-                                                    className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors"
+                                                    className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors block truncate"
                                                   >
                                                     @{item.account.username}
                                                   </Link>
+                                                </div>
+                                              </td>
+
+                                              {/* Status: Posted */}
+                                              <td className="py-3 px-4 text-center">
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                    <div
+                                                      className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all shadow-2xs cursor-default select-none ${optPosted
+                                                        ? "bg-emerald-500 border-emerald-500 text-white"
+                                                        : isAccountFailed
+                                                          ? "bg-rose-500 border-rose-500 text-white"
+                                                          : "bg-rose-500 border-rose-500 text-white"
+                                                        }`}
+                                                    >
+                                                      {optPosted ? (
+                                                        <Check className="w-4 h-4 stroke-[3]" />
+                                                      ) : isAccountFailed ? (
+                                                        <AlertCircle className="w-4 h-4 stroke-[2.5]" />
+                                                      ) : (
+                                                        <X className="w-4 h-4 stroke-[3]" />
+                                                      )}
+                                                    </div>
+                                                  </TooltipTrigger>
+                                                  <TooltipContent side="top" className="text-xs font-normal">
+                                                    {optPosted
+                                                      ? `Đã đăng video${item.postedAt ? ` lúc ${format(new Date(item.postedAt), "HH:mm dd/MM/yyyy")}` : " hôm nay"}`
+                                                      : isAccountFailed
+                                                        ? `Kiểm tra thất bại: Tài khoản bị ${item.account.status === "BANNED" ? "khóa (Banned)" : item.account.status === "RESTRICTED" ? "hạn chế" : "tạm dừng"} - Không thể đăng video`
+                                                        : `Chưa đăng video ngày ${format(new Date(chk.date), "dd/MM/yyyy")}`}
+                                                  </TooltipContent>
+                                                </Tooltip>
+                                              </td>
+
+                                              {/* Status: Synced */}
+                                              <td className="py-3 px-4 text-center">
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                    <div
+                                                      className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all shadow-2xs cursor-default select-none ${optSynced
+                                                        ? "bg-cyan-500 border-cyan-500 text-white"
+                                                        : isAccountFailed
+                                                          ? "bg-rose-500 border-rose-500 text-white"
+                                                          : isGpmMissing
+                                                            ? "bg-amber-500 border-amber-500 text-white"
+                                                            : "bg-amber-500 border-amber-500 text-white"
+                                                        }`}
+                                                    >
+                                                      {optSynced ? (
+                                                        <RefreshCw className="w-3.5 h-3.5 stroke-[2.5]" />
+                                                      ) : isAccountFailed ? (
+                                                        <AlertCircle className="w-4 h-4 stroke-[2.5]" />
+                                                      ) : isGpmMissing ? (
+                                                        <AlertCircle className="w-4 h-4 stroke-[2.5]" />
+                                                      ) : (
+                                                        <RefreshCw className="w-3.5 h-3.5 stroke-[2.5]" />
+                                                      )}
+                                                    </div>
+                                                  </TooltipTrigger>
+                                                  <TooltipContent side="top" className="text-xs font-normal">
+                                                    {optSynced
+                                                      ? `Đã sync GPM${item.syncedAt || item.account.lastSyncedAt ? ` lúc ${format(new Date(item.syncedAt || item.account.lastSyncedAt), "HH:mm dd/MM/yyyy")}` : " thành công"}`
+                                                      : isAccountFailed
+                                                        ? `Sync thất bại: Tài khoản bị ${item.account.status === "BANNED" ? "khóa (Banned)" : item.account.status === "RESTRICTED" ? "hạn chế" : "tạm dừng"}`
+                                                        : isGpmMissing
+                                                          ? "Chưa gán GPM Profile ID - Không thể đồng bộ tự động"
+                                                          : `Chưa đồng bộ dữ liệu GPM Profile ngày ${format(new Date(chk.date), "dd/MM/yyyy")}${item.account.lastSyncedAt ? ` (Lần cuối: ${format(new Date(item.account.lastSyncedAt), "HH:mm dd/MM")})` : ""}`}
+                                                  </TooltipContent>
+                                                </Tooltip>
+                                              </td>
+
+                                              {/* KPI Status */}
+                                              <td className="py-3 px-4 text-center">
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                    <div className="inline-flex cursor-help">
+                                                      {isItemCompleted ? (
+                                                        <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
+                                                          <CheckCircle2 className="w-3.5 h-3.5" /> Đạt KPI
+                                                        </span>
+                                                      ) : (
+                                                        <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                                          Chưa đạt
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  </TooltipTrigger>
+                                                  <TooltipContent side="top" className="text-xs font-normal">
+                                                    {isItemCompleted
+                                                      ? "Đạt KPI: Đã đăng video và đồng bộ GPM đầy đủ"
+                                                      : "Không đạt: Chưa đăng video hoặc chưa đồng bộ GPM ngày này"}
+                                                  </TooltipContent>
+                                                </Tooltip>
+                                              </td>
+
+                                              {/* Latest Video Time & Title */}
+                                              <td className="py-3 px-4 min-w-[220px]">
+                                                <div className="space-y-0.5">
+                                                  <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold text-xs">
+                                                    <Video className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                                                    <span>
+                                                      {item.notes?.includes("lúc")
+                                                        ? item.notes.split("•")[0].trim()
+                                                        : optPosted
+                                                          ? `Đã đăng video hôm nay`
+                                                          : "Chưa phát hiện video mới"}
+                                                    </span>
+                                                  </div>
                                                   <div className="text-xs text-slate-400">
-                                                    Views: {Number(item.account.totalViews || 0).toLocaleString()} • Rev: ${Number(item.account.totalRevenue || 0).toFixed(2)}
+                                                    Sync Live gần nhất: <strong>{lastSyncFormatted}</strong>
                                                   </div>
                                                 </div>
-                                              </div>
-                                            </td>
+                                              </td>
 
-                                            {/* Toggle Posted */}
-                                            <td className="py-3 px-4 text-center">
-                                              <button
-                                                onClick={() => handleToggleItemField(item, "isPosted")}
-                                                className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer shadow-2xs ${item.isPosted
-                                                  ? "bg-emerald-500 border-emerald-500 text-white"
-                                                  : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-transparent hover:border-emerald-400"
-                                                  }`}
-                                              >
-                                                <Check className="w-4 h-4 stroke-[3]" />
-                                              </button>
-                                            </td>
-
-                                            {/* Toggle Synced */}
-                                            <td className="py-3 px-4 text-center">
-                                              <button
-                                                onClick={() => handleToggleItemField(item, "isSynced")}
-                                                className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer shadow-2xs ${item.isSynced
-                                                  ? "bg-cyan-500 border-cyan-500 text-white"
-                                                  : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-transparent hover:border-cyan-400"
-                                                  }`}
-                                              >
-                                                <RefreshCw className="w-3.5 h-3.5 stroke-[2.5]" />
-                                              </button>
-                                            </td>
-
-                                            {/* KPI Status */}
-                                            <td className="py-3 px-4 text-center">
-                                              {isItemCompleted ? (
-                                                <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
-                                                  <CheckCircle2 className="w-3.5 h-3.5" /> Đạt KPI
-                                                </span>
-                                              ) : (
-                                                <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                                  Chưa đạt
-                                                </span>
-                                              )}
-                                            </td>
-
-                                            {/* Latest Video Time & Title */}
-                                            <td className="py-3 px-4 min-w-[220px]">
-                                              <div className="space-y-0.5">
-                                                <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 font-bold text-xs">
-                                                  <Video className="w-3.5 h-3.5 text-pink-500 shrink-0" />
-                                                  <span>
-                                                    {item.notes?.includes("lúc")
-                                                      ? item.notes.split("•")[0].trim()
-                                                      : item.isPosted
-                                                        ? `Đã đăng video hôm nay`
-                                                        : "Chưa phát hiện video mới"}
+                                              {/* Operator Notes Input / Modal Trigger */}
+                                              <td className="py-3 px-4 min-w-[220px]">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const canEdit = isAdmin || isLeadOrAdmin || chk.user.id === (session?.user as any)?.id;
+                                                    setNoteModalItem({
+                                                      id: item.id,
+                                                      accountUsername: item.account.username,
+                                                      country: item.account.country,
+                                                      notes: item.notes || "",
+                                                      dateFormatted,
+                                                      staffName: chk.user.fullName,
+                                                      canEdit,
+                                                    });
+                                                    setNoteInputText(item.notes || "");
+                                                  }}
+                                                  className="w-full text-left group/note flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200/80 dark:border-slate-800 transition-all cursor-pointer shadow-2xs hover:border-pink-300 dark:hover:border-pink-800"
+                                                >
+                                                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                    <FileEdit className="w-3.5 h-3.5 text-slate-400 group-hover/note:text-pink-500 shrink-0" />
+                                                    <span className={`text-xs truncate ${item.notes ? "text-slate-800 dark:text-slate-200 font-medium" : "text-slate-400 italic"}`}>
+                                                      {item.notes || "Nhập ghi chú vận hành, tiêu đề.."}
+                                                    </span>
+                                                  </div>
+                                                  <span className="text-xs text-pink-600 dark:text-pink-400 font-bold shrink-0 opacity-0 group-hover/note:opacity-100 transition-opacity">
+                                                    Sửa
                                                   </span>
-                                                </div>
-                                                <div className="text-xs text-slate-400">
-                                                  Sync Live gần nhất: <strong>{lastSyncFormatted}</strong>
-                                                </div>
-                                              </div>
-                                            </td>
+                                                </button>
+                                              </td>
 
-                                            {/* Operator Notes Input / Modal Trigger */}
-                                            <td className="py-3 px-4 min-w-[220px]">
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  const canEdit = isAdmin || isLeadOrAdmin || chk.user.id === (session?.user as any)?.id;
-                                                  setNoteModalItem({
-                                                    id: item.id,
-                                                    accountUsername: item.account.username,
-                                                    country: item.account.country,
-                                                    notes: item.notes || "",
-                                                    dateFormatted,
-                                                    staffName: chk.user.fullName,
-                                                    canEdit,
-                                                  });
-                                                  setNoteInputText(item.notes || "");
-                                                }}
-                                                className="w-full text-left group/note flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200/80 dark:border-slate-800 transition-all cursor-pointer shadow-2xs hover:border-pink-300 dark:hover:border-pink-800"
-                                              >
-                                                <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                  <FileEdit className="w-3.5 h-3.5 text-slate-400 group-hover/note:text-pink-500 shrink-0" />
-                                                  <span className={`text-xs truncate ${item.notes ? "text-slate-800 dark:text-slate-200 font-medium" : "text-slate-400 italic"}`}>
-                                                    {item.notes || "Nhập ghi chú vận hành, tiêu đề.."}
-                                                  </span>
-                                                </div>
-                                                <span className="text-xs text-pink-600 dark:text-pink-400 font-bold shrink-0 opacity-0 group-hover/note:opacity-100 transition-opacity">
-                                                  Sửa
-                                                </span>
-                                              </button>
-                                            </td>
+                                              {/* Quick Actions */}
+                                              <td className="py-3 px-4 text-right">
+                                                <div className="flex items-center justify-end gap-1">
+                                                  {/* Launch GPM */}
+                                                  {item.account.gpmProfileId && (
+                                                    <Tooltip>
+                                                      <TooltipTrigger asChild>
+                                                        <button
+                                                          onClick={() => startGpmMutation.mutate({ gpmProfileId: item.account.gpmProfileId })}
+                                                          className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors cursor-pointer"
+                                                          aria-label="Mở trình duyệt GPMLogin"
+                                                        >
+                                                          <Play className="w-3.5 h-3.5" />
+                                                        </button>
+                                                      </TooltipTrigger>
+                                                      <TooltipContent side="top" className="text-xs">
+                                                        Mở GPM Profile
+                                                      </TooltipContent>
+                                                    </Tooltip>
+                                                  )}
 
-                                            {/* Quick Actions */}
-                                            <td className="py-3 px-4 text-right">
-                                              <div className="flex items-center justify-end gap-1">
-                                                {/* Launch GPM */}
-                                                {item.account.gpmProfileId && (
+                                                  {/* Sync Account */}
                                                   <Tooltip>
                                                     <TooltipTrigger asChild>
                                                       <button
-                                                        onClick={() => startGpmMutation.mutate({ gpmProfileId: item.account.gpmProfileId })}
-                                                        className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors cursor-pointer"
-                                                        aria-label="Mở trình duyệt GPMLogin"
+                                                        onClick={() => syncAccountMutation.mutate({ accountId: item.account.id })}
+                                                        className="p-1.5 rounded-lg text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/50 transition-colors cursor-pointer"
+                                                        aria-label="Đồng bộ Live"
                                                       >
-                                                        <Play className="w-3.5 h-3.5" />
+                                                        <RefreshCw className="w-3.5 h-3.5" />
                                                       </button>
                                                     </TooltipTrigger>
                                                     <TooltipContent side="top" className="text-xs">
-                                                      Mở GPM Profile
+                                                      Đồng bộ Live Studio
                                                     </TooltipContent>
                                                   </Tooltip>
-                                                )}
 
-                                                {/* Sync Account */}
-                                                <Tooltip>
-                                                  <TooltipTrigger asChild>
-                                                    <button
-                                                      onClick={() => syncAccountMutation.mutate({ accountId: item.account.id })}
-                                                      className="p-1.5 rounded-lg text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/50 transition-colors cursor-pointer"
-                                                      aria-label="Đồng bộ Live"
-                                                    >
-                                                      <RefreshCw className="w-3.5 h-3.5" />
-                                                    </button>
-                                                  </TooltipTrigger>
-                                                  <TooltipContent side="top" className="text-xs">
-                                                    Đồng bộ Live Studio
-                                                  </TooltipContent>
-                                                </Tooltip>
-
-                                                {/* Detail Link */}
-                                                <Tooltip>
-                                                  <TooltipTrigger asChild>
-                                                    <Link
-                                                      href={`/accounts/${item.account.id}`}
-                                                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
-                                                      aria-label="Xem chi tiết tài khoản"
-                                                    >
-                                                      <ExternalLink className="w-3.5 h-3.5" />
-                                                    </Link>
-                                                  </TooltipTrigger>
-                                                  <TooltipContent side="top" className="text-xs">
-                                                    Xem chi tiết kênh
-                                                  </TooltipContent>
-                                                </Tooltip>
-                                              </div>
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )}
+                                                  {/* Detail Link */}
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <Link
+                                                        href={`/accounts/${item.account.id}`}
+                                                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+                                                        aria-label="Xem chi tiết tài khoản"
+                                                      >
+                                                        <ExternalLink className="w-3.5 h-3.5" />
+                                                      </Link>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="top" className="text-xs">
+                                                      Xem chi tiết kênh
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -1809,6 +2188,54 @@ export default function ChecklistPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Day Detail Inspector Modal */}
+      <DayDetailModal
+        isOpen={!!selectedDateForModal}
+        onClose={() => setSelectedDateForModal(null)}
+        dateStr={selectedDateForModal}
+        checklistsForDate={
+          timesheetData?.checklists?.filter((c: any) => {
+            const d = format(new Date(c.date), "yyyy-MM-dd");
+            return d === selectedDateForModal;
+          }) || []
+        }
+        onSwitchToTableView={(dStr) => {
+          setViewType("table");
+          setViewMode("daily");
+          setDateStr(dStr);
+          setSelectedDateForModal(null);
+        }}
+        onEditNote={(item, staffName) => {
+          const canEdit =
+            isAdmin ||
+            isLeadOrAdmin ||
+            item.userId === (session?.user as any)?.id;
+          setNoteModalItem({
+            id: item.id,
+            accountUsername: item.account.username,
+            country: item.account.country,
+            notes: item.notes || "",
+            dateFormatted: format(
+              new Date(selectedDateForModal + "T00:00:00"),
+              "dd/MM/yyyy"
+            ),
+            staffName,
+            canEdit,
+          });
+          setNoteInputText(item.notes || "");
+        }}
+        onLaunchGpm={(gpmId) => startGpmMutation.mutate({ gpmProfileId: gpmId })}
+        onSyncAccount={(accId) => syncAccountMutation.mutate({ accountId: accId })}
+      />
     </div>
+  );
+}
+
+export default function ChecklistPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 text-xs">Đang tải bảng chấm công...</div>}>
+      <ChecklistPageContent />
+    </Suspense>
   );
 }

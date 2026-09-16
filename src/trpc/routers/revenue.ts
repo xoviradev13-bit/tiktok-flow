@@ -439,4 +439,49 @@ export const revenueRouter = router({
 
       return { count: res.count };
     }),
+
+  // 5. Update Single Revenue Record (LEAD / ADMIN)
+  updateRecord: leadProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        date: z.string().optional(),
+        views: z.number().optional(),
+        rpm: z.number().optional(),
+        revenue: z.number().optional(),
+        sourceType: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const record = await ctx.prisma.dailyRevenue.findUnique({
+        where: { id: input.id },
+      });
+      if (!record) {
+        throw new Error("Không tìm thấy bản ghi doanh thu.");
+      }
+
+      const updated = await ctx.prisma.dailyRevenue.update({
+        where: { id: input.id },
+        data: {
+          date: input.date ? parseDateOnly(input.date) : undefined,
+          views: input.views !== undefined ? BigInt(Math.round(input.views)) : undefined,
+          rpm: input.rpm !== undefined ? input.rpm : undefined,
+          revenue: input.revenue !== undefined ? input.revenue : undefined,
+          sourceType: input.sourceType !== undefined ? input.sourceType : undefined,
+        },
+      });
+
+      // Recalculate totals for affected account
+      const remaining = await ctx.prisma.dailyRevenue.findMany({
+        where: { accountId: record.accountId },
+        select: { revenue: true },
+      });
+      const total = remaining.reduce((sum, r) => sum + Number(r.revenue || 0), 0);
+      await ctx.prisma.tiktokAccount.update({
+        where: { id: record.accountId },
+        data: { totalRevenue: total },
+      });
+
+      return serializeBigInt(updated);
+    }),
 });

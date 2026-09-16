@@ -26,6 +26,7 @@ import {
   BookOpen,
   Code2,
   Bug,
+  ExternalLink,
 } from "lucide-react";
 import { useSidebar } from "@/components/providers/SidebarProvider";
 import {
@@ -73,6 +74,7 @@ export default function Sidebar() {
     icon: any;
     badge?: string;
     adminOnly?: boolean;
+    isExternal?: boolean;
   }
 
   const userEmail = session?.user?.email || "";
@@ -107,9 +109,9 @@ export default function Sidebar() {
     {
       group: "TÀI LIỆU & HỖ TRỢ",
       items: [
-        { href: "/docs", label: "Hướng Dẫn (Docs)", icon: BookOpen },
-        { href: "/api-docs", label: "API Reference", icon: Code2 },
-        { href: "/security", label: "Trung Tâm Bảo Mật", icon: ShieldCheck },
+        { href: "/docs", label: "Hướng Dẫn (Docs)", icon: BookOpen, isExternal: true },
+        { href: "/api-docs", label: "API Reference", icon: Code2, isExternal: true },
+        { href: "/security", label: "Trung Tâm Bảo Mật", icon: ShieldCheck, isExternal: true },
       ],
     },
   ];
@@ -216,13 +218,13 @@ export default function Sidebar() {
 
         {/* Navigation Menu (Scrollable) */}
         <div
-          className={`flex-1 overflow-y-auto py-3 space-y-5 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 px-3.5 ${
+          className={`flex-1 overflow-y-auto pt-0 pb-3 space-y-5 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 px-3.5 ${
             isCollapsed ? "lg:px-2" : "lg:px-3.5"
           }`}
         >
           {/* Collapsed Expand Quick Button inside the list on Desktop */}
           {isCollapsed && (
-            <div className="hidden lg:block pb-2 mb-2 border-b border-slate-100 dark:border-slate-800/60 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs z-10">
+            <div className="hidden lg:block py-2 mb-2 border-b border-slate-100 dark:border-slate-800/60 sticky top-0 bg-white dark:bg-slate-900 z-10">
               <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
                   <button
@@ -241,7 +243,7 @@ export default function Sidebar() {
           )}
 
           {filteredNavGroups.map((group, gIdx) => (
-            <div key={gIdx} className="space-y-1.5">
+            <div key={gIdx} className={`space-y-1.5 ${gIdx === 0 && !isCollapsed ? "pt-2.5" : ""}`}>
               <div
                 className={`px-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate ${
                   isCollapsed ? "lg:hidden" : "block"
@@ -292,6 +294,14 @@ export default function Sidebar() {
                         >
                           {item.badge}
                         </span>
+                      )}
+
+                      {item.isExternal && (
+                        <ExternalLink
+                          className={`w-3.5 h-3.5 opacity-40 shrink-0 group-hover:opacity-90 transition-opacity ml-auto ${
+                            isCollapsed ? "lg:hidden" : "inline"
+                          }`}
+                        />
                       )}
                     </Link>
                   );

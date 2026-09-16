@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
+import { useUrlParams } from "@/hooks/useUrlState";
 import Link from "next/link";
 import {
   Puzzle,
@@ -30,6 +31,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const CATEGORIES = [
   { id: "ALL", label: "Tất cả" },
@@ -39,11 +45,41 @@ const CATEGORIES = [
   { id: "UTILITY", label: "Tiện ích bổ trợ (Utility)" },
 ];
 
-export default function ExtensionsListPage() {
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("ALL");
-  const [sortBy, setSortBy] = useState<"name" | "version" | "createdAt">("createdAt");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+function ExtensionsListPageContent() {
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const [search, setSearch] = useState(initialSearch);
+
+  const initialCat = searchParams?.get("cat") || searchParams?.get("category") || "ALL";
+  const [category, setCategory] = useState(initialCat);
+
+  const paramSort = searchParams?.get("sort") || searchParams?.get("sortBy");
+  const initialSort = ["name", "version", "createdAt"].includes(paramSort || "") ? (paramSort as any) : "createdAt";
+  const [sortBy, setSortBy] = useState<"name" | "version" | "createdAt">(initialSort);
+
+  const paramDir = searchParams?.get("dir") || searchParams?.get("sortOrder");
+  const initialDir = paramDir === "asc" ? "asc" : "desc";
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">(initialDir);
+
+  // Auto sync active state to URL
+  useEffect(() => {
+    updateUrlParams(
+      {
+        cat: category,
+        q: search,
+        sort: sortBy,
+        dir: sortOrder,
+      },
+      {
+        cat: "ALL",
+        q: "",
+        sort: "createdAt",
+        dir: "desc",
+      }
+    );
+  }, [category, search, sortBy, sortOrder, updateUrlParams]);
 
   const { data: extensions = [], isLoading } = trpc.extension.list.useQuery({
     category,
@@ -283,31 +319,44 @@ export default function ExtensionsListPage() {
                   <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
 
-                <a
-                  href={
-                    ext.slug === "tiktokflow-client-agent" || ext.folderPath === "client-agent"
-                      ? "/api/client-agent/download"
-                      : "/api/extension/download"
-                  }
-                  download
-                  title={
-                    ext.slug === "tiktokflow-client-agent"
-                      ? "Tải Client Agent (.zip) với mã pairing dùng 1 lần (~10 phút)"
-                      : "Tải Extension (.zip) với mã pairing dùng 1 lần (~10 phút)"
-                  }
-                  className={`p-2.5 rounded-xl ${
-                    ext.slug === "tiktokflow-client-agent"
-                      ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-indigo-600/20"
-                      : "bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-pink-600/20"
-                  } text-white shadow-md active:scale-95 transition-all cursor-pointer shrink-0`}
-                >
-                  <Download className="w-4 h-4" />
-                </a>
+                <Tooltip delayDuration={150}>
+                  <TooltipTrigger asChild>
+                    <a
+                      href={
+                        ext.slug === "tiktokflow-client-agent" || ext.folderPath === "client-agent"
+                          ? "/api/client-agent/download"
+                          : "/api/extension/download"
+                      }
+                      download
+                      aria-label="Tải bản cài đặt"
+                      className={`p-2.5 rounded-xl ${
+                        ext.slug === "tiktokflow-client-agent"
+                          ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-indigo-600/20"
+                          : "bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-pink-600/20"
+                      } text-white shadow-md active:scale-95 transition-all cursor-pointer shrink-0`}
+                    >
+                      <Download className="w-4 h-4" />
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs font-semibold max-w-xs text-center">
+                    {ext.slug === "tiktokflow-client-agent"
+                      ? "Tải Client Agent (.zip) với mã pairing"
+                      : "Tải Extension (.zip) với mã pairing"}
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </div>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+export default function ExtensionsListPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 text-xs">Đang tải extensions...</div>}>
+      <ExtensionsListPageContent />
+    </Suspense>
   );
 }

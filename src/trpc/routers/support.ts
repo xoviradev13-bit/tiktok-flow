@@ -388,6 +388,143 @@ export const supportRouter = router({
       };
     }),
 
+  // Delete Bug Report (Owner or Admin/Lead)
+  deleteBugReport: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = ctx.session.user;
+      const role = user.role;
+      const isAdminOrLead = role === "ADMIN" || role === "LEAD";
+
+      let reports: BugReportItem[] = [];
+      const record = await ctx.prisma.systemConfig.findUnique({
+        where: { key: BUG_REPORTS_KEY },
+      });
+      if (record?.value) {
+        reports = JSON.parse(record.value);
+      }
+
+      const targetReport = reports.find((r) => r.id === input.id);
+      if (!targetReport) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Không tìm thấy báo cáo sự cố.",
+        });
+      }
+
+      // Check ownership or admin rights
+      const isOwner =
+        targetReport.reporterId === user.id ||
+        (targetReport.reporterEmail && targetReport.reporterEmail === user.email);
+      if (!isAdminOrLead && !isOwner) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn không có quyền xóa báo cáo sự cố này.",
+        });
+      }
+
+      const filtered = reports.filter((r) => r.id !== input.id);
+
+      await ctx.prisma.systemConfig.upsert({
+        where: { key: BUG_REPORTS_KEY },
+        update: {
+          value: JSON.stringify(filtered),
+          updatedAt: new Date(),
+        },
+        create: {
+          key: BUG_REPORTS_KEY,
+          value: JSON.stringify(filtered),
+          description: "Danh sách báo cáo sự cố & feedback từ người dùng",
+        },
+      });
+
+      return {
+        success: true,
+        deletedId: input.id,
+      };
+    }),
+
+  // Update Bug Report (Owner or Admin/Lead)
+  updateBugReport: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        title: z.string().min(3, "Tiêu đề tối thiểu 3 ký tự").max(200),
+        description: z.string().min(5, "Mô tả tối thiểu 5 ký tự").max(5000),
+        category: z.enum([
+          "GPM_SYNC",
+          "EXTENSION",
+          "CLIENT_AGENT",
+          "REVENUE_DATA",
+          "UI_UX",
+          "SECURITY",
+          "OTHER",
+        ]),
+        severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
+        screenshotUrls: z.array(z.string()).max(5).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const user = ctx.session.user;
+      const role = user.role;
+      const isAdminOrLead = role === "ADMIN" || role === "LEAD";
+
+      let reports: BugReportItem[] = [];
+      const record = await ctx.prisma.systemConfig.findUnique({
+        where: { key: BUG_REPORTS_KEY },
+      });
+      if (record?.value) {
+        reports = JSON.parse(record.value);
+      }
+
+      const index = reports.findIndex((r) => r.id === input.id);
+      if (index === -1) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Không tìm thấy báo cáo sự cố.",
+        });
+      }
+
+      const isOwner =
+        reports[index].reporterId === user.id ||
+        (reports[index].reporterEmail && reports[index].reporterEmail === user.email);
+      if (!isAdminOrLead && !isOwner) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn không có quyền chỉnh sửa báo cáo sự cố này.",
+        });
+      }
+
+      reports[index] = {
+        ...reports[index],
+        title: input.title,
+        description: input.description,
+        category: input.category,
+        severity: input.severity,
+        screenshotUrl: input.screenshotUrls?.[0] || reports[index].screenshotUrl,
+        screenshotUrls: input.screenshotUrls || reports[index].screenshotUrls,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await ctx.prisma.systemConfig.upsert({
+        where: { key: BUG_REPORTS_KEY },
+        update: {
+          value: JSON.stringify(reports),
+          updatedAt: new Date(),
+        },
+        create: {
+          key: BUG_REPORTS_KEY,
+          value: JSON.stringify(reports),
+          description: "Danh sách báo cáo sự cố & feedback từ người dùng",
+        },
+      });
+
+      return {
+        success: true,
+        report: reports[index],
+      };
+    }),
+
   // 4. Get Configured Alert Emails (Admin only)
   getAlertEmails: adminProcedure.query(async ({ ctx }) => {
     const config = await ctx.prisma.systemConfig.findUnique({

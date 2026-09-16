@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useUrlParams } from "@/hooks/useUrlState";
 import {
   DollarSign,
   BarChart3,
@@ -32,17 +33,50 @@ import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { format, subDays } from "date-fns";
 
-export default function RevenuePage() {
-  const [activePreset, setActivePreset] = useState<number | "custom">(28);
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
+function RevenuePageContent() {
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  const paramPreset = searchParams?.get("preset");
+  const initialPreset = paramPreset === "custom" ? "custom" : paramPreset ? Number(paramPreset) : 28;
+  const [activePreset, setActivePreset] = useState<number | "custom">(initialPreset);
+
+  const initialFrom = searchParams?.get("from") || "";
+  const initialTo = searchParams?.get("to") || "";
+  const [startDate, setStartDate] = useState<string>(initialFrom);
+  const [endDate, setEndDate] = useState<string>(initialTo);
+
   const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
   const [rangeSelection, setRangeSelection] = useState<DateRange | undefined>(() => {
+    if (initialFrom && initialTo) {
+      return { from: new Date(initialFrom + "T00:00:00"), to: new Date(initialTo + "T00:00:00") };
+    }
     const to = new Date();
     const from = subDays(to, 27);
     return { from, to };
   });
-  const [chartMetric, setChartMetric] = useState<"REVENUE" | "VIEWS" | "BOTH">("REVENUE");
+
+  const paramMetric = searchParams?.get("metric") as any;
+  const initialMetric = ["REVENUE", "VIEWS", "BOTH"].includes(paramMetric) ? paramMetric : "REVENUE";
+  const [chartMetric, setChartMetric] = useState<"REVENUE" | "VIEWS" | "BOTH">(initialMetric);
+
+  // Auto sync active state to URL
+  useEffect(() => {
+    updateUrlParams(
+      {
+        preset: activePreset,
+        from: startDate,
+        to: endDate,
+        metric: chartMetric,
+      },
+      {
+        preset: 28,
+        from: "",
+        to: "",
+        metric: "REVENUE",
+      }
+    );
+  }, [activePreset, startDate, endDate, chartMetric, updateUrlParams]);
 
   const utils = trpc.useUtils();
 
@@ -422,5 +456,13 @@ export default function RevenuePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RevenuePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 text-xs">Đang tải thống kê doanh thu...</div>}>
+      <RevenuePageContent />
+    </Suspense>
   );
 }

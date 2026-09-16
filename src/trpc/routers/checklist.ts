@@ -492,7 +492,7 @@ export const checklistRouter = router({
       });
 
       const totalAssigned = allItems.length;
-      const completedCount = allItems.filter((i) => i.isCompleted || (i.isPosted && i.isSynced)).length;
+      const completedCount = allItems.filter((i) => i.isCompleted || i.isPosted).length;
       const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount);
 
       const updatedChecklist = await ctx.prisma.dailyChecklist.update({
@@ -662,7 +662,7 @@ export const checklistRouter = router({
         });
 
         const totalAssigned = allItems.length;
-        const completedCount = allItems.filter((i) => i.isCompleted || (i.isPosted && i.isSynced)).length;
+        const completedCount = allItems.filter((i) => i.isCompleted || i.isPosted).length;
         const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount);
 
         await ctx.prisma.dailyChecklist.update({

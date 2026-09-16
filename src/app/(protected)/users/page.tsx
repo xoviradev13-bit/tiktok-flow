@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlState";
 import { useSession } from "next-auth/react";
 import {
   UserCog,
@@ -79,71 +80,129 @@ import { trpc } from "@/lib/trpc";
 
 type SortKey = "fullName" | "username" | "email" | "role" | "groupName" | "accountsCount" | "isActive" | "createdAt";
 
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "fullName", label: "Họ & tên" },
+  { key: "username", label: "Username" },
+  { key: "email", label: "Email" },
+  { key: "role", label: "Vai trò" },
+  { key: "groupName", label: "Nhóm" },
+  { key: "accountsCount", label: "Số acc phụ trách" },
+  { key: "isActive", label: "Trạng thái hoạt động" },
+  { key: "createdAt", label: "Ngày tạo" },
+];
+
 function UsersManagementContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // View Mode: read initial value from URL Search Params ("grid" | "list")
-  const urlViewMode = (searchParams?.get("view") === "list" ? "list" : "grid") as "grid" | "list";
-  const [viewMode, setViewMode] = useState<"grid" | "list">(urlViewMode);
+  // SaaS URL Query State Synchronization
+  const { updateUrlParams } = useUrlParams();
+
+  // Tab & View Mode: read initial value from URL Search Params
+  const initialTab = searchParams?.get("tab") === "INVITATIONS" ? "INVITATIONS" : "USERS";
+  const [activeTab, setActiveTab] = useState<"USERS" | "INVITATIONS">(initialTab);
+
+  const initialViewMode = ((searchParams?.get("v") || searchParams?.get("view")) === "list" ? "list" : "grid") as "grid" | "list";
+  const [viewMode, setViewMode] = useState<"grid" | "list">(initialViewMode);
+
+  // Filters
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const [search, setSearch] = useState(initialSearch);
+
+  const initialRole = (searchParams?.get("role") || "ALL") as "ALL" | "ADMIN" | "LEAD" | "STAFF";
+  const [roleFilter, setRoleFilter] = useState<"ALL" | "ADMIN" | "LEAD" | "STAFF">(initialRole);
+
+  const initialGroup = searchParams?.get("group") || "ALL";
+  const [groupFilter, setGroupFilter] = useState<string>(initialGroup);
+
+  const initialStatus = (searchParams?.get("status") || "ALL") as "ALL" | "ACTIVE" | "INACTIVE";
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">(initialStatus);
+
+  const initialHasAccounts = (searchParams?.get("hasAcc") || searchParams?.get("hasAccounts") || "ALL") as "ALL" | "YES" | "NO";
+  const [hasAccountsFilter, setHasAccountsFilter] = useState<"ALL" | "YES" | "NO">(initialHasAccounts);
+
+  // Sorting
+  const initialSortKey = (searchParams?.get("sort") || searchParams?.get("sortBy") || "createdAt") as SortKey;
+  const initialSortDesc = (searchParams?.get("dir") || searchParams?.get("sortOrder")) === "asc" ? false : true;
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; desc: boolean }>({
+    key: initialSortKey,
+    desc: initialSortDesc,
+  });
 
   const initialPage = useMemo(() => {
-    const p = searchParams?.get("page");
+    const p = searchParams?.get("p") || searchParams?.get("page");
     const num = p ? parseInt(p, 10) : 1;
     return isNaN(num) || num < 1 ? 1 : num;
   }, [searchParams]);
 
   const initialPageSize = useMemo(() => {
-    const ps = searchParams?.get("pageSize");
-    const fallback = urlViewMode === "grid" ? 12 : 10;
+    const ps = searchParams?.get("ps") || searchParams?.get("pageSize");
+    const fallback = initialViewMode === "grid" ? 12 : 10;
     const num = ps ? parseInt(ps, 10) : fallback;
     return isNaN(num) || num < 1 ? fallback : num;
-  }, [searchParams, urlViewMode]);
+  }, [searchParams, initialViewMode]);
 
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
 
-  const updateUrlParams = useCallback(
-    (updates: Record<string, string | number | undefined | null>) => {
-      const params = new URLSearchParams(searchParams?.toString() || "");
-      Object.entries(updates).forEach(([key, val]) => {
-        if (
-          val === undefined ||
-          val === null ||
-          val === "" ||
-          (key === "page" && Number(val) === 1) ||
-          (key === "view" && val === "grid")
-        ) {
-          params.delete(key);
-        } else {
-          params.set(key, String(val));
-        }
-      });
-      const searchStr = params.toString();
-      const newUrl = searchStr ? `${pathname}?${searchStr}` : pathname;
-      window.history.replaceState(null, "", newUrl);
-    },
-    [searchParams, pathname]
-  );
+  // SaaS URL sync: automatically keep URL in sync with all active states
+  useEffect(() => {
+    updateUrlParams(
+      {
+        tab: activeTab,
+        v: viewMode,
+        p: page,
+        ps: pageSize,
+        q: search,
+        role: roleFilter,
+        group: groupFilter,
+        status: statusFilter,
+        hasAcc: hasAccountsFilter,
+        sort: sortConfig.key,
+        dir: sortConfig.desc ? "desc" : "asc",
+      },
+      {
+        v: "grid",
+        p: 1,
+        ps: viewMode === "grid" ? 12 : 10,
+        q: "",
+        role: "ALL",
+        group: "ALL",
+        status: "ALL",
+        hasAcc: "ALL",
+        sort: "createdAt",
+        dir: "desc",
+      }
+    );
+  }, [
+    activeTab,
+    viewMode,
+    page,
+    pageSize,
+    search,
+    roleFilter,
+    groupFilter,
+    statusFilter,
+    hasAccountsFilter,
+    sortConfig,
+    updateUrlParams,
+  ]);
 
   const handleViewModeChange = (mode: "grid" | "list") => {
     setViewMode(mode);
     const defaultSize = mode === "grid" ? 12 : 10;
     setPageSize(defaultSize);
     setPage(1);
-    updateUrlParams({ view: mode, pageSize: defaultSize, page: 1 });
   };
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
-    updateUrlParams({ page: newPage });
   };
 
   const handlePageSizeChange = (newSize: number) => {
     setPageSize(newSize);
     setPage(1);
-    updateUrlParams({ pageSize: newSize, page: 1 });
   };
 
   const { data: session, status } = useSession();
@@ -154,19 +213,6 @@ function UsersManagementContent() {
       router.replace("/accounts");
     }
   }, [status, isAdmin, router]);
-
-  const [activeTab, setActiveTab] = useState<"USERS" | "INVITATIONS">("USERS");
-
-  const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"ALL" | "ADMIN" | "LEAD" | "STAFF">("ALL");
-  const [groupFilter, setGroupFilter] = useState<string>("ALL");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
-  const [hasAccountsFilter, setHasAccountsFilter] = useState<"ALL" | "YES" | "NO">("ALL");
-
-  const [sortConfig, setSortConfig] = useState<{ key: SortKey; desc: boolean }>({
-    key: "createdAt",
-    desc: true,
-  });
 
   // Column visibility state (fullName is locked and cannot be unchecked)
   const [visibleColumns, setVisibleColumns] = useState({
@@ -631,13 +677,23 @@ function UsersManagementContent() {
     setSelectedIds(next);
   };
 
-  // Filter chips
+  // Advanced filters count (inside the "Bộ lọc nâng cao" popover)
+  const activeAdvancedCount =
+    (statusFilter !== "ALL" ? 1 : 0) +
+    (hasAccountsFilter !== "ALL" ? 1 : 0);
+
+  // Filter chips (total across all filters)
   const activeFiltersCount =
     (search ? 1 : 0) +
     (roleFilter !== "ALL" ? 1 : 0) +
     (groupFilter !== "ALL" ? 1 : 0) +
-    (statusFilter !== "ALL" ? 1 : 0) +
-    (hasAccountsFilter !== "ALL" ? 1 : 0);
+    activeAdvancedCount;
+
+  const clearAdvancedFilters = () => {
+    setStatusFilter("ALL");
+    setHasAccountsFilter("ALL");
+    setPage(1);
+  };
 
   const clearAllFilters = () => {
     setSearch("");
@@ -647,6 +703,9 @@ function UsersManagementContent() {
     setHasAccountsFilter("ALL");
     setPage(1);
   };
+
+  const currentSortOption = SORT_OPTIONS.find((item) => item.key === sortConfig.key) || SORT_OPTIONS[7];
+  const sortDirectionText = sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑";
 
   // Stats
   const totalCount = users.length;
@@ -829,112 +888,203 @@ function UsersManagementContent() {
                       setSearch(e.target.value);
                       setPage(1);
                     }}
-                    className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500"
+                    className={`w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500 ${
+                      search ? "pr-8" : "pr-4"
+                    }`}
                   />
+                  {search && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearch("");
+                            setPage(1);
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all cursor-pointer shadow-2xs"
+                          aria-label="Xóa tìm kiếm"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa tìm kiếm</TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
+
                 {/* Quick Role Selector */}
-                <Select
-                  value={roleFilter}
-                  onValueChange={(val) => {
-                    setRoleFilter(val as any);
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                    <SelectValue placeholder="Vai trò">
-                      {roleFilter === "ALL" && "Tất cả vai trò"}
-                      {roleFilter === "ADMIN" && (
-                        <span className="flex items-center gap-1.5">
+                <div className="relative group shrink-0">
+                  <Select
+                    value={roleFilter}
+                    onValueChange={(val) => {
+                      setRoleFilter(val as any);
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger
+                      className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                        roleFilter !== "ALL"
+                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                          : ""
+                      }`}
+                    >
+                      <SelectValue placeholder="Vai trò">
+                        {roleFilter === "ALL" && "Tất cả vai trò"}
+                        {roleFilter === "ADMIN" && (
+                          <span className="flex items-center gap-1.5">
+                            <Shield className="w-3.5 h-3.5 text-pink-500" />
+                            <span>Admin</span>
+                          </span>
+                        )}
+                        {roleFilter === "LEAD" && (
+                          <span className="flex items-center gap-1.5">
+                            <ShieldCheck className="w-3.5 h-3.5 text-cyan-500" />
+                            <span>Lead</span>
+                          </span>
+                        )}
+                        {roleFilter === "STAFF" && (
+                          <span className="flex items-center gap-1.5">
+                            <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
+                            <span>Staff</span>
+                          </span>
+                        )}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả vai trò</SelectItem>
+                      <SelectItem value="ADMIN" className="text-xs font-normal cursor-pointer">
+                        <div className="flex items-center gap-2">
                           <Shield className="w-3.5 h-3.5 text-pink-500" />
                           <span>Admin</span>
-                        </span>
-                      )}
-                      {roleFilter === "LEAD" && (
-                        <span className="flex items-center gap-1.5">
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="LEAD" className="text-xs font-normal cursor-pointer">
+                        <div className="flex items-center gap-2">
                           <ShieldCheck className="w-3.5 h-3.5 text-cyan-500" />
                           <span>Lead</span>
-                        </span>
-                      )}
-                      {roleFilter === "STAFF" && (
-                        <span className="flex items-center gap-1.5">
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="STAFF" className="text-xs font-normal cursor-pointer">
+                        <div className="flex items-center gap-2">
                           <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
                           <span>Staff</span>
-                        </span>
-                      )}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả vai trò</SelectItem>
-                    <SelectItem value="ADMIN" className="text-xs font-normal cursor-pointer">
-                      <div className="flex items-center gap-2">
-                        <Shield className="w-3.5 h-3.5 text-pink-500" />
-                        <span>Admin</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="LEAD" className="text-xs font-normal cursor-pointer">
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className="w-3.5 h-3.5 text-cyan-500" />
-                        <span>Lead</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="STAFF" className="text-xs font-normal cursor-pointer">
-                      <div className="flex items-center gap-2">
-                        <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>Staff</span>
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {roleFilter !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setRoleFilter("ALL");
+                            setPage(1);
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn vai trò"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn vai trò</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
 
                 {/* Quick Group Selector */}
-                <Select
-                  value={groupFilter}
-                  onValueChange={(val) => {
-                    setGroupFilter(val);
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                    <SelectValue placeholder="Nhóm / Team">
-                      {groupFilter === "ALL" ? "Tất cả nhóm" : groupFilter}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
-                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nhóm</SelectItem>
-                    {availableGroups.map((g: string) => (
-                      <SelectItem key={g} value={g} className="text-xs font-normal cursor-pointer">
-                        {g}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative group shrink-0">
+                  <Select
+                    value={groupFilter}
+                    onValueChange={(val) => {
+                      setGroupFilter(val);
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger
+                      className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                        groupFilter !== "ALL"
+                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                          : ""
+                      }`}
+                    >
+                      <SelectValue placeholder="Nhóm / Team">
+                        {groupFilter === "ALL" ? "Tất cả nhóm" : groupFilter}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nhóm</SelectItem>
+                      {availableGroups.map((g: string) => (
+                        <SelectItem key={g} value={g} className="text-xs font-normal cursor-pointer">
+                          {g}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {groupFilter !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setGroupFilter("ALL");
+                            setPage(1);
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn nhóm"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn nhóm</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
 
                 {/* Advanced Filter Popover */}
                 <Popover>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal border transition-all cursor-pointer ${activeFiltersCount > 0
-                        ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
-                        : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
-                        }`}
+                      className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal border transition-all cursor-pointer ${
+                        activeAdvancedCount > 0
+                          ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 shadow-2xs font-medium"
+                          : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
+                      }`}
                     >
                       <Filter className="w-3.5 h-3.5" />
-                      <span>Bộ lọc</span>
-                      {activeFiltersCount > 0 && (
-                        <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
-                          {activeFiltersCount}
-                        </span>
+                      <span>Bộ lọc nâng cao</span>
+                      {activeAdvancedCount > 0 && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                clearAdvancedFilters();
+                              }}
+                              className="group/badge relative ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-purple-600 hover:bg-rose-600 text-white text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                            >
+                              <span className="group-hover/badge:hidden">{activeAdvancedCount}</span>
+                              <X className="w-2.5 h-2.5 hidden group-hover/badge:block stroke-[2.5]" />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Xóa tất cả bộ lọc nâng cao</TooltipContent>
+                        </Tooltip>
                       )}
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-72 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-3.5">
                     <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
                       <h4 className="text-xs font-semibold text-slate-900 dark:text-white">Bộ lọc nâng cao</h4>
-                      {activeFiltersCount > 0 && (
+                      {activeAdvancedCount > 0 && (
                         <button
-                          onClick={clearAllFilters}
-                          className="text-xs font-medium text-pink-600 hover:underline cursor-pointer"
+                          onClick={clearAdvancedFilters}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/50 transition-colors cursor-pointer"
                         >
                           Đặt lại
                         </button>
@@ -946,22 +1096,50 @@ function UsersManagementContent() {
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Trạng thái tài khoản
                       </label>
-                      <Select
-                        value={statusFilter}
-                        onValueChange={(val) => {
-                          setStatusFilter(val as any);
-                          setPage(1);
-                        }}
-                      >
-                        <SelectTrigger className="w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                          <SelectValue placeholder="Tất cả trạng thái" />
-                        </SelectTrigger>
-                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
-                          <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Đang hoạt động</SelectItem>
-                          <SelectItem value="INACTIVE" className="text-xs font-normal cursor-pointer">Tạm khóa</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="relative group shrink-0">
+                        <Select
+                          value={statusFilter}
+                          onValueChange={(val) => {
+                            setStatusFilter(val as any);
+                            setPage(1);
+                          }}
+                        >
+                          <SelectTrigger
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                              statusFilter !== "ALL"
+                                ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                                : ""
+                            }`}
+                          >
+                            <SelectValue placeholder="Tất cả trạng thái" />
+                          </SelectTrigger>
+                          <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
+                            <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Đang hoạt động</SelectItem>
+                            <SelectItem value="INACTIVE" className="text-xs font-normal cursor-pointer">Tạm khóa</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {statusFilter !== "ALL" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setStatusFilter("ALL");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa chọn trạng thái"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
 
                     {/* Phụ trách Fleet */}
@@ -969,22 +1147,50 @@ function UsersManagementContent() {
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Số tài khoản phụ trách
                       </label>
-                      <Select
-                        value={hasAccountsFilter}
-                        onValueChange={(val) => {
-                          setHasAccountsFilter(val as any);
-                          setPage(1);
-                        }}
-                      >
-                        <SelectTrigger className="w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                          <SelectValue placeholder="Tất cả" />
-                        </SelectTrigger>
-                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
-                          <SelectItem value="YES" className="text-xs font-normal cursor-pointer">Đang phụ trách TikTok Acc</SelectItem>
-                          <SelectItem value="NO" className="text-xs font-normal cursor-pointer">Chưa gán tài khoản nào (0)</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="relative group shrink-0">
+                        <Select
+                          value={hasAccountsFilter}
+                          onValueChange={(val) => {
+                            setHasAccountsFilter(val as any);
+                            setPage(1);
+                          }}
+                        >
+                          <SelectTrigger
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                              hasAccountsFilter !== "ALL"
+                                ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                                : ""
+                            }`}
+                          >
+                            <SelectValue placeholder="Tất cả" />
+                          </SelectTrigger>
+                          <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
+                            <SelectItem value="YES" className="text-xs font-normal cursor-pointer">Đang phụ trách TikTok Acc</SelectItem>
+                            <SelectItem value="NO" className="text-xs font-normal cursor-pointer">Chưa gán tài khoản nào</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {hasAccountsFilter !== "ALL" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setHasAccountsFilter("ALL");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa chọn số acc phụ trách"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa chọn số acc phụ trách</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
                   </PopoverContent>
                 </Popover>
@@ -992,89 +1198,119 @@ function UsersManagementContent() {
 
               {/* Action Controls Group: Sort, View Switcher & Column Customizer (Aligned to left on wrapped row) */}
               <div className="flex items-center gap-2.5 shrink-0 self-start xl:self-auto xl:ml-auto">
-                {/* Sort Popover */}
+                {/* Sort Popover with background effect & hover tooltip */}
                 <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all cursor-pointer"
-                    >
-                      <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Sắp xếp</span>
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="end" className="w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${
+                            sortConfig.key
+                              ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
+                              : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
+                          }`}
+                        >
+                          <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-pink-600 dark:text-pink-400" : "text-slate-500"}`} />
+                          <span>Sắp xếp</span>
+                          {currentSortOption && (
+                            <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-pink-100/90 dark:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-200/60 dark:border-pink-800/60">
+                              {currentSortOption.label} {sortConfig.desc ? "↓" : "↑"}
+                            </span>
+                          )}
+                        </button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      Đang sắp xếp: {currentSortOption.label} ({sortDirectionText})
+                    </TooltipContent>
+                  </Tooltip>
+                  <PopoverContent align="end" className="w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1.5">
                     <div className="text-xs font-semibold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
                       Sắp xếp theo cột
                     </div>
-                    {[
-                      { key: "fullName", label: "Họ & tên" },
-                      { key: "username", label: "Username" },
-                      { key: "email", label: "Email" },
-                      { key: "role", label: "Vai trò" },
-                      { key: "groupName", label: "Nhóm" },
-                      { key: "accountsCount", label: "Số acc phụ trách" },
-                      { key: "isActive", label: "Trạng thái hoạt động" },
-                      { key: "createdAt", label: "Ngày tạo" },
-                    ].map((item) => (
-                      <button
-                        key={item.key}
-                        onClick={() => handleSort(item.key as SortKey)}
-                        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-normal text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                      >
-                        <span>{item.label}</span>
-                        {sortConfig.key === item.key && (
-                          <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
-                            {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                    {SORT_OPTIONS.map((item) => {
+                      const isSelected = sortConfig.key === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          onClick={() => handleSort(item.key)}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
+                              : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
+                          }`}
+                        >
+                          <span>{item.label}</span>
+                          {isSelected && (
+                            <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
+                              {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </PopoverContent>
                 </Popover>
 
-                {/* View Mode Switcher */}
+                {/* View Mode Switcher with Tooltip */}
                 <div className="flex items-center p-0.5 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-                  <button
-                    type="button"
-                    onClick={() => handleViewModeChange("grid")}
-                    className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      viewMode === "grid"
-                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
-                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                    }`}
-                    title="Chế độ xem dạng lưới (Cards)"
-                  >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Lưới</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleViewModeChange("list")}
-                    className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      viewMode === "list"
-                        ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
-                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                    }`}
-                    title="Chế độ xem dạng danh sách (Bảng)"
-                  >
-                    <List className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Bảng</span>
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => handleViewModeChange("grid")}
+                        className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          viewMode === "grid"
+                            ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                            : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                        }`}
+                        aria-label="Chế độ xem dạng lưới (Cards)"
+                      >
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Lưới</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Chế độ xem dạng lưới (Cards)</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => handleViewModeChange("list")}
+                        className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          viewMode === "list"
+                            ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                            : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                        }`}
+                        aria-label="Chế độ xem dạng danh sách (Bảng)"
+                      >
+                        <List className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Bảng</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Chế độ xem dạng danh sách (Bảng)</TooltipContent>
+                  </Tooltip>
                 </div>
 
                 {/* Column Visibility Popover (Only for List view) */}
                 {viewMode === "list" && (
                   <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
-                        title="Tùy chỉnh cột hiển thị"
-                      >
-                        <Columns3 className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Cột hiển thị</span>
-                      </button>
-                    </PopoverTrigger>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <button
+                            className="flex items-center gap-1.5 h-9 px-3 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-none cursor-pointer"
+                            aria-label="Tùy chỉnh cột hiển thị"
+                          >
+                            <Columns3 className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Cột hiển thị</span>
+                          </button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Tùy chỉnh cột hiển thị</TooltipContent>
+                    </Tooltip>
                     <PopoverContent
                       align="end"
                       className="w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1"
@@ -1112,9 +1348,8 @@ function UsersManagementContent() {
                         ].map((col) => (
                           <label
                             key={col.key}
-                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${
-                              col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
-                            }`}
+                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none ${col.locked ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
+                              }`}
                           >
                             <Checkbox
                               checked={visibleColumns[col.key as keyof typeof visibleColumns]}
@@ -1143,6 +1378,88 @@ function UsersManagementContent() {
                 )}
               </div>
             </div>
+
+            {/* Active Filter Chips */}
+            {activeFiltersCount > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {search && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                    <span>Tìm: {search}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button onClick={() => setSearch("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                    </Tooltip>
+                  </span>
+                )}
+                {roleFilter !== "ALL" && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
+                    <span>Vai trò: {roleFilter === "ADMIN" ? "Admin" : roleFilter === "LEAD" ? "Lead" : "Staff"}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button onClick={() => setRoleFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                    </Tooltip>
+                  </span>
+                )}
+                {groupFilter !== "ALL" && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
+                    <span>Nhóm: {groupFilter}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button onClick={() => setGroupFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                    </Tooltip>
+                  </span>
+                )}
+                {statusFilter !== "ALL" && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
+                    <span>Trạng thái: {statusFilter === "ACTIVE" ? "Đang hoạt động" : "Tạm khóa"}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button onClick={() => setStatusFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                    </Tooltip>
+                  </span>
+                )}
+                {hasAccountsFilter !== "ALL" && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
+                    <span>Phụ trách: {hasAccountsFilter === "YES" ? "Có tài khoản" : "Chưa gán"}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button onClick={() => setHasAccountsFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                    </Tooltip>
+                  </span>
+                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={clearAllFilters}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer ml-1"
+                    >
+                      Xóa tất cả
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1271,11 +1588,10 @@ function UsersManagementContent() {
                 return (
                   <div
                     key={u.id}
-                    className={`group bg-white dark:bg-slate-900/80 rounded-3xl border transition-all duration-200 relative overflow-hidden flex flex-col hover:shadow-lg hover:shadow-pink-500/5 hover:-translate-y-0.5 ${
-                      isSelected
-                        ? "border-pink-500/60 ring-2 ring-pink-500/20 shadow-md shadow-pink-500/10"
-                        : "border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
-                    }`}
+                    className={`group bg-white dark:bg-slate-900/80 rounded-3xl border transition-all duration-200 relative overflow-hidden flex flex-col hover:shadow-lg hover:shadow-pink-500/5 hover:-translate-y-0.5 ${isSelected
+                      ? "border-pink-500/60 ring-2 ring-pink-500/20 shadow-md shadow-pink-500/10"
+                      : "border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                      }`}
                   >
                     {/* Top Bar: Checkbox + Role Badge + Status + Actions */}
                     <div className="p-4 pb-2 flex items-center justify-between gap-2">
@@ -1297,23 +1613,20 @@ function UsersManagementContent() {
                             u.id === session?.user?.id
                               ? "Không thể tự chặn chính mình"
                               : u.isActive
-                              ? "Bấm để chặn quyền truy cập"
-                              : "Bấm để mở chặn quyền truy cập"
+                                ? "Bấm để chặn quyền truy cập"
+                                : "Bấm để mở chặn quyền truy cập"
                           }
-                          className={`h-7 px-2.5 rounded-full inline-flex items-center gap-1.5 text-xs font-bold border transition-all shadow-2xs ${
-                            u.id === session?.user?.id
-                              ? "opacity-75 cursor-default"
-                              : "cursor-pointer"
-                          } ${
-                            u.isActive
+                          className={`h-7 px-2.5 rounded-full inline-flex items-center gap-1.5 text-xs font-bold border transition-all shadow-2xs ${u.id === session?.user?.id
+                            ? "opacity-75 cursor-default"
+                            : "cursor-pointer"
+                            } ${u.isActive
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
                               : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
-                          }`}
+                            }`}
                         >
                           <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              u.isActive ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
-                            }`}
+                            className={`w-1.5 h-1.5 rounded-full ${u.isActive ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
+                              }`}
                           />
                           <span>{u.isActive ? "Hoạt động" : "Bị chặn"}</span>
                         </button>
@@ -1343,7 +1656,7 @@ function UsersManagementContent() {
                                 className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
                               >
                                 <Eye className="w-3.5 h-3.5 text-slate-400" />
-                                <span>Xem chi tiết Fleet</span>
+                                <span>Xem chi tiết</span>
                               </Link>
                             </DropdownMenuItem>
 
@@ -1378,11 +1691,10 @@ function UsersManagementContent() {
                               <DropdownMenuItem
                                 disabled={u.id === session?.user?.id}
                                 onClick={() => openToggleStatusModal(u)}
-                                className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-normal ${
-                                  u.id === session?.user?.id
-                                    ? "opacity-50 cursor-not-allowed text-slate-400"
-                                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                                }`}
+                                className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-normal ${u.id === session?.user?.id
+                                  ? "opacity-50 cursor-not-allowed text-slate-400"
+                                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                  }`}
                               >
                                 {u.isActive ? (
                                   <>
@@ -1505,12 +1817,12 @@ function UsersManagementContent() {
                           title={
                             u.boundMachineId
                               ? `${u.boundMachineName || u.boundMachineId}${u.boundOsUser ? ` (${u.boundOsUser})` : ""}`
-                              : "Chưa gắn"
+                              : "Chưa gán"
                           }
                         >
                           {u.boundMachineId
                             ? u.boundMachineName || u.boundMachineId.slice(0, 12)
-                            : "Chưa gắn"}
+                            : "Chưa gán"}
                         </span>
                       </div>
 
@@ -1596,7 +1908,7 @@ function UsersManagementContent() {
                 <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none normal-case">
                   <tr>
                     {/* Checkbox All (Frozen Left) */}
-                    <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs">
+                    <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800">
                       <Checkbox
                         checked={isAllPageSelected}
                         onCheckedChange={(val) => toggleSelectAll(!!val)}
@@ -1608,7 +1920,7 @@ function UsersManagementContent() {
                     {visibleColumns.fullName && (
                       <th
                         onClick={() => handleSort("fullName")}
-                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px]"
+                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px]"
                       >
                         <div className="flex items-center gap-1.5">
                           <span>Họ & tên</span>
@@ -1691,7 +2003,7 @@ function UsersManagementContent() {
                     )}
 
                     {visibleColumns.actions && (
-                      <th className="py-3.5 px-6 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
+                      <th className="py-3.5 px-6 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
                         Thao tác
                       </th>
                     )}
@@ -1735,19 +2047,19 @@ function UsersManagementContent() {
                                 href={`/users/${u.id}`}
                                 className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 transition-colors flex items-center gap-2 group/link"
                               >
-                                  <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white text-xs font-bold shrink-0 select-none">
-                                    {u.avatar ? (
-                                      <img
-                                        src={u.avatar}
-                                        alt={u.username}
-                                        className="w-full h-full rounded-full object-cover"
-                                      />
-                                    ) : (
-                                      <span className="leading-none">
-                                        {(u.fullName || u.username || "U")[0]?.toUpperCase()}
-                                      </span>
-                                    )}
-                                  </div>
+                                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white text-xs font-bold shrink-0 select-none">
+                                  {u.avatar ? (
+                                    <img
+                                      src={u.avatar}
+                                      alt={u.username}
+                                      className="w-full h-full rounded-full object-cover"
+                                    />
+                                  ) : (
+                                    <span className="leading-none">
+                                      {(u.fullName || u.username || "U")[0]?.toUpperCase()}
+                                    </span>
+                                  )}
+                                </div>
                                 <span className="group-hover/link:underline truncate">
                                   {u.fullName || "Chưa đặt tên"}
                                 </span>
@@ -1833,16 +2145,15 @@ function UsersManagementContent() {
                                   u.id === session?.user?.id
                                     ? "Không thể tự chặn chính mình"
                                     : u.isActive
-                                    ? "Bấm để chặn quyền truy cập"
-                                    : "Bấm để mở chặn quyền truy cập"
+                                      ? "Bấm để chặn quyền truy cập"
+                                      : "Bấm để mở chặn quyền truy cập"
                                 }
-                                className={`inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold border transition-all shadow-2xs whitespace-nowrap ${
-                                  u.id === session?.user?.id
-                                    ? "opacity-80 cursor-default"
-                                    : "cursor-pointer"
-                                } ${u.isActive
-                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
-                                  : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
+                                className={`inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold border transition-all shadow-2xs whitespace-nowrap ${u.id === session?.user?.id
+                                  ? "opacity-80 cursor-default"
+                                  : "cursor-pointer"
+                                  } ${u.isActive
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                                    : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
                                   }`}
                               >
                                 <span
@@ -1862,7 +2173,7 @@ function UsersManagementContent() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <DropdownMenuTrigger asChild>
-                                      <button 
+                                      <button
                                         className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                                         aria-label="Tùy chọn nhân sự"
                                       >
@@ -1882,7 +2193,7 @@ function UsersManagementContent() {
                                       className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
                                     >
                                       <Eye className="w-3.5 h-3.5 text-slate-400" />
-                                      <span>Xem chi tiết Fleet</span>
+                                      <span>Xem chi tiết</span>
                                     </Link>
                                   </DropdownMenuItem>
 
@@ -1938,11 +2249,10 @@ function UsersManagementContent() {
                                     <DropdownMenuItem
                                       disabled={u.id === session?.user?.id}
                                       onClick={() => openToggleStatusModal(u)}
-                                      className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-normal ${
-                                        u.id === session?.user?.id
-                                          ? "opacity-50 cursor-not-allowed text-slate-400"
-                                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                                      }`}
+                                      className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-normal ${u.id === session?.user?.id
+                                        ? "opacity-50 cursor-not-allowed text-slate-400"
+                                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                        }`}
                                     >
                                       {u.isActive ? (
                                         <>
@@ -2073,7 +2383,7 @@ function UsersManagementContent() {
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
                     <tr>
-                      <th className="py-3.5 px-4 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px]">
+                      <th className="py-3.5 px-4 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px]">
                         Email Nhận Lời Mời
                       </th>
                       <th className="py-3.5 px-4 whitespace-nowrap min-w-[120px]">Phân Quyền</th>
@@ -2737,11 +3047,10 @@ function UsersManagementContent() {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5 animate-in zoom-in-95">
             <div className="flex items-center gap-3">
               <div
-                className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
-                  userToToggleStatus.isActive
-                    ? "bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400"
-                    : "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400"
-                }`}
+                className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${userToToggleStatus.isActive
+                  ? "bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400"
+                  : "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400"
+                  }`}
               >
                 {userToToggleStatus.isActive ? (
                   <Ban className="w-5 h-5" />
@@ -2828,11 +3137,10 @@ function UsersManagementContent() {
                     });
                   }
                 }}
-                className={`flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer ${
-                  userToToggleStatus.isActive
-                    ? "bg-rose-600 hover:bg-rose-700"
-                    : "bg-emerald-600 hover:bg-emerald-700"
-                }`}
+                className={`flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer ${userToToggleStatus.isActive
+                  ? "bg-rose-600 hover:bg-rose-700"
+                  : "bg-emerald-600 hover:bg-emerald-700"
+                  }`}
               >
                 {userToToggleStatus.isActive ? (
                   <>
@@ -3037,7 +3345,7 @@ function UsersManagementContent() {
                   }`}
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Tải Extension hộ (ZIP pairing)</span>
+                <span>Tải Extension hộ</span>
               </a>
             </div>
           </div>

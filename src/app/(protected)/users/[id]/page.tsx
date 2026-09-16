@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState, useMemo, useEffect, Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useUrlParams } from "@/hooks/useUrlState";
 import { useSession } from "next-auth/react";
 import {
   Users,
@@ -159,18 +160,60 @@ const normalizeCountry = (country?: string | null): string => {
   return country.trim().toUpperCase();
 };
 
-export default function UserDetailPage() {
+function UserDetailPageContent() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const userId = params?.id as string;
   const { data: session } = useSession();
 
-  const [activeTab, setActiveTab] = useState<"accounts" | "checklists" | "profile">("accounts");
-  const [days, setDays] = useState(28);
-  const [accountSearch, setAccountSearch] = useState("");
-  const [accountStatusFilter, setAccountStatusFilter] = useState("ALL");
-  const [accountCountryFilter, setAccountCountryFilter] = useState("ALL");
+  // SaaS URL Query State Synchronization
+  const { updateUrlParams } = useUrlParams();
+
+  const validTabs = ["accounts", "checklists", "profile"] as const;
+  const paramTab = searchParams?.get("tab") as any;
+  const initialTab = validTabs.includes(paramTab) ? paramTab : "accounts";
+  const [activeTab, setActiveTab] = useState<"accounts" | "checklists" | "profile">(initialTab);
+
+  const initialDays = Number(searchParams?.get("days")) || 28;
+  const [days, setDays] = useState(initialDays);
+
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const [accountSearch, setAccountSearch] = useState(initialSearch);
+
+  const initialStatus = searchParams?.get("status") || "ALL";
+  const [accountStatusFilter, setAccountStatusFilter] = useState(initialStatus);
+
+  const initialCountry = searchParams?.get("country") || "ALL";
+  const [accountCountryFilter, setAccountCountryFilter] = useState(initialCountry);
+
   const [toastMsg, setToastMsg] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+
+  // Auto sync active state to URL
+  useEffect(() => {
+    updateUrlParams(
+      {
+        tab: activeTab,
+        days: days,
+        q: accountSearch,
+        status: accountStatusFilter,
+        country: accountCountryFilter,
+      },
+      {
+        days: 28,
+        q: "",
+        status: "ALL",
+        country: "ALL",
+      }
+    );
+  }, [
+    activeTab,
+    days,
+    accountSearch,
+    accountStatusFilter,
+    accountCountryFilter,
+    updateUrlParams,
+  ]);
 
   const utils = trpc.useUtils();
 
@@ -692,54 +735,185 @@ export default function UserDetailPage() {
       {activeTab === "accounts" && (
         <div className="space-y-4">
           {/* Filters & Search Toolbar */}
-          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-80">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <Input
-                placeholder="Tìm username, profile ID, group..."
-                value={accountSearch}
-                onChange={(e) => setAccountSearch(e.target.value)}
-                className="pl-9 h-9 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
-              />
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="relative w-full sm:w-80">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Input
+                  placeholder="Tìm username, profile ID, group..."
+                  value={accountSearch}
+                  onChange={(e) => setAccountSearch(e.target.value)}
+                  className="pl-9 pr-8 h-9 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors"
+                />
+                {accountSearch && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setAccountSearch("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-110"
+                        aria-label="Xóa tìm kiếm"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa tìm kiếm</TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="relative shrink-0">
+                  <Select value={accountStatusFilter} onValueChange={setAccountStatusFilter}>
+                    <SelectTrigger
+                      className={`h-9 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer transition-colors ${
+                        accountStatusFilter !== "ALL"
+                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                          : ""
+                      }`}
+                    >
+                      <SelectValue placeholder="Trạng thái" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xl">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
+                      <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Hoạt Động (Active)</SelectItem>
+                      <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Đang Nuôi (Warming)</SelectItem>
+                      <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Hạn Chế</SelectItem>
+                      <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Bị Khóa (Banned)</SelectItem>
+                      <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Tạm Dừng</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {accountStatusFilter !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setAccountStatusFilter("ALL");
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn trạng thái"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+
+                <div className="relative shrink-0">
+                  <Select value={accountCountryFilter} onValueChange={setAccountCountryFilter}>
+                    <SelectTrigger
+                      className={`h-9 w-44 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer transition-colors ${
+                        accountCountryFilter !== "ALL"
+                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                          : ""
+                      }`}
+                    >
+                      <SelectValue placeholder="Tất cả quốc gia" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl max-h-60 overflow-y-auto bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xl">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
+                      {COUNTRY_OPTIONS.map((c) => (
+                        <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                      {userDetail?.tiktokAccounts
+                        ?.map((acc: any) => normalizeCountry(acc.country))
+                        .filter((c: string, idx: number, arr: string[]) => arr.indexOf(c) === idx && !COUNTRY_OPTIONS.some((opt) => opt.value === c))
+                        .map((extraCode: string) => (
+                          <SelectItem key={extraCode} value={extraCode} className="text-xs font-normal cursor-pointer">
+                            {FLAG_MAP[extraCode] || "🌐"} {extraCode}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  {accountCountryFilter !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setAccountCountryFilter("ALL");
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn quốc gia"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn quốc gia</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Select value={accountStatusFilter} onValueChange={setAccountStatusFilter}>
-                <SelectTrigger className="h-9 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer">
-                  <SelectValue placeholder="Trạng thái" />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xl">
-                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
-                  <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Hoạt Động (Active)</SelectItem>
-                  <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Đang Nuôi (Warming)</SelectItem>
-                  <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Hạn Chế</SelectItem>
-                  <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Bị Khóa (Banned)</SelectItem>
-                  <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Tạm Dừng</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={accountCountryFilter} onValueChange={setAccountCountryFilter}>
-                <SelectTrigger className="h-9 w-44 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer">
-                  <SelectValue placeholder="Tất cả quốc gia" />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl max-h-60 overflow-y-auto bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xl">
-                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
-                  {COUNTRY_OPTIONS.map((c) => (
-                    <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
-                      {c.label}
-                    </SelectItem>
-                  ))}
-                  {userDetail?.tiktokAccounts
-                    ?.map((acc: any) => normalizeCountry(acc.country))
-                    .filter((c: string, idx: number, arr: string[]) => arr.indexOf(c) === idx && !COUNTRY_OPTIONS.some((opt) => opt.value === c))
-                    .map((extraCode: string) => (
-                      <SelectItem key={extraCode} value={extraCode} className="text-xs font-normal cursor-pointer">
-                        {FLAG_MAP[extraCode] || "🌐"} {extraCode}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Active Filter Chips */}
+            {(accountSearch || accountStatusFilter !== "ALL" || accountCountryFilter !== "ALL") && (
+              <div className="flex flex-wrap items-center gap-2">
+                {accountSearch && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                    <span>Tìm: {accountSearch}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button onClick={() => setAccountSearch("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                    </Tooltip>
+                  </span>
+                )}
+                {accountStatusFilter !== "ALL" && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
+                    <span>Trạng thái: {accountStatusFilter}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button onClick={() => setAccountStatusFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                    </Tooltip>
+                  </span>
+                )}
+                {accountCountryFilter !== "ALL" && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
+                    <span>Quốc gia: {COUNTRY_OPTIONS.find((c) => c.value === accountCountryFilter)?.label || accountCountryFilter}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button onClick={() => setAccountCountryFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                    </Tooltip>
+                  </span>
+                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => {
+                        setAccountSearch("");
+                        setAccountStatusFilter("ALL");
+                        setAccountCountryFilter("ALL");
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer ml-1"
+                    >
+                      Xóa tất cả
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
           </div>
 
           {/* Accounts Table */}
@@ -1120,5 +1294,13 @@ export default function UserDetailPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function UserDetailPage() {
+  return (
+    <Suspense fallback={<UserDetailSkeleton />}>
+      <UserDetailPageContent />
+    </Suspense>
   );
 }

@@ -340,7 +340,13 @@ export default function AnalyticsFilterToolbar({
               value={groupId || "ALL"}
               onValueChange={(val) => setGroupId(val === "ALL" ? null : val)}
             >
-              <SelectTrigger className="h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer">
+              <SelectTrigger
+                className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${
+                  groupId && groupId !== "ALL"
+                    ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
+                    : ""
+                }`}
+              >
                 <SelectValue placeholder="Tất Cả Đội / Nhóm" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
@@ -354,6 +360,25 @@ export default function AnalyticsFilterToolbar({
                 ))}
               </SelectContent>
             </Select>
+            {groupId && groupId !== "ALL" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setGroupId(null);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                    aria-label="Xóa chọn đội / nhóm"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Xóa chọn đội / nhóm</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         )}
 
@@ -364,7 +389,13 @@ export default function AnalyticsFilterToolbar({
               value={operatorId || "ALL"}
               onValueChange={(val) => setOperatorId(val === "ALL" ? null : val)}
             >
-              <SelectTrigger className="h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer">
+              <SelectTrigger
+                className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${
+                  operatorId && operatorId !== "ALL"
+                    ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
+                    : ""
+                }`}
+              >
                 <SelectValue placeholder="Tất Cả Nhân Sự" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
@@ -378,6 +409,25 @@ export default function AnalyticsFilterToolbar({
                 ))}
               </SelectContent>
             </Select>
+            {operatorId && operatorId !== "ALL" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setOperatorId(null);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                    aria-label="Xóa chọn nhân sự"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Xóa chọn nhân sự</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         )}
 
@@ -387,7 +437,13 @@ export default function AnalyticsFilterToolbar({
             value={country || "ALL"}
             onValueChange={(val) => setCountry(val === "ALL" ? null : val)}
           >
-            <SelectTrigger className="h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer">
+            <SelectTrigger
+              className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${
+                country && country !== "ALL"
+                  ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
+                  : ""
+              }`}
+            >
               <SelectValue placeholder="Mọi Thị Trường" />
             </SelectTrigger>
             <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-64">
@@ -408,6 +464,25 @@ export default function AnalyticsFilterToolbar({
                 ))}
             </SelectContent>
           </Select>
+          {country && country !== "ALL" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setCountry(null);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                  aria-label="Xóa chọn thị trường"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Xóa chọn thị trường</TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {/* 4. Status Filter */}
@@ -416,7 +491,13 @@ export default function AnalyticsFilterToolbar({
             value={status || "ALL"}
             onValueChange={(val) => setStatus(val === "ALL" ? null : val)}
           >
-            <SelectTrigger className="h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer">
+            <SelectTrigger
+              className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${
+                status && status !== "ALL"
+                  ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
+                  : ""
+              }`}
+            >
               <SelectValue placeholder="Mọi Trạng Thái" />
             </SelectTrigger>
             <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
@@ -430,18 +511,42 @@ export default function AnalyticsFilterToolbar({
               <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">STOPPED (Tạm dừng)</SelectItem>
             </SelectContent>
           </Select>
+          {status && status !== "ALL" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setStatus(null);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                  aria-label="Xóa chọn trạng thái"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {/* Clear Filters Reset Button */}
         {hasActiveFilters && (
-          <button
-            type="button"
-            onClick={handleResetFilters}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 cursor-pointer transition-colors"
-          >
-            <X className="w-3 h-3" />
-            <span>Xóa bộ lọc</span>
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-800/60 cursor-pointer transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Xóa bộ lọc</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
+          </Tooltip>
         )}
       </div>
     </div>

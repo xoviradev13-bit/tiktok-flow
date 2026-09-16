@@ -1,5 +1,6 @@
 /**
  * Workday KPI Scoring Engine
+ * completedCount = accounts where video was posted (isPosted = true)
  * Rules:
  * >= 85% completion -> 1.0 Workday (1 công)
  * >= 50% & < 85% completion -> 0.5 Workday (0.5 công)

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, Suspense } from "react";
+import { useUrlParams } from "@/hooks/useUrlState";
 import {
   Settings,
   User,
@@ -72,14 +73,27 @@ const PRESET_AVATARS = [
   "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80",
 ];
 
-export default function SettingsPage() {
+function SettingsPageContent() {
   const { data: session } = useSession();
   const rawRole = (session?.user as any)?.role || (session?.user as any)?.userType || "STAFF";
   const isAdmin = String(rawRole).toUpperCase() === "ADMIN";
   const { theme, setTheme } = useTheme();
   const { colorTheme, setColorTheme, activeConfig } = useColorTheme();
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  const getInitialTab = (): SettingsTab => {
+    const tab = searchParams?.get("tab");
+    if (tab === "bugs" || tab === "admin_bugs" || tab === "bug_reports") return "admin_bugs";
+    if (tab === "cron" || tab === "schedule" || tab === "admin_system") return "admin_system";
+    if (tab === "security") return "security";
+    if (tab === "integrations" || tab === "token") return "integrations";
+    if (tab === "appearance" || tab === "theme") return "appearance";
+    return "profile";
+  };
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>(getInitialTab);
 
   // Query self profile
   const { data: userProfile, refetch: refetchProfile, isLoading: loadingProfile } =
@@ -92,24 +106,13 @@ export default function SettingsPage() {
   );
   const openBugsCount = bugStats?.openCount ?? 0;
 
-  // Deep-linking support (e.g. /settings?tab=bugs from alert email)
+  // Auto sync activeTab to URL (always append tab to URL)
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const tab = params.get("tab");
-      if (tab === "bugs" || tab === "admin_bugs" || tab === "bug_reports") {
-        setActiveTab("admin_bugs");
-      } else if (tab === "cron" || tab === "schedule" || tab === "admin_system") {
-        setActiveTab("admin_system");
-      } else if (tab === "security") {
-        setActiveTab("security");
-      } else if (tab === "integrations" || tab === "token") {
-        setActiveTab("integrations");
-      } else if (tab === "appearance" || tab === "theme") {
-        setActiveTab("appearance");
-      }
-    }
-  }, []);
+    updateUrlParams(
+      { tab: activeTab },
+      {}
+    );
+  }, [activeTab, updateUrlParams]);
 
   // Mutations
   const updateProfileMutation = trpc.user.updateProfile.useMutation();
@@ -743,9 +746,16 @@ export default function SettingsPage() {
                       disabled
                       className="w-full px-3.5 py-2.5 text-sm rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed"
                     />
-                    <span className="absolute right-3 top-2.5 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
-                      Verified
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="absolute right-3 top-2.5 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold cursor-help">
+                          Verified
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs font-medium">
+                        Email đã được xác minh — không thể thay đổi
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
 
@@ -1734,7 +1744,7 @@ export default function SettingsPage() {
                   className="px-3.5 py-2 rounded-xl text-sm font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 transition-all cursor-pointer flex items-center gap-1.5"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${manualSweeperSyncing ? "animate-spin" : ""}`} />
-                  <span>Quét Vét Ngay</span>
+                  <span>Đồng Bộ Ngay</span>
                 </button>
 
                 <button
@@ -1885,5 +1895,13 @@ export default function SettingsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 text-xs">Đang tải cài đặt...</div>}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }
