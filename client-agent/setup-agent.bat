@@ -87,22 +87,15 @@ icacls "%PF%" /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F" "Users:(OI)
 "%NSSM%" stop TikTokFlowAgent >nul 2>nul
 "%NSSM%" remove TikTokFlowAgent confirm >nul 2>nul
 
-if exist "%PF%\bin\node.exe" (
-  "%NSSM%" install TikTokFlowAgent "%PF%\bin\node.exe" "\"%PF%\agent.js\" --daemon"
-) else (
-  "%NSSM%" install TikTokFlowAgent "%NODE%" "\"%PF%\agent.js\" --daemon"
-)
-"%NSSM%" set TikTokFlowAgent AppDirectory "%PF%"
-"%NSSM%" set TikTokFlowAgent AppStdout "%PD%\logs\agent-out.log"
-"%NSSM%" set TikTokFlowAgent AppStderr "%PD%\logs\agent-err.log"
-"%NSSM%" set TikTokFlowAgent Start SERVICE_DELAYED_AUTO_START
-"%NSSM%" set TikTokFlowAgent AppExit Default Restart
-"%NSSM%" set TikTokFlowAgent AppRestartDelay 5000
-"%NSSM%" set TikTokFlowAgent AppThrottle 10000
+echo [*] Dang cai dat tac vu chay ngam tu dong khoi dong cung Windows...
+schtasks /create /tn "TikTokFlow_Agent_Daemon" /tr "wscript.exe \"%PF%\run-agent-silent.vbs\"" /sc onlogon /rl highest /f >nul 2>nul
 
-"%NSSM%" start TikTokFlowAgent
+echo [*] Dang khoi dong Agent ngay lap tuc...
+schtasks /run /tn "TikTokFlow_Agent_Daemon" >nul 2>nul
+
 echo.
-echo [THANH CONG] Agent da cai + chay ngam.
+echo [THANH CONG] Agent da cai dat xong va dang chay ngam!
+echo He thong se TU DONG chay moi khi ban bat may tinh (khong can bam lai).
 echo Kiem tra: mo trinh duyet toi http://127.0.0.1:39741/
 goto :done
 

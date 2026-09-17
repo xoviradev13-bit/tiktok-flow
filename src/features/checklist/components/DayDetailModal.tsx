@@ -500,7 +500,7 @@ export default function DayDetailModal({
                                         <span>Đạt KPI</span>
                                       </span>
                                     ) : (
-                                      <span className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 shadow-2xs inline-flex items-center gap-1">
+                                      <span className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 shadow-2xs inline-flex items-center gap-1 whitespace-nowrap">
                                         Chưa đạt
                                       </span>
                                     )}

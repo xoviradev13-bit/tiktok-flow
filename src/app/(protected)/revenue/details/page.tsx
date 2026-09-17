@@ -486,11 +486,16 @@ function RevenueDetailsPageContent() {
       alert("Các bản ghi đã chọn đều là bản ghi tự động từ Analytics, không thể xóa thủ công.");
       return;
     }
-    if (!confirm(`Bạn có chắc chắn muốn xóa ${realIds.length} bản ghi doanh thu đã chọn?`)) return;
+    const autoCount = selectedIds.size - realIds.length;
+    const confirmMessage = autoCount > 0
+      ? `Bạn đã chọn ${selectedIds.size} bản ghi (${autoCount} bản ghi tự động và ${realIds.length} bản ghi thủ công).\n\nHệ thống chỉ xóa ${realIds.length} bản ghi thủ công (các bản ghi tự động sẽ được giữ nguyên).\n\nBạn có muốn tiếp tục xóa?`
+      : `Bạn có chắc chắn muốn xóa ${realIds.length} bản ghi doanh thu thủ công đã chọn?`;
+
+    if (!confirm(confirmMessage)) return;
     try {
       setIsDeletingBulk(true);
       await bulkDeleteMutation.mutateAsync({ ids: realIds });
-      setActionMsg(`✅ Đã xóa thành công ${realIds.length} bản ghi!`);
+      setActionMsg(`✅ Đã xóa thành công ${realIds.length} bản ghi thủ công!`);
       setSelectedIds(new Set());
       utils.revenue.listDetails.invalidate();
       utils.revenue.getOverview.invalidate();
@@ -1464,14 +1469,40 @@ function RevenueDetailsPageContent() {
             <span>Xuất đã chọn ({selectedIds.size})</span>
           </button>
           {isLeadOrAdmin && (
-            <button
-              onClick={handleBulkDelete}
-              disabled={isDeletingBulk}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer disabled:opacity-50"
-            >
-              {isDeletingBulk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-              <span>Xóa đã chọn</span>
-            </button>
+            (() => {
+              const manualCount = Array.from(selectedIds).filter((id) => !id.startsWith("auto-")).length;
+              return (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <button
+                        onClick={handleBulkDelete}
+                        disabled={isDeletingBulk || manualCount === 0}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {isDeletingBulk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        <span>
+                          {manualCount === 0
+                            ? "Không thể xóa (bản ghi tự động)"
+                            : manualCount === selectedIds.size
+                              ? `Xóa đã chọn (${manualCount})`
+                              : `Xóa ${manualCount} bản ghi thủ công`}
+                        </span>
+                      </button>
+                    </span>
+                  </TooltipTrigger>
+                  {manualCount === 0 ? (
+                    <TooltipContent side="top" className="text-xs">
+                      Tất cả bản ghi đang chọn đều là tự động từ Analytics, không thể xóa thủ công.
+                    </TooltipContent>
+                  ) : manualCount < selectedIds.size ? (
+                    <TooltipContent side="top" className="text-xs">
+                      {selectedIds.size - manualCount} bản ghi tự động sẽ được giữ nguyên, chỉ xóa {manualCount} bản ghi thủ công.
+                    </TooltipContent>
+                  ) : null}
+                </Tooltip>
+              );
+            })()
           )}
         </div>
       )}

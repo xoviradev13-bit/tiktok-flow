@@ -6,12 +6,14 @@ import {
   getClientIp,
   resolveExtensionBearerAuth,
 } from "@/lib/extension-auth";
+import { detectCountryFromText, toStandardCountryCode } from "@/lib/country-name";
 
 export interface ClientProfilePayload {
   id: string;
   name: string;
   raw_name?: string;
   group_id?: string;
+  group_name?: string;
   tiktokHandle?: string | null;
 }
 
@@ -201,16 +203,32 @@ export async function GET(req: Request) {
       } catch { }
     }
 
-    // Auto-expire stale jobs older than 5 minutes
+    // Auto-expire stale jobs:
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const twentyFiveMinutesAgo = new Date(Date.now() - 25 * 60 * 1000);
+
+    // 1. PENDING jobs > 5 minutes (no agent online to pick it up)
     await prisma.syncQueue.updateMany({
       where: {
-        status: { in: ["PENDING", "PROCESSING"] },
+        status: "PENDING",
         requestedAt: { lt: fiveMinutesAgo },
       },
       data: {
         status: "TIMED_OUT",
-        errorMessage: "Quá thời gian chờ (5 phút) - Đã tự động hủy bỏ",
+        errorMessage: "Không có Client Agent nào tiếp nhận sau 5 phút - Đã tự động hủy bỏ",
+        completedAt: new Date(),
+      },
+    });
+
+    // 2. PROCESSING jobs > 25 minutes (agent crashed)
+    await prisma.syncQueue.updateMany({
+      where: {
+        status: "PROCESSING",
+        startedAt: { lt: twentyFiveMinutesAgo },
+      },
+      data: {
+        status: "TIMED_OUT",
+        errorMessage: "Tiến trình quét bị gián đoạn (quá 25 phút) - Đã tự động hủy bỏ",
         completedAt: new Date(),
       },
     });
@@ -219,7 +237,6 @@ export async function GET(req: Request) {
     const activeSyncJob = await prisma.syncQueue.findFirst({
       where: {
         status: { in: ["PENDING", "PROCESSING"] },
-        requestedAt: { gte: fiveMinutesAgo },
         OR: [
           { requestedById: authResult.user.id },
           { targetScope: authResult.user.id },
@@ -420,6 +437,7 @@ export async function POST(req: Request) {
         data: {
           status: "COMPLETED",
           completedAt: new Date(),
+          errorMessage: null,
           profilesCount: (body as any).profilesCount ?? null,
           successCount: (body as any).successCount ?? null,
           failCount: (body as any).failCount ?? 0,
@@ -485,13 +503,9 @@ export async function POST(req: Request) {
 
         const extractedUsername = realHandle || existing?.username || `profile_${p.id.slice(0, 8)}`;
 
-        let country = "US";
-        const lowerName = (p.name || "").toLowerCase();
-        const lowerGroup = (p.group_id || "").toLowerCase();
-        if (lowerName.includes("uk") || lowerGroup.includes("uk")) country = "UK";
-        else if (lowerName.includes("vn") || lowerGroup.includes("vn")) country = "VN";
-        else if (lowerName.includes("de")) country = "DE";
-        else if (lowerName.includes("fr")) country = "FR";
+        const resolvedGroupName = p.group_name || p.group_id;
+        const detectedFromText = detectCountryFromText(p.name) || detectCountryFromText(resolvedGroupName);
+        const country = detectedFromText || "US";
 
         // 1. INSERT IF NEW
         if (!existing) {
@@ -502,7 +516,7 @@ export async function POST(req: Request) {
               data: {
                 username: extractedUsername,
                 country,
-                groupName: p.group_id || "GPM Fleet",
+                groupName: resolvedGroupName || "GPM Fleet",
                 gpmProfileId: p.id,
                 gpmPort: incomingPort || undefined,
                 status: "ACTIVE",
@@ -552,14 +566,20 @@ export async function POST(req: Request) {
           gpmProfileId: string;
           gpmPort?: number;
           groupName: string;
+          country?: string;
           lastSyncedAt: Date;
           assignedUserId?: string;
         } = {
           gpmProfileId: p.id,
           ...(incomingPort ? { gpmPort: incomingPort } : {}),
-          groupName: p.group_id || existing.groupName || "GPM Fleet",
+          groupName: resolvedGroupName || existing.groupName || "GPM Fleet",
           lastSyncedAt: new Date(),
         };
+
+        // Upgrade country if we detect a specific country (UK, VN, etc.) and account is currently default/unset
+        if (detectedFromText && (!existing.country || existing.country === "US" || existing.country === "Unknown")) {
+          updateData.country = detectedFromText;
+        }
 
         let didHandover = false;
         if (currentUserId && currentUserId !== existing.assignedUserId) {

@@ -267,15 +267,37 @@ export const accountsRouter = router({
       }
 
       const statusChanged = input.status && input.status !== current.status;
+      if (statusChanged && ctx.session.user.role === "STAFF") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi trạng thái tài khoản.",
+        });
+      }
+
+      const countryChanged = input.country !== undefined && input.country !== current.country;
+      if (countryChanged && ctx.session.user.role === "STAFF") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi quốc gia của tài khoản.",
+        });
+      }
+
+      const groupChanged = input.groupName !== undefined && input.groupName !== current.groupName;
+      if (groupChanged && ctx.session.user.role === "STAFF") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi nhóm GPM của tài khoản.",
+        });
+      }
 
       const updated = await ctx.prisma.tiktokAccount.update({
         where: { id: input.id },
         data: {
-          country: input.country,
-          gpmProfileId: input.gpmProfileId,
-          gpmPort: input.gpmPort !== undefined ? input.gpmPort : undefined,
-          groupName: input.groupName,
-          status: input.status,
+          country: ctx.session.user.role !== "STAFF" ? input.country : undefined,
+          gpmProfileId: ctx.session.user.role !== "STAFF" ? input.gpmProfileId : undefined,
+          gpmPort: ctx.session.user.role !== "STAFF" && input.gpmPort !== undefined ? input.gpmPort : undefined,
+          groupName: ctx.session.user.role !== "STAFF" ? input.groupName : undefined,
+          status: ctx.session.user.role !== "STAFF" ? input.status : undefined,
           assignedUserId: ctx.session.user.role !== "STAFF" ? input.assignedUserId : undefined,
           isAssignmentLocked: ctx.session.user.role !== "STAFF" && input.isAssignmentLocked !== undefined ? input.isAssignmentLocked : undefined,
         },

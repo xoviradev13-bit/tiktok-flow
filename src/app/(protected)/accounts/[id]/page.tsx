@@ -1319,23 +1319,34 @@ function AccountDetailPageContent() {
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Trạng thái tài khoản
                 </label>
-                <Select
-                  value={account.status}
-                  onValueChange={(val: any) =>
-                    updateMutation.mutate({ id: account.id, status: val })
-                  }
-                >
-                  <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                    <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active (Hoạt động)</SelectItem>
-                    <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming (Nuôi acc)</SelectItem>
-                    <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted (Hạn chế)</SelectItem>
-                    <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned (Bị khóa)</SelectItem>
-                    <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped (Tạm dừng)</SelectItem>
-                  </SelectContent>
-                </Select>
+                {isLeadOrAdmin ? (
+                  <Select
+                    value={account.status}
+                    onValueChange={(val: any) =>
+                      updateMutation.mutate({ id: account.id, status: val })
+                    }
+                  >
+                    <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                      <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active (Hoạt động)</SelectItem>
+                      <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming (Nuôi acc)</SelectItem>
+                      <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted (Hạn chế)</SelectItem>
+                      <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned (Bị khóa)</SelectItem>
+                      <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped (Tạm dừng)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 flex items-center justify-between text-xs font-normal text-slate-700 dark:text-slate-300 select-none">
+                    <div className="flex items-center gap-2">
+                      {getStatusBadge(account.status)}
+                    </div>
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Chỉ Admin/Lead
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Assigned Staff Selector */}
@@ -1381,28 +1392,39 @@ function AccountDetailPageContent() {
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Quốc gia (Country)
                 </label>
-                <Select
-                  value={normalizeCountry(account.country)}
-                  onValueChange={(val) =>
-                    updateMutation.mutate({ id: account.id, country: val })
-                  }
-                >
-                  <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
-                    <SelectValue placeholder="Chọn quốc gia" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
-                    {COUNTRY_OPTIONS.map((c) => (
-                      <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
-                        {c.label}
-                      </SelectItem>
-                    ))}
-                    {!COUNTRY_OPTIONS.some((c) => c.value === normalizeCountry(account.country)) && account.country && (
-                      <SelectItem value={account.country} className="text-xs font-normal cursor-pointer">
-                        🌐 {account.country}
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
+                {isLeadOrAdmin ? (
+                  <Select
+                    value={normalizeCountry(account.country)}
+                    onValueChange={(val) =>
+                      updateMutation.mutate({ id: account.id, country: val })
+                    }
+                  >
+                    <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
+                      <SelectValue placeholder="Chọn quốc gia" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
+                      {COUNTRY_OPTIONS.map((c) => (
+                        <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                      {!COUNTRY_OPTIONS.some((c) => c.value === normalizeCountry(account.country)) && account.country && (
+                        <SelectItem value={account.country} className="text-xs font-normal cursor-pointer">
+                          🌐 {account.country}
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 flex items-center justify-between text-xs font-normal text-slate-700 dark:text-slate-300 select-none">
+                    <span className="truncate">
+                      {COUNTRY_OPTIONS.find((c) => c.value === normalizeCountry(account.country))?.label || account.country}
+                    </span>
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1 shrink-0">
+                      <Lock className="w-3 h-3" /> Chỉ Admin/Lead
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Group Name */}
@@ -1410,18 +1432,27 @@ function AccountDetailPageContent() {
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Tên nhóm / Phân loại
                 </label>
-                <div className="flex gap-2">
-                  <Input
-                    defaultValue={account.groupName || ""}
-                    placeholder="VD: Team US 01, Niche Funny..."
-                    onBlur={(e) => {
-                      if (e.target.value !== account.groupName) {
-                        updateMutation.mutate({ id: account.id, groupName: e.target.value });
-                      }
-                    }}
-                    className="h-9 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
-                  />
-                </div>
+                {isLeadOrAdmin ? (
+                  <div className="flex gap-2">
+                    <Input
+                      defaultValue={account.groupName || ""}
+                      placeholder="VD: Team US 01, Niche Funny..."
+                      onBlur={(e) => {
+                        if (e.target.value !== account.groupName) {
+                          updateMutation.mutate({ id: account.id, groupName: e.target.value });
+                        }
+                      }}
+                      className="h-9 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 flex items-center justify-between text-xs font-normal text-slate-700 dark:text-slate-300 select-none">
+                    <span className="truncate">{account.groupName || "-- Chưa phân nhóm --"}</span>
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1 shrink-0">
+                      <Lock className="w-3 h-3" /> Chỉ Admin/Lead
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

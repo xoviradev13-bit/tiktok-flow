@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { gpmClient } from "@/lib/gpm-api";
-import { isWeakCountryName } from "@/lib/country-name";
+import { isWeakCountryName, detectCountryFromText } from "@/lib/country-name";
 import { auth } from "@/lib/auth";
 import { pMap } from "@/lib/concurrency";
-
 import os from "os";
 
 async function resolveAuthUser(req: Request) {
@@ -35,16 +34,32 @@ async function resolveAuthUser(req: Request) {
 
 async function getActiveSyncJobForUser(userId: string) {
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  // Auto-expire stale jobs older than 5 minutes for this user
+  const twentyFiveMinutesAgo = new Date(Date.now() - 25 * 60 * 1000);
+
+  // 1. Auto-expire stale PENDING jobs older than 5 minutes (no agent online to pick it up)
   await prisma.syncQueue.updateMany({
     where: {
       requestedById: userId,
-      status: { in: ["PENDING", "PROCESSING"] },
+      status: "PENDING",
       requestedAt: { lt: fiveMinutesAgo },
     },
     data: {
       status: "TIMED_OUT",
-      errorMessage: "Quá thời gian chờ (5 phút) - Đã tự động hủy bỏ",
+      errorMessage: "Không có Client Agent nào tiếp nhận sau 5 phút - Đã tự động hủy bỏ",
+      completedAt: new Date(),
+    },
+  });
+
+  // 2. Auto-expire hung PROCESSING jobs older than 25 minutes (agent crashed)
+  await prisma.syncQueue.updateMany({
+    where: {
+      requestedById: userId,
+      status: "PROCESSING",
+      startedAt: { lt: twentyFiveMinutesAgo },
+    },
+    data: {
+      status: "TIMED_OUT",
+      errorMessage: "Tiến trình quét bị gián đoạn (quá 25 phút) - Đã tự động hủy bỏ",
       completedAt: new Date(),
     },
   });
@@ -53,7 +68,6 @@ async function getActiveSyncJobForUser(userId: string) {
     where: {
       requestedById: userId,
       status: { in: ["PENDING", "PROCESSING"] },
-      requestedAt: { gte: fiveMinutesAgo },
     },
     orderBy: { requestedAt: "desc" },
     include: {
@@ -116,11 +130,22 @@ export async function POST(req: Request) {
     });
     createdJobId = syncJob.id;
 
-    // Check GPMLogin connection first
+    // Queue-Only Mode: All sync operations are delegated to Client Agent via SyncQueue
+    const url = new URL(req.url);
+    const allowDirectLocal = url.searchParams.get("direct") === "1";
+
+    if (!allowDirectLocal) {
+      return NextResponse.json({
+        success: true,
+        isRemoteSignal: true,
+        jobId: syncJob.id,
+        message: "Đã đưa lệnh vào hàng đợi đồng bộ. Client Agent trên máy tính sẽ tự động nhận và bắt đầu quét ngay!",
+      });
+    }
+
+    // Direct Local Mode (only if explicitly requested via ?direct=1):
     const health = await gpmClient.checkConnection();
     if (!health.isOnline) {
-      // Remote VPS Mode: Web server is on cloud/VPS and cannot reach local GPM directly.
-      // The pending SyncQueue record will be picked up by the Client Agent polling daemon.
       return NextResponse.json({
         success: true,
         isRemoteSignal: true,
@@ -185,11 +210,8 @@ export async function POST(req: Request) {
 
         const extractedUsername = realHandle || existing?.username || `profile_${p.id.slice(0, 8)}`;
 
-        let resolvedCountry = "US";
-        if (lowerName.includes("uk") || lowerGroup.includes("uk")) resolvedCountry = "UK";
-        else if (lowerName.includes("vn") || lowerGroup.includes("vn")) resolvedCountry = "VN";
-        else if (lowerName.includes("de") || lowerGroup.includes("de")) resolvedCountry = "DE";
-        else if (lowerName.includes("fr") || lowerGroup.includes("fr")) resolvedCountry = "FR";
+        const detectedCountry = detectCountryFromText(p.name) || detectCountryFromText(p.group_id);
+        const resolvedCountry = detectedCountry || "US";
 
         const isOnline = existing?.isOnline || false;
 
@@ -450,26 +472,47 @@ export async function GET(req: Request) {
       take: 1,
     });
 
+    const lastFinished = await prisma.syncQueue.findFirst({
+      where: {
+        requestedById: user.id,
+        status: { in: ["COMPLETED", "FAILED", "TIMED_OUT"] },
+      },
+      orderBy: { completedAt: "desc" },
+      take: 1,
+    });
+
     return NextResponse.json({
       isSyncing: Boolean(activeJob),
       activeJob: activeJob
         ? {
-            id: activeJob.id,
-            status: activeJob.status,
-            requestedAt: activeJob.requestedAt,
-            startedAt: activeJob.startedAt,
-            machineName: activeJob.machineName,
-            requestedBy: activeJob.requestedBy?.name || "Bạn",
-          }
+          id: activeJob.id,
+          status: activeJob.status,
+          requestedAt: activeJob.requestedAt,
+          startedAt: activeJob.startedAt,
+          machineName: activeJob.machineName,
+          requestedBy: activeJob.requestedBy?.name || "Bạn",
+        }
         : null,
       lastCompletedJob: lastCompleted
         ? {
-            id: lastCompleted.id,
-            completedAt: lastCompleted.completedAt,
-            profilesCount: lastCompleted.profilesCount,
-            successCount: lastCompleted.successCount,
-            resultSummary: lastCompleted.resultSummary,
-          }
+          id: lastCompleted.id,
+          completedAt: lastCompleted.completedAt,
+          profilesCount: lastCompleted.profilesCount,
+          successCount: lastCompleted.successCount,
+          resultSummary: lastCompleted.resultSummary,
+        }
+        : null,
+      lastFinishedJob: lastFinished
+        ? {
+          id: lastFinished.id,
+          status: lastFinished.status,
+          completedAt: lastFinished.completedAt,
+          profilesCount: lastFinished.profilesCount,
+          successCount: lastFinished.successCount,
+          failCount: lastFinished.failCount,
+          resultSummary: lastFinished.resultSummary,
+          errorMessage: lastFinished.errorMessage,
+        }
         : null,
     });
   } catch (err: any) {

@@ -1672,18 +1672,18 @@ function ChecklistPageContent() {
                                   </div>
                                 ) : (
                                   <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-xs min-w-[760px]">
+                                    <table className="w-full text-left text-xs min-w-[840px]">
                                       <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-100 dark:border-slate-800 normal-case">
                                         <tr>
                                           <th className="py-2.5 px-4 w-[263px] min-w-[263px] max-w-[263px]">
                                             Tài khoản TikTok
                                           </th>
-                                          <th className="py-2.5 px-4 text-center">Đã đăng video</th>
-                                          <th className="py-2.5 px-4 text-center">Đã sync GPM</th>
-                                          <th className="py-2.5 px-4 text-center">Trạng thái KPI</th>
-                                          <th className="py-2.5 px-4">Giờ đăng & tiêu đề video mới nhất</th>
-                                          <th className="py-2.5 px-4">Ghi chú vận hành</th>
-                                          <th className="py-2.5 px-4 text-right min-w-[100px]">
+                                          <th className="py-2.5 px-4 text-center whitespace-nowrap">Đã đăng video</th>
+                                          <th className="py-2.5 px-4 text-center whitespace-nowrap">Đã sync GPM</th>
+                                          <th className="py-2.5 px-4 text-center w-36 min-w-[130px] whitespace-nowrap">Trạng thái KPI</th>
+                                          <th className="py-2.5 px-4 min-w-[220px]">Giờ đăng & tiêu đề video mới nhất</th>
+                                          <th className="py-2.5 px-4 min-w-[220px]">Ghi chú vận hành</th>
+                                          <th className="py-2.5 px-4 text-right min-w-[100px] whitespace-nowrap">
                                             Thao tác
                                           </th>
                                         </tr>
@@ -1785,16 +1785,16 @@ function ChecklistPageContent() {
                                               </td>
 
                                               {/* KPI Status */}
-                                              <td className="py-3 px-4 text-center">
+                                              <td className="py-3 px-4 text-center w-36 min-w-[130px] whitespace-nowrap">
                                                 <Tooltip>
                                                   <TooltipTrigger asChild>
                                                     <div className="inline-flex cursor-help">
                                                       {isItemCompleted ? (
-                                                        <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
-                                                          <CheckCircle2 className="w-3.5 h-3.5" /> Đạt KPI
+                                                        <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs whitespace-nowrap">
+                                                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Đạt KPI
                                                         </span>
                                                       ) : (
-                                                        <span className="inline-flex items-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                                        <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs whitespace-nowrap">
                                                           Chưa đạt
                                                         </span>
                                                       )}

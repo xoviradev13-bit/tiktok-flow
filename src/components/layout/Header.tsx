@@ -212,16 +212,24 @@ export default function Header() {
             setSyncMessage("⏳ Đang chờ Client Agent nhận lệnh...");
           }
         } else if (prevSyncingRef.current && !isRunning) {
-          // Sync just completed!
+          // Sync finished
           setSyncing(false);
-          if (data.lastCompletedJob) {
-            setSyncMessage(`✅ Đồng bộ hoàn tất! (${data.lastCompletedJob.resultSummary || "Dữ liệu đã cập nhật"})`);
+          const finished = data.lastFinishedJob;
+          if (finished?.status === "TIMED_OUT" || finished?.status === "FAILED") {
+            setSyncMessage(`❌ ${finished.errorMessage || "Đồng bộ không thành công"}`);
+            setTimeout(() => setSyncMessage(null), 8000);
+          } else if (finished?.status === "COMPLETED" || data.lastCompletedJob) {
+            const summary = finished?.resultSummary || data.lastCompletedJob?.resultSummary || "Dữ liệu đã cập nhật";
+            setSyncMessage(`✅ Đồng bộ hoàn tất! (${summary})`);
+            window.dispatchEvent(new Event("refreshData"));
+            refetchConfig();
+            setTimeout(() => setSyncMessage(null), 6000);
           } else {
             setSyncMessage("✅ Đồng bộ hoàn tất!");
+            window.dispatchEvent(new Event("refreshData"));
+            refetchConfig();
+            setTimeout(() => setSyncMessage(null), 6000);
           }
-          window.dispatchEvent(new Event("refreshData"));
-          refetchConfig();
-          setTimeout(() => setSyncMessage(null), 6000);
         }
         prevSyncingRef.current = isRunning;
       }
@@ -245,23 +253,7 @@ export default function Header() {
       setSyncing(true);
       setSyncMessage("Đang đưa lệnh vào hàng đợi đồng bộ...");
 
-      // 1. Try to trigger local Client Agent on this machine directly (port 39741)
-      let localAgentTriggered = false;
-      try {
-        const localRes = await fetch("http://127.0.0.1:39741/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(1200),
-        });
-        if (localRes.ok) {
-          localAgentTriggered = true;
-          setSyncMessage("✅ Đã kích hoạt Client Agent trên máy của bạn đang quét GPMLogin...");
-        }
-      } catch {
-        /* local agent port not responding or blocked by CORS */
-      }
-
-      // 2. Enqueue job on server via POST /api/gpm/sync
+      // Enqueue job on server via POST /api/gpm/sync
       const res = await fetch("/api/gpm/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -269,9 +261,7 @@ export default function Header() {
       });
       const json = await res.json();
       if (json.success) {
-        if (!localAgentTriggered) {
-          setSyncMessage(`⏳ ${json.message}`);
-        }
+        setSyncMessage(`⏳ ${json.message}`);
         // Button stays disabled; checkSyncStatus polling will automatically detect completion!
       } else {
         if (json.inProgress) {

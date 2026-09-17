@@ -611,6 +611,11 @@ function AccountsPageContent() {
   };
 
   const handleStatusChange = (accountId: string, newStatus: any) => {
+    if (!isLeadOrAdmin) {
+      setActionMsg("❌ Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền đổi trạng thái.");
+      setTimeout(() => setActionMsg(null), 4000);
+      return;
+    }
     updateMutation.mutate({ id: accountId, status: newStatus });
   };
 
@@ -624,6 +629,11 @@ function AccountsPageContent() {
   };
 
   const handleOpenEdit = (acc: any) => {
+    if (!isLeadOrAdmin) {
+      setActionMsg("❌ Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền chỉnh sửa tài khoản.");
+      setTimeout(() => setActionMsg(null), 4000);
+      return;
+    }
     setEditId(acc.id);
     setEditUsername(acc.username);
     setEditCountry(normalizeCountry(acc.country));
@@ -635,6 +645,11 @@ function AccountsPageContent() {
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isLeadOrAdmin) {
+      setActionMsg("❌ Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền chỉnh sửa tài khoản.");
+      setTimeout(() => setActionMsg(null), 4000);
+      return;
+    }
     updateMutation.mutate({
       id: editId,
       country: editCountry,
@@ -1893,7 +1908,7 @@ function AccountsPageContent() {
                         {/* Status Select - Styled as twin badge */}
                         {(() => {
                           const badgeStyle = getStatusBadgeStyle(acc.status);
-                          return (
+                          return isLeadOrAdmin ? (
                             <Select
                               value={acc.status}
                               onValueChange={(val) => handleStatusChange(acc.id, val)}
@@ -1912,6 +1927,13 @@ function AccountsPageContent() {
                                 <SelectItem value="STOPPED" className="text-xs font-semibold cursor-pointer rounded-xl py-1.5">Stopped</SelectItem>
                               </SelectContent>
                             </Select>
+                          ) : (
+                            <span
+                              className={`h-7 w-auto px-2.5 text-xs font-bold rounded-full border shadow-2xs gap-1.5 inline-flex items-center select-none ${badgeStyle.container}`}
+                            >
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${badgeStyle.dot}`} />
+                              <span>{acc.status}</span>
+                            </span>
                           );
                         })()}
 
@@ -1956,24 +1978,28 @@ function AccountsPageContent() {
                               <History className="w-3.5 h-3.5 text-slate-400" />
                               <span>Lịch sử hoạt động</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleOpenEdit(acc)}
-                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                            >
-                              <Pencil className="w-3.5 h-3.5 text-slate-400" />
-                              <span>Chỉnh sửa</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setAccountToDelete(acc);
-                                setIsDeleteOpen(true);
-                              }}
-                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                              <span>Xóa tài khoản</span>
-                            </DropdownMenuItem>
+                            {isLeadOrAdmin && (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenEdit(acc)}
+                                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                >
+                                  <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Chỉnh sửa</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setAccountToDelete(acc);
+                                    setIsDeleteOpen(true);
+                                  }}
+                                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                  <span>Xóa tài khoản</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -2584,21 +2610,35 @@ function AccountsPageContent() {
                             {/* Status Dropdown */}
                             {visibleColumns.status && (
                               <td className="px-4 py-3.5 whitespace-nowrap">
-                                <Select
-                                  value={acc.status}
-                                  onValueChange={(val) => handleStatusChange(acc.id, val)}
-                                >
-                                  <SelectTrigger className="h-7.5 w-28 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                                    <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
-                                    <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
-                                    <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
-                                    <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
-                                    <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                {isLeadOrAdmin ? (
+                                  <Select
+                                    value={acc.status}
+                                    onValueChange={(val) => handleStatusChange(acc.id, val)}
+                                  >
+                                    <SelectTrigger className="h-7.5 w-28 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                                      <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
+                                      <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
+                                      <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
+                                      <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
+                                      <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                ) : (
+                                  (() => {
+                                    const badgeStyle = getStatusBadgeStyle(acc.status);
+                                    return (
+                                      <span
+                                        className={`inline-flex items-center gap-1.5 h-7 px-2.5 text-xs font-bold rounded-full border shadow-2xs select-none ${badgeStyle.container}`}
+                                      >
+                                        <span className={`w-2 h-2 rounded-full shrink-0 ${badgeStyle.dot}`} />
+                                        <span>{acc.status}</span>
+                                      </span>
+                                    );
+                                  })()
+                                )}
                               </td>
                             )}
 
@@ -2827,26 +2867,30 @@ function AccountsPageContent() {
                                         <span>Lịch sử hoạt động</span>
                                       </DropdownMenuItem>
 
-                                      <DropdownMenuItem
-                                        onClick={() => handleOpenEdit(acc)}
-                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                      >
-                                        <Pencil className="w-3.5 h-3.5 text-slate-400" />
-                                        <span>Chỉnh sửa thông tin</span>
-                                      </DropdownMenuItem>
+                                      {isLeadOrAdmin && (
+                                        <>
+                                          <DropdownMenuItem
+                                            onClick={() => handleOpenEdit(acc)}
+                                            className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                          >
+                                            <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                                            <span>Chỉnh sửa thông tin</span>
+                                          </DropdownMenuItem>
 
-                                      <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                          <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
 
-                                      <DropdownMenuItem
-                                        onClick={() => {
-                                          setAccountToDelete(acc);
-                                          setIsDeleteOpen(true);
-                                        }}
-                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                        <span>Xóa tài khoản</span>
-                                      </DropdownMenuItem>
+                                          <DropdownMenuItem
+                                            onClick={() => {
+                                              setAccountToDelete(acc);
+                                              setIsDeleteOpen(true);
+                                            }}
+                                            className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                            <span>Xóa tài khoản</span>
+                                          </DropdownMenuItem>
+                                        </>
+                                      )}
                                     </DropdownMenuContent>
                                   </DropdownMenu>
                                 </div>
@@ -2894,12 +2938,14 @@ function AccountsPageContent() {
             Bỏ chọn
           </button>
 
-          <button
-            onClick={() => setIsBulkStatusOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
-          >
-            <span>Đổi trạng thái</span>
-          </button>
+          {isLeadOrAdmin && (
+            <button
+              onClick={() => setIsBulkStatusOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
+            >
+              <span>Đổi trạng thái</span>
+            </button>
+          )}
 
           {isLeadOrAdmin && (
             <button
@@ -3063,26 +3109,42 @@ function AccountsPageContent() {
             <form onSubmit={handleSaveEdit} className="space-y-3.5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Quốc Gia
-                  </label>
-                  <Select value={editCountry} onValueChange={setEditCountry}>
-                    <SelectTrigger className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white cursor-pointer [&>span]:truncate">
-                      <SelectValue placeholder="Chọn quốc gia" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-2xl max-h-60 w-64">
-                      {COUNTRY_OPTIONS.map((c) => (
-                        <SelectItem key={c.value} value={c.value} className="text-xs cursor-pointer">
-                          {c.label}
-                        </SelectItem>
-                      ))}
-                      {!COUNTRY_OPTIONS.some((c) => c.value === editCountry) && editCountry && (
-                        <SelectItem value={editCountry} className="text-xs cursor-pointer">
-                          🌐 {editCountry}
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Quốc Gia
+                    </label>
+                    {!isLeadOrAdmin && (
+                      <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                        <Lock className="w-2.5 h-2.5" /> Chỉ đọc
+                      </span>
+                    )}
+                  </div>
+                  {isLeadOrAdmin ? (
+                    <Select value={editCountry} onValueChange={setEditCountry}>
+                      <SelectTrigger className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white cursor-pointer [&>span]:truncate">
+                        <SelectValue placeholder="Chọn quốc gia" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-2xl max-h-60 w-64">
+                        {COUNTRY_OPTIONS.map((c) => (
+                          <SelectItem key={c.value} value={c.value} className="text-xs cursor-pointer">
+                            {c.label}
+                          </SelectItem>
+                        ))}
+                        {!COUNTRY_OPTIONS.some((c) => c.value === editCountry) && editCountry && (
+                          <SelectItem value={editCountry} className="text-xs cursor-pointer">
+                            🌐 {editCountry}
+                          </SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <input
+                      type="text"
+                      readOnly
+                      value={COUNTRY_OPTIONS.find((c) => c.value === editCountry)?.label || editCountry || "--"}
+                      className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
+                    />
+                  )}
                 </div>
 
                 <div>
@@ -3090,7 +3152,9 @@ function AccountsPageContent() {
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                       GPM Group
                     </label>
-                    <span className="text-[10px] text-slate-400 font-mono">(Chỉ đọc)</span>
+                    <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                      <Lock className="w-2.5 h-2.5" /> Chỉ đọc
+                    </span>
                   </div>
                   <input
                     type="text"

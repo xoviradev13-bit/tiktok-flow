@@ -6,6 +6,7 @@ import {
   getClientIp,
   resolveExtensionBearerAuth,
 } from "@/lib/extension-auth";
+import { toStandardCountryCode } from "@/lib/country-name";
 
 export interface VideoItemMetric {
   id?: string;
@@ -269,7 +270,7 @@ export async function POST(req: Request) {
           gpmProfileId: resolvedGpmProfileId || null,
           groupName: resolvedGpmProfileName || "Extension Fleet",
           status: targetStatus,
-          country: country || "US",
+          country: toStandardCountryCode(country),
           assignedUserId,
           isAssignmentLocked: false,
           totalFollowers: applyMetrics ? followersCount : 0,
@@ -316,7 +317,7 @@ export async function POST(req: Request) {
         if (totalViews !== undefined && totalViews > 0) updateData.totalViews = BigInt(totalViews);
         if (totalRevenue !== undefined && totalRevenue > 0) updateData.totalRevenue = totalRevenue;
       }
-      if (country) updateData.country = country;
+      if (country) updateData.country = toStandardCountryCode(country);
       if (resolvedGpmProfileId && !account.gpmProfileId) {
         updateData.gpmProfileId = resolvedGpmProfileId;
         if (resolvedGpmProfileName && (!account.groupName || account.groupName === "Extension Fleet")) {

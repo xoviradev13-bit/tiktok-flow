@@ -4,6 +4,7 @@ import os from "os";
 import http from "http";
 import crypto from "crypto";
 import { execSync } from "child_process";
+import { fileURLToPath } from "url";
 import { chromium } from "playwright-core";
 
 // ==========================================
@@ -31,7 +32,6 @@ const MAX_CONCURRENT_RESOLVES = 16;
 let resolveActive = 0;
 const resolveWaitQueue = [];
 let attestRateHits = [];
-let lastDirectSyncAt = 0;
 /** Shared open-profile snapshot across concurrent resolve calls. */
 let openProfilesSnapshot = {
   at: 0,
@@ -81,6 +81,89 @@ function readBody(req) {
     });
     req.on("error", reject);
   });
+}
+
+// ==========================================
+// TIKTOK COUNTRY DETECTOR (MATCHES EXTENSION)
+// ==========================================
+const LANG_ONLY_CODES = new Set([
+  "vi", "en", "th", "id", "ms", "ja", "ko", "zh", "fr", "de", "es", "pt", "ru", "ar",
+  "hi", "tr", "it", "pl", "nl", "sv", "ro", "uk", "cs", "hu", "el", "he", "bn", "fil",
+]);
+
+const CODE_TO_COUNTRY_CODE = {
+  us: "US", gb: "UK", uk: "UK", vn: "VN", de: "DE", fr: "FR", be: "BE", nl: "NL",
+  id: "ID", th: "TH", my: "MY", ph: "PH", sg: "SG", jp: "JP", kr: "KR", br: "BR",
+  mx: "MX", ca: "CA", au: "AU", in: "IN", pk: "PK", bd: "BD", eg: "EG", tr: "TR",
+  ru: "RU", es: "ES", it: "IT", pt: "PT", pl: "PL", se: "SE", ch: "CH", at: "AT",
+  ie: "IE", tw: "TW", hk: "HK", kh: "KH", mm: "MM", la: "LA",
+};
+
+function extractCountryIso(raw, fromStore = false) {
+  const s = String(raw || "").trim().toLowerCase().replace(/_/g, "-");
+  if (!s) return null;
+  if (/^[a-z]{2}$/.test(s)) {
+    if (!fromStore && LANG_ONLY_CODES.has(s) && s !== "uk") return null;
+    return s === "uk" ? "gb" : s;
+  }
+  if (/^[a-z]{2}-[a-z]{2}$/.test(s)) {
+    const [a, b] = s.split("-");
+    if (LANG_ONLY_CODES.has(a) && !LANG_ONLY_CODES.has(b)) return b;
+    if (!LANG_ONLY_CODES.has(a) || fromStore) return a === "uk" ? "gb" : a;
+    if (!LANG_ONLY_CODES.has(b)) return b;
+  }
+  return null;
+}
+
+function resolveCountryFromRaw(raw, fromStore = false) {
+  const code = extractCountryIso(raw, fromStore);
+  if (code && CODE_TO_COUNTRY_CODE[code]) {
+    return CODE_TO_COUNTRY_CODE[code];
+  }
+  return null;
+}
+
+function detectCountryFromCurrency(cur) {
+  if (!cur) return null;
+  const c = String(cur).trim().toUpperCase();
+  switch (c) {
+    case "£": case "GBP": return "UK";
+    case "₫": case "VND": return "VN";
+    case "€": case "EUR": return "DE";
+    case "R$": case "BRL": return "BR";
+    case "RP": case "IDR": return "ID";
+    case "₱": case "PHP": return "PH";
+    case "RS": case "PKR": return "PK";
+    case "₽": case "RUB": return "RU";
+    case "৳": case "BDT": return "BD";
+    case "EGP": return "EG";
+    case "¥": case "JPY": return "JP";
+    case "₩": case "KRW": return "KR";
+    case "฿": case "THB": return "TH";
+    case "RM": case "MYR": return "MY";
+    case "₺": case "TRY": return "TR";
+    case "$": case "USD": return "US";
+    default: return null;
+  }
+}
+
+function detectCountryFromText(text) {
+  if (!text) return null;
+  const s = String(text);
+  if (/\b(uk|gb|united\s*kingdom|great\s*britain|anh)\b/i.test(s)) return "UK";
+  if (/\b(vn|vietnam|việt\s*nam)\b/i.test(s)) return "VN";
+  if (/\b(de|germany|deutschland|đức)\b/i.test(s)) return "DE";
+  if (/\b(fr|france|pháp)\b/i.test(s)) return "FR";
+  if (/\b(us|usa|united\s*states|mỹ)\b/i.test(s)) return "US";
+  if (/\b(th|thailand|thái\s*lan)\b/i.test(s)) return "TH";
+  if (/\b(id|indonesia)\b/i.test(s)) return "ID";
+  if (/\b(ph|philippines)\b/i.test(s)) return "PH";
+  if (/\b(my|malaysia)\b/i.test(s)) return "MY";
+  if (/\b(sg|singapore)\b/i.test(s)) return "SG";
+  if (/\b(jp|japan|nhật\s*bản)\b/i.test(s)) return "JP";
+  if (/\b(kr|korea|hàn\s*quốc)\b/i.test(s)) return "KR";
+  if (/\b(br|brazil)\b/i.test(s)) return "BR";
+  return null;
 }
 
 function computeMachineFingerprint() {
@@ -300,60 +383,6 @@ function acquireAgentLock() {
         return;
       }
 
-      // Browser Web App Direct Trigger (e.g. user clicks Sync in Web Header)
-      if (
-        req.method === "POST" &&
-        (urlPath === "/sync" || urlPath === "/trigger-sync")
-      ) {
-        // Strict Security Whitelisting: Only allow requests originating from our VPS serverUrl or local dev
-        const configuredServer = String(config.serverUrl || "").replace(/\/+$/, "").toLowerCase();
-        const incomingOrigin = origin.replace(/\/+$/, "").toLowerCase();
-        const isAllowedOrigin =
-          incomingOrigin &&
-          (incomingOrigin === configuredServer ||
-           incomingOrigin === "http://localhost:3000" ||
-           incomingOrigin === "http://127.0.0.1:3000");
-
-        if (!isAllowedOrigin) {
-          res.writeHead(403, headers);
-          res.end(JSON.stringify({ ok: false, error: "origin_forbidden" }));
-          return;
-        }
-
-        // Anti-DoS Cooldown: Max 1 sweep per 45 seconds to prevent browser spamming
-        const now = Date.now();
-        if (now - lastDirectSyncAt < 45000) {
-          res.writeHead(429, {
-            ...headers,
-            "Access-Control-Allow-Origin": origin,
-          });
-          res.end(
-            JSON.stringify({
-              ok: false,
-              error: "Vui lòng đợi 45 giây giữa các lần đồng bộ thủ công.",
-            })
-          );
-          return;
-        }
-        lastDirectSyncAt = now;
-
-        headers["Access-Control-Allow-Origin"] = origin;
-        headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-        headers["Access-Control-Allow-Headers"] = "Content-Type";
-        res.writeHead(200, headers);
-        res.end(
-          JSON.stringify({
-            ok: true,
-            message: "Client Agent đã nhận lệnh và bắt đầu quét GPMLogin ngay lập tức",
-          })
-        );
-        setTimeout(() => {
-          performFullSweep().catch((err) =>
-            console.warn("[!] Lỗi khi chạy quét từ web trigger:", err.message)
-          );
-        }, 100);
-        return;
-      }
 
       // Web App / Browser Direct GPM Start Profile Trigger
       if (req.method === "POST" && (urlPath === "/start-profile" || urlPath === "/profiles/start")) {
@@ -2477,6 +2506,35 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       return { success: false, error: "Profile chua dang nhap TikTok hoac phien dang nhap da het han." };
     }
 
+    // Extract TikTok store-country-code cookie & webapp context (identical to Extension)
+    let cookieCountryRaw = null;
+    try {
+      const allCookies = await context.cookies(["https://www.tiktok.com", "https://tiktok.com"]);
+      const storeCookie = allCookies.find((c) => c.name === "store-country-code");
+      if (storeCookie?.value) {
+        cookieCountryRaw = storeCookie.value;
+      }
+    } catch {}
+
+    const pageCountryHints = await page.evaluate(() => {
+      let region = null;
+      let storeCountry = null;
+      try {
+        const m = document.cookie.match(/(?:^|; )store-country-code=([^;]*)/);
+        if (m) storeCountry = decodeURIComponent(m[1]);
+      } catch {}
+      try {
+        const el = document.getElementById("__UNIVERSAL_DATA_FOR_REHYDRATION__");
+        if (el?.textContent) {
+          const parsed = JSON.parse(el.textContent);
+          const scope = parsed["__DEFAULT_SCOPE__"] || {};
+          const ctx = scope["webapp.app-context"] || {};
+          region = ctx.appContext?.region || ctx.appContext?.priority_region || ctx.user?.region || null;
+        }
+      } catch {}
+      return { region, storeCountry };
+    }).catch(() => ({ region: null, storeCountry: null }));
+
     // Reliable Early-Exit: Wait until userInfo, creator context, and follower relation count arrive (max 2.5s)
     const startTime = Date.now();
     while (Date.now() - startTime < 2500) {
@@ -2816,6 +2874,25 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     if (!gpmGroupName && meta.groupId) {
       gpmGroupName = await lookupGpmGroupName(lastGoodGpmBase || null, meta.groupId);
     }
+    // Exact Extension Country Resolution Priority:
+    // 1. TikTok store-country-code cookie (Official ground truth from TikTok)
+    // 2. TikTok Web App Context region
+    // 3. Earnings currency symbol (£ -> UK, ₫ -> VN, $ -> US, etc.)
+    // 4. Word-boundary tags in profile/group name (e.g. \b(uk|vn|de|fr|us)\b)
+    // 5. Default fallback to "US"
+    const rawStore = cookieCountryRaw || pageCountryHints?.storeCountry;
+    const cookieCountry = resolveCountryFromRaw(rawStore, true);
+    const regionCountry = resolveCountryFromRaw(pageCountryHints?.region, true);
+    const currencyCountry = detectCountryFromCurrency(currency);
+    const nameCountry = detectCountryFromText(meta.name) || detectCountryFromText(gpmGroupName);
+
+    const detectedCountry =
+      cookieCountry ||
+      regionCountry ||
+      currencyCountry ||
+      nameCountry ||
+      "US";
+
     const gpmProfileName = meta.name || `Profile ${String(profileId).slice(0, 8)}`;
 
     return {
@@ -2843,6 +2920,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
         activePrograms,
         activeProgramNames: activePrograms.map((p) => p.name),
         currency,
+        country: detectedCountry,
         rpm,
         videosList,
         isLoggedIn: true,
@@ -2938,14 +3016,13 @@ async function performFullSweep() {
   const openIds = listOpenProfileIdsFromProcesses(storagePath);
   const profileDirs = diskDirs.filter((e) => {
     if (allowedIds && allowedIds.size) return allowedIds.has(e.name);
-    // API offline: only profiles with a live browser process
-    return openIds.has(e.name);
+    // When API is offline, sync all valid profiles on disk
+    return true;
   });
-
 
   console.log(
     `[*] Tim thay ${diskDirs.length} folder tren o dia; dong bo ${profileDirs.length} profile hop le` +
-      (allowedIds ? " (theo GPM API)" : " (chi browser dang mo)")
+      (allowedIds ? " (theo GPM API)" : " (tu o dia)")
   );
 
   const profilesToSync = [];
@@ -3170,16 +3247,20 @@ async function checkAndRunSchedule(scheduleInfo) {
 
       // 1. Report job started (PROCESSING)
       if (jobId) {
-        fetch(`${config.serverUrl}/api/gpm/client-sync`, {
-          method: "POST",
-          headers: authHeaders,
-          body: JSON.stringify({
-            action: "start_job",
-            jobId,
-            machineId: cachedMachineId || undefined,
-            machineName: cachedMachineName || os.hostname(),
-          }),
-        }).catch(() => {});
+        try {
+          await fetch(`${config.serverUrl}/api/gpm/client-sync`, {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({
+              action: "start_job",
+              jobId,
+              machineId: cachedMachineId || undefined,
+              machineName: cachedMachineName || os.hostname(),
+            }),
+          });
+        } catch (e) {
+          console.warn("[!] Khong the bao cao bat dau job:", e.message);
+        }
       }
 
       // 2. Perform full sweep
@@ -3270,21 +3351,25 @@ async function runDaemon() {
   console.log(`Che do           : Tu dong chay ngam theo lich Setting tren Server`);
   console.log("--------------------------------------------------------\n");
 
-  // 1. Quet kiem ke va cao ban dau ngay khi mo may
-  console.log("[*] [Khoi Dong Cung Windows] Tien hanh quet ban dau...");
-  try {
-    await performFullSweep();
-  } catch (err) {
-    console.warn("[!] Quet ban dau gap loi:", err.message);
-  }
-
-  // 2. Lay cau hinh lich tu Server
+  // 1. Lay cau hinh lich & kiem tra ngay SyncQueue tu Server
   let activeSchedule = await fetchServerSchedule();
   if (activeSchedule) {
     console.log(`[*] Lich quet tu Server: ${activeSchedule.scheduleSummary || "Hang ngay luc 18:00"}`);
+    // Xu ly ngay job dong bo dang cho (neu co)
+    await checkAndRunSchedule(activeSchedule);
   }
 
-  // 3. Vong lap kiem tra dinh ky moi 15 giay (nhan tin hieu Sync tu Web/VPS tuc thi)
+  // 2. Neu chua chay job nao tu queue, quet khoi dong ban dau
+  if (!activeSchedule?.syncJob) {
+    console.log("[*] [Khoi Dong Cung Windows] Tien hanh quet ban dau...");
+    try {
+      await performFullSweep();
+    } catch (err) {
+      console.warn("[!] Quet ban dau gap loi:", err.message);
+    }
+  }
+
+  // 3. Vong lap kiem tra dinh ky moi 10 giay (nhan tin hieu Sync tu Web/VPS tuc thi)
   setInterval(async () => {
     try {
       const refreshed = await fetchServerSchedule();
@@ -3295,7 +3380,7 @@ async function runDaemon() {
     } catch (err) {
       console.warn("[!] Loi kiem tra lich:", err.message);
     }
-  }, 15000);
+  }, 10000);
 }
 
 // Main entry (strictly guarded against unintended execution during imports)

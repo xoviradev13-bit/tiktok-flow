@@ -140,3 +140,79 @@ export function isWeakCountryName(raw?: string | null): boolean {
     LANG_ONLY.has(name)
   );
 }
+
+export const COUNTRY_TO_CODE: Record<string, string> = {
+  "united states": "US", "unitedstates": "US", "usa": "US", "us": "US", "mỹ": "US",
+  "united kingdom": "UK", "unitedkingdom": "UK", "great britain": "UK", "britain": "UK", "england": "UK", "uk": "UK", "gb": "UK", "anh": "UK",
+  "vietnam": "VN", "viet nam": "VN", "việt nam": "VN", "vn": "VN",
+  "germany": "DE", "deutschland": "DE", "de": "DE", "đức": "DE",
+  "france": "FR", "fr": "FR", "pháp": "FR",
+  "belgium": "BE", "be": "BE", "bỉ": "BE",
+  "netherlands": "NL", "nl": "NL", "hà lan": "NL",
+  "indonesia": "ID", "id": "ID",
+  "thailand": "TH", "th": "TH", "thái lan": "TH",
+  "malaysia": "MY", "my": "MY",
+  "philippines": "PH", "ph": "PH",
+  "singapore": "SG", "sg": "SG",
+  "japan": "JP", "jp": "JP", "nhật bản": "JP",
+  "south korea": "KR", "korea": "KR", "kr": "KR", "hàn quốc": "KR",
+  "brazil": "BR", "br": "BR",
+  "mexico": "MX", "mx": "MX",
+  "canada": "CA", "ca": "CA",
+  "australia": "AU", "au": "AU",
+  "spain": "ES", "es": "ES",
+  "italy": "IT", "it": "IT",
+  "taiwan": "TW", "tw": "TW",
+  "hong kong": "HK", "hk": "HK",
+};
+
+export function toStandardCountryCode(raw?: string | null): string {
+  if (!raw) return "US";
+  const trimmed = String(raw).trim().toLowerCase();
+  if (COUNTRY_TO_CODE[trimmed]) return COUNTRY_TO_CODE[trimmed];
+  if (/^[a-z]{2}$/.test(trimmed)) return trimmed === "gb" ? "UK" : trimmed.toUpperCase();
+  return "US";
+}
+
+export function detectCountryFromText(text?: string | null): string | null {
+  if (!text) return null;
+  const s = String(text);
+  if (/\b(uk|gb|united\s*kingdom|great\s*britain|anh)\b/i.test(s)) return "UK";
+  if (/\b(vn|vietnam|việt\s*nam)\b/i.test(s)) return "VN";
+  if (/\b(de|germany|deutschland|đức)\b/i.test(s)) return "DE";
+  if (/\b(fr|france|pháp)\b/i.test(s)) return "FR";
+  if (/\b(us|usa|united\s*states|mỹ)\b/i.test(s)) return "US";
+  if (/\b(th|thailand|thái\s*lan)\b/i.test(s)) return "TH";
+  if (/\b(id|indonesia)\b/i.test(s)) return "ID";
+  if (/\b(ph|philippines)\b/i.test(s)) return "PH";
+  if (/\b(my|malaysia)\b/i.test(s)) return "MY";
+  if (/\b(sg|singapore)\b/i.test(s)) return "SG";
+  if (/\b(jp|japan|nhật\s*bản)\b/i.test(s)) return "JP";
+  if (/\b(kr|korea|hàn\s*quốc)\b/i.test(s)) return "KR";
+  if (/\b(br|brazil)\b/i.test(s)) return "BR";
+  return null;
+}
+
+export function detectCountryFromCurrency(cur?: string | null): string | null {
+  if (!cur) return null;
+  const c = String(cur).trim().toUpperCase();
+  switch (c) {
+    case "£": case "GBP": return "UK";
+    case "₫": case "VND": return "VN";
+    case "€": case "EUR": return "DE";
+    case "R$": case "BRL": return "BR";
+    case "RP": case "IDR": return "ID";
+    case "₱": case "PHP": return "PH";
+    case "RS": case "PKR": return "PK";
+    case "₽": case "RUB": return "RU";
+    case "৳": case "BDT": return "BD";
+    case "EGP": return "EG";
+    case "¥": case "JPY": return "JP";
+    case "₩": case "KRW": return "KR";
+    case "฿": case "THB": return "TH";
+    case "RM": case "MYR": return "MY";
+    case "₺": case "TRY": return "TR";
+    case "$": case "USD": return "US";
+    default: return null;
+  }
+}
