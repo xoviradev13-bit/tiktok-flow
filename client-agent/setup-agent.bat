@@ -57,13 +57,24 @@ goto :action_unknown
 
 :action_install
 echo.
-echo [*] Kill Agent / schtasks cu + giai phong cong 39741...
-powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*agent.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>nul
+echo [*] Kill Agent cu, dung service va giai phong cong 39741...
+net stop TikTokFlowAgent >nul 2>nul
+sc stop TikTokFlowAgent >nul 2>nul
+if exist "%PF%\bin\nssm.exe" "%PF%\bin\nssm.exe" stop TikTokFlowAgent >nul 2>nul
+if exist "%PF%\bin\nssm.exe" "%PF%\bin\nssm.exe" remove TikTokFlowAgent confirm >nul 2>nul
+if exist "%NSSM%" "%NSSM%" stop TikTokFlowAgent >nul 2>nul
+if exist "%NSSM%" "%NSSM%" remove TikTokFlowAgent confirm >nul 2>nul
+
+powershell -NoProfile -Command "$ports = @(39741); foreach ($p in $ports) { $procs = (Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue).OwningProcess; foreach ($procId in $procs) { if ($procId -gt 0) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue } } }; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*agent.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>nul
+
+schtasks /end /tn "TikTokFlow_Agent_Daemon" >nul 2>nul
 schtasks /delete /tn "TikTokFlow_Agent_Daemon" /f >nul 2>nul
 schtasks /delete /tn "TikTokFlow_Agent_Daily" /f >nul 2>nul
 schtasks /delete /tn "TikTokFlow_Agent_Noon" /f >nul 2>nul
 schtasks /delete /tn "TikTokFlow_Agent_Evening" /f >nul 2>nul
 schtasks /delete /tn "TikTokFlow_Agent_Periodic" /f >nul 2>nul
+
+ping 127.0.0.1 -n 2 >nul
 
 if not exist "%NSSM%" (
   echo [LOI] Thieu bin\nssm.exe — tai lai goi Client Agent tu he thong.
@@ -83,9 +94,6 @@ if errorlevel 8 (
 
 icacls "%PF%" /inheritance:r >nul 2>nul
 icacls "%PF%" /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F" "Users:(OI)(CI)RX" >nul 2>nul
-
-"%NSSM%" stop TikTokFlowAgent >nul 2>nul
-"%NSSM%" remove TikTokFlowAgent confirm >nul 2>nul
 
 echo [*] Dang cai dat tac vu chay ngam tu dong khoi dong cung Windows...
 schtasks /create /tn "TikTokFlow_Agent_Daemon" /tr "wscript.exe \"%PF%\run-agent-silent.vbs\"" /sc onlogon /rl highest /f >nul 2>nul

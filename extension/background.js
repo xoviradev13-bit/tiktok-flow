@@ -346,6 +346,7 @@ async function resolveBrowserViaAgent(username) {
       id: data.gpmProfileId,
       name: data.gpmProfileName || null,
       groupName: data.gpmGroupName || null,
+      groupId: data.gpmGroupId || null,
       matchedVia: "session",
       resolveAttest: {
         machineId: data.machineId,
@@ -360,6 +361,7 @@ async function resolveBrowserViaAgent(username) {
   } catch (err) {
     const reason =
       err?.name === "AbortError" ? "timeout" : "gpm_offline";
+    console.warn(`[TikTokFlow] Agent /resolve-browser failed: ${err?.message || err} (reason=${reason})`);
     return { ok: false, reason };
   } finally {
     clearTimeout(timeoutId);
@@ -881,7 +883,7 @@ function setBadge(text, color) {
     if (color) {
       chrome.action.setBadgeBackgroundColor({ color });
     }
-  } catch (err) {}
+  } catch (err) { }
 }
 
 // 4. Report Active TikTok Status to TikTokFlow Server
@@ -951,7 +953,9 @@ async function fetchLocalGpmGroups(base) {
       map.set(String(k), String(v));
     }
   }
-  if (!base) return map;
+  if (!base) {
+    return map;
+  }
   if (cached.gpmGroupsMapAt && Date.now() - cached.gpmGroupsMapAt < 60_000 && map.size > 0) {
     return map;
   }
@@ -985,8 +989,8 @@ async function fetchLocalGpmGroups(base) {
         });
       }
     }
-  } catch {
-    /* ignore network errors */
+  } catch (err) {
+    // GPM app likely closed
   }
   return map;
 }
@@ -997,7 +1001,8 @@ function resolveGroupNameFromMap(map, groupId, rawGroupName) {
   const gid = String(groupId || "").trim();
   if (!gid) return null;
   if (map && map.has(gid)) return map.get(gid);
-  if (!/^[0-9a-f-]{36}$/i.test(gid)) return gid;
+  // Do not treat a raw numeric id (e.g. "0" or "1") or UUID as a group name
+  if (!/^[0-9a-f-]{36}$/i.test(gid) && !/^\d+$/.test(gid)) return gid;
   return null;
 }
 
@@ -1018,13 +1023,38 @@ async function resolveGpmProfileForUsername(username) {
   try {
     const sessionHit = await resolveBrowserViaAgent(clean);
     if (sessionHit.ok && sessionHit.id) {
-      if (sessionHit.groupName) {
-        await chrome.storage.local.set({ linkedGpmGroupName: sessionHit.groupName });
+      let resolvedGroup = sessionHit.groupName || null;
+      if (!resolvedGroup) {
+        // GPM Login app may be closed: check cached group name or gpmGroupsMap
+        const storedGroup = await chrome.storage.local.get([
+          "linkedGpmGroupName",
+          "linkedGpmProfileId",
+          "gpmGroupsMap",
+        ]);
+        if (
+          storedGroup.linkedGpmProfileId === sessionHit.id &&
+          storedGroup.linkedGpmGroupName
+        ) {
+          resolvedGroup = storedGroup.linkedGpmGroupName;
+        } else if (sessionHit.groupId && storedGroup.gpmGroupsMap?.[sessionHit.groupId]) {
+          resolvedGroup = storedGroup.gpmGroupsMap[sessionHit.groupId];
+        }
       }
+
+      if (resolvedGroup) {
+        await chrome.storage.local.set({
+          linkedGpmProfileId: sessionHit.id,
+          linkedGpmProfileName: sessionHit.name || "",
+          linkedGpmGroupName: resolvedGroup,
+          linkedGpmUsername: clean,
+        });
+      }
+
       return {
         id: sessionHit.id,
         name: sessionHit.name,
-        groupName: sessionHit.groupName || null,
+        groupName: resolvedGroup || null,
+        groupId: sessionHit.groupId || null,
         matchedVia: "session",
         resolveAttest: sessionHit.resolveAttest || null,
       };
@@ -1062,6 +1092,7 @@ async function resolveGpmProfileForUsername(username) {
     "linkedGpmUsername",
     "linkedGpmResolveAttest",
   ]);
+
   if (
     cached.linkedGpmProfileId &&
     cached.linkedGpmUsername &&
@@ -1105,7 +1136,12 @@ async function resolveGpmProfileForUsername(username) {
     }
     const unique = new Map();
     for (const hit of hits) unique.set(hit.id, hit);
-    if (unique.size === 1) return [...unique.values()][0];
+    if (unique.size === 1) {
+      return [...unique.values()][0];
+    }
+    if (unique.size > 1) {
+      console.warn(`[TikTokFlow] Ambiguous label match for @${clean}: ${unique.size} hits`);
+    }
   } catch (err) {
     console.warn("[TikTokFlow] GPM label match failed:", err?.message || err);
   }
@@ -1129,211 +1165,215 @@ async function reportTikTokStatus(payload) {
   }
 
   const work = (async () => {
-  try {
-    await ensureExtensionAuth();
-    const config = await getConfig();
-    if (!config.serverUrl) return { ok: false, error: "no_server" };
+    try {
+      await ensureExtensionAuth();
+      const config = await getConfig();
+      if (!config.serverUrl) return { ok: false, error: "no_server" };
 
-    // Viewing someone else's public profile: still allow identity sync when we know
-    // the logged-in username. Nickname/avatar must come from OUR hydrate, not their DOM
-    // (content script clears isOtherProfilePage after building a safe identity payload).
-    if (payload.isOtherProfilePage) {
-      console.log(
-        `[TikTokFlow] Skip unsafe other-profile payload — viewing @${payload.viewedProfile}`
-      );
-      await chrome.storage.local.set({
-        reportSyncStatus: "idle",
-        reportSyncMessage: `Đang xem trang công khai @${payload.viewedProfile} — danh tính tài khoản của bạn không đổi.`,
-        lastPageContext: {
-          type: "other_profile",
-          viewedProfile: payload.viewedProfile,
-          at: new Date().toISOString(),
-        },
-      });
-      return { ok: false, error: "other_profile" };
-    }
-
-    const username = payload.username || "";
-
-    if (!config.personalToken) {
-      console.warn("[TikTokFlow] Skipping report — no personalToken configured");
-      await chrome.storage.local.set({
-        reportSyncStatus: "error",
-        reportSyncMessage: "Chưa có Personal Token.",
-      });
-      return { ok: false, error: "no_token" };
-    }
-
-    const cleanUser = String(username || "")
-      .replace(/^@/, "")
-      .trim()
-      .toLowerCase();
-
-    const resolvedCountry = await resolveReportCountry(payload.country);
-
-    async function postIdentity(gpmMatch) {
-      const body = {
-        username,
-        nickname: payload.nickname || "",
-        avatarUrl: payload.avatarUrl || "",
-        isLoggedIn: payload.isLoggedIn === true,
-        memberEmail: config.userEmail || undefined,
-        gpmProfileId: gpmMatch?.id || undefined,
-        gpmProfileName: gpmMatch?.name || undefined,
-        gpmGroupName: gpmMatch?.groupName || undefined,
-        source: "extension",
-        metricsSource: "identity",
-        country: resolvedCountry,
-        resolveAttest: gpmMatch?.resolveAttest || undefined,
-      };
-
-
-      console.log("[TikTokFlow] Reporting identity to server:", body.username, {
-        isLoggedIn: body.isLoggedIn,
-        gpmProfileId: body.gpmProfileId || null,
-        gpmMatchedVia: gpmMatch?.matchedVia || null,
-      });
-
-      const { resp, authRequired, error } = await authorizedFetch(
-        `${config.serverUrl}/api/extension/report`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          // Help MV3 keep the request alive if the SW is suspended mid-flight.
-          keepalive: true,
-        }
-      );
-
-
-      if (authRequired || !resp) {
-        return { ok: false, authError: error || "Cần xác thực lại." };
-      }
-      if (resp.status === 401 || resp.status === 403) {
-        const errData = await resp.json().catch(() => ({}));
-        await markTokenRevoked(errData.error, resp.status);
-        return { ok: false, authError: errData.error || "Token bị thu hồi." };
-      }
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        return { ok: false, error: errData.error || `Lỗi HTTP ${resp.status}` };
+      // Viewing someone else's public profile: still allow identity sync when we know
+      // the logged-in username. Nickname/avatar must come from OUR hydrate, not their DOM
+      // (content script clears isOtherProfilePage after building a safe identity payload).
+      if (payload.isOtherProfilePage) {
+        console.log(
+          `[TikTokFlow] Skip unsafe other-profile payload — viewing @${payload.viewedProfile}`
+        );
+        await chrome.storage.local.set({
+          reportSyncStatus: "idle",
+          reportSyncMessage: `Đang xem trang công khai @${payload.viewedProfile} — danh tính tài khoản của bạn không đổi.`,
+          lastPageContext: {
+            type: "other_profile",
+            viewedProfile: payload.viewedProfile,
+            at: new Date().toISOString(),
+          },
+        });
+        return { ok: false, error: "other_profile" };
       }
 
-      const result = await resp.json().catch(() => ({}));
-      const linkedId = result?.account?.gpmProfileId || body.gpmProfileId || null;
-      return { ok: true, body, result, linkedId, gpmMatch };
-    }
+      const username = payload.username || "";
 
-    await chrome.storage.local.set({
-      reportSyncStatus: "syncing",
-      reportSyncMessage: `Đang xác minh @${username}…`,
-      reportSyncAt: Date.now(),
-    });
+      if (!config.personalToken) {
+        console.warn("[TikTokFlow] Skipping report — no personalToken configured");
+        await chrome.storage.local.set({
+          reportSyncStatus: "error",
+          reportSyncMessage: "Chưa có Personal Token.",
+        });
+        return { ok: false, error: "no_token" };
+      }
 
-    // Persist intent before network — MV3 SW death was aborting in-flight creates
-    // (DB stayed empty while "post identity" logs still fired).
-    await enqueuePendingIdentityReport({
-      username,
-      nickname: payload.nickname || "",
-      avatarUrl: payload.avatarUrl || "",
-      isLoggedIn: payload.isLoggedIn === true,
-      country: resolvedCountry || undefined,
-      cleanUser,
-      enqueuedAt: Date.now(),
-    });
+      const cleanUser = String(username || "")
+        .replace(/^@/, "")
+        .trim()
+        .toLowerCase();
 
-    // Phase 1: record account in DB immediately — do not wait on GPM resolve.
-    let outcome = await postIdentity(null);
-    if (!outcome.ok) {
-      scheduleIdentityRetryAlarm(3000);
-      await chrome.storage.local.set({
-        reportSyncStatus: "error",
-        reportSyncMessage: outcome.authError || outcome.error || "Lỗi đồng bộ",
-      });
-      return { ok: false, error: outcome.authError || outcome.error };
-    }
-    await dequeuePendingIdentityReport(cleanUser);
+      const resolvedCountry = await resolveReportCountry(payload.country);
 
-    if (outcome.body.isLoggedIn) {
-      setBadge("OK", "#10b981");
-    } else {
-      setBadge("OFF", "#6b7280");
-    }
+      async function postIdentity(gpmMatch) {
+        const prevStored = await chrome.storage.local.get([
+          "linkedGpmProfileId",
+          "linkedGpmProfileName",
+          "linkedGpmGroupName",
+        ]);
+        const effectiveId =
+          gpmMatch?.id || prevStored.linkedGpmProfileId || undefined;
+        const effectiveGroupName =
+          gpmMatch?.groupName || prevStored.linkedGpmGroupName || undefined;
+        const effectiveProfileName =
+          gpmMatch?.name || prevStored.linkedGpmProfileName || undefined;
 
-    const prevStore = await chrome.storage.local.get(["latestAccount"]);
-    const prev = prevStore.latestAccount || {};
-    await chrome.storage.local.set({
-      latestAccount: {
-        ...prev,
-        username: outcome.body.username || prev.username,
-        nickname: outcome.body.nickname || prev.nickname || "",
-        avatarUrl: outcome.body.avatarUrl || prev.avatarUrl || "",
-        isLoggedIn: outcome.body.isLoggedIn,
-        gpmProfileId: outcome.linkedId || prev.gpmProfileId || null,
-        lastReportedAt: new Date().toISOString(),
-        metricsSource: "identity",
-        source: "extension",
-      },
-      reportSyncStatus: "ok",
-      reportSyncMessage: `Đã xác minh · @${cleanUser}`,
-      reportSyncAt: Date.now(),
-    });
-
-    // Phase 2 via alarm — MV3 kills SW after sendResponse; void async is unreliable.
-    // Skip enqueue when this profile already has a fresh linked GPM (stops resolve/challenge storms).
-    // But if the server row still has no GPM, force phase-2 (local cache can lie).
-    const linked = await chrome.storage.local.get([
-      "linkedGpmProfileId",
-      "linkedGpmUsername",
-      "linkedGpmResolveAttest",
-    ]);
-    const serverGpm =
-      outcome.result?.account?.gpmProfileId ||
-      outcome.linkedId ||
-      null;
-    const alreadyLinked =
-      linked.linkedGpmProfileId &&
-      String(linked.linkedGpmUsername || "").toLowerCase() === cleanUser &&
-      Number.isFinite(Number(linked.linkedGpmResolveAttest?.ts)) &&
-      Math.abs(Date.now() - Number(linked.linkedGpmResolveAttest.ts)) < 10 * 60_000 &&
-      !!serverGpm;
-    if (!alreadyLinked) {
-      const pendingStore = await chrome.storage.local.get(["pendingGpmLinks"]);
-      const pendingList = Array.isArray(pendingStore.pendingGpmLinks)
-        ? pendingStore.pendingGpmLinks
-        : [];
-      const alreadyQueued = pendingList.some(
-        (x) =>
-          String(x.cleanUser || x.username || "")
-            .replace(/^@/, "")
-            .trim()
-            .toLowerCase() === cleanUser
-      );
-      if (!alreadyQueued) {
-        await enqueuePendingGpmLink({
+        const body = {
           username,
           nickname: payload.nickname || "",
           avatarUrl: payload.avatarUrl || "",
           isLoggedIn: payload.isLoggedIn === true,
-          country: resolvedCountry || undefined,
-          cleanUser,
-          enqueuedAt: Date.now(),
-        });
-      }
-      scheduleGpmLinkAlarm(alreadyQueued ? 1500 : 500);
-    }
+          memberEmail: config.userEmail || undefined,
+          gpmProfileId: effectiveId,
+          gpmProfileName: effectiveProfileName,
+          gpmGroupName: effectiveGroupName,
+          source: "extension",
+          metricsSource: "identity",
+          country: resolvedCountry,
+          resolveAttest: gpmMatch?.resolveAttest || undefined,
+        };
 
-    if (usernameEarly) _lastIdentityOkAt.set(usernameEarly, Date.now());
-    return { ok: true };
-  } catch (err) {
-    console.warn("[TikTokFlow] Failed to report account status:", err.message);
-    scheduleIdentityRetryAlarm(5000);
-    await chrome.storage.local.set({
-      reportSyncStatus: "error",
-      reportSyncMessage: err.message || "Lỗi đồng bộ",
-    });
-    return { ok: false, error: err?.message || "error" };
-  }
+        const { resp, authRequired, error } = await authorizedFetch(
+          `${config.serverUrl}/api/extension/report`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            // Help MV3 keep the request alive if the SW is suspended mid-flight.
+            keepalive: true,
+          }
+        );
+
+        if (authRequired || !resp) {
+          return { ok: false, authError: error || "Cần xác thực lại." };
+        }
+        if (resp.status === 401 || resp.status === 403) {
+          const errData = await resp.json().catch(() => ({}));
+          await markTokenRevoked(errData.error, resp.status);
+          return { ok: false, authError: errData.error || "Token bị thu hồi." };
+        }
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          return { ok: false, error: errData.error || `Lỗi HTTP ${resp.status}` };
+        }
+
+        const result = await resp.json().catch(() => ({}));
+        const linkedId = result?.account?.gpmProfileId || body.gpmProfileId || null;
+        return { ok: true, body, result, linkedId, gpmMatch };
+      }
+
+      await chrome.storage.local.set({
+        reportSyncStatus: "syncing",
+        reportSyncMessage: `Đang xác minh @${username}…`,
+        reportSyncAt: Date.now(),
+      });
+
+      // Persist intent before network — MV3 SW death was aborting in-flight creates
+      // (DB stayed empty while "post identity" logs still fired).
+      await enqueuePendingIdentityReport({
+        username,
+        nickname: payload.nickname || "",
+        avatarUrl: payload.avatarUrl || "",
+        isLoggedIn: payload.isLoggedIn === true,
+        country: resolvedCountry || undefined,
+        cleanUser,
+        enqueuedAt: Date.now(),
+      });
+
+      // Phase 1: record account in DB immediately — do not wait on GPM resolve.
+      let outcome = await postIdentity(null);
+      if (!outcome.ok) {
+        scheduleIdentityRetryAlarm(3000);
+        await chrome.storage.local.set({
+          reportSyncStatus: "error",
+          reportSyncMessage: outcome.authError || outcome.error || "Lỗi đồng bộ",
+        });
+        return { ok: false, error: outcome.authError || outcome.error };
+      }
+      await dequeuePendingIdentityReport(cleanUser);
+
+      if (outcome.body.isLoggedIn) {
+        setBadge("OK", "#10b981");
+      } else {
+        setBadge("OFF", "#6b7280");
+      }
+
+      const prevStore = await chrome.storage.local.get(["latestAccount"]);
+      const prev = prevStore.latestAccount || {};
+      await chrome.storage.local.set({
+        latestAccount: {
+          ...prev,
+          username: outcome.body.username || prev.username,
+          nickname: outcome.body.nickname || prev.nickname || "",
+          avatarUrl: outcome.body.avatarUrl || prev.avatarUrl || "",
+          isLoggedIn: outcome.body.isLoggedIn,
+          gpmProfileId: outcome.linkedId || prev.gpmProfileId || null,
+          lastReportedAt: new Date().toISOString(),
+          metricsSource: "identity",
+          source: "extension",
+        },
+        reportSyncStatus: "ok",
+        reportSyncMessage: `Đã xác minh · @${cleanUser}`,
+        reportSyncAt: Date.now(),
+      });
+
+      // Phase 2 via alarm — MV3 kills SW after sendResponse; void async is unreliable.
+      // Skip enqueue when this profile already has a fresh linked GPM (stops resolve/challenge storms).
+      // But if the server row still has no GPM, force phase-2 (local cache can lie).
+      const linked = await chrome.storage.local.get([
+        "linkedGpmProfileId",
+        "linkedGpmUsername",
+        "linkedGpmResolveAttest",
+      ]);
+      const serverGpm =
+        outcome.result?.account?.gpmProfileId ||
+        outcome.linkedId ||
+        null;
+      const alreadyLinked =
+        linked.linkedGpmProfileId &&
+        String(linked.linkedGpmUsername || "").toLowerCase() === cleanUser &&
+        Number.isFinite(Number(linked.linkedGpmResolveAttest?.ts)) &&
+        Math.abs(Date.now() - Number(linked.linkedGpmResolveAttest.ts)) < 10 * 60_000 &&
+        !!serverGpm;
+      if (!alreadyLinked) {
+        const pendingStore = await chrome.storage.local.get(["pendingGpmLinks"]);
+        const pendingList = Array.isArray(pendingStore.pendingGpmLinks)
+          ? pendingStore.pendingGpmLinks
+          : [];
+        const alreadyQueued = pendingList.some(
+          (x) =>
+            String(x.cleanUser || x.username || "")
+              .replace(/^@/, "")
+              .trim()
+              .toLowerCase() === cleanUser
+        );
+        if (!alreadyQueued) {
+          await enqueuePendingGpmLink({
+            username,
+            nickname: payload.nickname || "",
+            avatarUrl: payload.avatarUrl || "",
+            isLoggedIn: payload.isLoggedIn === true,
+            country: resolvedCountry || undefined,
+            cleanUser,
+            enqueuedAt: Date.now(),
+          });
+        }
+        scheduleGpmLinkAlarm(alreadyQueued ? 1500 : 500);
+      }
+
+      if (usernameEarly) _lastIdentityOkAt.set(usernameEarly, Date.now());
+      return { ok: true };
+    } catch (err) {
+      console.warn("[TikTokFlow] Failed to report account status:", err.message);
+      scheduleIdentityRetryAlarm(5000);
+      await chrome.storage.local.set({
+        reportSyncStatus: "error",
+        reportSyncMessage: err.message || "Lỗi đồng bộ",
+      });
+      return { ok: false, error: err?.message || "error" };
+    }
   })();
 
   if (usernameEarly) {
@@ -1484,7 +1524,8 @@ async function processPendingGpmLinks() {
       if (!username) continue;
       try {
         const gpmMatch = await resolveGpmProfileForUsername(username);
-        if (!(gpmMatch?.id && gpmMatch?.resolveAttest)) {
+
+        if (!gpmMatch?.id) {
           hadFailure = true;
           const age = Date.now() - (item.enqueuedAt || 0);
           const attempts = (item.attempts || 0) + 1;
@@ -1495,6 +1536,15 @@ async function processPendingGpmLinks() {
           continue;
         }
 
+        const prevStored = await chrome.storage.local.get([
+          "linkedGpmProfileName",
+          "linkedGpmGroupName",
+        ]);
+        const effectiveGroupName =
+          gpmMatch.groupName || prevStored.linkedGpmGroupName || undefined;
+        const effectiveProfileName =
+          gpmMatch.name || prevStored.linkedGpmProfileName || undefined;
+
         const config = await getConfig();
         const body = {
           username,
@@ -1503,13 +1553,14 @@ async function processPendingGpmLinks() {
           isLoggedIn: item.isLoggedIn === true,
           memberEmail: config.userEmail || undefined,
           gpmProfileId: gpmMatch.id,
-          gpmProfileName: gpmMatch.name || undefined,
-          gpmGroupName: gpmMatch.groupName || undefined,
+          gpmProfileName: effectiveProfileName,
+          gpmGroupName: effectiveGroupName,
           source: "extension",
           metricsSource: "identity",
           country: item.country || undefined,
           resolveAttest: gpmMatch.resolveAttest,
         };
+
         const { resp, authRequired } = await authorizedFetch(
           `${config.serverUrl}/api/extension/report`,
           {
@@ -1528,9 +1579,19 @@ async function processPendingGpmLinks() {
         }
         const result = await resp.json().catch(() => ({}));
         const linkedId = result?.account?.gpmProfileId || gpmMatch.id || null;
+
         if (linkedId && cleanUser) {
-          const prev2 =
-            (await chrome.storage.local.get(["latestAccount"])).latestAccount || {};
+          const prevStore = await chrome.storage.local.get([
+            "latestAccount",
+            "linkedGpmGroupName",
+            "linkedGpmProfileName",
+          ]);
+          const prev2 = prevStore.latestAccount || {};
+          const finalGroupName =
+            gpmMatch.groupName || prevStore.linkedGpmGroupName || "";
+          const finalProfileName =
+            gpmMatch.name || prevStore.linkedGpmProfileName || "";
+
           await chrome.storage.local.set({
             latestAccount: {
               ...prev2,
@@ -1538,8 +1599,8 @@ async function processPendingGpmLinks() {
               lastReportedAt: new Date().toISOString(),
             },
             linkedGpmProfileId: linkedId,
-            linkedGpmProfileName: gpmMatch.name || "",
-            linkedGpmGroupName: gpmMatch.groupName || "",
+            linkedGpmProfileName: finalProfileName,
+            linkedGpmGroupName: finalGroupName,
             linkedGpmUsername: cleanUser,
             linkedGpmResolveAttest: gpmMatch.resolveAttest,
             reportSyncStatus: "ok",

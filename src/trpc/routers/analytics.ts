@@ -335,7 +335,7 @@ export const analyticsRouter = router({
       }));
 
       for (const a of accounts) {
-        const breakdown = ((a as any).analytics?.dailyBreakdown as any[]) || [];
+        const breakdown = ((a as any).analytics?.dailyRevenueBreakdown as any[]) || ((a as any).analytics?.dailyBreakdown as any[]) || [];
         for (const item of breakdown) {
           if (!item.date) continue;
           const dStr = item.date;
@@ -372,24 +372,24 @@ export const analyticsRouter = router({
       let hasPresetMetrics = false;
 
       if (input.period === "7D") {
-        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.revenue7d ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.views7d ?? 0), 0);
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue7d ?? (a as any).analytics?.revenue7d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.views7d ?? (a as any).analytics?.views7d ?? 0), 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
       } else if (input.period === "28D" || input.period === "30D") {
-        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.revenue28d ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.views28d ?? 0), 0);
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue28d ?? (a as any).analytics?.revenue28d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.views28d ?? (a as any).analytics?.views28d ?? 0), 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
       } else if (input.period === "60D") {
-        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.revenue60d ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.views60d ?? 0), 0);
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue60d ?? (a as any).analytics?.revenue60d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.views60d ?? (a as any).analytics?.views60d ?? 0), 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
       } else if (input.period === "365D") {
-        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.revenue365d ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.views365d ?? 0), 0);
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue365d ?? (a as any).analytics?.revenue365d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.views365d ?? (a as any).analytics?.views365d ?? 0), 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
       } else if (isAllTime) {
-        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.totalRevenue ?? a.totalRevenue ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number(a.totalViews ?? 0), 0);
+        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.totalRevenue ?? (a as any).analytics?.totalRevenue ?? a.totalRevenue ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.totalViews ?? a.totalViews ?? 0), 0);
         hasPresetMetrics = true;
       }
 
@@ -620,20 +620,20 @@ export const analyticsRouter = router({
         let directRev = 0;
         let directViews = 0;
         if (input.period === "7D") {
-          directRev = Number((a as any).analytics?.revenue7d ?? 0);
-          directViews = Number((a as any).analytics?.views7d ?? 0);
+          directRev = Number((a as any).analytics?.sumRevenue?.revenue7d ?? (a as any).analytics?.revenue7d ?? 0);
+          directViews = Number((a as any).analytics?.sumViews?.views7d ?? (a as any).analytics?.views7d ?? 0);
         } else if (input.period === "28D" || input.period === "30D") {
-          directRev = Number((a as any).analytics?.revenue28d ?? 0);
-          directViews = Number((a as any).analytics?.views28d ?? 0);
+          directRev = Number((a as any).analytics?.sumRevenue?.revenue28d ?? (a as any).analytics?.revenue28d ?? 0);
+          directViews = Number((a as any).analytics?.sumViews?.views28d ?? (a as any).analytics?.views28d ?? 0);
         } else if (input.period === "60D") {
-          directRev = Number((a as any).analytics?.revenue60d ?? 0);
-          directViews = Number((a as any).analytics?.views60d ?? 0);
+          directRev = Number((a as any).analytics?.sumRevenue?.revenue60d ?? (a as any).analytics?.revenue60d ?? 0);
+          directViews = Number((a as any).analytics?.sumViews?.views60d ?? (a as any).analytics?.views60d ?? 0);
         } else if (input.period === "365D") {
-          directRev = Number((a as any).analytics?.revenue365d ?? 0);
-          directViews = Number((a as any).analytics?.views365d ?? 0);
+          directRev = Number((a as any).analytics?.sumRevenue?.revenue365d ?? (a as any).analytics?.revenue365d ?? 0);
+          directViews = Number((a as any).analytics?.sumViews?.views365d ?? (a as any).analytics?.views365d ?? 0);
         } else if (isAllTime) {
-          directRev = Number((a as any).analytics?.totalRevenue ?? a.totalRevenue ?? 0);
-          directViews = Number(a.totalViews ?? 0);
+          directRev = Number((a as any).analytics?.sumRevenue?.totalRevenue ?? (a as any).analytics?.totalRevenue ?? a.totalRevenue ?? 0);
+          directViews = Number((a as any).analytics?.sumViews?.totalViews ?? a.totalViews ?? 0);
         }
         if (directRev > existing.revenue) existing.revenue = directRev;
         if (directViews > existing.views) existing.views = directViews;

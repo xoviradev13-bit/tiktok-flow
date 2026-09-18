@@ -9,6 +9,7 @@ import {
   revealPersonalToken,
   writeMachineBindingLog,
 } from "@/lib/extension-auth";
+import { isAccountOnline } from "@/lib/account-status";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -325,10 +326,10 @@ export const userRouter = router({
       const avgCompletionRate =
         filteredChecklists.length > 0
           ? Math.round(
-              (filteredChecklists.reduce((sum, c) => sum + Number(c.completionRate || 0), 0) /
-                filteredChecklists.length) *
-                10
-            ) / 10
+            (filteredChecklists.reduce((sum, c) => sum + Number(c.completionRate || 0), 0) /
+              filteredChecklists.length) *
+            10
+          ) / 10
           : 0;
 
       // Calculate revenue & views for the window
@@ -399,7 +400,10 @@ export const userRouter = router({
           avgCompletionRate,
           checklistsCount: filteredChecklists.length,
         },
-        tiktokAccounts: user.tiktokAccounts,
+        tiktokAccounts: (user.tiktokAccounts || []).map((acc) => ({
+          ...acc,
+          isOnline: isAccountOnline(acc),
+        })),
         dailyChecklists: filteredChecklists,
       });
     }),

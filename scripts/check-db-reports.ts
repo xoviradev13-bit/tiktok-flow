@@ -17,6 +17,7 @@ async function checkDb() {
   for (const acc of accounts) {
     console.log(`\nAccount: @${acc.username} (ID: ${acc.id})`);
     console.log(`  Status: ${acc.status}`);
+    console.log(`  isOnline: ${acc.isOnline}`);
     console.log(`  GPM Profile ID: ${acc.gpmProfileId}`);
     console.log(`  Followers: ${acc.totalFollowers}`);
     console.log(`  Videos: ${acc.totalVideos}`);

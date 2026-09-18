@@ -37,6 +37,7 @@ import {
   Percent,
   MoreVertical,
   MoreHorizontal,
+  Ban,
 } from "lucide-react";
 import {
   format,
@@ -89,6 +90,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { TimePickerField } from "@/features/schedule/ScheduleModal";
+import { Switch } from "@/components/ui/switch";
 
 function ChecklistPageContent() {
   const { data: session } = useSession();
@@ -163,8 +165,8 @@ function ChecklistPageContent() {
         to: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? endDateStr : undefined,
         preset: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? activeRangePreset : undefined,
         user: selectedUserId,
-        q: search,
-        score: scoreFilter,
+        q: viewType === "table" ? search : undefined,
+        score: viewType === "table" ? scoreFilter : undefined,
       },
       {
         view: "table",
@@ -224,6 +226,7 @@ function ChecklistPageContent() {
     fullDayThreshold: 85,
     halfDayThreshold: 50,
     requireDataSync: true,
+    excludeBannedAccounts: true,
   });
 
   // Expanded Staff Accordion Rows (Set of checklist IDs or row keys)
@@ -292,8 +295,8 @@ function ChecklistPageContent() {
     startDate: queryStartDate,
     endDate: queryEndDate,
     userId: selectedUserId === "ALL" ? undefined : selectedUserId,
-    search: search || undefined,
-    scoreFilter: scoreFilter !== "ALL" ? scoreFilter : undefined,
+    search: viewType === "table" && search ? search : undefined,
+    scoreFilter: viewType === "table" && scoreFilter !== "ALL" ? scoreFilter : undefined,
   });
 
   // Listen to auto-refresh event
@@ -314,6 +317,7 @@ function ChecklistPageContent() {
         fullDayThreshold: timesheetData.scoringConfig.fullDayThreshold ?? 85,
         halfDayThreshold: timesheetData.scoringConfig.halfDayThreshold ?? 50,
         requireDataSync: timesheetData.scoringConfig.requireDataSync ?? true,
+        excludeBannedAccounts: timesheetData.scoringConfig.excludeBannedAccounts ?? true,
       });
     }
   }, [timesheetData?.scoringConfig]);
@@ -711,6 +715,59 @@ function ChecklistPageContent() {
     );
   };
 
+  const renderStaffSelector = (widthClass = "w-full sm:w-60 md:w-64") => {
+    if (!isLeadOrAdmin) return null;
+    return (
+      <div className={cn("relative", widthClass)}>
+        <Select
+          value={selectedUserId}
+          onValueChange={(val) => setSelectedUserId(val)}
+        >
+          <SelectTrigger
+            className={`w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap transition-colors ${selectedUserId !== "ALL"
+              ? "pr-8 border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/25 text-emerald-700 dark:text-emerald-300 [&_svg]:hidden"
+              : ""
+              }`}
+          >
+            <SelectValue placeholder="Tất cả nhân sự" />
+          </SelectTrigger>
+          <SelectContent className="rounded-2xl max-h-72">
+            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
+              👥 Tất cả nhân sự ({staffList.length} thành viên)
+            </SelectItem>
+            {staffList.map((s: any) => (
+              <SelectItem key={s.id} value={s.id} className="text-xs font-normal cursor-pointer">
+                <div className="flex items-center gap-2">
+                  {renderUserAvatar(s, "w-4 h-4 text-[8px]")}
+                  <span className="truncate">{s.fullName} (@{s.username}) — {s.role}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {selectedUserId !== "ALL" && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setSelectedUserId("ALL");
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                aria-label="Xóa chọn nhân sự"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Xóa chọn nhân sự</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    );
+  };
+
   const summary = timesheetData?.summary || {
     totalRecords: 0,
     totalStaff: 0,
@@ -791,7 +848,7 @@ function ChecklistPageContent() {
               <span className="truncate">Bảng Chấm Công & KPI Vận Hành</span>
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-              Theo dõi chấm công hàng ngày, tỷ lệ hoàn thành KPI, tự động chốt công theo mốc 10:00 PM và quản lý lịch sử vận hành.
+              Theo dõi chấm công hàng ngày, tỷ lệ hoàn thành KPI, tự động chốt công và quản lý lịch sử vận hành.
             </p>
           </div>
 
@@ -1019,8 +1076,16 @@ function ChecklistPageContent() {
               </div>
             )}
 
-            {/* Quick Date Presets: Displayed for Charts View or Table Range Mode */}
-            {viewType === "charts" || (viewType === "table" && viewMode === "range") ? (
+            {/* Right side: View-specific controls */}
+            {viewType === "calendar" ? (
+              /* Calendar Mode: Staff Selector in header row */
+              isLeadOrAdmin && (
+                <div className="self-start lg:self-auto w-full sm:w-auto">
+                  {renderStaffSelector("w-full sm:w-60 md:w-64")}
+                </div>
+              )
+            ) : viewType === "charts" || (viewType === "table" && viewMode === "range") ? (
+              /* Charts or Table Range: Range presets */
               <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none py-1">
                 {[
                   { id: "7d", label: "7 Ngày", action: () => applyRangePreset(7, "7d") },
@@ -1043,7 +1108,6 @@ function ChecklistPageContent() {
                     </button>
                   );
                 })}
-
 
                 {/* Custom Range Popover Tab Button */}
                 <Popover
@@ -1141,6 +1205,7 @@ function ChecklistPageContent() {
                 </Popover>
               </div>
             ) : (
+              /* Table Daily: Single day pills */
               <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none py-1">
                 <button
                   type="button"
@@ -1222,62 +1287,75 @@ function ChecklistPageContent() {
             )}
           </div>
 
-          {/* Row 2: Search, User Selector, Score Filter */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            {/* Search Input - Compact fixed width for optimal balance */}
-            <div className="relative w-full sm:w-64 md:w-72 shrink-0">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Tìm nhân sự, @username TikTok..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-8 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 transition-colors"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
-                  title="Xóa tìm kiếm"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+          {/* Row 2: Filters - Table View or Charts View */}
+          {viewType === "table" ? (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              {/* Search Input */}
+              <div className="relative w-full sm:w-64 md:w-72 shrink-0">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm nhân sự, @username TikTok..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-8 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                    title="Xóa tìm kiếm"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
 
-            {/* Dropdown Filters Group */}
-            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
-              {/* Staff / Operator Selector - Only visible for Lead / Admin */}
-              {isLeadOrAdmin && (
-                <div className="relative w-full sm:w-60 md:w-64">
+              {/* Dropdown Filters Group */}
+              <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+                {/* Staff Selector */}
+                {renderStaffSelector()}
+
+                {/* Score Filter */}
+                <div className="relative w-full sm:w-40 md:w-44">
                   <Select
-                    value={selectedUserId}
-                    onValueChange={(val) => setSelectedUserId(val)}
+                    value={scoreFilter}
+                    onValueChange={(val: any) => setScoreFilter(val)}
                   >
                     <SelectTrigger
-                      className={`w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap transition-colors ${selectedUserId !== "ALL"
+                      className={`w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap transition-colors ${scoreFilter !== "ALL"
                         ? "pr-8 border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/25 text-emerald-700 dark:text-emerald-300 [&_svg]:hidden"
                         : ""
                         }`}
                     >
-                      <SelectValue placeholder="Tất cả nhân sự" />
+                      <SelectValue placeholder="Tất cả kết quả" />
                     </SelectTrigger>
-                    <SelectContent className="rounded-2xl max-h-72">
+                    <SelectContent className="rounded-2xl">
                       <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
-                        👥 Tất cả nhân sự ({staffList.length} thành viên)
+                        Tất cả kết quả công
                       </SelectItem>
-                      {staffList.map((s: any) => (
-                        <SelectItem key={s.id} value={s.id} className="text-xs font-normal cursor-pointer">
-                          <div className="flex items-center gap-2">
-                            {renderUserAvatar(s, "w-4 h-4 text-[8px]")}
-                            <span className="truncate">{s.fullName} (@{s.username}) — {s.role}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="FULL" className="text-xs font-normal text-emerald-600 dark:text-emerald-400 cursor-pointer">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                          <span>Đủ 1.0 Ngày Công (&ge;{activeRules.fullDayThreshold}%)</span>
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="HALF" className="text-xs font-normal text-amber-600 dark:text-amber-400 cursor-pointer">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                          <span>Nửa 0.5 Ngày Công ({activeRules.halfDayThreshold}%-{activeRules.fullDayThreshold}%)</span>
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="ZERO" className="text-xs font-normal text-rose-600 dark:text-rose-400 cursor-pointer">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                          <span>0 Ngày Công (&lt;{activeRules.halfDayThreshold}%)</span>
+                        </span>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
-                  {selectedUserId !== "ALL" && (
+                  {scoreFilter !== "ALL" && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -1285,129 +1363,82 @@ function ChecklistPageContent() {
                           onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
-                            setSelectedUserId("ALL");
+                            setScoreFilter("ALL");
                           }}
                           className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                          aria-label="Xóa chọn nhân sự"
+                          aria-label="Xóa chọn kết quả công"
                         >
                           <X className="w-2.5 h-2.5" />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="top">Xóa chọn nhân sự</TooltipContent>
+                      <TooltipContent side="top">Xóa chọn kết quả công</TooltipContent>
                     </Tooltip>
                   )}
                 </div>
-              )}
 
-              {/* Score Filter */}
-              <div className="relative w-full sm:w-40 md:w-44">
-                <Select
-                  value={scoreFilter}
-                  onValueChange={(val: any) => setScoreFilter(val)}
-                >
-                  <SelectTrigger
-                    className={`w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap transition-colors ${scoreFilter !== "ALL"
-                      ? "pr-8 border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/25 text-emerald-700 dark:text-emerald-300 [&_svg]:hidden"
-                      : ""
-                      }`}
-                  >
-                    <SelectValue placeholder="Tất cả kết quả" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-2xl">
-                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
-                      Tất cả kết quả công
-                    </SelectItem>
-                    <SelectItem value="FULL" className="text-xs font-normal text-emerald-600 dark:text-emerald-400 cursor-pointer">
-                      <span className="inline-flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                        <span>Đủ 1.0 Ngày Công (&ge;{activeRules.fullDayThreshold}%)</span>
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="HALF" className="text-xs font-normal text-amber-600 dark:text-amber-400 cursor-pointer">
-                      <span className="inline-flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-                        <span>Nửa 0.5 Ngày Công ({activeRules.halfDayThreshold}%-{activeRules.fullDayThreshold}%)</span>
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="ZERO" className="text-xs font-normal text-rose-600 dark:text-rose-400 cursor-pointer">
-                      <span className="inline-flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
-                        <span>0 Ngày Công (&lt;{activeRules.halfDayThreshold}%)</span>
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                {scoreFilter !== "ALL" && (
+                {/* Quick Reset Filters Button when any filter active */}
+                {(search || selectedUserId !== "ALL" || scoreFilter !== "ALL") && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
+                        onClick={() => {
+                          setSearch("");
+                          setSelectedUserId("ALL");
                           setScoreFilter("ALL");
                         }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                        aria-label="Xóa chọn kết quả công"
+                        className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
                       >
-                        <X className="w-2.5 h-2.5" />
+                        <X className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Xóa bộ lọc</span>
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="top">Xóa chọn kết quả công</TooltipContent>
+                    <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
                   </Tooltip>
                 )}
               </div>
+            </div>
+          ) : viewType === "charts" && isLeadOrAdmin ? (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="text-xs text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2">
+                <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>Phạm vi thống kê theo nhân sự:</span>
+              </div>
+              <div className="flex items-center gap-2.5 justify-end">
+                {renderStaffSelector()}
+              </div>
+            </div>
+          ) : null}
 
-              {/* Quick Reset Filters Button when any filter active */}
-              {(search || selectedUserId !== "ALL" || scoreFilter !== "ALL") && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearch("");
-                        setSelectedUserId("ALL");
-                        setScoreFilter("ALL");
-                      }}
-                      className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Xóa bộ lọc</span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
-                </Tooltip>
-              )}
+          {/* Row 3: Quick Row Expansion control (Table only) */}
+          {viewType === "table" && (
+            <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-1.5">
+                <span>Hiển thị</span>
+                {loading ? (
+                  <span className="inline-block w-8 h-4 rounded bg-slate-200 dark:bg-slate-800 animate-pulse" />
+                ) : (
+                  <strong>{timesheetData?.checklists?.length || 0}</strong>
+                )}
+                <span>bản ghi chấm công.</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleExpandAll(true)}
+                  className="hover:text-emerald-600 dark:hover:text-emerald-400 font-bold cursor-pointer"
+                >
+                  Mở rộng tất cả (+)
+                </button>
+                <span>•</span>
+                <button
+                  onClick={() => handleExpandAll(false)}
+                  className="hover:text-slate-800 dark:hover:text-slate-200 font-bold cursor-pointer"
+                >
+                  Thu gọn (-)
+                </button>
+              </div>
             </div>
-          </div>
-
-          {/* Quick Row Expansion control */}
-          <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
-            <div className="flex items-center gap-1.5">
-              <span>Hiển thị</span>
-              {loading ? (
-                <span className="inline-block w-8 h-4 rounded bg-slate-200 dark:bg-slate-800 animate-pulse" />
-              ) : (
-                <strong>{timesheetData?.checklists?.length || 0}</strong>
-              )}
-              <span>bản ghi chấm công.</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleExpandAll(true)}
-                className="hover:text-emerald-600 dark:hover:text-emerald-400 font-bold cursor-pointer"
-              >
-                Mở rộng tất cả (+)
-              </button>
-              <span>•</span>
-              <button
-                onClick={() => handleExpandAll(false)}
-                className="hover:text-slate-800 dark:hover:text-slate-200 font-bold cursor-pointer"
-              >
-                Thu gọn (-)
-              </button>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -2074,6 +2105,42 @@ function ChecklistPageContent() {
                 <p className="text-xs text-slate-400 mt-2">
                   Đạt từ {editRules.halfDayThreshold}% đến dưới {editRules.fullDayThreshold}% sẽ được tính 0.5 ngày công. Dưới {editRules.halfDayThreshold}% tính 0 công.
                 </p>
+              </div>
+
+              {/* Banned Account KPI Exclusion Policy */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1 pr-2">
+                    <div className="flex items-center gap-2">
+                      <Ban className="w-4 h-4 text-rose-500 shrink-0" />
+                      <label htmlFor="exclude-banned-toggle" className="text-xs font-bold text-slate-900 dark:text-white cursor-pointer">
+                        Loại trừ kênh Banned khỏi Tổng Chỉ Tiêu (totalAssigned)
+                      </label>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                      {editRules.excludeBannedAccounts ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                          ✓ Tiếp cận mới (Bật): Kênh Banned sẽ bị loại khỏi mẫu số totalAssigned. Nhân sự không bị trừ Điểm công ngày (workdayScore) do kênh chết ngoài ý muốn.
+                        </span>
+                      ) : (
+                        <span className="text-amber-600 dark:text-amber-400 font-medium">
+                          ⚠ Tính cả kênh Banned (Tắt): Vẫn tính kênh Banned vào tổng chỉ tiêu được giao. Điểm công ngày sẽ bị giảm nếu kênh banned không hoàn thành.
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <Switch
+                    id="exclude-banned-toggle"
+                    checked={editRules.excludeBannedAccounts}
+                    onCheckedChange={(checked) =>
+                      setEditRules((prev) => ({ ...prev, excludeBannedAccounts: checked }))
+                    }
+                    className="data-[state=checked]:bg-pink-600 cursor-pointer shrink-0 mt-0.5"
+                  />
+                </div>
+                <div className="text-[11px] text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/80">
+                  ℹ️ <strong>Lưu ý:</strong> Kênh bị TikTok <em>Hạn Chế (Restricted)</em> vẫn luôn được theo dõi trong danh sách kiểm tra và tính vào chỉ tiêu bình thường.
+                </div>
               </div>
 
               {/* Threshold Validation Error Alert */}

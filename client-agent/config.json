@@ -1,6 +1,6 @@
 {
   "serverUrl": "http://localhost:3000",
-  "memberEmail": "admin@tiktokflow.com",
+  "memberEmail": "",
   "personalToken": "",
   "concurrency": "auto",
   "headless": true

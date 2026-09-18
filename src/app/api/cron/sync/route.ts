@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { gpmClient } from "@/lib/gpm-api";
 import { auth } from "@/lib/auth";
+import { detectCountryFromText } from "@/lib/country-name";
 
 export async function GET(req: Request) {
   try {
@@ -71,20 +72,15 @@ export async function GET(req: Request) {
       });
 
       if (!existing) {
-        let country = "US";
-        const lowerName = p.name.toLowerCase();
-        const lowerGroup = (p.group_id || "").toLowerCase();
-        if (lowerName.includes("uk") || lowerGroup.includes("uk")) country = "UK";
-        else if (lowerName.includes("vn") || lowerGroup.includes("vn")) country = "VN";
-        else if (lowerName.includes("de")) country = "DE";
-        else if (lowerName.includes("fr")) country = "FR";
+        const resolvedGroupName = await gpmClient.resolveGroupName(p.group_id);
+        const country = detectCountryFromText(p.name) || detectCountryFromText(resolvedGroupName) || null;
 
         const newAccount = await prisma.tiktokAccount.create({
           data: {
             username: extractedUsername,
-            country,
+            country: country || undefined,
             gpmProfileName: p.name || null,
-            groupName: await gpmClient.resolveGroupName(p.group_id),
+            groupName: resolvedGroupName,
             gpmProfileId: p.id,
             status: "ACTIVE",
             totalViews: BigInt(0),

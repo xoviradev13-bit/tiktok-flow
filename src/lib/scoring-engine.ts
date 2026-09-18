@@ -17,6 +17,7 @@ export interface ScoringRuleConfig {
   halfDayThreshold: number; // e.g., 50 (50%)
   requireDataSync: boolean; // require last_synced_at before cutoff
   requirePostCheck: boolean; // require video post checklist checked
+  excludeBannedAccounts?: boolean; // If true (default): exclude banned accounts from totalAssigned; if false: still count banned accounts in totalAssigned
 }
 
 export const DEFAULT_SCORING_CONFIG: ScoringRuleConfig = {
@@ -27,7 +28,26 @@ export const DEFAULT_SCORING_CONFIG: ScoringRuleConfig = {
   halfDayThreshold: 50,
   requireDataSync: true,
   requirePostCheck: true,
+  excludeBannedAccounts: true,
 };
+
+export async function getScoringConfig(prisma: any): Promise<ScoringRuleConfig> {
+  try {
+    const record = await prisma.systemConfig.findUnique({
+      where: { key: "scoring_rules" },
+    });
+    if (record && record.value) {
+      const parsed = JSON.parse(record.value);
+      return {
+        ...DEFAULT_SCORING_CONFIG,
+        ...parsed,
+      };
+    }
+  } catch (e) {
+    console.warn("Failed to load scoring_rules config:", e);
+  }
+  return DEFAULT_SCORING_CONFIG;
+}
 
 export function calculateWorkdayScore(
   totalAssigned: number,

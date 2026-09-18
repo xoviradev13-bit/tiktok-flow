@@ -141,7 +141,7 @@ model User {
 model TiktokAccount {
   id                 String               @id @default(cuid())
   username           String               @unique
-  country            String               @default("US") // US, UK, VN, DE, FR...
+  country            String?              // US, UK, VN, DE, FR...
   gpmProfileId       String?              // GPM-Login profile UUID
   gpmProfileName     String?              // GPM profile display name (e.g. "Profile 5404")
   gpmPort            Int?                 @map("gpm_port")
@@ -155,6 +155,8 @@ model TiktokAccount {
   totalFollowers     Int                  @default(0)
   totalVideos        Int                  @default(0)
   totalRevenue       Decimal              @default(0.0) @db.Decimal(12, 2)
+  bannedReason       String?              @map("banned_reason") // Lý do bị cấm / bị ngừng kiếm tiền
+  metadata           Json?                // Metadata bổ sung (thông tin Creator Rewards, cờ cảnh báo, chi tiết tài khoản)
   lastSyncedAt       DateTime?
   alerts             AccountAlert[]
   logs               AccountLog[]
@@ -281,34 +283,26 @@ model DailyRevenue {
 
 // 6b. Structured Account Analytics (Single Source of Truth)
 model AccountAnalytics {
-  id              String        @id @default(cuid())
-  accountId       String        @unique
-  account         TiktokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  currency        String        @default("USD")
+  id                    String        @id @default(cuid())
+  accountId             String        @unique
+  account               TiktokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  currency              String        @default("USD")
 
-  // Period Totals
-  revenue7d       Decimal       @default(0.0) @db.Decimal(12, 2)
-  revenue28d      Decimal       @default(0.0) @db.Decimal(12, 2)
-  revenue60d      Decimal       @default(0.0) @db.Decimal(12, 2)
-  revenue365d     Decimal?      @db.Decimal(12, 2)
-  totalRevenue    Decimal       @default(0.0) @db.Decimal(12, 2)
+  // Clean JSON Summaries & Breakdowns
+  sumRevenue            Json?         // { revenue7d, revenue28d, revenue60d, revenue365d, totalRevenue }
+  sumViews              Json?         // { views7d, views28d, views60d, views365d, totalViews }
+  sumLikes              Json?         // { likes7d, likes28d, likes60d, likes365d, totalLikes }
+  sumComments           Json?         // { comments7d, comments28d, comments60d, comments365d }
+  sumShares             Json?         // { shares7d, shares28d, shares60d, shares365d }
+  sumProfileViews       Json?         // { profileViews7d, profileViews28d, profileViews60d, profileViews365d }
+  revenueBreakdown      Json?         // { totalRevenue, tiktokShop, activePrograms }
+  dailyRevenueBreakdown Json?         // Array of { date: string, revenue: number }
+  insightsHistory       Json?         // { vv_history, pv_history, like_history, comment_history, share_history }
+  postRewards           Json?         // Array of { title, views, reward, coverUrl, postDate, programName, duration }
+  rawSnapshot           Json?         // { videosList, topVideos, viewsBreakdown, videosBreakdown }
 
-  views7d         BigInt?       @default(0)
-  views28d        BigInt?       @default(0)
-  views60d        BigInt?       @default(0)
-  views365d       BigInt?       @default(0)
-  likes28d        Int?          @default(0)
-  comments28d     Int?          @default(0)
-  shares28d       Int?          @default(0)
-
-  // Granular Time-Series & Breakdown as JSON
-  dailyBreakdown  Json?         // Array of { date: string, revenue: number, views?: number }
-  activePrograms  Json?         // Array of { name: string, programId?: number, revenue: number, revenue7d?: number, revenue28d?: number, revenue60d?: number }
-  insightsHistory Json?         // { vv_history, pv_history, like_history, comment_history, share_history }
-  rawSnapshot     Json?
-
-  updatedAt       DateTime      @updatedAt
-  createdAt       DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  createdAt             DateTime      @default(now())
 
   @@index([accountId])
   @@map("account_analytics")

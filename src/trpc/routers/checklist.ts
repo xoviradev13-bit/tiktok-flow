@@ -1,25 +1,7 @@
 import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { calculateWorkdayScore, getCutoffTimeInfo, DEFAULT_SCORING_CONFIG, ScoringRuleConfig } from "@/lib/scoring-engine";
-
-async function getScoringConfig(prisma: any): Promise<ScoringRuleConfig> {
-  try {
-    const record = await prisma.systemConfig.findUnique({
-      where: { key: "scoring_rules" },
-    });
-    if (record && record.value) {
-      const parsed = JSON.parse(record.value);
-      return {
-        ...DEFAULT_SCORING_CONFIG,
-        ...parsed,
-      };
-    }
-  } catch (e) {
-    console.warn("Failed to load scoring_rules config:", e);
-  }
-  return DEFAULT_SCORING_CONFIG;
-}
+import { calculateWorkdayScore, getCutoffTimeInfo, getScoringConfig, DEFAULT_SCORING_CONFIG, ScoringRuleConfig } from "@/lib/scoring-engine";
 
 function getTodayDateOnly(): Date {
   const now = new Date();
@@ -80,12 +62,19 @@ export const checklistRouter = router({
         },
       });
 
+      const scoringConfig = await getScoringConfig(ctx.prisma);
+      const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+
       // If no checklist exists for today, automatically generate one based on assigned accounts
       if (!checklist) {
+        const allowedStatuses = shouldExcludeBanned
+          ? ["ACTIVE", "WARMING", "RESTRICTED"]
+          : ["ACTIVE", "WARMING", "RESTRICTED", "BANNED"];
+
         const assignedAccounts = await ctx.prisma.tiktokAccount.findMany({
           where: {
             assignedUserId: targetUserId,
-            status: { in: ["ACTIVE", "WARMING"] },
+            status: { in: allowedStatuses as any },
           },
         });
 
@@ -126,6 +115,50 @@ export const checklistRouter = router({
             },
           },
         });
+      } else {
+        // Exclude accounts that became BANNED within the day if configured, otherwise count them in totalAssigned
+        const eligibleItems = shouldExcludeBanned
+          ? checklist.items.filter((i: any) => i.account?.status !== "BANNED")
+          : checklist.items;
+        const totalAssigned = eligibleItems.length;
+        const completedCount = eligibleItems.filter((i: any) => i.isCompleted || i.isPosted).length;
+        const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
+
+        if (
+          checklist.totalAssigned !== totalAssigned ||
+          checklist.completedCount !== completedCount ||
+          Number(checklist.workdayScore) !== workdayScore
+        ) {
+          checklist = await ctx.prisma.dailyChecklist.update({
+            where: { id: checklist.id },
+            data: {
+              totalAssigned,
+              completedCount,
+              completionRate,
+              workdayScore,
+            },
+            include: {
+              items: {
+                include: {
+                  account: {
+                    select: {
+                      id: true,
+                      username: true,
+                      country: true,
+                      gpmProfileId: true,
+                      status: true,
+                      totalViews: true,
+                      totalRevenue: true,
+                      totalVideos: true,
+                      lastSyncedAt: true,
+                    },
+                  },
+                },
+                orderBy: { updatedAt: "asc" },
+              },
+            },
+          });
+        }
       }
 
       return serializeBigInt(checklist);
@@ -153,9 +186,15 @@ export const checklistRouter = router({
       // 1. Ensure checklists exist for all active staff for the requested date (only when single day mode)
       if (!isRangeMode) {
         const dateObj = parseDateOnly(targetDateStr);
+        const scoringConfig = await getScoringConfig(ctx.prisma);
+        const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+        const allowedStatuses = shouldExcludeBanned
+          ? ["ACTIVE", "WARMING", "RESTRICTED"]
+          : ["ACTIVE", "WARMING", "RESTRICTED", "BANNED"];
+
         const activeUsers = await ctx.prisma.user.findMany({
           where: { isActive: true, role: { in: ["STAFF", "LEAD", "ADMIN"] }, deletedAt: null },
-          include: { tiktokAccounts: { where: { status: { in: ["ACTIVE", "WARMING"] } } } },
+          include: { tiktokAccounts: { where: { status: { in: allowedStatuses as any } } } },
         });
 
         const usersWithAccounts = activeUsers.filter((u) => u.tiktokAccounts.length > 0);
@@ -260,7 +299,10 @@ export const checklistRouter = router({
         orderBy: isRangeMode ? [{ date: "desc" }, { createdAt: "asc" }] : [{ createdAt: "asc" }],
       });
 
-      // Filter by search query if provided
+      const scoringConfig = await getScoringConfig(ctx.prisma);
+      const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+
+      // Filter by search query if provided & re-evaluate scores according to scoring rule config
       let formattedChecklists = checklists.map((c) => {
         const fullName =
           [c.user.firstName, c.user.lastName].filter(Boolean).join(" ") ||
@@ -268,8 +310,28 @@ export const checklistRouter = router({
           c.user.username ||
           c.user.email;
 
+        let totalAssigned = c.totalAssigned;
+        let completedCount = c.completedCount;
+        let completionRate = Number(c.completionRate || 0);
+        let workdayScore = Number(c.workdayScore || 0);
+
+        if (!c.isLocked) {
+          const eligibleItems = shouldExcludeBanned
+            ? c.items.filter((item: any) => item.account?.status !== "BANNED")
+            : c.items;
+          totalAssigned = eligibleItems.length;
+          completedCount = eligibleItems.filter((item: any) => item.isCompleted || item.isPosted).length;
+          const scoreResult = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
+          completionRate = scoreResult.completionRate;
+          workdayScore = scoreResult.workdayScore;
+        }
+
         return {
           ...c,
+          totalAssigned,
+          completedCount,
+          completionRate,
+          workdayScore,
           user: {
             ...c.user,
             fullName,
@@ -299,8 +361,11 @@ export const checklistRouter = router({
       let totalSynced = 0;
 
       for (const c of formattedChecklists) {
-        totalAssignedAccounts += c.items.length;
-        for (const item of c.items) {
+        const eligibleItems = shouldExcludeBanned
+          ? c.items.filter((item: any) => item.account?.status !== "BANNED")
+          : c.items;
+        totalAssignedAccounts += eligibleItems.length;
+        for (const item of eligibleItems) {
           if (item.isPosted) totalVideosPosted++;
           if (item.isSynced) totalSynced++;
         }
@@ -314,8 +379,6 @@ export const checklistRouter = router({
         formattedChecklists.length > 0
           ? Math.round((totalPossibleCompletion / formattedChecklists.length) * 10) / 10
           : 0;
-
-      const scoringConfig = await getScoringConfig(ctx.prisma);
       const cutoffInfo = getCutoffTimeInfo(scoringConfig);
 
       return serializeBigInt({
@@ -486,14 +549,21 @@ export const checklistRouter = router({
         data: updatedFields,
       });
 
-      // Recalculate checklist counts and workday score using rule engine (>=85% -> 1.0, >=50% -> 0.5, <50% -> 0.0)
+      // Recalculate checklist counts and workday score using rule engine
       const allItems = await ctx.prisma.dailyChecklistItem.findMany({
         where: { checklistId: item.checklistId },
+        include: { account: true },
       });
 
-      const totalAssigned = allItems.length;
-      const completedCount = allItems.filter((i) => i.isCompleted || i.isPosted).length;
-      const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount);
+      const scoringConfig = await getScoringConfig(ctx.prisma);
+      const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+
+      const eligibleItems = shouldExcludeBanned
+        ? allItems.filter((i: any) => i.account?.status !== "BANNED")
+        : allItems;
+      const totalAssigned = eligibleItems.length;
+      const completedCount = eligibleItems.filter((i: any) => i.isCompleted || i.isPosted).length;
+      const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
 
       const updatedChecklist = await ctx.prisma.dailyChecklist.update({
         where: { id: item.checklistId },
@@ -659,11 +729,18 @@ export const checklistRouter = router({
         // Recalculate total checklist score for this staff
         const allItems = await ctx.prisma.dailyChecklistItem.findMany({
           where: { checklistId: checklist.id },
+          include: { account: true },
         });
 
-        const totalAssigned = allItems.length;
-        const completedCount = allItems.filter((i) => i.isCompleted || i.isPosted).length;
-        const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount);
+        const scoringConfig = await getScoringConfig(ctx.prisma);
+        const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+
+        const eligibleItems = shouldExcludeBanned
+          ? allItems.filter((i: any) => i.account?.status !== "BANNED")
+          : allItems;
+        const totalAssigned = eligibleItems.length;
+        const completedCount = eligibleItems.filter((i: any) => i.isCompleted || i.isPosted).length;
+        const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
 
         await ctx.prisma.dailyChecklist.update({
           where: { id: checklist.id },
@@ -713,6 +790,7 @@ export const checklistRouter = router({
         cutOffHour: z.number().min(0).max(23),
         cutOffMinute: z.number().min(0).max(59),
         timezone: z.string().default("Asia/Ho_Chi_Minh"),
+        excludeBannedAccounts: z.boolean().default(true),
       })
     )
     .mutation(async ({ ctx, input }) => {

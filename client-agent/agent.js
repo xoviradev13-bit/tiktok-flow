@@ -99,6 +99,31 @@ const CODE_TO_COUNTRY_CODE = {
   ie: "IE", tw: "TW", hk: "HK", kh: "KH", mm: "MM", la: "LA",
 };
 
+const NAME_TO_COUNTRY_CODE = {
+  "united states": "US", "unitedstates": "US", "usa": "US", "us": "US", "america": "US",
+  "united kingdom": "UK", "unitedkingdom": "UK", "great britain": "UK", "britain": "UK", "england": "UK", "uk": "UK", "gb": "UK",
+  "vietnam": "VN", "viet nam": "VN", "việt nam": "VN", "vn": "VN",
+  "germany": "DE", "deutschland": "DE", "de": "DE",
+  "france": "FR", "fr": "FR",
+  "belgium": "BE", "be": "BE",
+  "netherlands": "NL", "nl": "NL",
+  "indonesia": "ID", "id": "ID",
+  "thailand": "TH", "th": "TH",
+  "malaysia": "MY", "my": "MY",
+  "philippines": "PH", "ph": "PH",
+  "singapore": "SG", "sg": "SG",
+  "japan": "JP", "jp": "JP",
+  "south korea": "KR", "korea": "KR", "kr": "KR",
+  "brazil": "BR", "br": "BR",
+  "mexico": "MX", "mx": "MX",
+  "canada": "CA", "ca": "CA",
+  "australia": "AU", "au": "AU",
+  "spain": "ES", "es": "ES",
+  "italy": "IT", "it": "IT",
+  "taiwan": "TW", "tw": "TW",
+  "hong kong": "HK", "hk": "HK",
+};
+
 function extractCountryIso(raw, fromStore = false) {
   const s = String(raw || "").trim().toLowerCase().replace(/_/g, "-");
   if (!s) return null;
@@ -116,6 +141,12 @@ function extractCountryIso(raw, fromStore = false) {
 }
 
 function resolveCountryFromRaw(raw, fromStore = false) {
+  if (!raw) return null;
+  const trimmed = String(raw).trim().toLowerCase();
+  if (!trimmed || /^\d+$/.test(trimmed)) return null;
+  if (NAME_TO_COUNTRY_CODE[trimmed]) {
+    return NAME_TO_COUNTRY_CODE[trimmed];
+  }
   const code = extractCountryIso(raw, fromStore);
   if (code && CODE_TO_COUNTRY_CODE[code]) {
     return CODE_TO_COUNTRY_CODE[code];
@@ -129,7 +160,6 @@ function detectCountryFromCurrency(cur) {
   switch (c) {
     case "£": case "GBP": return "UK";
     case "₫": case "VND": return "VN";
-    case "€": case "EUR": return "DE";
     case "R$": case "BRL": return "BR";
     case "RP": case "IDR": return "ID";
     case "₱": case "PHP": return "PH";
@@ -142,7 +172,6 @@ function detectCountryFromCurrency(cur) {
     case "฿": case "THB": return "TH";
     case "RM": case "MYR": return "MY";
     case "₺": case "TRY": return "TR";
-    case "$": case "USD": return "US";
     default: return null;
   }
 }
@@ -432,7 +461,7 @@ function acquireAgentLock() {
                 startedData = await startRes.json();
                 break;
               }
-            } catch {}
+            } catch { }
           }
 
           res.writeHead(200, {
@@ -472,7 +501,7 @@ function acquireAgentLock() {
                 stopped = true;
                 break;
               }
-            } catch {}
+            } catch { }
           }
           res.writeHead(200, {
             ...headers,
@@ -732,7 +761,7 @@ async function redeemPairingIfNeeded() {
     if (!res.ok || !json.personalToken) {
       markTokenRevoked(
         json.error ||
-          "Ma pairing het han hoac da dung. Tai lai zip hoac nhap Personal Token (setup-agent.bat phim 3).",
+        "Ma pairing het han hoac da dung. Tai lai zip hoac nhap Personal Token (setup-agent.bat phim 3).",
         res.status
       );
       return false;
@@ -950,23 +979,26 @@ const activeContexts = new Set();
 
 /**
  * Ironclad cleanup function: Strictly validates that the path is inside os.tmpdir()
- * and has our agent prefix before deleting. NEVER touches user files.
+ * or .gpm_temp and has our agent prefix before deleting. NEVER touches user files.
  */
 function cleanupTempDir(tempDir) {
   if (!tempDir || typeof tempDir !== "string") return;
   try {
     const resolvedTarget = path.resolve(tempDir);
     const resolvedTmp = path.resolve(os.tmpdir());
+    const baseName = path.basename(resolvedTarget);
 
-    // SAFETY CHECK 1: Target must strictly reside within os.tmpdir()
-    if (!resolvedTarget.startsWith(resolvedTmp) || resolvedTarget === resolvedTmp) {
+    const isInsideOsTmp = resolvedTarget.startsWith(resolvedTmp) && resolvedTarget !== resolvedTmp;
+    const isInsideGpmTemp = resolvedTarget.includes(".gpm_temp");
+
+    // SAFETY CHECK 1: Target must strictly reside within os.tmpdir() or .gpm_temp
+    if (!isInsideOsTmp && !isInsideGpmTemp) {
       console.warn("[!] [Bao Ve File] Chan hanh dong xoa ngoai thu muc tam:", resolvedTarget);
       return;
     }
 
     // SAFETY CHECK 2: Directory name must start with our agent signature prefix
-    const baseName = path.basename(resolvedTarget);
-    if (!baseName.startsWith("gpm-agent-")) {
+    if (!baseName.startsWith("gpm-agent-") && !baseName.startsWith("agent-")) {
       console.warn("[!] [Bao Ve File] Chan hanh dong xoa thu muc khong phai do Agent tao:", resolvedTarget);
       return;
     }
@@ -978,6 +1010,30 @@ function cleanupTempDir(tempDir) {
   } catch (err) {
     // Silent fail on temp cleanup
   }
+}
+
+/** Sweeps old leftover agent snapshot directories from .gpm_temp on startup to free disk space */
+function sweepStaleTempDirs(storageRoot) {
+  if (!storageRoot) return;
+  try {
+    const tempRoot = path.join(storageRoot, ".gpm_temp");
+    if (fs.existsSync(tempRoot)) {
+      const entries = fs.readdirSync(tempRoot, { withFileTypes: true });
+      let cleaned = 0;
+      for (const ent of entries) {
+        if (ent.isDirectory() && (ent.name.startsWith("agent-") || ent.name.startsWith("gpm-agent-"))) {
+          const fullPath = path.join(tempRoot, ent.name);
+          try {
+            fs.rmSync(fullPath, { recursive: true, force: true });
+            cleaned++;
+          } catch { }
+        }
+      }
+      if (cleaned > 0) {
+        console.log(`[*] Da don dep ${cleaned} thu muc snapshot tam cu trong .gpm_temp`);
+      }
+    }
+  } catch { }
 }
 
 // Ensure all spawned Chrome instances and temp folders are cleanly destroyed on exit or Ctrl+C
@@ -1442,7 +1498,7 @@ function listOpenProfilesFromDisk(storageRoot) {
   }));
 }
 
-function readGpmProfileMetaFromDisk(storageRoot, profileId) {
+export function readGpmProfileMetaFromDisk(storageRoot, profileId) {
   try {
     const pi = path.join(storageRoot, String(profileId), "Default", "GPMSoft", "gpm_pi.dat");
     if (!fs.existsSync(pi)) return { name: null, groupName: null, groupId: null };
@@ -1455,17 +1511,18 @@ function readGpmProfileMetaFromDisk(storageRoot, profileId) {
     }
     const parsed = JSON.parse(json);
     const name = parsed?.name || parsed?.raw_name || null;
-    const groupId =
-      parsed?.group_id ||
-      parsed?.groupId ||
-      parsed?.Group?.id ||
+    const rawGid =
+      parsed?.group_id ??
+      parsed?.groupId ??
+      parsed?.Group?.id ??
       null;
+    const groupId = rawGid !== null && rawGid !== undefined ? String(rawGid) : null;
     const groupName =
       parsed?.group_name ||
       parsed?.groupName ||
       parsed?.Group?.name ||
       null;
-    return { name, groupName: groupName || null, groupId: groupId ? String(groupId) : null };
+    return { name, groupName: groupName || null, groupId };
   } catch {
     return { name: null, groupName: null, groupId: null };
   }
@@ -1852,6 +1909,7 @@ async function resolveBrowserBySessionHash({
       const meta = storagePath
         ? readGpmProfileMetaFromDisk(storagePath, base.gpmProfileId)
         : { name: null, groupName: null, groupId: null };
+      console.log(`[Agent:resolveBrowser] Profile ${base.gpmProfileId} meta from disk:`, meta);
       const gpmProfileName = base.gpmProfileName || meta.name || null;
       let gpmGroupName = base.gpmGroupName || meta.groupName || null;
 
@@ -1862,6 +1920,9 @@ async function resolveBrowserBySessionHash({
         const gid = String(meta.groupId);
         if (gpmGroupsCache.byId.has(gid)) {
           gpmGroupName = gpmGroupsCache.byId.get(gid);
+          console.log(`[Agent:resolveBrowser] Matched groupId ${gid} -> "${gpmGroupName}" in groups cache`);
+        } else {
+          console.log(`[Agent:resolveBrowser] groupId ${gid} not found in groups cache (${gpmGroupsCache.byId.size} entries)`);
         }
       }
 
@@ -1876,6 +1937,7 @@ async function resolveBrowserBySessionHash({
               lastGoodGpmBase = apiBase;
             } else {
               gpmApiOfflineUntil = Date.now() + 20_000;
+              console.log("[Agent:resolveBrowser] GPM API is offline; cannot query group name via HTTP");
             }
           } catch {
             gpmApiOfflineUntil = Date.now() + 20_000;
@@ -1889,11 +1951,17 @@ async function resolveBrowserBySessionHash({
         }
       }
 
+      console.log(`[Agent:resolveBrowser] Final outcome for ${base.gpmProfileId}:`, {
+        gpmProfileName,
+        gpmGroupName,
+        gpmGroupId: meta.groupId,
+      });
 
       return {
         ...base,
         gpmProfileName,
         gpmGroupName: gpmGroupName || undefined,
+        gpmGroupId: meta.groupId || undefined,
       };
     } catch (err) {
       return { ...payload, ...attest };
@@ -2360,11 +2428,17 @@ function copyDirRecursive(src, dest) {
   }
 
   for (const entry of entries) {
-    // Skip file locks so GPMLogin is never disturbed
+    const lowerName = entry.name.toLowerCase();
+    // Skip file locks, sockets, and active debugging ports so running GPMLogin is never disturbed and temp instance never collides
     if (
       entry.name === "SingletonLock" ||
       entry.name === "SingletonCookie" ||
-      entry.name === "SingletonSocket"
+      entry.name === "SingletonSocket" ||
+      entry.name === "DevToolsActivePort" ||
+      entry.name === "lockfile" ||
+      entry.name === "parent.lock" ||
+      lowerName === "lock" ||
+      lowerName.endsWith(".lock")
     ) {
       continue;
     }
@@ -2441,6 +2515,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       args: LAUNCH_ARGS,
       userAgent: USER_AGENT,
       viewport: { width: 1440, height: 900 },
+      timeout: 15000,
     });
 
     activeContexts.add(context);
@@ -2450,11 +2525,16 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     let followerCount = 0;
     let rawPostList = [];
     let interceptedRewardAnalytics = null;
+    let interceptedPerPostRewards = [];
+    let interceptedPerPostUrl = null;
+    let interceptedPerPostHasMore = false;
+    let interceptedVideoRewardAnalytics = null;
     let interceptedAllPrograms = null;
     let interceptedInsightsHistory = null;
     let homeRewards365 = null;
+    let interceptedVideoCalls = [];
 
-    // Intercept essential user, follower, insights, and monetization APIs
+    // Intercept essential user, follower, insights, monetization, and video list APIs
     page.on("response", async (resp) => {
       const url = resp.url();
       try {
@@ -2471,11 +2551,30 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
             if (firstVal !== undefined) followerCount = parseInt(firstVal, 10) || 0;
           }
         }
-        if (url.includes("/m10n_center/reward_analytics")) {
+        if (url.includes("reward_analytics_per_post")) {
+          try {
+            const j = await resp.json();
+            const payload = j.data || j;
+            if (Array.isArray(payload.video_analytics_video_list)) {
+              interceptedPerPostRewards.push(...payload.video_analytics_video_list);
+            }
+            if (payload.has_more !== undefined) {
+              interceptedPerPostHasMore = !!payload.has_more;
+            }
+            interceptedPerPostUrl = url;
+          } catch { }
+        } else if (url.includes("/m10n_center/reward_analytics")) {
           const j = await resp.json();
           const payload = j.data || j;
           if (payload.daily_estimated_income || payload.seven_d_income) {
             interceptedRewardAnalytics = payload;
+          }
+        }
+        if (url.includes("video_reward_analytics")) {
+          const j = await resp.json();
+          const payload = j.data || j;
+          if (payload.crp_analytics_data || payload.ttshop_analytics_data) {
+            interceptedVideoRewardAnalytics = payload;
           }
         }
         if (url.includes("/m10n_center/all_programs")) {
@@ -2489,6 +2588,17 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
           const j = await resp.json();
           if (j.vv_history || j.like_history) {
             interceptedInsightsHistory = j;
+          }
+        }
+        if (url.includes("item_list") || url.includes("post_list") || url.includes("/content/manage") || url.includes("/content/list")) {
+          const j = await resp.json();
+          const list = j.itemList || j.items || j.item_list || j.data?.item_list || j.data?.itemList || [];
+          if (Array.isArray(list) && list.length > 0) {
+            interceptedVideoCalls.push({
+              has_more: j.has_more,
+              cursor: j.cursor,
+              items: list,
+            });
           }
         }
       } catch { }
@@ -2506,6 +2616,26 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       return { success: false, error: "Profile chua dang nhap TikTok hoac phien dang nhap da het han." };
     }
 
+    // Extract TikTok Passport account info (authoritative ground-truth from TikTok server)
+    let passportCountryRaw = null;
+    try {
+      passportCountryRaw = await page.evaluate(async () => {
+        try {
+          const res = await fetch("https://www.tiktok.com/passport/web/account/info/?app_id=1233", {
+            credentials: "include",
+          });
+          if (!res.ok) return null;
+          const json = await res.json();
+          const d = json?.data;
+          const val = d?.store_country || d?.country_code || d?.country || null;
+          if (val && /^\d+$/.test(String(val))) return null;
+          return val;
+        } catch {
+          return null;
+        }
+      }).catch(() => null);
+    } catch { }
+
     // Extract TikTok store-country-code cookie & webapp context (identical to Extension)
     let cookieCountryRaw = null;
     try {
@@ -2514,7 +2644,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       if (storeCookie?.value) {
         cookieCountryRaw = storeCookie.value;
       }
-    } catch {}
+    } catch { }
 
     const pageCountryHints = await page.evaluate(() => {
       let region = null;
@@ -2522,7 +2652,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       try {
         const m = document.cookie.match(/(?:^|; )store-country-code=([^;]*)/);
         if (m) storeCountry = decodeURIComponent(m[1]);
-      } catch {}
+      } catch { }
       try {
         const el = document.getElementById("__UNIVERSAL_DATA_FOR_REHYDRATION__");
         if (el?.textContent) {
@@ -2531,7 +2661,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
           const ctx = scope["webapp.app-context"] || {};
           region = ctx.appContext?.region || ctx.appContext?.priority_region || ctx.user?.region || null;
         }
-      } catch {}
+      } catch { }
       return { region, storeCountry };
     }).catch(() => ({ region: null, storeCountry: null }));
 
@@ -2547,7 +2677,10 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       await page.waitForTimeout(200);
     }
 
-    // Extract pre-rendered post_list from __Creator_Center_Context__
+    // Extract pre-rendered post_list from __Creator_Center_Context__ and accumulate
+    const allVideosMap = new Map();
+    let initialHasMore = false;
+
     const scriptContent = await page.evaluate(() => {
       const el = document.getElementById("__Creator_Center_Context__");
       return el ? el.textContent : null;
@@ -2557,15 +2690,67 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       try {
         const s = scriptContent.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
         const parsed = JSON.parse(s);
-        if (Array.isArray(parsed.firstBatchQueryItems?.item_list)) {
-          rawPostList = parsed.firstBatchQueryItems.item_list;
-        } else if (Array.isArray(parsed.post_list)) {
-          rawPostList = parsed.post_list;
+        const batch = parsed.firstBatchQueryItems?.item_list || parsed.post_list;
+        if (Array.isArray(batch)) {
+          for (const item of batch) {
+            const key = item.item_id || item.id || item.desc || Math.random().toString();
+            allVideosMap.set(key, item);
+          }
+        }
+        if (parsed.firstBatchQueryItems?.has_more !== undefined) {
+          initialHasMore = !!parsed.firstBatchQueryItems.has_more;
         }
       } catch { }
     }
 
-    // Fallback: Extract from DOM if script tag was missing
+    // Incorporate any intercepted calls that already arrived
+    for (const call of interceptedVideoCalls) {
+      for (const item of call.items) {
+        const key = item.item_id || item.id || item.desc || Math.random().toString();
+        allVideosMap.set(key, item);
+      }
+    }
+
+    // Scroll to load all remaining video batches if more exist
+    let lastVideoCount = allVideosMap.size;
+    let noNewVideoIterations = 0;
+    const shouldScroll = initialHasMore || interceptedVideoCalls.some((c) => c.has_more) || allVideosMap.size === 0;
+
+    if (shouldScroll) {
+      for (let scrollIdx = 0; scrollIdx < 8; scrollIdx++) {
+        const lastCall = [...interceptedVideoCalls].reverse().find((c) => c.has_more !== undefined);
+        if (lastCall && lastCall.has_more === false) {
+          break; // All videos loaded according to TikTok API
+        }
+
+        await page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight);
+          const scrollables = document.querySelectorAll('div[class*="content"], div[class*="table"], div[class*="scroll"], div[class*="list"]');
+          scrollables.forEach((el) => { el.scrollTop = el.scrollHeight; });
+        }).catch(() => { });
+
+        await page.waitForTimeout(1500);
+
+        for (const call of interceptedVideoCalls) {
+          for (const item of call.items) {
+            const key = item.item_id || item.id || item.desc || Math.random().toString();
+            allVideosMap.set(key, item);
+          }
+        }
+
+        if (allVideosMap.size === lastVideoCount) {
+          noNewVideoIterations++;
+          if (noNewVideoIterations >= 2) break;
+        } else {
+          noNewVideoIterations = 0;
+          lastVideoCount = allVideosMap.size;
+        }
+      }
+    }
+
+    rawPostList = Array.from(allVideosMap.values());
+
+    // Fallback: Extract from DOM if script tag and API intercept were missing
     if (rawPostList.length === 0) {
       const domPosts = await page.evaluate(() => {
         const items = [];
@@ -2598,17 +2783,23 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       return parseInt(str.replace(/[^0-9]/g, ""), 10) || 0;
     };
 
-    const videosList = rawPostList.map((p) => ({
-      title: p.desc || "No title",
-      views: cleanNum(p.play_count),
-      likes: cleanNum(p.like_count),
-      comments: cleanNum(p.comment_count),
-      shares: cleanNum(p.share_count),
-      postTime: p.post_time || p.create_time ? new Date(parseInt(p.post_time || p.create_time, 10) * 1000).toISOString() : null,
-      coverUrl: Array.isArray(p.cover_url) ? p.cover_url[0] : null,
-    }));
+    const videosList = rawPostList.map((p) => {
+      const rawTime = p.post_time || p.create_time;
+      const postTimestamp = rawTime ? parseInt(rawTime, 10) * 1000 : null;
+      return {
+        id: p.item_id || p.id || "",
+        title: p.desc || p.title || "No title",
+        views: cleanNum(p.play_count || p.stats?.playCount),
+        likes: cleanNum(p.like_count || p.stats?.diggCount),
+        comments: cleanNum(p.comment_count || p.stats?.commentCount),
+        shares: cleanNum(p.share_count || p.stats?.shareCount),
+        postTime: postTimestamp ? new Date(postTimestamp).toISOString() : null,
+        postDate: postTimestamp ? new Date(postTimestamp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "",
+        coverUrl: Array.isArray(p.cover_url) ? p.cover_url[0] : (typeof p.cover_url === "string" ? p.cover_url : (p.cover?.url_list?.[0] || p.video?.cover?.url_list?.[0] || null)),
+      };
+    });
 
-    const totalViews = videosList.reduce((sum, v) => sum + v.views, 0);
+    const totalViewsCombined = videosList.reduce((sum, v) => sum + v.views, 0);
 
     // Reliable Username: Studio API UniqId > Passport session > disk (never prefer visited public profiles)
     let sessionHandle = userInfo?.UniqId || null;
@@ -2638,6 +2829,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
 
     const finalHandle =
       sessionHandle ||
+      detectedHandle ||
       null;
 
     if (detectedHandle && sessionHandle && detectedHandle.toLowerCase() !== String(sessionHandle).toLowerCase()) {
@@ -2653,12 +2845,102 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       };
     }
 
-    // Visit monetization tab to extract Active Programs (LIVE rewards, TikTok Shop, Creator Rewards)
+    // Step 2: Visit Analytics (/tiktokstudio/analytics) for period views & engagement
+    let views7d = 0;
+    let views28d = 0;
+    let views60d = 0;
+    let views365d = 0;
+    let likes7d = 0;
+    let likes28d = 0;
+    let likes60d = 0;
+    let likes365d = 0;
+    let comments7d = 0;
+    let comments28d = 0;
+    let comments60d = 0;
+    let comments365d = 0;
+    let shares7d = 0;
+    let shares28d = 0;
+    let shares60d = 0;
+    let shares365d = 0;
+    let profileViews7d = 0;
+    let profileViews28d = 0;
+    let profileViews60d = 0;
+    let profileViews365d = 0;
+
+    try {
+      await page.goto("https://www.tiktok.com/tiktokstudio/analytics", {
+        waitUntil: "domcontentloaded",
+        timeout: 15000,
+      }).catch(() => { });
+      await page.waitForTimeout(2500);
+
+      const rawInsightMap = await page.evaluate(async () => {
+        const out = {};
+        const ranges = [7, 28, 60, 365];
+        for (const days of ranges) {
+          try {
+            const typeRequests = [
+              { insigh_type: "vv_history", days: days, end_days: 0 },
+              { insigh_type: "pv_history", days: days, end_days: 0 },
+              { insigh_type: "like_history", days: days, end_days: 0 },
+              { insigh_type: "comment_history", days: days, end_days: 0 },
+              { insigh_type: "share_history", days: days, end_days: 0 },
+            ];
+            const url = "/aweme/v2/data/insight/?tz_offset=25200&type_requests=" + encodeURIComponent(JSON.stringify(typeRequests));
+            const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            out[days] = await res.json();
+          } catch (e) {
+            out[days] = {};
+          }
+        }
+        return out;
+      }).catch(() => ({}));
+
+      const sumMetricHistory = (arr) => {
+        if (!arr || !Array.isArray(arr)) return 0;
+        let s = 0;
+        for (let i = 0; i < arr.length; i++) {
+          s += Number(arr[i] && arr[i].value ? arr[i].value : 0);
+        }
+        return s;
+      };
+
+      const getVal = (d, metric) => sumMetricHistory((rawInsightMap[String(d)] || {})[metric]);
+
+      views7d = getVal(7, "vv_history");
+      views28d = getVal(28, "vv_history");
+      views60d = getVal(60, "vv_history");
+      views365d = getVal(365, "vv_history");
+
+      likes7d = getVal(7, "like_history");
+      likes28d = getVal(28, "like_history");
+      likes60d = getVal(60, "like_history");
+      likes365d = getVal(365, "like_history");
+
+      comments7d = getVal(7, "comment_history");
+      comments28d = getVal(28, "comment_history");
+      comments60d = getVal(60, "comment_history");
+      comments365d = getVal(365, "comment_history");
+
+      shares7d = getVal(7, "share_history");
+      shares28d = getVal(28, "share_history");
+      shares60d = getVal(60, "share_history");
+      shares365d = getVal(365, "share_history");
+
+      profileViews7d = getVal(7, "pv_history");
+      profileViews28d = getVal(28, "pv_history");
+      profileViews60d = getVal(60, "pv_history");
+      profileViews365d = getVal(365, "pv_history");
+    } catch (anErr) {
+      console.warn("   [!] Analytics fetch warning:", anErr.message);
+    }
+
+    const totalViews = Math.max(totalViewsCombined, views365d);
+
+    // Step 3: Visit monetization tab to extract Active Programs (LIVE rewards, TikTok Shop, Creator Rewards)
     let totalRewardsUsd = null;
-    let creatorRewardsUsd = null;
     let shopRewardsUsd = null;
     let shopProgramName = "TikTok Shop for Seller";
-    let liveRewardsUsd = null;
     let activePrograms = [];
     let dailyBreakdown = [];
     let revenue7d = null;
@@ -2667,6 +2949,10 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     let revenue365d = null;
     let rpm = null;
     let currency = "$";
+    let tiktokShopProgram = null;
+    let postRewards = [];
+    let creatorRewardsMissing = false;
+    let bannedReason = null;
 
     try {
       await page.goto("https://www.tiktok.com/tiktokstudio/monetization", {
@@ -2709,20 +2995,22 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
           const p7d = parseMoney(p.seven_d_income);
           const p28d = parseMoney(p.thirty_d_income);
           const p60d = parseMoney(p.sixty_d_income);
-          const effective = p28d > 0 ? p28d : p7d;
+          const isShop = p.m10n_program === 11 || /shop/i.test(name);
 
-          if (p.m10n_program === 11 || /shop/i.test(name)) {
-            shopRewardsUsd = effective;
+          const progObj = {
+            name,
+            programId: p.m10n_program,
+            revenue7d: p7d,
+            revenue30d: p28d,
+            revenue60d: p60d,
+          };
+
+          if (isShop) {
+            shopRewardsUsd = p28d > 0 ? p28d : p7d;
             shopProgramName = name;
+            tiktokShopProgram = progObj;
           } else {
-            progsMap.set(name, {
-              name,
-              programId: p.m10n_program,
-              revenue: effective,
-              revenue7d: p7d,
-              revenue28d: p28d,
-              revenue60d: p60d,
-            });
+            progsMap.set(name, progObj);
           }
         });
 
@@ -2733,9 +3021,8 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
               progsMap.set(ap.name, {
                 name: ap.name,
                 programId: ap.m10n_project,
-                revenue: 0,
                 revenue7d: 0,
-                revenue28d: 0,
+                revenue30d: 0,
                 revenue60d: 0,
               });
             }
@@ -2743,10 +3030,6 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
         }
 
         activePrograms = Array.from(progsMap.values());
-        const liveProg = activePrograms.find((p) => /live/i.test(p.name));
-        const creatorProg = activePrograms.find((p) => /creator|gaming|incentive|beta/i.test(p.name));
-        liveRewardsUsd = liveProg ? liveProg.revenue : 0;
-        creatorRewardsUsd = creatorProg ? creatorProg.revenue : 0;
       } else {
         // Resilient Fallback: DOM scraping if network response was not captured
         await Promise.race([
@@ -2830,7 +3113,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
             shop,
             shopName,
             cur,
-            activeProgs: Array.from(programsMap.entries()).map(([name, revenue]) => ({ name, revenue })),
+            activeProgs: Array.from(programsMap.entries()).map(([name, revenue]) => ({ name, revenue7d: 0, revenue30d: revenue, revenue60d: 0 })),
           };
         }).catch(() => ({ tot: null, shop: null, shopName: "TikTok Shop for Seller", cur: "$", activeProgs: [] }));
 
@@ -2847,7 +3130,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
           try {
             var typeReq = [{ insight_type: 126, data_date_range: 4 }];
             var url = "/tiktok/v1/analytics/insights/?type_requests=" + encodeURIComponent(JSON.stringify(typeReq)) + "&time_offset=25200&is_dark_mode=false";
-            var resp = await fetch(url);
+            var resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
             var j = await resp.json();
             return j.analytics_overview_rewards?.total?.amount ?? null;
           } catch {
@@ -2861,12 +3144,555 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
             totalRewardsUsd = revenue365d;
           }
         }
-      } catch {}
+      } catch { }
 
       if (totalRewardsUsd && totalViews > 0) {
         rpm = Number(((totalRewardsUsd / totalViews) * 1000).toFixed(3));
       }
+
+      // Visit the first video item page to trigger TikTok Studio's internal router to load the per-post rewards side panel
+      const sampleVideoId = videosList.find((v) => v.id && /^\d+$/.test(String(v.id)))?.id;
+      if (sampleVideoId && (!interceptedPerPostUrl || interceptedPerPostRewards.length === 0)) {
+        try {
+          await page.goto(`https://www.tiktok.com/tiktokstudio/monetization/item/${sampleVideoId}/`, {
+            waitUntil: "domcontentloaded",
+            timeout: 15000,
+          }).catch(() => {});
+
+          const itemStart = Date.now();
+          while (Date.now() - itemStart < 8000 && (!interceptedPerPostUrl || interceptedPerPostRewards.length === 0)) {
+            await page.waitForTimeout(300);
+          }
+        } catch {}
+      }
+
+      // Extract Post Rewards ("Phần thưởng mỗi bài đăng")
+      postRewards = [];
+
+      // List of all monetization programs to query in video_analytics_filter
+      const ALL_M10N_PROGRAMS = [
+        "M10N_PROGRAM_UNSPECIFIED", "M10N_PROGRAM_VIDEO_GIFTS", "M10N_PROGRAM_TIPS",
+        "M10N_PROGRAM_CREATOR_NEXT", "M10N_PROGRAM_CREATOR_FUND", "M10N_PROGRAM_TIKTOK_CREATOR_MARKETPLACE",
+        "M10N_PROGRAM_SHOUTOUTS", "M10N_PROGRAM_LIVE_GIFTS", "M10N_PROGRAM_TIKTOK_SHOP",
+        "M10N_PROGRAM_CREATOR_INCENTIVES", "M10N_PROGRAM_SERIES", "M10N_PROGRAM_TIKTOK_SHOP_MERCHANT",
+        "M10N_PROGRAM_MUSIC_PROMOTION", "M10N_PROGRAM_LIVE_SUBSCRIPTION", "M10N_PROGRAM_TIKTOK_CREATIVE_CHALLENGE",
+        "M10N_PROGRAM_TIKTOK_GAMING_REWARD", "M10N_PROGRAM_TIKTOK_BRANDED_MISSION", "M10N_PROGRAM_TIKTOK_LOCAL_SERVICE",
+        "M10N_PROGRAM_GO_LIVE_INCENTIVE", "M10N_PROGRAM_GO_LIVE_LEADS", "M10N_PROGRAM_SOUNDON", "M10N_PROGRAM_GO_LIVE_SMB",
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21
+      ];
+
+      const PROGRAM_ID_MAP = {
+        1: "Quà tặng video (Video Gifts)",
+        2: "Tiền boa (Tips)",
+        3: "Creator Next",
+        4: "Quỹ nhà sáng tạo (Creator Fund)",
+        5: "TikTok Creator Marketplace",
+        7: "Quà tặng LIVE (Live Gifts)",
+        8: "TikTok Shop",
+        9: "Chương trình Creator Rewards",
+        10: "Series",
+        12: "Quảng bá âm nhạc (Work with Artists)",
+        13: "Đăng ký LIVE (Live Subscription)",
+        14: "TikTok Creative Challenge",
+        16: "Branded Mission",
+      };
+
+      const mapInternalVideoItem = (item) => {
+        const money = item.est_rewards || {};
+        const cur = money.currency?.symbol || money.currency?.code || "$";
+        let amt = 0;
+        if (money.formatted_no_symbol) {
+          amt = parseFloat(String(money.formatted_no_symbol).replace(/,/g, "")) || 0;
+        } else {
+          const units = typeof money.units === "number" ? money.units : parseInt(money.units || "0", 10) || 0;
+          const nanos = typeof money.nanos === "number" ? money.nanos : parseInt(money.nanos || "0", 10) || 0;
+          amt = units + nanos / 1e9;
+        }
+
+        let durationStr = null;
+        if (typeof item.video_duration === "number" && item.video_duration > 0) {
+          const m = Math.floor(item.video_duration / 60);
+          const s = Math.floor(item.video_duration % 60);
+          durationStr = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+        }
+
+        let postDateStr = null;
+        if (item.publish_date_unix_time) {
+          const d = new Date(Number(item.publish_date_unix_time) * 1000);
+          if (!isNaN(d.getTime())) {
+            postDateStr = d.toISOString().split("T")[0];
+          }
+        }
+
+        let rpmStr = null;
+        if (item.rpm_metadata?.rpm_integer) {
+          const rVal = (Number(item.rpm_metadata.rpm_integer) / 100).toFixed(2);
+          rpmStr = `${cur}${rVal}`;
+        } else if (amt > 0 && item.quvv > 0) {
+          rpmStr = `${cur}${((amt / item.quvv) * 1000).toFixed(2)}`;
+        }
+
+        // Map exact program details from item
+        const rawPrograms = Array.isArray(item.video_analytics_programs) ? item.video_analytics_programs : [];
+        const programDetails = rawPrograms.map((p) => {
+          const progId = Number(p.m10n_program ?? p.program_id ?? p.id);
+          const progName = (p.program_name && String(p.program_name).trim()) 
+            ? String(p.program_name).trim() 
+            : (PROGRAM_ID_MAP[progId] || (progId ? `Program ${progId}` : "Chương trình Creator Rewards"));
+          return {
+            id: progId,
+            name: progName,
+            isPunished: !!p.is_punished,
+          };
+        });
+
+        const queriedProgId = item._queried_program_id ? Number(item._queried_program_id) : null;
+        let primaryProgramName = queriedProgId ? (PROGRAM_ID_MAP[queriedProgId] || `Program ${queriedProgId}`) : null;
+        if (!primaryProgramName) {
+          primaryProgramName = programDetails[0]?.name || "Chương trình Creator Rewards";
+        }
+        const isPunished = programDetails.some((p) => p.isPunished) || !!item.is_punished;
+
+        return {
+          id: item.video_id_str || String(item.video_id || ""),
+          videoId: item.video_id_str || String(item.video_id || ""),
+          title: item.video_name || "Video TikTok",
+          coverUrl: item.video_thumbnail || null,
+          duration: durationStr,
+          postDate: postDateStr,
+          publishDate: postDateStr,
+          programId: queriedProgId || programDetails[0]?.id || 9,
+          programName: primaryProgramName,
+          isPunished,
+          reward: Number(amt.toFixed(2)),
+          rewards: Number(amt.toFixed(2)),
+          currency: cur,
+          views: Number(item.views) || Number(item.total_views) || Number(item.quvv) || 0,
+          rpm: rpmStr,
+        };
+      };
+
+      // Explicit All-Time and All-Programs filter guaranteed
+      const paginationBaseUrl = interceptedPerPostUrl || (await page.evaluate(() => {
+        const entries = performance.getEntriesByType("resource").map((e) => e.name);
+        return entries.find((u) => u.includes("reward_analytics_per_post?"))
+          || entries.find((u) => u.includes("/m10n_center/reward_analytics?"))
+          || null;
+      }).catch(() => null)) || "/tiktok/v1/creator/m10n_center/reward_analytics_per_post?page=0";
+
+      let allApiItems = [];
+      if (paginationBaseUrl) {
+        try {
+          allApiItems = await page.evaluate(async ({ baseReqUrl, allPrograms }) => {
+            const extra = [];
+            let activeProgramIds = [];
+
+            // 1. Probe page 0 to discover all active programs for this account
+            try {
+              const probeUrl = new URL(baseReqUrl, window.location.origin);
+              probeUrl.pathname = "/tiktok/v1/creator/m10n_center/reward_analytics_per_post";
+              probeUrl.searchParams.set("page", "0");
+              probeUrl.searchParams.set("video_analytics_filter", JSON.stringify({
+                video_analytics_display_time_range: 1,
+                video_analytics_sort_by_type: 3,
+                video_analytics_programs: allPrograms,
+              }));
+              const probeRes = await fetch(probeUrl.toString(), { credentials: "include" });
+              const probeJson = await probeRes.json();
+              const probePayload = probeJson?.data || probeJson;
+              if (Array.isArray(probePayload?.video_analytics_active_programs) && probePayload.video_analytics_active_programs.length > 0) {
+                activeProgramIds = probePayload.video_analytics_active_programs;
+              }
+              const probeList = probePayload?.video_analytics_video_list || [];
+              if (probeList.length > 0 && activeProgramIds.length <= 1) {
+                const singleProgId = activeProgramIds[0] || 9;
+                for (const item of probeList) {
+                  item._queried_program_id = singleProgId;
+                  extra.push(item);
+                }
+              }
+            } catch { }
+
+            // 2. If multiple programs exist (e.g. Creator Rewards 9 AND TikTok Shop 8):
+            // Query each program separately so rewards are strictly separated per program
+            if (activeProgramIds.length > 1) {
+              for (const progId of activeProgramIds) {
+                let p = 0;
+                let keepGoing = true;
+                while (keepGoing && p < 20) {
+                  try {
+                    const u = new URL(baseReqUrl, window.location.origin);
+                    u.pathname = "/tiktok/v1/creator/m10n_center/reward_analytics_per_post";
+                    u.searchParams.set("page", String(p));
+                    u.searchParams.set("video_analytics_filter", JSON.stringify({
+                      video_analytics_display_time_range: 1,
+                      video_analytics_sort_by_type: 3,
+                      video_analytics_programs: [progId],
+                    }));
+                    const r = await fetch(u.toString(), { credentials: "include" });
+                    const j = await r.json();
+                    const payload = j?.data || j;
+                    const list = payload?.video_analytics_video_list || [];
+                    for (const item of list) {
+                      item._queried_program_id = progId;
+                      extra.push(item);
+                    }
+                    keepGoing = !!payload?.has_more;
+                    if (!list.length) break;
+                    p++;
+                  } catch {
+                    break;
+                  }
+                }
+              }
+            } else {
+              // Single program (e.g. Creator Rewards only): continue paginating remaining pages
+              let p = 1;
+              let keepGoing = true;
+              const targetProgId = activeProgramIds[0] || 9;
+              while (keepGoing && p < 25) {
+                try {
+                  const u = new URL(baseReqUrl, window.location.origin);
+                  u.pathname = "/tiktok/v1/creator/m10n_center/reward_analytics_per_post";
+                  u.searchParams.set("page", String(p));
+                  u.searchParams.set("video_analytics_filter", JSON.stringify({
+                    video_analytics_display_time_range: 1,
+                    video_analytics_sort_by_type: 3,
+                    video_analytics_programs: [targetProgId],
+                  }));
+                  const r = await fetch(u.toString(), { credentials: "include" });
+                  const j = await r.json();
+                  const payload = j?.data || j;
+                  const list = payload?.video_analytics_video_list || [];
+                  for (const item of list) {
+                    item._queried_program_id = targetProgId;
+                    extra.push(item);
+                  }
+                  keepGoing = !!payload?.has_more;
+                  if (!list.length) break;
+                  p++;
+                } catch {
+                  break;
+                }
+              }
+            }
+            return extra;
+          }, { baseReqUrl: paginationBaseUrl, allPrograms: ALL_M10N_PROGRAMS });
+        } catch { }
+      }
+
+      // Priority 1: Map items from the separated per-program fetch
+      if (Array.isArray(allApiItems) && allApiItems.length > 0) {
+        const mapped = allApiItems.map(mapInternalVideoItem);
+        const seenKeys = new Set();
+        postRewards = [];
+        for (const item of mapped) {
+          const key = `${item.id || item.videoId}_${item.programId || item.programName || "9"}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            postRewards.push(item);
+          }
+        }
+      } else if (Array.isArray(interceptedPerPostRewards) && interceptedPerPostRewards.length > 0) {
+        // Fallback to directly intercepted responses
+        const mapped = interceptedPerPostRewards.map(mapInternalVideoItem);
+        const seenKeys = new Set();
+        postRewards = [];
+        for (const item of mapped) {
+          const key = `${item.id || item.videoId}_${item.programId || item.programName || "9"}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            postRewards.push(item);
+          }
+        }
+      }
+
+      // Priority 2: In-session authenticated fetch to internal API if interception was missed
+      if (!postRewards || postRewards.length === 0) {
+        try {
+          const directApiResult = await page.evaluate(async (allPrograms) => {
+            try {
+              const perfEntries = performance.getEntriesByType("resource")
+                .map((e) => e.name)
+                .filter((u) => u.includes("reward_analytics_per_post"));
+              const defaultFilter = encodeURIComponent(JSON.stringify({
+                video_analytics_display_time_range: 1,
+                video_analytics_sort_by_type: 3,
+                video_analytics_programs: allPrograms,
+              }));
+              const baseUrl = perfEntries[0] || `/tiktok/v1/creator/m10n_center/reward_analytics_per_post?page=0&video_analytics_filter=${defaultFilter}`;
+              const allItems = [];
+              let p = 0;
+              let keepGoing = true;
+              while (keepGoing && p < 25) {
+                try {
+                  const u = new URL(baseUrl, window.location.origin);
+                  u.searchParams.set("page", String(p));
+                  u.searchParams.set("video_analytics_filter", JSON.stringify({
+                    video_analytics_display_time_range: 1,
+                    video_analytics_sort_by_type: 3,
+                    video_analytics_programs: allPrograms,
+                  }));
+                  const res = await fetch(u.toString(), {
+                    credentials: "include",
+                    signal: AbortSignal.timeout(5000),
+                  });
+                  const j = await res.json();
+                  const payload = j?.data || j;
+                  const list = payload?.video_analytics_video_list || [];
+                  if (list.length > 0) allItems.push(...list);
+                  keepGoing = !!payload?.has_more;
+                  if (!list.length) break;
+                  p++;
+                } catch {
+                  break;
+                }
+              }
+              return allItems;
+            } catch (e) {
+              return [];
+            }
+          }, ALL_M10N_PROGRAMS);
+          if (Array.isArray(directApiResult) && directApiResult.length > 0) {
+            const mapped = directApiResult.map(mapInternalVideoItem);
+            const seenIds = new Set();
+            postRewards = [];
+            for (const item of mapped) {
+              const key = item.id || item.videoId || item.title;
+              if (!seenIds.has(key)) {
+                seenIds.add(key);
+                postRewards.push(item);
+              }
+            }
+          }
+        } catch { }
+      }
+
+      // If overview was 0 but post rewards were found, accumulate total rewards
+      if (totalRewardsUsd === null || totalRewardsUsd === 0) {
+        const sumPostRewards = postRewards.reduce((sum, p) => sum + (Number(p.reward || p.rewards) || 0), 0);
+        if (sumPostRewards > 0) {
+          totalRewardsUsd = Number(sumPostRewards.toFixed(2));
+        }
+      }
+
+      // Priority 3: Fallback to DOM scraper if API response was not returned
+      if (!postRewards || postRewards.length === 0) {
+        try {
+          await page.evaluate(() => {
+            window.scrollBy(0, 700);
+          }).catch(() => { });
+          await page.waitForTimeout(1000);
+
+          postRewards = await page.evaluate(() => {
+            const parseMoney = (str) => {
+              if (!str) return { amount: 0, currency: "$" };
+              let cur = "$";
+              if (str.includes("₫")) cur = "₫";
+              else if (str.includes("£")) cur = "£";
+              else if (str.includes("€")) cur = "€";
+              else if (str.includes("$")) cur = "$";
+              const cleaned = str.replace(/[^0-9,.]/g, "").replace(/,/g, "");
+              const amt = parseFloat(cleaned) || 0;
+              return { amount: amt, currency: cur };
+            };
+
+            const results = [];
+            const candidateCards = Array.from(
+              document.querySelectorAll("div, article, li")
+            ).filter((el) => {
+              const text = el.innerText || "";
+              const hasCur = /[$£€₫]/.test(text);
+              const hasViewsOrDate = /(?:lượt xem|views?|\d{4}[/-]\d{2}|\d{2}[/-]\d{2}|\d{1,2}:\d{2})/i.test(text);
+              const hasImg = !!el.querySelector("img, video, [style*='background-image']");
+              return hasCur && hasViewsOrDate && hasImg && text.length < 500 && el.children.length >= 2;
+            });
+
+            const leafCards = candidateCards.filter(
+              (card) => !candidateCards.some((other) => other !== card && card.contains(other))
+            );
+
+            for (const card of leafCards) {
+              try {
+                const text = card.innerText || "";
+                const lines = text.split("\n").map((s) => s.trim()).filter(Boolean);
+
+                const img = card.querySelector("img");
+                const coverUrl = img?.src || img?.getAttribute("data-src") || null;
+
+                const durationMatch = text.match(/\b\d{1,2}:\d{2}\b/);
+                const duration = durationMatch ? durationMatch[0] : null;
+
+                const moneyMatch = text.match(/([$£€₫]\s*[0-9,.]+|[0-9,.]+\s*[$£€₫])/);
+                const moneyInfo = moneyMatch ? parseMoney(moneyMatch[0]) : { amount: 0, currency: "$" };
+
+                const viewsMatch = text.match(/([0-9,.]+[kKmM]?)\s*(?:lượt xem|views?)/i) || text.match(/(?:lượt xem|views?)\s*:?\s*([0-9,.]+[kKmM]?)/i);
+                const views = viewsMatch ? viewsMatch[1] : null;
+
+                const rpmMatch = text.match(/RPM\s*:?\s*([$£€₫]?\s*[0-9,.]+)/i) || text.match(/(?:RPM|rpm)\s+([$£€₫]?\s*[0-9,.]+)/);
+                let rpm = rpmMatch ? rpmMatch[1].trim() : null;
+
+                let parsedViewsNum = 0;
+                if (views) {
+                  const cleanViews = String(views).trim().toLowerCase();
+                  if (cleanViews.endsWith("k")) {
+                    parsedViewsNum = parseFloat(cleanViews) * 1000;
+                  } else if (cleanViews.endsWith("m")) {
+                    parsedViewsNum = parseFloat(cleanViews) * 1000000;
+                  } else {
+                    parsedViewsNum = parseFloat(cleanViews.replace(/,/g, "")) || 0;
+                  }
+                }
+
+                if (!rpm && moneyInfo.amount > 0 && parsedViewsNum > 0) {
+                  const calculatedRpm = Math.round((moneyInfo.amount / parsedViewsNum) * 1000 * 100) / 100;
+                  if (calculatedRpm > 0) {
+                    rpm = `${moneyInfo.currency}${calculatedRpm.toFixed(2)}`;
+                  }
+                }
+
+                const dateMatch = text.match(/\b(?:\d{4}[/-]\d{2}[/-]\d{2}|\d{2}[/-]\d{2}[/-]\d{4})(?:\s+\d{1,2}:\d{2})?\b/) || text.match(/\b\d{1,2}:\d{2}\s+\d{2}[/-]\d{2}[/-]\d{4}\b/);
+                const postDate = dateMatch ? dateMatch[0] : null;
+
+                const progMatch = text.match(/(?:Chương trình\s+)?Creator Rewards(?:\s+Program)?/i) || text.match(/TikTok Shop(?:\s+for\s+Creator)?/i);
+                const programName = progMatch ? progMatch[0] : "Chương trình Creator Rewards";
+
+                let title = "";
+                for (const line of lines) {
+                  if (
+                    line === duration ||
+                    line === moneyMatch?.[0] ||
+                    line.includes(moneyMatch?.[0] || "___") ||
+                    line === viewsMatch?.[0] ||
+                    line.includes("lượt xem") || line.includes("views") ||
+                    line.includes("RPM") || line.includes("rpm") ||
+                    line.includes("Xem chi tiết") || line.includes("View details") ||
+                    line === programName ||
+                    line === dateMatch?.[0]
+                  ) {
+                    continue;
+                  }
+                  if (line.length > title.length) {
+                    title = line;
+                  }
+                }
+
+                if (coverUrl || title || moneyInfo.amount > 0) {
+                  results.push({
+                    title: title || "Video",
+                    coverUrl,
+                    duration,
+                    postDate,
+                    programName,
+                    reward: moneyInfo.amount,
+                    currency: moneyInfo.currency,
+                    views,
+                    rpm,
+                  });
+                }
+              } catch { }
+            }
+
+            return results;
+          }).catch(() => []);
+        } catch { }
+      }
+
+      // Check Creator Rewards Program presence
+      creatorRewardsMissing = false;
+      bannedReason = null;
+      try {
+        const pageText = await page.evaluate(() => document.body?.innerText || "").catch(() => "");
+        const hasCreatorRewardsInProg = activePrograms.some((p) => /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|sáng\s*tạo|beta/i.test(p.name));
+        const hasCreatorRewardsInAll = Array.isArray(interceptedAllPrograms) && interceptedAllPrograms.some((p) => /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|sáng\s*tạo|beta/i.test(p.name));
+        const hasCreatorRewardsInText = /creator\s*rewards?|chương\s*trình\s*creator\s*rewards|quỹ\s*nhà\s*sáng\s*tạo/i.test(pageText);
+        const hasCreatorRewards = hasCreatorRewardsInProg || hasCreatorRewardsInAll || hasCreatorRewardsInText;
+
+        if (!hasCreatorRewards && (followerCount >= 10000 || (totalRewardsUsd && totalRewardsUsd > 0))) {
+          creatorRewardsMissing = true;
+          bannedReason = "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)";
+        }
+      } catch { }
     } catch { }
+
+    // Query lifetime total likes from header
+    let totalLikes = cleanNum(userInfo?.totalLikes || 0);
+    try {
+      const headerLikes = await page.evaluate(() => {
+        const text = document.body?.innerText || "";
+        const m = text.match(/Likes?\s*([\d,.]+[kKmM]?)/i) || text.match(/([\d,.]+[kKmM]?)\s*Likes?/i);
+        return m ? m[1] : null;
+      }).catch(() => null);
+      if (headerLikes) {
+        const parsed = cleanNum(headerLikes);
+        if (parsed > 0) totalLikes = parsed;
+      }
+    } catch { }
+
+    // Construct structured revenueBreakdown (no duplicate TikTok Shop in activePrograms)
+    const revenueBreakdown = {
+      totalRevenue: {
+        revenue7d: revenue7d || 0,
+        revenue30d: revenue28d || 0,
+        revenue60d: revenue60d || 0,
+      },
+      tiktokShop: tiktokShopProgram || {
+        name: shopProgramName || "TikTok Shop for Seller",
+        programId: 11,
+        revenue7d: 0,
+        revenue30d: shopRewardsUsd || 0,
+        revenue60d: 0,
+      },
+      activePrograms,
+    };
+
+    const dailyRevenueBreakdown = dailyBreakdown;
+
+    // Construct clean JSON summaries
+    const sumRevenue = {
+      revenue7d: revenue7d || 0,
+      revenue28d: revenue28d || 0,
+      revenue60d: revenue60d || 0,
+      revenue365d: revenue365d || 0,
+      totalRevenue: revenue365d || totalRewardsUsd || 0,
+    };
+
+    const sumViews = {
+      views7d,
+      views28d,
+      views60d,
+      views365d,
+      totalViews,
+    };
+
+    const sumLikes = {
+      likes7d,
+      likes28d,
+      likes60d,
+      likes365d,
+      totalLikes,
+    };
+
+    const sumComments = {
+      comments7d,
+      comments28d,
+      comments60d,
+      comments365d,
+    };
+
+    const sumShares = {
+      shares7d,
+      shares28d,
+      shares60d,
+      shares365d,
+    };
+
+    const sumProfileViews = {
+      profileViews7d,
+      profileViews28d,
+      profileViews60d,
+      profileViews365d,
+    };
 
     const storageRoot = path.dirname(profileDir);
     const meta = readGpmProfileMetaFromDisk(storageRoot, profileId);
@@ -2874,12 +3700,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     if (!gpmGroupName && meta.groupId) {
       gpmGroupName = await lookupGpmGroupName(lastGoodGpmBase || null, meta.groupId);
     }
-    // Exact Extension Country Resolution Priority:
-    // 1. TikTok store-country-code cookie (Official ground truth from TikTok)
-    // 2. TikTok Web App Context region
-    // 3. Earnings currency symbol (£ -> UK, ₫ -> VN, $ -> US, etc.)
-    // 4. Word-boundary tags in profile/group name (e.g. \b(uk|vn|de|fr|us)\b)
-    // 5. Default fallback to "US"
+    const passportCountry = resolveCountryFromRaw(passportCountryRaw, true);
     const rawStore = cookieCountryRaw || pageCountryHints?.storeCountry;
     const cookieCountry = resolveCountryFromRaw(rawStore, true);
     const regionCountry = resolveCountryFromRaw(pageCountryHints?.region, true);
@@ -2887,11 +3708,33 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     const nameCountry = detectCountryFromText(meta.name) || detectCountryFromText(gpmGroupName);
 
     const detectedCountry =
+      passportCountry ||
       cookieCountry ||
       regionCountry ||
       currencyCountry ||
       nameCountry ||
-      "US";
+      null;
+
+    // Cross-reference and enrich each video in videosList with its monetization program and rewards
+    if (Array.isArray(videosList) && videosList.length > 0 && Array.isArray(postRewards) && postRewards.length > 0) {
+      const rewardMap = new Map();
+      for (const pr of postRewards) {
+        if (pr.id) rewardMap.set(String(pr.id), pr);
+        if (pr.videoId) rewardMap.set(String(pr.videoId), pr);
+      }
+      for (const v of videosList) {
+        const match = rewardMap.get(String(v.id));
+        if (match) {
+          v.programName = match.programName;
+          v.programs = match.programs;
+          v.reward = match.reward;
+          v.rewards = match.rewards;
+          v.isPunished = match.isPunished;
+          v.rpm = match.rpm;
+          if (match.duration && !v.duration) v.duration = match.duration;
+        }
+      }
+    }
 
     const gpmProfileName = meta.name || `Profile ${String(profileId).slice(0, 8)}`;
 
@@ -2901,28 +3744,27 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
         username: finalHandle,
         nickname: userInfo?.NickName || null,
         followersCount: followerCount,
+        totalLikes,
         totalViews,
-        viewsToday: totalViews,
         videoCount: videosList.length,
+        totalVideos: videosList.length,
         totalRevenue: totalRewardsUsd,
-        revenue7d,
-        revenue28d,
-        revenue60d,
-        revenue365d,
-        dailyBreakdown,
-        insightsHistory: interceptedInsightsHistory,
-        tiktokShopRevenue: shopRewardsUsd,
-        tiktokShopProgramName: shopProgramName,
-        tiktokShopRewardsUsd: shopRewardsUsd,
-        creatorRewardsRevenue: creatorRewardsUsd,
-        creatorRewardsUsd,
-        liveRewardsRevenue: liveRewardsUsd,
-        activePrograms,
-        activeProgramNames: activePrograms.map((p) => p.name),
         currency,
         country: detectedCountry,
         rpm,
         videosList,
+        postRewards: postRewards || [],
+        creatorRewardsMissing: !!creatorRewardsMissing,
+        bannedReason: bannedReason || null,
+        sumRevenue,
+        sumViews,
+        sumLikes,
+        sumComments,
+        sumShares,
+        sumProfileViews,
+        revenueBreakdown,
+        dailyRevenueBreakdown,
+        insightsHistory: interceptedInsightsHistory,
         isLoggedIn: true,
         gpmProfileId: profileId,
         gpmProfileName,
@@ -2944,12 +3786,33 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
 // ==========================================
 // 8. MAIN SECURE AGENT EXECUTION
 // ==========================================
-// ==========================================
-// 8. MAIN SECURE AGENT EXECUTION
-// ==========================================
 const isDaemon = process.argv.includes("--daemon");
 
-async function performFullSweep() {
+async function isJobCancelled(jobId) {
+  if (!jobId) return false;
+  try {
+    const authHeaders = {
+      ...(config.personalToken ? { Authorization: `Bearer ${config.personalToken}` } : {}),
+    };
+    const res = await fetch(`${config.serverUrl}/api/gpm/client-sync`, {
+      headers: authHeaders,
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.cancelledJobIds) && data.cancelledJobIds.includes(jobId)) {
+        return true;
+      }
+    }
+  } catch { }
+  return false;
+}
+
+async function performFullSweep(syncJob = null) {
+  const jobId = (typeof syncJob === "object" && syncJob !== null) ? (syncJob.id || syncJob.jobId) : syncJob;
+  const targetProfileId = (typeof syncJob === "object" && syncJob !== null) ? syncJob.targetProfileId : null;
+  const targetHandle = (typeof syncJob === "object" && syncJob !== null) ? syncJob.targetHandle : null;
+
   console.log("\n========================================================");
   console.log("   [TIKTOKFLOW] SECURE CLIENT AGENT (DEEP SWEEPER)      ");
   console.log("========================================================");
@@ -2958,6 +3821,9 @@ async function performFullSweep() {
   console.log(`[+] Concurrency   : ${config.concurrency} luong ngam song song`);
   console.log(`[+] Che do        : ${config.headless ? "Headless Vo hinh (Bao mat 100%)" : "Hien thi cua so"}`);
   console.log(`[+] Bo nho dem    : Khu tai Media (Tiet kiem 85% bang thong & RAM)`);
+  if (targetProfileId || targetHandle) {
+    console.log(`[+] Che do quet   : Chi dinh 1 Profile (${targetProfileId || ""} @${targetHandle || ""})`);
+  }
   console.log("--------------------------------------------------------");
 
   const tokenOk = await verifyPersonalTokenAtStartup();
@@ -2969,6 +3835,9 @@ async function performFullSweep() {
   const storagePath = getGpmStoragePath();
   const chromePath = getChromeExecutablePath();
   const gpmApi = await discoverGpmApiBase();
+
+  // Clean any old leftover snapshot folders in .gpm_temp to free disk space
+  sweepStaleTempDirs(storagePath);
 
   console.log(`[*] Thu muc Profiles (Read-Only): ${storagePath}`);
   console.log(`[*] Trinh duyet Chrome: ${chromePath || "Playwright Chromium tich hop"}`);
@@ -3022,7 +3891,7 @@ async function performFullSweep() {
 
   console.log(
     `[*] Tim thay ${diskDirs.length} folder tren o dia; dong bo ${profileDirs.length} profile hop le` +
-      (allowedIds ? " (theo GPM API)" : " (tu o dia)")
+    (allowedIds ? " (theo GPM API)" : " (tu o dia)")
   );
 
   const profilesToSync = [];
@@ -3089,7 +3958,7 @@ async function performFullSweep() {
 
     if (res.ok) {
       const syncResult = await res.json();
-      console.log(`   [OK] Dong bo thanh cong: ${syncResult.totalScanned || profilesToSync.length} tai khoan ghi nhan.`);
+      console.log(`   [OK] Dong bo thanh cong danh sach: ${syncResult.totalScanned || profilesToSync.length} tai khoan ghi nhan.`);
     } else if (res.status === 401 || res.status === 403) {
       const errData = await res.json().catch(() => ({}));
       markTokenRevoked(errData.error, res.status);
@@ -3108,13 +3977,43 @@ async function performFullSweep() {
   }
 
   // 4. Run Deep Sweeper on Profiles with TikTok
-  // Prefer session-confirmed scans; disk handle is only a weak hint for ordering/logging
-  const activeTikTokProfiles = profilesToSync.filter((p) => p.tiktokHandle || profilesToSync.length <= 15);
-  console.log(`\n[*] Bat dau cao so lieu chuyen sau TikTok Studio (${activeTikTokProfiles.length} profiles)...`);
+  let activeTikTokProfiles = [];
+  if (targetProfileId || targetHandle) {
+    const matched = profilesToSync.filter((p) => {
+      if (targetProfileId && String(p.id).toLowerCase() === String(targetProfileId).toLowerCase()) return true;
+      if (targetHandle && p.tiktokHandle && p.tiktokHandle.toLowerCase() === String(targetHandle).toLowerCase()) return true;
+      return false;
+    });
+    if (matched.length > 0) {
+      activeTikTokProfiles = [matched[0]];
+      console.log(`[*] [Targeted Sync] Chi dong bo 1 profile duoc chi dinh: ${matched[0].name} (${matched[0].id.slice(0, 8)}) @${matched[0].tiktokHandle || "N/A"}`);
+    } else {
+      console.warn(`[!] [Targeted Sync] Khong tim thay profile (${targetProfileId || targetHandle}) tren may tram nay.`);
+      return { successCount: 0, failCount: 0, profilesCount: profilesToSync.length };
+    }
+  } else {
+    // Deduplicate by known tiktokHandle so the same TikTok account is not scanned redundantly
+    const seenHandles = new Set();
+    for (const p of profilesToSync) {
+      if (p.tiktokHandle) {
+        const lower = p.tiktokHandle.toLowerCase();
+        if (seenHandles.has(lower)) {
+          console.log(`   [*] [Bo qua duplicate] Profile ${p.name} (${p.id.slice(0, 8)}) vi @${p.tiktokHandle} da nam trong danh sach quet.`);
+          continue;
+        }
+        seenHandles.add(lower);
+      }
+      activeTikTokProfiles.push(p);
+    }
+  }
+
+  console.log(`\n[*] Bat dau cao so lieu chuyen sau TikTok Studio (${activeTikTokProfiles.length} accounts)...`);
   console.log("    Qua trinh chay ngam doc lap qua Snapshot, khong sua/xoa du lieu tren o cung.\n");
 
   let successCount = 0;
   let failCount = 0;
+  let jobCancelled = false;
+  const reportedUsernames = new Set();
 
   await pMap(
     activeTikTokProfiles,
@@ -3124,25 +4023,50 @@ async function performFullSweep() {
         return;
       }
 
+      if (jobId) {
+        const cancelled = await isJobCancelled(jobId);
+        if (cancelled) {
+          jobCancelled = true;
+          console.log(`\n[!] Job dong bo ${jobId} da duoc HUY boi nguoi dung tu Web UI. Dung tien trinh ngay lap tuc.`);
+          return;
+        }
+      }
+      if (jobCancelled) return;
+
       const label = p.tiktokHandle ? `@${p.tiktokHandle}` : `Profile ${p.id.slice(0, 8)}`;
       console.log(`[${idx + 1}/${activeTikTokProfiles.length}] [SCAN] Dang quet ${label}...`);
 
-      const result = await extractProfileStudio(p.fullDir, p.id, chromePath, p.tiktokHandle);
+      const result = await Promise.race([
+        extractProfileStudio(p.fullDir, p.id, chromePath, p.tiktokHandle),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Quet profile vuot qua 60 giay (timeout)")), 60000)
+        ),
+      ]).catch((err) => ({ success: false, error: err.message }));
 
       if (result.success && result.data) {
-        successCount++;
         const d = result.data;
-        const activeProgStr = (d.activePrograms && d.activePrograms.length > 0)
-          ? d.activePrograms.map((p) => `${p.name}: ${d.currency}${p.revenue !== null && p.revenue !== undefined ? p.revenue : 0}`).join(", ")
+        const normUser = (d.username || "").toLowerCase();
+        if (normUser && reportedUsernames.has(normUser)) {
+          console.log(`   [*] @${d.username} da duoc bao cao trong dot quet nay — bo qua trung lap.`);
+          return;
+        }
+        if (normUser) reportedUsernames.add(normUser);
+
+        successCount++;
+        const activeProgStr = (d.revenueBreakdown?.activePrograms && d.revenueBreakdown.activePrograms.length > 0)
+          ? d.revenueBreakdown.activePrograms.map((p) => `${p.name}: ${d.currency}${p.revenue !== null && p.revenue !== undefined ? p.revenue : 0}`).join(", ")
           : "Khong co";
 
-        const dailyCount = Array.isArray(d.dailyBreakdown) ? d.dailyBreakdown.length : 0;
+        const dailyCount = Array.isArray(d.dailyRevenueBreakdown) ? d.dailyRevenueBreakdown.length : 0;
+        const postRewardCount = Array.isArray(d.postRewards) ? d.postRewards.length : 0;
         console.log(
           `   [OK] @${d.username}: ${d.followersCount.toLocaleString()} followers | ` +
           `${d.totalViews.toLocaleString()} views | ` +
-          `Total: ${d.currency}${d.totalRevenue !== null ? d.totalRevenue : 0} (7d: ${d.currency}${d.revenue7d || 0}, 28d: ${d.currency}${d.revenue28d || 0}, 365d: ${d.currency}${d.revenue365d || 0}) | ` +
-          `Shop: ${d.currency}${d.tiktokShopRevenue || 0} | ` +
+          `Total: ${d.currency}${d.totalRevenue !== null ? d.totalRevenue : 0} (7d: ${d.currency}${d.sumRevenue?.revenue7d || 0}, 28d: ${d.currency}${d.sumRevenue?.revenue28d || 0}, 365d: ${d.currency}${d.sumRevenue?.revenue365d || 0}) | ` +
+          `Shop: ${d.currency}${d.revenueBreakdown?.tiktokShop?.revenue30d || 0} | ` +
           `Daily Points: ${dailyCount} days | ` +
+          `Post Rewards: ${postRewardCount} videos | ` +
+          (d.creatorRewardsMissing ? `[CANH BAO: BI NGUNG TIKTOK BETA] | ` : "") +
           `Active: [${activeProgStr}]`
         );
 
@@ -3156,6 +4080,9 @@ async function performFullSweep() {
             headers: authHeaders,
             body: JSON.stringify({
               ...d,
+              postRewards: d.postRewards,
+              creatorRewardsMissing: d.creatorRewardsMissing,
+              bannedReason: d.bannedReason,
               gpmProfileName,
               gpmGroupName,
               source: "agent",
@@ -3180,7 +4107,7 @@ async function performFullSweep() {
         console.log(`   [!] ${label}: ${result.error || "Khong the lay so lieu"}`);
       }
     },
-    config.concurrency || 2
+    config.concurrency || 1
   );
 
   console.log("\n========================================================");
@@ -3205,7 +4132,7 @@ async function fetchServerSchedule() {
         portHeaders["x-gpm-port"] = String(gpmApi.port);
       }
       portHeaders["x-gpm-online"] = String(!!gpmApi?.online);
-    } catch {}
+    } catch { }
 
     const authHeaders = {
       ...(config.personalToken
@@ -3227,9 +4154,14 @@ async function fetchServerSchedule() {
 
 let lastSweepKey = "";
 let lastHandledSignalAt = 0;
+let isSweepingActive = false;
 
 async function checkAndRunSchedule(scheduleInfo) {
   if (!scheduleInfo) return;
+  if (isSweepingActive) {
+    console.log("[*] Dang co tien trinh quet dang chay, bo qua yeu cau moi...");
+    return;
+  }
 
   // Check for remote sync job from web button (VPS trigger via SyncQueue)
   const incomingJob = scheduleInfo.syncJob || scheduleInfo.syncSignal;
@@ -3238,6 +4170,7 @@ async function checkAndRunSchedule(scheduleInfo) {
     const jobId = incomingJob.id || incomingJob.jobId;
     if (sigAt > lastHandledSignalAt && Date.now() - sigAt < 5 * 60 * 1000) {
       lastHandledSignalAt = sigAt;
+      isSweepingActive = true;
       console.log(`\n[*] [SyncQueue] Nhan job dong bo tu Web/VPS (Job: ${jobId || "N/A"})! Bat dau quet ngay...`);
 
       const authHeaders = {
@@ -3263,11 +4196,14 @@ async function checkAndRunSchedule(scheduleInfo) {
         }
       }
 
-      // 2. Perform full sweep
+      // 2. Perform sweep (passes targetProfileId / targetHandle if single account)
       try {
-        const stats = await performFullSweep();
-        // 3. Report job completed (COMPLETED)
+        const stats = await performFullSweep(incomingJob);
+        // 3. Report job completed (COMPLETED with rich summary)
         if (jobId) {
+          const summary = (stats?.successCount > 0)
+            ? `Đã đồng bộ ${stats.profilesCount} profile (quét thành công ${stats.successCount} tài khoản)`
+            : `Đã đồng bộ ${stats?.profilesCount || 0} profile GPMLogin`;
           await fetch(`${config.serverUrl}/api/gpm/client-sync`, {
             method: "POST",
             headers: authHeaders,
@@ -3277,9 +4213,9 @@ async function checkAndRunSchedule(scheduleInfo) {
               successCount: stats?.successCount || 0,
               failCount: stats?.failCount || 0,
               profilesCount: stats?.profilesCount || 0,
-              resultSummary: `Quet thanh cong ${stats?.successCount || 0}/${stats?.profilesCount || 0} tai khoan`,
+              resultSummary: summary,
             }),
-          }).catch(() => {});
+          }).catch(() => { });
         }
       } catch (err) {
         if (jobId) {
@@ -3291,8 +4227,10 @@ async function checkAndRunSchedule(scheduleInfo) {
               jobId,
               errorMessage: err.message || "Loi quet tu Client Agent",
             }),
-          }).catch(() => {});
+          }).catch(() => { });
         }
+      } finally {
+        isSweepingActive = false;
       }
       return;
     }
@@ -3319,7 +4257,8 @@ async function checkAndRunSchedule(scheduleInfo) {
       if (currentHM === targetTime && lastSweepKey !== key) {
         lastSweepKey = key;
         console.log(`\n[*] [Lich Trinh Server Den Gio] Kich hoat quet vet luc ${targetTime}...`);
-        await performFullSweep();
+        isSweepingActive = true;
+        try { await performFullSweep(); } finally { isSweepingActive = false; }
       }
     } else if (s.repeat === "HOURLY") {
       const h = s.everyCount || 1;
@@ -3327,7 +4266,8 @@ async function checkAndRunSchedule(scheduleInfo) {
       if (now.getHours() % h === 0 && now.getMinutes() === 0 && lastSweepKey !== key) {
         lastSweepKey = key;
         console.log(`\n[*] [Lich Trinh Server Dinh Ky] Kich hoat quet vet moi ${h} gio...`);
-        await performFullSweep();
+        isSweepingActive = true;
+        try { await performFullSweep(); } finally { isSweepingActive = false; }
       }
     } else if (s.repeat === "CUSTOM" && s.intervalMinutes) {
       const m = Number(s.intervalMinutes) || 60;
@@ -3336,7 +4276,8 @@ async function checkAndRunSchedule(scheduleInfo) {
       if (totalMin % m === 0 && lastSweepKey !== key) {
         lastSweepKey = key;
         console.log(`\n[*] [Lich Trinh Tuy Bien Server] Kich hoat quet vet moi ${m} phut...`);
-        await performFullSweep();
+        isSweepingActive = true;
+        try { await performFullSweep(); } finally { isSweepingActive = false; }
       }
     }
   }

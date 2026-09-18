@@ -66,8 +66,13 @@ async function getActiveSyncJobForUser(userId: string) {
 
   const activeJob = await prisma.syncQueue.findFirst({
     where: {
-      requestedById: userId,
       status: { in: ["PENDING", "PROCESSING"] },
+      OR: [
+        { requestedById: userId },
+        { targetScope: userId },
+        { targetScope: { contains: userId } },
+        { targetScope: "ALL" },
+      ],
     },
     orderBy: { requestedAt: "desc" },
     include: {
@@ -103,7 +108,82 @@ export async function POST(req: Request) {
     const currentUserRole = dbUser?.role || user.role;
     const actorName = user?.name || user?.email || "Hệ Thống";
 
-    // Per-User Anti-Spam Check: Check if THIS user already has a sync in progress
+    const body = await req.json().catch(() => ({}));
+
+    // Action: STOP SYNC
+    if (body.action === "stop" || body.cancel === true) {
+      const isLeadOrAdmin = currentUserRole === "ADMIN" || currentUserRole === "LEAD";
+      const whereClause: any = {
+        status: { in: ["PENDING", "PROCESSING"] },
+      };
+      if (!isLeadOrAdmin) {
+        whereClause.OR = [
+          { requestedById: currentUserId },
+          { targetScope: currentUserId },
+          { targetScope: { contains: currentUserId } },
+        ];
+      }
+      const updated = await prisma.syncQueue.updateMany({
+        where: whereClause,
+        data: {
+          status: "CANCELLED",
+          completedAt: new Date(),
+          errorMessage: `Tiến trình đã được dừng bởi ${actorName}`,
+        },
+      });
+      return NextResponse.json({
+        success: true,
+        message: `Đã gửi lệnh dừng đồng bộ (${updated.count} tác vụ bị hủy).`,
+      });
+    }
+
+    const isLeadOrAdmin = currentUserRole === "ADMIN" || currentUserRole === "LEAD";
+
+    if (isLeadOrAdmin) {
+      // Broadcast mode for Admin / Lead: Enqueue for all active staff users with Client-Agent
+      const activeUsers = await prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true },
+      });
+
+      let queuedCount = 0;
+      let primaryJobId = "";
+
+      for (const u of activeUsers) {
+        const existing = await prisma.syncQueue.findFirst({
+          where: {
+            status: { in: ["PENDING", "PROCESSING"] },
+            OR: [
+              { targetScope: u.id },
+              { targetScope: { contains: u.id } },
+            ],
+          },
+        });
+        if (!existing) {
+          const job = await prisma.syncQueue.create({
+            data: {
+              requestedById: currentUserId,
+              status: "PENDING",
+              targetScope: `USER:${u.id}`,
+              requestedAt: new Date(),
+            },
+          });
+          queuedCount++;
+          if (u.id === currentUserId || !primaryJobId) primaryJobId = job.id;
+        } else if (!primaryJobId) {
+          primaryJobId = existing.id;
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        isRemoteSignal: true,
+        jobId: primaryJobId || undefined,
+        message: `Đã đưa lệnh đồng bộ vào hàng đợi cho ${queuedCount || activeUsers.length} nhân sự/máy trạm. Client Agent sẽ tự động quét!`,
+      });
+    }
+
+    // Staff mode: Check anti-spam and enqueue only for current user
     const existingActiveJob = await getActiveSyncJobForUser(currentUserId);
     if (existingActiveJob) {
       return NextResponse.json({
@@ -124,24 +204,18 @@ export async function POST(req: Request) {
       data: {
         requestedById: currentUserId,
         status: "PENDING",
-        targetScope: currentUserId,
+        targetScope: `USER:${currentUserId}`,
         requestedAt: new Date(),
       },
     });
     createdJobId = syncJob.id;
 
-    // Queue-Only Mode: All sync operations are delegated to Client Agent via SyncQueue
-    const url = new URL(req.url);
-    const allowDirectLocal = url.searchParams.get("direct") === "1";
-
-    if (!allowDirectLocal) {
-      return NextResponse.json({
-        success: true,
-        isRemoteSignal: true,
-        jobId: syncJob.id,
-        message: "Đã đưa lệnh vào hàng đợi đồng bộ. Client Agent trên máy tính sẽ tự động nhận và bắt đầu quét ngay!",
-      });
-    }
+    return NextResponse.json({
+      success: true,
+      isRemoteSignal: true,
+      jobId: syncJob.id,
+      message: "Đã đưa lệnh vào hàng đợi đồng bộ. Client Agent trên máy tính sẽ tự động nhận và bắt đầu quét ngay!",
+    });
 
     // Direct Local Mode (only if explicitly requested via ?direct=1):
     const health = await gpmClient.checkConnection();
@@ -362,8 +436,9 @@ export async function POST(req: Request) {
       const configRecord = await prisma.systemConfig.findUnique({
         where: { key: "sync_schedule" },
       });
-      if (configRecord && configRecord.value) {
-        const parsed = JSON.parse(configRecord.value);
+      const rawStr = configRecord?.value;
+      if (rawStr) {
+        const parsed = JSON.parse(rawStr as string);
         if (Array.isArray(parsed.schedules)) {
           parsed.schedules = parsed.schedules.map((s: any) => ({
             ...s,
@@ -404,7 +479,7 @@ export async function POST(req: Request) {
     // Mark Local Sync Job as COMPLETED in SyncQueue
     if (createdJobId) {
       await prisma.syncQueue.update({
-        where: { id: createdJobId },
+        where: { id: createdJobId! },
         data: {
           status: "COMPLETED",
           completedAt: new Date(),
@@ -462,10 +537,28 @@ export async function GET(req: Request) {
       return NextResponse.json({ isSyncing: false, activeJob: null, lastCompletedJob: null });
     }
 
-    const activeJob = await getActiveSyncJobForUser(user.id);
+    const userScopeFilter = {
+      OR: [
+        { requestedById: user.id },
+        { targetScope: user.id },
+        { targetScope: { contains: user.id } },
+      ],
+    };
+
+    const activeJob = await prisma.syncQueue.findFirst({
+      where: {
+        ...userScopeFilter,
+        status: { in: ["PENDING", "PROCESSING"] },
+      },
+      include: {
+        requestedBy: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { requestedAt: "desc" },
+    });
+
     const lastCompleted = await prisma.syncQueue.findFirst({
       where: {
-        requestedById: user.id,
+        ...userScopeFilter,
         status: "COMPLETED",
       },
       orderBy: { completedAt: "desc" },
@@ -474,8 +567,8 @@ export async function GET(req: Request) {
 
     const lastFinished = await prisma.syncQueue.findFirst({
       where: {
-        requestedById: user.id,
-        status: { in: ["COMPLETED", "FAILED", "TIMED_OUT"] },
+        ...userScopeFilter,
+        status: { in: ["COMPLETED", "FAILED", "TIMED_OUT", "CANCELLED"] },
       },
       orderBy: { completedAt: "desc" },
       take: 1,

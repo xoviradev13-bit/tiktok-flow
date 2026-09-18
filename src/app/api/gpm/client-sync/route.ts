@@ -240,11 +240,36 @@ export async function GET(req: Request) {
         OR: [
           { requestedById: authResult.user.id },
           { targetScope: authResult.user.id },
+          { targetScope: { contains: authResult.user.id } },
           { targetScope: "ALL" },
         ],
       },
       orderBy: { requestedAt: "desc" },
     });
+
+    // Check if the most recent job was cancelled within the last 5 minutes
+    const cancelledJob = await prisma.syncQueue.findFirst({
+      where: {
+        status: "CANCELLED",
+        updatedAt: { gte: new Date(Date.now() - 5 * 60 * 1000) },
+        OR: [
+          { requestedById: authResult.user.id },
+          { targetScope: authResult.user.id },
+          { targetScope: { contains: authResult.user.id } },
+          { targetScope: "ALL" },
+        ],
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    let targetProfileId: string | null = null;
+    let targetHandle: string | null = null;
+    if (activeSyncJob?.targetScope) {
+      const pMatch = activeSyncJob.targetScope.match(/PROFILE:([^|]+)/);
+      if (pMatch && pMatch[1]) targetProfileId = pMatch[1].trim();
+      const hMatch = activeSyncJob.targetScope.match(/HANDLE:([^|]+)/);
+      if (hMatch && hMatch[1]) targetHandle = hMatch[1].trim();
+    }
 
     const syncJob = activeSyncJob
       ? {
@@ -252,6 +277,8 @@ export async function GET(req: Request) {
           status: activeSyncJob.status,
           requestedAt: activeSyncJob.requestedAt.getTime(),
           targetScope: activeSyncJob.targetScope,
+          targetProfileId: targetProfileId || undefined,
+          targetHandle: targetHandle || undefined,
         }
       : null;
 
@@ -260,6 +287,8 @@ export async function GET(req: Request) {
           jobId: activeSyncJob.id,
           requestedAt: activeSyncJob.requestedAt.getTime(),
           requestedBy: activeSyncJob.requestedById,
+          targetProfileId: targetProfileId || undefined,
+          targetHandle: targetHandle || undefined,
         }
       : null;
 
@@ -273,6 +302,7 @@ export async function GET(req: Request) {
       sweeperSchedule,
       syncJob,
       syncSignal,
+      cancelledJobId: cancelledJob?.id || null,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -505,7 +535,7 @@ export async function POST(req: Request) {
 
         const resolvedGroupName = p.group_name || p.group_id;
         const detectedFromText = detectCountryFromText(p.name) || detectCountryFromText(resolvedGroupName);
-        const country = detectedFromText || "US";
+        const country = detectedFromText || null;
 
         // 1. INSERT IF NEW
         if (!existing) {
@@ -515,7 +545,7 @@ export async function POST(req: Request) {
             const newAccount = await prisma.tiktokAccount.create({
               data: {
                 username: extractedUsername,
-                country,
+                country: country || undefined,
                 groupName: resolvedGroupName || "GPM Fleet",
                 gpmProfileId: p.id,
                 gpmPort: incomingPort || undefined,

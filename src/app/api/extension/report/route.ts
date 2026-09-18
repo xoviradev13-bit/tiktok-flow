@@ -7,6 +7,7 @@ import {
   resolveExtensionBearerAuth,
 } from "@/lib/extension-auth";
 import { toStandardCountryCode } from "@/lib/country-name";
+import { splitGpmNameFields } from "@/lib/gpm-profile-fields";
 
 export interface VideoItemMetric {
   id?: string;
@@ -38,21 +39,7 @@ export interface ExtensionReportPayload {
   videoCount?: number;
   totalVideos?: number;
   totalViews?: number;
-  viewsToday?: number;
-  views7d?: number;
-  views14d?: number;
-  views30d?: number;
-  videosToday?: number;
-  videos7d?: number;
-  videos14d?: number;
-  videos30d?: number;
   totalRevenue?: number;
-  revenue7d?: number;
-  revenue28d?: number;
-  revenue60d?: number;
-  revenue365d?: number;
-  views28d?: number;
-  views60d?: number;
   rpm?: number;
   currency?: string;
   country?: string;
@@ -61,14 +48,10 @@ export interface ExtensionReportPayload {
   memberEmail?: string;
   gpmProfileId?: string;
   gpmProfileName?: string;
+  gpmGroupName?: string;
   /** Explicit client origin: extension = identity only; agent = full metrics */
   source?: "extension" | "agent";
   metricsSource?: string;
-
-  // Key Metrics
-  profileViews?: number;
-  commentsCount?: number;
-  sharesCount?: number;
 
   // Per-video Metrics (views, likes, comments for each video)
   videosList?: VideoItemMetric[];
@@ -81,10 +64,67 @@ export interface ExtensionReportPayload {
     past365d?: TopVideoItem[];
   };
 
-  // Revenue Breakdown
-  liveRewardsRevenue?: number;
-  tiktokShopRevenue?: number;
-  creatorRewardsRevenue?: number;
+  // Structured JSON summaries & breakdowns
+  sumRevenue?: {
+    revenue7d: number;
+    revenue28d: number;
+    revenue60d: number;
+    revenue365d: number;
+    totalRevenue: number;
+  } | null;
+  sumViews?: {
+    views7d: number;
+    views28d: number;
+    views60d: number;
+    views365d: number;
+    totalViews: number;
+  } | null;
+  sumLikes?: {
+    likes7d: number;
+    likes28d: number;
+    likes60d: number;
+    likes365d: number;
+    totalLikes: number;
+  } | null;
+  sumComments?: {
+    comments7d: number;
+    comments28d: number;
+    comments60d: number;
+    comments365d: number;
+  } | null;
+  sumShares?: {
+    shares7d: number;
+    shares28d: number;
+    shares60d: number;
+    shares365d: number;
+  } | null;
+  sumProfileViews?: {
+    profileViews7d: number;
+    profileViews28d: number;
+    profileViews60d: number;
+    profileViews365d: number;
+  } | null;
+  revenueBreakdown?: {
+    totalRevenue?: any;
+    tiktokShop?: any;
+    activePrograms?: any[];
+  } | null;
+  dailyRevenueBreakdown?: Array<{ date: string; revenue: number }> | null;
+  insightsHistory?: Record<string, any> | null;
+  postRewards?: Array<{
+    title: string;
+    views: number;
+    reward: number;
+    currency?: string;
+    coverUrl?: string;
+    postDate?: string;
+    programName?: string;
+    duration?: string;
+    rpm?: number | string;
+  }> | null;
+  creatorRewardsMissing?: boolean;
+  bannedReason?: string;
+  metadata?: Record<string, any> | null;
 }
 
 export async function POST(req: Request) {
@@ -109,21 +149,7 @@ export async function POST(req: Request) {
       videoCount = 0,
       totalVideos,
       totalViews,
-      viewsToday,
-      views7d,
-      views14d,
-      views30d,
-      videosToday,
-      videos7d,
-      videos14d,
-      videos30d,
       totalRevenue,
-      revenue7d,
-      revenue28d,
-      revenue60d,
-      revenue365d,
-      views28d,
-      views60d,
       rpm,
       currency,
       country,
@@ -132,19 +158,23 @@ export async function POST(req: Request) {
       memberEmail,
       gpmProfileId,
       gpmProfileName,
+      gpmGroupName,
       source,
       metricsSource,
-      profileViews,
-      commentsCount,
-      sharesCount,
       videosList,
       topVideos,
-      liveRewardsRevenue,
-      tiktokShopRevenue,
-      creatorRewardsRevenue,
+      sumRevenue,
+      sumViews,
+      sumLikes,
+      sumComments,
+      sumShares,
+      sumProfileViews,
+      revenueBreakdown,
+      dailyRevenueBreakdown,
+      insightsHistory,
     } = body;
 
-    // Extension = identity/GPM/assignment only. Agent writes metrics. Legacy payloads with numbers still apply.
+    // Extension = identity/GPM/assignment only. Agent writes metrics.
     const isIdentityOnly =
       source === "extension" || metricsSource === "identity";
     const applyMetrics =
@@ -153,8 +183,9 @@ export async function POST(req: Request) {
         metricsSource === "agent" ||
         metricsSource === "studio" ||
         followersCount > 0 ||
+        !!sumRevenue ||
+        !!sumViews ||
         (totalRevenue !== undefined && totalRevenue > 0) ||
-        (viewsToday !== undefined && viewsToday > 0) ||
         (totalViews !== undefined && totalViews > 0) ||
         !!(videosList && videosList.length));
 
@@ -213,16 +244,21 @@ export async function POST(req: Request) {
       typeof gpmProfileName === "string" && gpmProfileName.trim()
         ? gpmProfileName.trim()
         : null;
+    let resolvedGpmGroupName =
+      typeof gpmGroupName === "string" && gpmGroupName.trim()
+        ? gpmGroupName.trim()
+        : null;
     let gpmMatchedVia: string | null = resolvedGpmProfileId ? "client" : null;
 
     if (!resolvedGpmProfileId) {
       const existingAccount = await prisma.tiktokAccount.findUnique({
         where: { username: cleanUsername },
-        select: { gpmProfileId: true, gpmProfileName: true },
+        select: { gpmProfileId: true, gpmProfileName: true, groupName: true },
       });
       if (existingAccount?.gpmProfileId) {
         resolvedGpmProfileId = existingAccount.gpmProfileId;
         resolvedGpmProfileName = existingAccount.gpmProfileName || resolvedGpmProfileName;
+        resolvedGpmGroupName = existingAccount.groupName || resolvedGpmGroupName;
         gpmMatchedVia = "db:matched";
       }
     }
@@ -246,7 +282,7 @@ export async function POST(req: Request) {
     }
 
     // 2. Find existing account by username or gpmProfileId
-    let account = await prisma.tiktokAccount.findFirst({
+    let account: any = await prisma.tiktokAccount.findFirst({
       where: {
         OR: [
           { username: cleanUsername },
@@ -256,6 +292,14 @@ export async function POST(req: Request) {
       include: {
         assignedUser: { select: { id: true, name: true, email: true, username: true } },
       },
+    });
+
+    // Ensure profileName and groupName are properly separated and not cross-stored
+    const nameFields = splitGpmNameFields({
+      profileName: resolvedGpmProfileName,
+      groupName: resolvedGpmGroupName,
+      existingProfileName: account?.gpmProfileName,
+      existingGroupName: account?.groupName,
     });
 
     const targetStatus = isLoggedIn ? "ACTIVE" : "WARMING";
@@ -268,16 +312,20 @@ export async function POST(req: Request) {
         data: {
           username: cleanUsername,
           gpmProfileId: resolvedGpmProfileId || null,
-          groupName: resolvedGpmProfileName || "Extension Fleet",
-          status: targetStatus,
-          country: toStandardCountryCode(country),
+          gpmProfileName: nameFields.gpmProfileName || null,
+          groupName: nameFields.groupName || null,
+          status: body.creatorRewardsMissing ? "BANNED" : targetStatus,
+          bannedReason: body.creatorRewardsMissing ? (body.bannedReason || "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)") : null,
+          metadata: body.metadata || (body.creatorRewardsMissing ? { creatorRewardsStatus: "BANNED" } : undefined),
+          isOnline: isLoggedIn === true,
+          country: toStandardCountryCode(country) || undefined,
           assignedUserId,
           isAssignmentLocked: false,
-          totalFollowers: applyMetrics ? followersCount : 0,
-          totalVideos: applyMetrics ? totalVideos || videoCount : 0,
-          totalViews: applyMetrics && totalViews ? BigInt(totalViews) : BigInt(0),
+          totalFollowers: applyMetrics && typeof followersCount === "number" ? followersCount : 0,
+          totalVideos: applyMetrics ? (totalVideos ?? videoCount ?? 0) : 0,
+          totalViews: applyMetrics && totalViews !== undefined && totalViews !== null ? BigInt(totalViews) : BigInt(0),
           totalRevenue:
-            applyMetrics && totalRevenue !== undefined && totalRevenue > 0
+            applyMetrics && totalRevenue !== undefined && totalRevenue !== null
               ? totalRevenue
               : 0,
           lastSyncedAt: new Date(),
@@ -311,20 +359,108 @@ export async function POST(req: Request) {
         lastSyncedAt: new Date(),
       };
 
+      if (typeof isLoggedIn === "boolean") {
+        updateData.isOnline = isLoggedIn;
+      }
+
       if (applyMetrics) {
-        if (followersCount > 0) updateData.totalFollowers = followersCount;
-        if (totalVideos || videoCount > 0) updateData.totalVideos = totalVideos || videoCount;
-        if (totalViews !== undefined && totalViews > 0) updateData.totalViews = BigInt(totalViews);
-        if (totalRevenue !== undefined && totalRevenue > 0) updateData.totalRevenue = totalRevenue;
+        if (typeof followersCount === "number") updateData.totalFollowers = followersCount;
+        if (typeof totalVideos === "number") {
+          updateData.totalVideos = totalVideos;
+        } else if (typeof videoCount === "number") {
+          updateData.totalVideos = videoCount;
+        }
+        if (totalViews !== undefined && totalViews !== null) updateData.totalViews = BigInt(totalViews);
+        if (totalRevenue !== undefined && totalRevenue !== null) updateData.totalRevenue = totalRevenue;
       }
       if (country) updateData.country = toStandardCountryCode(country);
-      if (resolvedGpmProfileId && !account.gpmProfileId) {
+      if (resolvedGpmProfileId) {
         updateData.gpmProfileId = resolvedGpmProfileId;
-        if (resolvedGpmProfileName && (!account.groupName || account.groupName === "Extension Fleet")) {
-          updateData.groupName = resolvedGpmProfileName;
+      }
+      if (nameFields.gpmProfileName && nameFields.gpmProfileName !== account.gpmProfileName) {
+        updateData.gpmProfileName = nameFields.gpmProfileName;
+      }
+      if (nameFields.groupName && nameFields.groupName !== account.groupName) {
+        updateData.groupName = nameFields.groupName;
+      }
+
+      let isBannedFromCreatorRewards = false;
+      if (body.creatorRewardsMissing === true) {
+        if (account.status !== "WARMING") {
+          isBannedFromCreatorRewards = true;
+          updateData.status = "BANNED";
+          const reason = body.bannedReason || "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)";
+          updateData.bannedReason = reason;
+          const existingMeta = (account.metadata as Record<string, any>) || {};
+          updateData.metadata = {
+            ...existingMeta,
+            creatorRewardsStatus: "BANNED",
+            bannedAt: new Date().toISOString(),
+            bannedReason: reason,
+          };
+          if (account.status !== "BANNED") {
+            await prisma.accountLog.create({
+              data: {
+                accountId: account.id,
+                oldStatus: account.status,
+                newStatus: "BANNED",
+                logType: "STATUS_CHANGE",
+                message: `[MẤT QUYỀN KIẾM TIỀN] Không tìm thấy tab Creator Rewards Program trên TikTok Studio -> Trạng thái: BANNED. Lý do: ${reason}`,
+                actorName: actorName || "Client Agent",
+              },
+            });
+            await prisma.accountAlert.create({
+              data: {
+                accountId: account.id,
+                alertType: "PROGRAM_DISQUALIFIED",
+                severity: "CRITICAL",
+                description: `Tài khoản @${cleanUsername} bị mất chương trình Creator Rewards Program (TikTok Beta).`,
+                status: "OPEN",
+              },
+            });
+
+            // Mid-day ban checklist adjustment: recalculate score if configured
+            try {
+              const scoringRecord = await prisma.systemConfig.findUnique({ where: { key: "scoring_rules" } });
+              const scoringCfg = scoringRecord?.value ? JSON.parse(scoringRecord.value) : {};
+              const shouldExcludeBanned = scoringCfg.excludeBannedAccounts !== false;
+
+              if (shouldExcludeBanned) {
+                const now = new Date();
+                const todayOnly = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+                const checkItem = await prisma.dailyChecklistItem.findFirst({
+                  where: { accountId: account.id, checklist: { date: todayOnly } },
+                  include: { checklist: { include: { items: { include: { account: true } } } } },
+                });
+                if (checkItem?.checklist) {
+                  const eligibleItems = checkItem.checklist.items.filter(
+                    (i) => i.accountId !== account.id && i.account?.status !== "BANNED"
+                  );
+                  const totalAssigned = eligibleItems.length;
+                  const completedCount = eligibleItems.filter((i) => i.isCompleted || i.isPosted).length;
+                  const { calculateWorkdayScore } = await import("@/lib/scoring-engine");
+                  const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringCfg);
+                  await prisma.dailyChecklist.update({
+                    where: { id: checkItem.checklist.id },
+                    data: { totalAssigned, completedCount, completionRate, workdayScore },
+                  });
+                }
+              }
+            } catch (calcErr) {
+              console.warn("[ExtensionReport] Failed to recalculate checklist after ban:", calcErr);
+            }
+          }
         }
       }
-      if (isLoggedIn && account.status !== "ACTIVE") updateData.status = "ACTIVE";
+
+      if (body.metadata && !isBannedFromCreatorRewards) {
+        const existingMeta = (account.metadata as Record<string, any>) || {};
+        updateData.metadata = { ...existingMeta, ...body.metadata };
+      }
+
+      if (!isBannedFromCreatorRewards && account.status !== "BANNED" && isLoggedIn && account.status !== "ACTIVE") {
+        updateData.status = "ACTIVE";
+      }
 
       // 3. Handover & Assignment Lock Logic
       if (memberUser && memberUser.id !== account.assignedUserId) {
@@ -379,18 +515,23 @@ export async function POST(req: Request) {
     }
 
     // 4. Record into DailyRevenue for each revenue stream (Agent metrics only)
-    const effectiveTotalRevenue = totalRevenue || (creatorRewardsRevenue || 0) + (liveRewardsRevenue || 0) + (tiktokShopRevenue || 0);
+    const effectiveTotalRevenue =
+      typeof totalRevenue === "number"
+        ? totalRevenue
+        : typeof sumRevenue?.totalRevenue === "number"
+        ? sumRevenue.totalRevenue
+        : 0;
 
     if (
       applyMetrics &&
-      (effectiveTotalRevenue > 0 || (viewsToday && viewsToday > 0) || rpm)
+      (effectiveTotalRevenue > 0 || (totalViews && totalViews > 0) || rpm)
     ) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // Creator Rewards Program
-      const crRevenue = creatorRewardsRevenue !== undefined ? creatorRewardsRevenue : totalRevenue;
-      if ((crRevenue !== undefined && crRevenue > 0) || (viewsToday && viewsToday > 0) || rpm) {
+      // Creator Rewards Program / Main overview revenue
+      const crRevenue = effectiveTotalRevenue;
+      if (crRevenue > 0 || (totalViews && totalViews > 0) || rpm) {
         try {
           await prisma.dailyRevenue.upsert({
             where: {
@@ -403,14 +544,14 @@ export async function POST(req: Request) {
             create: {
               accountId: account.id,
               date: today,
-              views: BigInt(viewsToday || totalViews || 0),
-              revenue: crRevenue || 0,
+              views: BigInt(totalViews || 0),
+              revenue: crRevenue,
               rpm: rpm || 0,
               sourceType: "CREATOR_REWARDS",
             },
             update: {
-              ...(viewsToday !== undefined && viewsToday > 0 ? { views: BigInt(viewsToday) } : {}),
-              ...(crRevenue !== undefined && crRevenue > 0 ? { revenue: crRevenue } : {}),
+              ...(totalViews !== undefined && totalViews > 0 ? { views: BigInt(totalViews) } : {}),
+              ...(crRevenue > 0 ? { revenue: crRevenue } : {}),
               ...(rpm !== undefined && rpm > 0 ? { rpm } : {}),
             },
           });
@@ -419,36 +560,9 @@ export async function POST(req: Request) {
         }
       }
 
-      // Live Rewards
-      if (liveRewardsRevenue !== undefined && liveRewardsRevenue > 0) {
-        try {
-          await prisma.dailyRevenue.upsert({
-            where: {
-              accountId_date_sourceType: {
-                accountId: account.id,
-                date: today,
-                sourceType: "LIVE_REWARDS",
-              },
-            },
-            create: {
-              accountId: account.id,
-              date: today,
-              views: BigInt(0),
-              revenue: liveRewardsRevenue,
-              rpm: 0,
-              sourceType: "LIVE_REWARDS",
-            },
-            update: {
-              revenue: liveRewardsRevenue,
-            },
-          });
-        } catch (err: any) {
-          console.warn("[ExtensionReport] Failed to upsert DailyRevenue (LIVE_REWARDS):", err.message);
-        }
-      }
-
-      // TikTok Shop for Seller
-      if (tiktokShopRevenue !== undefined && tiktokShopRevenue > 0) {
+      // TikTok Shop for Seller (from revenueBreakdown.tiktokShop)
+      const shopRevenue = revenueBreakdown?.tiktokShop?.revenue30d || revenueBreakdown?.tiktokShop?.revenue7d || 0;
+      if (shopRevenue > 0) {
         try {
           await prisma.dailyRevenue.upsert({
             where: {
@@ -462,12 +576,12 @@ export async function POST(req: Request) {
               accountId: account.id,
               date: today,
               views: BigInt(0),
-              revenue: tiktokShopRevenue,
+              revenue: shopRevenue,
               rpm: 0,
               sourceType: "TIKTOK_SHOP",
             },
             update: {
-              revenue: tiktokShopRevenue,
+              revenue: shopRevenue,
             },
           });
         } catch (err: any) {
@@ -479,42 +593,61 @@ export async function POST(req: Request) {
     // 5. Persist comprehensive analytics snapshot (Agent metrics only — never zero out from Extension)
     let analyticsSnapshot: Record<string, unknown> | null = null;
     if (applyMetrics) {
-    analyticsSnapshot = {
-      username: cleanUsername,
-      updatedAt: new Date().toISOString(),
-      keyMetrics: {
-        videoViews: totalViews || 0,
-        profileViews: profileViews || 0,
-        likes: totalLikes || 0,
-        comments: commentsCount || 0,
-        shares: sharesCount || 0,
-        estRewards: effectiveTotalRevenue || 0,
-      },
-      viewsBreakdown: {
-        viewsToday: viewsToday || 0,
-        views7d: views7d || 0,
-        views14d: views14d || 0,
-        views30d: views30d || 0,
-        totalViews: totalViews || 0,
-      },
-      videosBreakdown: {
-        videosToday: videosToday || 0,
-        videos7d: videos7d || 0,
-        videos14d: videos14d || 0,
-        videos30d: videos30d || 0,
-        totalVideos: totalVideos || videoCount || 0,
-      },
-      revenueBreakdown: {
+      // Clean rawSnapshot: pure video list & top videos (all summaries are in dedicated columns)
+      analyticsSnapshot = {
+        username: cleanUsername,
+        updatedAt: new Date().toISOString(),
+        videosList: videosList || [],
+        topVideos: topVideos || {},
+      };
+
+      const resolvedSumRevenue = sumRevenue || {
+        revenue7d: 0,
+        revenue28d: 0,
+        revenue60d: 0,
+        revenue365d: 0,
         totalRevenue: effectiveTotalRevenue || 0,
-        liveRewardsRevenue: liveRewardsRevenue || 0,
-        tiktokShopRevenue: tiktokShopRevenue || 0,
-        creatorRewardsRevenue: creatorRewardsRevenue || 0,
-        currency: currency || "$",
-        rpm: rpm || 0,
-      },
-      videosList: videosList || [],
-      topVideos: topVideos || {},
-    };
+      };
+
+      const resolvedSumViews = sumViews || {
+        views7d: 0,
+        views28d: 0,
+        views60d: 0,
+        views365d: totalViews || 0,
+        totalViews: totalViews || 0,
+      };
+
+      const resolvedSumLikes = sumLikes || {
+        likes7d: 0,
+        likes28d: totalLikes || 0,
+        likes60d: 0,
+        likes365d: 0,
+        totalLikes: totalLikes || 0,
+      };
+
+      const resolvedSumComments = sumComments || {
+        comments7d: 0,
+        comments28d: 0,
+        comments60d: 0,
+        comments365d: 0,
+      };
+
+      const resolvedSumShares = sumShares || {
+        shares7d: 0,
+        shares28d: 0,
+        shares60d: 0,
+        shares365d: 0,
+      };
+
+      const resolvedSumProfileViews = sumProfileViews || {
+        profileViews7d: 0,
+        profileViews28d: 0,
+        profileViews60d: 0,
+        profileViews365d: 0,
+      };
+
+      const resolvedRevenueBreakdown = revenueBreakdown || null;
+      const resolvedDailyRevenueBreakdown = dailyRevenueBreakdown || null;
 
       // 5a. Upsert into AccountAnalytics (Single Source of Truth)
       try {
@@ -523,63 +656,35 @@ export async function POST(req: Request) {
           create: {
             accountId: account.id,
             currency: currency || "$",
-            revenue7d: revenue7d || 0,
-            revenue28d: revenue28d || 0,
-            revenue60d: revenue60d || 0,
-            revenue365d: typeof revenue365d === "number" ? revenue365d : null,
-            totalRevenue: effectiveTotalRevenue || 0,
-            views7d: views7d ? BigInt(views7d) : null,
-            views28d: views28d ? BigInt(views28d) : null,
-            views60d: views60d ? BigInt(views60d) : null,
-            views365d: totalViews ? BigInt(totalViews) : null,
-            likes28d: totalLikes || 0,
-            comments28d: commentsCount || 0,
-            shares28d: sharesCount || 0,
-            dailyBreakdown: (body as any).dailyBreakdown || null,
-            activePrograms: (body as any).activePrograms || null,
-            insightsHistory: (body as any).insightsHistory || null,
+            sumRevenue: resolvedSumRevenue as any,
+            sumViews: resolvedSumViews as any,
+            sumLikes: resolvedSumLikes as any,
+            sumComments: resolvedSumComments as any,
+            sumShares: resolvedSumShares as any,
+            sumProfileViews: resolvedSumProfileViews as any,
+            revenueBreakdown: resolvedRevenueBreakdown as any,
+            dailyRevenueBreakdown: resolvedDailyRevenueBreakdown as any,
+            insightsHistory: insightsHistory || (body as any).insightsHistory || null,
+            postRewards: (body.postRewards as any) || undefined,
             rawSnapshot: analyticsSnapshot as any,
           },
           update: {
             currency: currency || "$",
-            revenue7d: revenue7d || 0,
-            revenue28d: revenue28d || 0,
-            revenue60d: revenue60d || 0,
-            revenue365d: typeof revenue365d === "number" ? revenue365d : undefined,
-            totalRevenue: effectiveTotalRevenue || 0,
-            views7d: views7d ? BigInt(views7d) : undefined,
-            views28d: views28d ? BigInt(views28d) : undefined,
-            views60d: views60d ? BigInt(views60d) : undefined,
-            views365d: totalViews ? BigInt(totalViews) : undefined,
-            likes28d: totalLikes || undefined,
-            comments28d: commentsCount || undefined,
-            shares28d: sharesCount || undefined,
-            dailyBreakdown: (body as any).dailyBreakdown || undefined,
-            activePrograms: (body as any).activePrograms || undefined,
-            insightsHistory: (body as any).insightsHistory || undefined,
+            sumRevenue: resolvedSumRevenue as any,
+            sumViews: resolvedSumViews as any,
+            sumLikes: resolvedSumLikes as any,
+            sumComments: resolvedSumComments as any,
+            sumShares: resolvedSumShares as any,
+            sumProfileViews: resolvedSumProfileViews as any,
+            revenueBreakdown: resolvedRevenueBreakdown as any,
+            dailyRevenueBreakdown: resolvedDailyRevenueBreakdown as any,
+            insightsHistory: insightsHistory || (body as any).insightsHistory || undefined,
+            postRewards: (body.postRewards as any) || undefined,
             rawSnapshot: analyticsSnapshot as any,
           },
         });
       } catch (anErr: any) {
         console.warn("[ExtensionReport] Failed to upsert AccountAnalytics:", anErr.message);
-      }
-
-      // 5b. Dual-write to SystemConfig for legacy compatibility
-      try {
-        await prisma.systemConfig.upsert({
-          where: { key: `analytics_${cleanUsername}` },
-          create: {
-            key: `analytics_${cleanUsername}`,
-            value: JSON.stringify(analyticsSnapshot),
-            description: `Detailed analytics snapshot for @${cleanUsername}`,
-          },
-          update: {
-            value: JSON.stringify(analyticsSnapshot),
-            updatedAt: new Date(),
-          },
-        });
-      } catch (cfgErr: any) {
-        console.warn("[ExtensionReport] Failed to save analytics snapshot:", cfgErr.message);
       }
     }
 
@@ -613,6 +718,64 @@ export async function POST(req: Request) {
             severity: "WARNING",
             description: `Tài khoản @${cleanUsername} phát hiện chưa đăng nhập trên profile trình duyệt.`,
             status: "OPEN",
+          },
+        });
+      }
+    }
+
+    // Handle alerts for punished / disqualified videos
+    if (Array.isArray(body.postRewards)) {
+      const punishedVideos = body.postRewards.filter((v: any) => v.isPunished);
+      if (punishedVideos.length > 0) {
+        const progCounts: Record<string, number> = {};
+        for (const pv of punishedVideos) {
+          const pName = pv.programName || "Chương trình Creator Rewards";
+          progCounts[pName] = (progCounts[pName] || 0) + 1;
+        }
+        const progSummary = Object.entries(progCounts)
+          .map(([name, count]) => `${count} video thuộc ${name}`)
+          .join(", ");
+
+        const desc = `Có ${punishedVideos.length} video bị huỷ điều kiện kiếm tiền (${progSummary}).`;
+        const severity = punishedVideos.length >= 3 ? "CRITICAL" : "WARNING";
+
+        const existingStrikeAlert = await prisma.accountAlert.findFirst({
+          where: {
+            accountId: account.id,
+            alertType: "VIDEO_STRIKE",
+            status: "OPEN",
+          },
+        });
+
+        if (existingStrikeAlert) {
+          await prisma.accountAlert.update({
+            where: { id: existingStrikeAlert.id },
+            data: {
+              description: desc,
+              severity,
+            },
+          });
+        } else {
+          await prisma.accountAlert.create({
+            data: {
+              accountId: account.id,
+              alertType: "VIDEO_STRIKE",
+              severity,
+              description: desc,
+              status: "OPEN",
+            },
+          });
+        }
+      } else {
+        await prisma.accountAlert.updateMany({
+          where: {
+            accountId: account.id,
+            alertType: "VIDEO_STRIKE",
+            status: "OPEN",
+          },
+          data: {
+            status: "RESOLVED",
+            resolvedAt: new Date(),
           },
         });
       }
@@ -660,7 +823,12 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    const session = await auth();
+    let session = null;
+    try {
+      session = await auth();
+    } catch {
+      // In standalone runner or external invocation, auth() may fail due to missing NextAsyncLocalStorage
+    }
     const authHeader = req.headers.get("authorization");
     const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
 
@@ -716,27 +884,15 @@ export async function GET(req: Request) {
       );
     }
 
-    // 1. Prioritize reading from AccountAnalytics SSOT
-    if (account?.analytics?.rawSnapshot) {
+    // Read directly from AccountAnalytics SSOT
+    if (account?.analytics) {
       return NextResponse.json({
         success: true,
-        data: account.analytics.rawSnapshot,
+        data: account.analytics.rawSnapshot || account.analytics,
       });
     }
 
-    // 2. Fallback to SystemConfig legacy cache
-    const config = await prisma.systemConfig.findUnique({
-      where: { key: `analytics_${username}` },
-    });
-
-    if (!config) {
-      return NextResponse.json({ success: false, message: "No analytics snapshot found yet for @" + username }, { status: 404 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: JSON.parse(config.value),
-    });
+    return NextResponse.json({ success: false, message: "No analytics snapshot found yet for @" + username }, { status: 404 });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }

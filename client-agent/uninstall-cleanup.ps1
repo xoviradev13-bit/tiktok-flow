@@ -45,6 +45,18 @@ function Stop-AgentProcesses {
     }
   }
 
+  try {
+    $ports = @(39741)
+    foreach ($p in $ports) {
+      $conns = Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue
+      foreach ($c in $conns) {
+        if ($c.OwningProcess -gt 0 -and $c.OwningProcess -ne $myPid) {
+          Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
+        }
+      }
+    }
+  } catch {}
+
   Get-Process -Name "nssm" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 

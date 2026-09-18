@@ -166,17 +166,17 @@ export const COUNTRY_TO_CODE: Record<string, string> = {
   "hong kong": "HK", "hk": "HK",
 };
 
-export function toStandardCountryCode(raw?: string | null): string {
-  if (!raw) return "US";
+export function toStandardCountryCode(raw?: string | null): string | null {
+  if (!raw) return null;
   const trimmed = String(raw).trim().toLowerCase();
   if (COUNTRY_TO_CODE[trimmed]) return COUNTRY_TO_CODE[trimmed];
   if (/^[a-z]{2}$/.test(trimmed)) return trimmed === "gb" ? "UK" : trimmed.toUpperCase();
-  return "US";
+  return null;
 }
 
 export function detectCountryFromText(text?: string | null): string | null {
   if (!text) return null;
-  const s = String(text);
+  const s = String(text).replace(/[_\-\.]+/g, " ");
   if (/\b(uk|gb|united\s*kingdom|great\s*britain|anh)\b/i.test(s)) return "UK";
   if (/\b(vn|vietnam|việt\s*nam)\b/i.test(s)) return "VN";
   if (/\b(de|germany|deutschland|đức)\b/i.test(s)) return "DE";

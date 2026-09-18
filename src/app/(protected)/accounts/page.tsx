@@ -39,6 +39,8 @@ import {
   Video,
   Lock,
   Unlock,
+  Square,
+  Sparkles,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { Pagination } from "@/components/ui/pagination";
@@ -98,35 +100,29 @@ const ACCOUNT_SORT_OPTIONS: Array<{ key: AccountSortKey; label: string }> = [
 ];
 
 const COUNTRY_MAP: Record<string, string> = {
-  us: "US", "united states": "US", usa: "US", "u.s.": "US", "u.s.a.": "US", america: "US",
-  gb: "UK", uk: "UK", "united kingdom": "UK", britain: "UK", england: "UK",
-  vn: "VN", vietnam: "VN", "viet nam": "VN", "việt nam": "VN",
-  de: "DE", germany: "DE", german: "DE", "đức": "DE",
-  fr: "FR", france: "FR", "pháp": "FR",
-  be: "BE", belgium: "BE", "bỉ": "BE",
-  nl: "NL", netherlands: "NL", holland: "NL", "hà lan": "NL",
-  id: "ID", indonesia: "ID",
-  th: "TH", thailand: "TH", "thái lan": "TH",
-  my: "MY", malaysia: "MY",
-  ph: "PH", philippines: "PH",
-  sg: "SG", singapore: "SG",
-  jp: "JP", japan: "JP", "nhật bản": "JP",
-  kr: "KR", "south korea": "KR", korea: "KR", "hàn quốc": "KR",
-  br: "BR", brazil: "BR",
-  mx: "MX", mexico: "MX",
-  ca: "CA", canada: "CA",
-  au: "AU", australia: "AU", "úc": "AU",
-  in: "IN", india: "IN", "ấn độ": "IN",
-  pk: "PK", pakistan: "PK",
-  bd: "BD", bangladesh: "BD",
-  eg: "EG", egypt: "EG", "ai cập": "EG",
-  tr: "TR", turkey: "TR", "thổ nhĩ kỳ": "TR",
-  ru: "RU", russia: "RU", "nga": "RU",
-  es: "ES", spain: "ES", "tây ban nha": "ES",
-  it: "IT", italy: "IT", "ý": "IT",
-  pt: "PT", portugal: "PT", "bồ đào nha": "PT",
-  pl: "PL", poland: "PL", "ba lan": "PL",
-  se: "SE", sweden: "SE", "thụy điển": "SE",
+  unitedstates: "US", "united states": "US", usa: "US", us: "US", "mỹ": "US",
+  vietnam: "VN", "việt nam": "VN", vn: "VN",
+  unitedkingdom: "UK", "united kingdom": "UK", uk: "UK", gb: "UK", greatbritain: "UK", "anh": "UK",
+  germany: "DE", de: "DE", "đức": "DE",
+  france: "FR", fr: "FR", "pháp": "FR",
+  thailand: "TH", th: "TH", "thái lan": "TH",
+  indonesia: "ID", id: "ID",
+  malaysia: "MY", my: "MY",
+  philippines: "PH", ph: "PH",
+  singapore: "SG", sg: "SG",
+  japan: "JP", jp: "JP", "nhật bản": "JP",
+  southkorea: "KR", "south korea": "KR", kr: "KR", korea: "KR", "hàn quốc": "KR",
+  brazil: "BR", br: "BR",
+  mexico: "MX", mx: "MX",
+  canada: "CA", ca: "CA",
+  australia: "AU", au: "AU", "úc": "AU",
+  spain: "ES", es: "ES", "tây ban nha": "ES",
+  italy: "IT", it: "IT", "ý": "IT",
+  belgium: "BE", be: "BE", "bỉ": "BE",
+  netherlands: "NL", nl: "NL", "hà lan": "NL",
+  portugal: "PT", pt: "PT", "bồ đào nha": "PT",
+  poland: "PL", pl: "PL", "ba lan": "PL",
+  sweden: "SE", se: "SE", "thụy điển": "SE",
   ch: "CH", switzerland: "CH", "thụy sĩ": "CH",
   at: "AT", austria: "AT", "áo": "AT",
   ie: "IE", ireland: "IE",
@@ -194,11 +190,11 @@ const FLAG_MAP: Record<string, string> = {
   BD: "🇧🇩", EG: "🇪🇬",
 };
 
-const normalizeCountry = (country?: string | null): string => {
-  if (!country) return "US";
+const normalizeCountry = (country?: string | null): string | null => {
+  if (!country) return null;
   const trimmed = country.trim().toLowerCase();
   if (COUNTRY_MAP[trimmed]) return COUNTRY_MAP[trimmed];
-  if (trimmed === "unknown") return "US";
+  if (trimmed === "unknown") return null;
   return country.trim().toUpperCase();
 };
 
@@ -569,6 +565,15 @@ function AccountsPageContent() {
     onError: (err: any) => alert(err.message),
   });
 
+  const stopSyncMutation = trpc.accounts.stopSyncAccount.useMutation({
+    onSuccess: () => {
+      setActionMsg("🛑 Đã gửi yêu cầu dừng đồng bộ!");
+      utils.accounts.list.invalidate();
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onError: (err: any) => alert(err.message),
+  });
+
   const { data: gpmStatus } = trpc.gpm.checkStatus.useQuery();
   const [startingGpmId, setStartingGpmId] = useState<string | null>(null);
 
@@ -636,7 +641,7 @@ function AccountsPageContent() {
     }
     setEditId(acc.id);
     setEditUsername(acc.username);
-    setEditCountry(normalizeCountry(acc.country));
+    setEditCountry(normalizeCountry(acc.country) || "");
     setEditGroup(acc.groupName || "");
     setEditGpmId(acc.gpmProfileId || "");
     setEditAssignedUser(acc.assignedUserId || "");
@@ -831,6 +836,13 @@ function AccountsPageContent() {
 
   const getCountryFlag = (country: string) => {
     const code = normalizeCountry(country);
+    if (!code) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-medium bg-slate-50 text-slate-500 dark:bg-slate-900/60 dark:text-slate-400 border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs">🌐</span> Chưa xác định
+        </span>
+      );
+    }
     const flag = FLAG_MAP[code] || "🌐";
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 dark:bg-slate-900/60 dark:text-slate-200 border border-slate-200 dark:border-slate-800 shadow-2xs">
@@ -1908,7 +1920,8 @@ function AccountsPageContent() {
                         {/* Status Select - Styled as twin badge */}
                         {(() => {
                           const badgeStyle = getStatusBadgeStyle(acc.status);
-                          return isLeadOrAdmin ? (
+                          const isBanned = acc.status === "BANNED";
+                          const badgeElement = isLeadOrAdmin ? (
                             <Select
                               value={acc.status}
                               onValueChange={(val) => handleStatusChange(acc.id, val)}
@@ -1935,6 +1948,23 @@ function AccountsPageContent() {
                               <span>{acc.status}</span>
                             </span>
                           );
+
+                          if (isBanned) {
+                            return (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="inline-flex cursor-help">{badgeElement}</div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs bg-rose-950 text-rose-100 border-rose-800 p-2 shadow-xl max-w-xs">
+                                  <div className="font-bold">⚠️ Bị ngừng chương trình TikTok Beta</div>
+                                  {acc.bannedReason && (
+                                    <div className="text-[11px] text-rose-300 mt-1 font-normal">{acc.bannedReason}</div>
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
+                            );
+                          }
+                          return badgeElement;
                         })()}
 
                         {/* More Actions Dropdown */}
@@ -1968,9 +1998,18 @@ function AccountsPageContent() {
                               disabled={syncMutation.isPending}
                               className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                             >
-                              <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-                              <span>Đồng bộ số liệu</span>
+                              <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin text-pink-500" : ""}`} />
+                              <span>{syncMutation.isPending ? "Đang đồng bộ..." : "Đồng bộ số liệu"}</span>
                             </DropdownMenuItem>
+                            {syncMutation.isPending && (
+                              <DropdownMenuItem
+                                onClick={() => stopSyncMutation.mutate({ accountId: acc.id })}
+                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                              >
+                                <Square className="w-3.5 h-3.5 fill-current text-rose-500" />
+                                <span>Dừng đồng bộ</span>
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               onClick={() => handleOpenLogs(acc)}
                               className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
@@ -2273,20 +2312,35 @@ function AccountsPageContent() {
                         Chi tiết →
                       </Link>
                       <div className="flex items-center gap-1.5">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => syncMutation.mutate({ accountId: acc.id })}
-                              disabled={syncMutation.isPending}
-                              className="p-1.5 text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
-                              aria-label="Đồng bộ số liệu"
-                            >
-                              <RefreshCw className={`w-3.5 h-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Đồng bộ số liệu tài khoản</TooltipContent>
-                        </Tooltip>
+                        {syncMutation.isPending ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => stopSyncMutation.mutate({ accountId: acc.id })}
+                                className="p-1.5 text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer animate-pulse"
+                                aria-label="Dừng đồng bộ"
+                              >
+                                <Square className="w-3.5 h-3.5 fill-current" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Dừng đồng bộ</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => syncMutation.mutate({ accountId: acc.id })}
+                                className="p-1.5 text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                aria-label="Đồng bộ số liệu"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Đồng bộ số liệu tài khoản</TooltipContent>
+                          </Tooltip>
+                        )}
 
                         {acc.gpmProfileId && (
                           <Tooltip>
@@ -2610,35 +2664,62 @@ function AccountsPageContent() {
                             {/* Status Dropdown */}
                             {visibleColumns.status && (
                               <td className="px-4 py-3.5 whitespace-nowrap">
-                                {isLeadOrAdmin ? (
-                                  <Select
-                                    value={acc.status}
-                                    onValueChange={(val) => handleStatusChange(acc.id, val)}
-                                  >
-                                    <SelectTrigger className="h-7.5 w-28 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                                      <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
-                                      <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
-                                      <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
-                                      <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
-                                      <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                ) : (
-                                  (() => {
-                                    const badgeStyle = getStatusBadgeStyle(acc.status);
+                                {(() => {
+                                  const isBanned = acc.status === "BANNED";
+                                  const statusElement = isLeadOrAdmin ? (
+                                    <Select
+                                      value={acc.status}
+                                      onValueChange={(val) => handleStatusChange(acc.id, val)}
+                                    >
+                                      <SelectTrigger className="h-7.5 w-28 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                                        <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
+                                        <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
+                                        <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
+                                        <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
+                                        <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    (() => {
+                                      const badgeStyle = getStatusBadgeStyle(acc.status);
+                                      return (
+                                        <span
+                                          className={`inline-flex items-center gap-1.5 h-7 px-2.5 text-xs font-bold rounded-full border shadow-2xs select-none ${badgeStyle.container}`}
+                                        >
+                                          <span className={`w-2 h-2 rounded-full shrink-0 ${badgeStyle.dot}`} />
+                                          <span>{acc.status}</span>
+                                        </span>
+                                      );
+                                    })()
+                                  );
+
+                                  if (isBanned) {
                                     return (
-                                      <span
-                                        className={`inline-flex items-center gap-1.5 h-7 px-2.5 text-xs font-bold rounded-full border shadow-2xs select-none ${badgeStyle.container}`}
-                                      >
-                                        <span className={`w-2 h-2 rounded-full shrink-0 ${badgeStyle.dot}`} />
-                                        <span>{acc.status}</span>
-                                      </span>
+                                      <div className="flex flex-col gap-0.5">
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <div className="inline-flex cursor-help">{statusElement}</div>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="text-xs bg-rose-950 text-rose-100 border-rose-800 p-2 shadow-xl max-w-xs">
+                                            <div className="font-bold">⚠️ Bị ngừng chương trình TikTok Beta</div>
+                                            {acc.bannedReason && (
+                                              <div className="text-[11px] text-rose-300 mt-1 font-normal">{acc.bannedReason}</div>
+                                            )}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                        {acc.bannedReason && (
+                                          <span className="text-[10px] text-rose-500 font-medium truncate max-w-[130px]" title={acc.bannedReason}>
+                                            {acc.bannedReason}
+                                          </span>
+                                        )}
+                                      </div>
                                     );
-                                  })()
-                                )}
+                                  }
+                                  return statusElement;
+                                })()}
                               </td>
                             )}
 
@@ -2761,7 +2842,7 @@ function AccountsPageContent() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span className="cursor-help border-b border-dotted border-emerald-500/40">
-                                      {formatAmount((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0, (acc as any).country)}
+                                      {formatAmount((acc as any).analytics?.sumRevenue?.totalRevenue ?? (acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0, (acc as any).country)}
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
@@ -2770,11 +2851,11 @@ function AccountsPageContent() {
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">7 ngày:</span>
-                                      <span className="font-semibold text-cyan-300">{formatAmount((acc as any).analytics?.revenue7d ?? 0, (acc as any).country)}</span>
+                                      <span className="font-semibold text-cyan-300">{formatAmount((acc as any).analytics?.sumRevenue?.revenue7d ?? (acc as any).analytics?.revenue7d ?? 0, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">28 ngày:</span>
-                                      <span className="font-semibold text-purple-300">{formatAmount((acc as any).analytics?.revenue28d ?? 0, (acc as any).country)}</span>
+                                      <span className="font-semibold text-purple-300">{formatAmount((acc as any).analytics?.sumRevenue?.revenue28d ?? (acc as any).analytics?.revenue28d ?? 0, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">60 ngày:</span>
@@ -2796,27 +2877,249 @@ function AccountsPageContent() {
                             {/* Alerts / Warnings */}
                             {visibleColumns.alertsCount && (
                               <td className="px-4 py-3.5 whitespace-nowrap">
-                                {acc.alerts && acc.alerts.length > 0 ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 cursor-pointer">
-                                        <AlertTriangle className="w-3 h-3" />
-                                        <span>{acc.alerts.length} cảnh báo</span>
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="max-w-xs text-xs space-y-1">
-                                      {acc.alerts.map((al: any, idx: number) => (
-                                        <div key={idx} className="text-slate-200">
-                                          • {al.message || al.type}
-                                        </div>
-                                      ))}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-                                    <Shield className="w-3 h-3 text-emerald-500" /> An toàn
-                                  </span>
-                                )}
+                                {(() => {
+                                  const rawPostRewards = Array.isArray((acc as any).analytics?.postRewards)
+                                    ? (acc as any).analytics.postRewards
+                                    : Array.isArray(((acc as any).analytics?.postRewards as any)?.items)
+                                    ? ((acc as any).analytics?.postRewards as any).items
+                                    : [];
+
+                                  const punishedVideos = rawPostRewards.filter((v: any) => v.isPunished);
+
+                                  const isBannedFromCreator =
+                                    acc.status === "BANNED" ||
+                                    Boolean(acc.bannedReason) ||
+                                    ((acc.metadata as any)?.creatorRewardsMissing === true) ||
+                                    ((acc.metadata as any)?.creatorRewardsStatus === "BANNED") ||
+                                    acc.alerts?.some((al: any) => al.alertType === "PROGRAM_DISQUALIFIED");
+
+                                  // Case 1: Banned / Removed from Creator Program (TURN RED!)
+                                  if (isBannedFromCreator) {
+                                    return (
+                                      <Popover>
+                                        <PopoverTrigger asChild>
+                                          <button
+                                            type="button"
+                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800/80 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all shadow-sm cursor-pointer group"
+                                          >
+                                            <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                            <span>Bị loại khỏi Creator Rewards</span>
+                                            {punishedVideos.length > 0 && (
+                                              <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[10px] rounded-full font-bold">
+                                                +{punishedVideos.length}
+                                              </span>
+                                            )}
+                                          </button>
+                                        </PopoverTrigger>
+                                        <PopoverContent
+                                          align="start"
+                                          className="w-96 p-0 rounded-2xl shadow-2xl border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs"
+                                        >
+                                          <div className="p-3.5 bg-gradient-to-r from-rose-500/15 via-rose-500/10 to-transparent border-b border-rose-200 dark:border-rose-900/40 flex items-start gap-2.5">
+                                            <div className="p-2 bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl shrink-0">
+                                              <XCircle className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                              <h4 className="font-bold text-rose-900 dark:text-rose-200 text-sm">
+                                                Bị loại khỏi Creator Rewards
+                                              </h4>
+                                              <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
+                                                Tài khoản @{acc.username} đã bị tắt tính năng kiếm tiền TikTok Beta
+                                              </p>
+                                            </div>
+                                          </div>
+
+                                          <div className="p-3.5 space-y-3">
+                                            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                                              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">Lý do ghi nhận:</span>
+                                              <span className="text-xs text-rose-600 dark:text-rose-300 font-medium">
+                                                {acc.bannedReason || "Không tìm thấy chương trình Creator Rewards trên TikTok Studio"}
+                                              </span>
+                                            </div>
+
+                                            {punishedVideos.length > 0 && (
+                                              <div>
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                  <span className="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                                                    Video bị phạt / vi phạm ({punishedVideos.length}):
+                                                  </span>
+                                                </div>
+                                                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                                                  {punishedVideos.map((v: any, vIdx: number) => (
+                                                    <div
+                                                      key={vIdx}
+                                                      className="p-2 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 flex items-start gap-2"
+                                                    >
+                                                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" />
+                                                      <div className="min-w-0 flex-1">
+                                                        <p className="text-xs font-medium text-slate-800 dark:text-slate-200 line-clamp-1" title={v.title}>
+                                                          {v.title || `Video #${v.id}`}
+                                                        </p>
+                                                        <div className="flex items-center gap-2 mt-1">
+                                                          <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.2 rounded border border-blue-500/20">
+                                                            {v.programName || "Creator Rewards"}
+                                                          </span>
+                                                          {v.postDate && (
+                                                            <span className="text-[10px] text-slate-400">
+                                                              {v.postDate}
+                                                            </span>
+                                                          )}
+                                                          <span className="text-[10px] font-bold text-rose-500">
+                                                            Bị phạt
+                                                          </span>
+                                                        </div>
+                                                      </div>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                                              <Link
+                                                href={`/accounts/${acc.id}?tab=rewards`}
+                                                className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline"
+                                              >
+                                                <span>Xem chi tiết tài khoản</span>
+                                                <ExternalLink className="w-3 h-3" />
+                                              </Link>
+                                            </div>
+                                          </div>
+                                        </PopoverContent>
+                                      </Popover>
+                                    );
+                                  }
+
+                                  // Case 2: Punished Videos Warning
+                                  if (punishedVideos.length > 0) {
+                                    return (
+                                      <Popover>
+                                        <PopoverTrigger asChild>
+                                          <button
+                                            type="button"
+                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-800/80 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all shadow-sm cursor-pointer group"
+                                          >
+                                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                            <span>{punishedVideos.length} video bị phạt</span>
+                                          </button>
+                                        </PopoverTrigger>
+                                        <PopoverContent
+                                          align="start"
+                                          className="w-[400px] p-0 rounded-2xl shadow-2xl border border-amber-200 dark:border-amber-900/60 bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs"
+                                        >
+                                          <div className="p-3.5 bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent border-b border-amber-200 dark:border-amber-900/40 flex items-start gap-2.5">
+                                            <div className="p-2 bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl shrink-0">
+                                              <AlertTriangle className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                              <h4 className="font-bold text-amber-900 dark:text-amber-200 text-sm">
+                                                {punishedVideos.length} Video Bị Phạt / Huỷ Điều Kiện
+                                              </h4>
+                                              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">
+                                                Tài khoản @{acc.username} có video không đủ điều kiện nhận thưởng
+                                              </p>
+                                            </div>
+                                          </div>
+
+                                          <div className="p-3.5 space-y-3">
+                                            <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                                              {punishedVideos.map((v: any, vIdx: number) => {
+                                                const progName = v.programName || "Chương trình Creator Rewards";
+                                                const isShop = progName.includes("Shop");
+                                                const isSeries = progName.includes("Series");
+                                                const isGifts = progName.includes("Gifts") || progName.includes("Quà tặng");
+
+                                                return (
+                                                  <div
+                                                    key={vIdx}
+                                                    className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex items-start gap-2.5 hover:border-amber-300 dark:hover:border-amber-800/80 transition-colors"
+                                                  >
+                                                    <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 shrink-0 mt-0.5">
+                                                      <AlertTriangle className="w-3.5 h-3.5" />
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                      <p className="text-xs font-semibold text-slate-900 dark:text-white line-clamp-2 leading-relaxed" title={v.title}>
+                                                        {v.title || `Video #${v.id}`}
+                                                      </p>
+                                                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                                        <span
+                                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${
+                                                            isShop
+                                                              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                                              : isSeries
+                                                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                                                              : isGifts
+                                                              ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                                                              : "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20"
+                                                          }`}
+                                                        >
+                                                          <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                                                          {progName}
+                                                        </span>
+
+                                                        <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+                                                          Bị huỷ điều kiện
+                                                        </span>
+
+                                                        {v.postDate && (
+                                                          <span className="text-[10px] text-slate-400">
+                                                            {v.postDate}
+                                                          </span>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+
+                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                              <span className="text-[11px] text-slate-400">
+                                                Phân tách theo từng chương trình kiếm tiền
+                                              </span>
+                                              <Link
+                                                href={`/accounts/${acc.id}?tab=rewards`}
+                                                className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline"
+                                              >
+                                                <span>Xem tất cả video</span>
+                                                <ExternalLink className="w-3 h-3" />
+                                              </Link>
+                                            </div>
+                                          </div>
+                                        </PopoverContent>
+                                      </Popover>
+                                    );
+                                  }
+
+                                  // Case 3: Other alerts
+                                  if (acc.alerts && acc.alerts.length > 0) {
+                                    return (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 cursor-pointer">
+                                            <AlertTriangle className="w-3 h-3" />
+                                            <span>{acc.alerts.length} cảnh báo</span>
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs text-xs space-y-1">
+                                          {acc.alerts.map((al: any, idx: number) => (
+                                            <div key={idx} className="text-slate-200">
+                                              • {al.description || al.message || al.alertType}
+                                            </div>
+                                          ))}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    );
+                                  }
+
+                                  // Case 4: Clean & Safe
+                                  return (
+                                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                                      <Shield className="w-3.5 h-3.5 text-emerald-500" />
+                                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">An toàn</span>
+                                    </span>
+                                  );
+                                })()}
                               </td>
                             )}
 

@@ -100,7 +100,7 @@ export const revenueRouter = router({
       // Merge daily breakdown from AccountAnalytics JSON
       let breakdownRecordsCount = 0;
       for (const acc of accounts) {
-        const breakdown = (acc.analytics?.dailyBreakdown as any[]) || [];
+        const breakdown = (acc.analytics?.dailyRevenueBreakdown as any[]) || ((acc.analytics as any)?.dailyBreakdown as any[]) || [];
         for (const item of breakdown) {
           if (!item.date) continue;
           const dateStr = item.date;
@@ -155,24 +155,24 @@ export const revenueRouter = router({
 
       if (!isCustomRange) {
         if (days === 7) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.revenue7d ?? 0), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.analytics?.views7d ?? 0), 0);
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number((a.analytics?.sumRevenue as any)?.revenue7d ?? (a.analytics as any)?.revenue7d ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number((a.analytics?.sumViews as any)?.views7d ?? (a.analytics as any)?.views7d ?? 0), 0);
           hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
         } else if (days === 28) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.revenue28d ?? 0), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.analytics?.views28d ?? 0), 0);
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number((a.analytics?.sumRevenue as any)?.revenue28d ?? (a.analytics as any)?.revenue28d ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number((a.analytics?.sumViews as any)?.views28d ?? (a.analytics as any)?.views28d ?? 0), 0);
           hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
         } else if (days === 60) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.revenue60d ?? 0), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.analytics?.views60d ?? 0), 0);
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number((a.analytics?.sumRevenue as any)?.revenue60d ?? (a.analytics as any)?.revenue60d ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number((a.analytics?.sumViews as any)?.views60d ?? (a.analytics as any)?.views60d ?? 0), 0);
           hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
         } else if (days === 365) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.revenue365d ?? 0), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.analytics?.views365d ?? 0), 0);
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number((a.analytics?.sumRevenue as any)?.revenue365d ?? (a.analytics as any)?.revenue365d ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number((a.analytics?.sumViews as any)?.views365d ?? (a.analytics as any)?.views365d ?? 0), 0);
           hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
         } else if (days === 0) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + Number(a.analytics?.totalRevenue ?? a.totalRevenue ?? 0), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => s + Number(a.totalViews ?? 0), 0);
+          analyticsPeriodRev = accounts.reduce((s, a) => s + Number((a.analytics?.sumRevenue as any)?.totalRevenue ?? (a.analytics as any)?.totalRevenue ?? a.totalRevenue ?? 0), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => s + Number((a.analytics?.sumViews as any)?.totalViews ?? a.totalViews ?? 0), 0);
           hasAnalyticsPreset = true;
         }
       }
@@ -369,7 +369,7 @@ export const revenueRouter = router({
 
       if (!input?.sourceType || input.sourceType === "ALL" || input.sourceType === "CREATOR_REWARDS") {
         for (const acc of accountsWithAnalytics) {
-          const breakdown = (acc.analytics?.dailyBreakdown as any[]) || [];
+          const breakdown = (acc.analytics?.dailyRevenueBreakdown as any[]) || ((acc.analytics as any)?.dailyBreakdown as any[]) || [];
           for (const item of breakdown) {
             if (!item.date) continue;
             const dateStr = item.date;

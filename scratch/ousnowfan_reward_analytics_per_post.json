@@ -1,0 +1,332 @@
+{
+  "current_page_number": 0,
+  "extra": {
+    "fatal_item_ids": [],
+    "logid": "20260917190359AF9419BA11F4F6455F53",
+    "now": 1789671840000
+  },
+  "has_more": true,
+  "log_pb": {
+    "impr_id": "20260917190359AF9419BA11F4F6455F53"
+  },
+  "status_code": 0,
+  "status_msg": "",
+  "video_analytics_active_programs": [
+    9
+  ],
+  "video_analytics_active_programs_names": [
+    "Chương trình Creator Rewards"
+  ],
+  "video_analytics_video_list": [
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$0.00",
+        "formatted_no_symbol": "0.00",
+        "nanos": 0,
+        "units": 0
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/10/26",
+      "publish_date_unix_time": 1786359177,
+      "saves": 1,
+      "shares": 0,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 339.767,
+      "video_id": 7672354204966456000,
+      "video_id_str": "7672354204966456598",
+      "video_name": "めめ撮了日確定それスノ新企画始動トラジャがノンストップ生パフォ (P1) #SnowMan #目黒蓮 #渡辺翔太",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/ocD7DE8C0IreDFGEWIyfVeqYjrEtDrAT5UIaAL~tplv-tiktokx-origin.image?dr=10395&refresh_token=406471d1&x-expires=1789693200&x-signature=lDXm8JIOa51jyzWJeYebD4y4ou0%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 1327
+    },
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$0.08",
+        "formatted_no_symbol": "0.08",
+        "nanos": 80000000,
+        "units": 0
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/10/26",
+      "publish_date_unix_time": 1786359177,
+      "saves": 24,
+      "shares": 1,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 354.034,
+      "video_id": 7672354208556797000,
+      "video_id_str": "7672354208556797206",
+      "video_name": "めめ撮了日確定それスノ新企画始動トラジャがノンストップ生パフォ (P2) #SnowMan #目黒蓮 #渡辺翔太",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/oMmEAZ2aIiB5EVmEYwtiYAAIlCarYD6BvUxn2~tplv-tiktokx-origin.image?dr=10395&refresh_token=b801589c&x-expires=1789693200&x-signature=Xwr3XIQrzhviG7m9V90RobIxpZU%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 12559
+    },
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$1.41",
+        "formatted_no_symbol": "1.41",
+        "nanos": 410000000,
+        "units": 1
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/08/26",
+      "publish_date_unix_time": 1786181074,
+      "saves": 30,
+      "shares": 2,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 433.9,
+      "video_id": 7671589278937255000,
+      "video_id_str": "7671589278937255190",
+      "video_name": "目黒蓮ヒロイン判明大人気女優M・K向井Mrs. GREEN APPLEドラマ共演 (P1)  #SnowMan #すのちゅーぶ #目黒蓮 #渡辺翔太 #佐久間大介 #岩本照",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/oQ2VvRALiB19bv1nBYTxa59iICtAd9M9vZI1l~tplv-tiktokx-origin.image?dr=10395&refresh_token=3b78bfcc&x-expires=1789693200&x-signature=vrjdI%2FIdWUf%2B06EyceDn4uGZigA%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 33449
+    },
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$0.04",
+        "formatted_no_symbol": "0.04",
+        "nanos": 40000000,
+        "units": 0
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/08/26",
+      "publish_date_unix_time": 1786181074,
+      "saves": 9,
+      "shares": 1,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 493.767,
+      "video_id": 7671589269630242000,
+      "video_id_str": "7671589269630242070",
+      "video_name": "目黒蓮ヒロイン判明大人気女優M・K向井Mrs. GREEN APPLEドラマ共演 (P4)  #SnowMan #すのちゅーぶ #目黒蓮 #渡辺翔太 #佐久間大介 #岩本照",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/oM2BVYidJBhb51BAiZ1nD9aRXA9CJIJvWIlZc~tplv-tiktokx-origin.image?dr=10395&refresh_token=f12bae09&x-expires=1789693200&x-signature=giS4D7rbs0Jyw8suEN6tSvHqlIY%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 9140
+    },
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$0.00",
+        "formatted_no_symbol": "0.00",
+        "nanos": 0,
+        "units": 0
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/08/26",
+      "publish_date_unix_time": 1786181074,
+      "saves": 3,
+      "shares": 0,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 433.9,
+      "video_id": 7671589270074822000,
+      "video_id_str": "7671589270074821910",
+      "video_name": "目黒蓮ヒロイン判明大人気女優M・K向井Mrs. GREEN APPLEドラマ共演 (P2)  #SnowMan #すのちゅーぶ #目黒蓮 #渡辺翔太 #佐久間大介 #岩本照",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/okBZI9BlCd1bQO1IXCiitV2a2XI1PnnAoAYN9~tplv-tiktokx-origin.image?dr=10395&refresh_token=95442612&x-expires=1789693200&x-signature=8Y%2BxXA6s82UKOZeaWO893sDKZaQ%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 1199
+    },
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$0.00",
+        "formatted_no_symbol": "0.00",
+        "nanos": 0,
+        "units": 0
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/08/26",
+      "publish_date_unix_time": 1786181074,
+      "saves": 2,
+      "shares": 0,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 433.9,
+      "video_id": 7671589278001991000,
+      "video_id_str": "7671589278001990934",
+      "video_name": "目黒蓮ヒロイン判明大人気女優M・K向井Mrs. GREEN APPLEドラマ共演 (P3)  #SnowMan #すのちゅーぶ #目黒蓮 #渡辺翔太 #佐久間大介 #岩本照",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/oUvBVeMf925qFFAtIVd3V9tDgEiCkXCU15dCI1~tplv-tiktokx-origin.image?dr=10395&refresh_token=f5e27888&x-expires=1789693200&x-signature=FJfDJmDh23ii3X1LHwKFEqN5bkY%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 1408
+    },
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$0.00",
+        "formatted_no_symbol": "0.00",
+        "nanos": 0,
+        "units": 0
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/07/26",
+      "publish_date_unix_time": 1786091631,
+      "saves": 3,
+      "shares": 0,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 289.167,
+      "video_id": 7671205090769882000,
+      "video_id_str": "7671205090769882390",
+      "video_name": "目黒蓮新ドラマ枠に急展開「●曜●時」説が濃厚に岩本照VTR出演ドッキリ4時間SPタイムレス (P1) #目黒蓮 #SNOWMAN",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/oUXBCfUYDLBUFKaEw1EmyaIH6DIIfF1A6ErWfA~tplv-tiktokx-origin.image?dr=10395&refresh_token=5a357a2c&x-expires=1789693200&x-signature=AgZEtWxZlngTURjcLdAX%2F1w6DGo%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 1254
+    },
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$0.00",
+        "formatted_no_symbol": "0.00",
+        "nanos": 0,
+        "units": 0
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/07/26",
+      "publish_date_unix_time": 1786091631,
+      "saves": 1,
+      "shares": 0,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 277.34,
+      "video_id": 7671205084365131000,
+      "video_id_str": "7671205084365131030",
+      "video_name": "目黒蓮新ドラマ枠に急展開「●曜●時」説が濃厚に岩本照VTR出演ドッキリ4時間SPタイムレス (P2) #目黒蓮 #SNOWMAN",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/oEhn5vXlIwiVB31AlKYmHGiZBCCYCW5ABIaAY~tplv-tiktokx-origin.image?dr=10395&refresh_token=87bee470&x-expires=1789693200&x-signature=c0x%2BUHL3Fivr2q%2Bfvz0mzE0M0fQ%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 589
+    },
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$0.00",
+        "formatted_no_symbol": "0.00",
+        "nanos": 0,
+        "units": 0
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/04/26",
+      "publish_date_unix_time": 1785837900,
+      "saves": 0,
+      "shares": 0,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 257.867,
+      "video_id": 7670111211572284000,
+      "video_id_str": "7670111211572284675",
+      "video_name": "岩本🥷忍者ドラマに⁉️あの女優さんが⁉️なにわ全員ロケ新冠番組🐙キンプリ海人バスツアー (P2) #snowman #岩本照",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/o0VBVFFuEwEf5tcHYqznAakxU9QCQeSaDbtOEg~tplv-tiktokx-origin.image?dr=10395&refresh_token=554980e0&x-expires=1789693200&x-signature=GO18fvOqjMFiBijmejABFGzA8%2BY%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 559
+    },
+    {
+      "comments": 0,
+      "est_rewards": {
+        "currency": {
+          "code": "USD",
+          "symbol": "$"
+        },
+        "formatted": "$0.00",
+        "formatted_no_symbol": "0.00",
+        "nanos": 0,
+        "units": 0
+      },
+      "likes": 0,
+      "publish_date_formatted": "08/04/26",
+      "publish_date_unix_time": 1785836936,
+      "saves": 0,
+      "shares": 0,
+      "video_analytics_programs": [
+        {
+          "is_punished": false,
+          "m10n_program": 9,
+          "program_name": "Chương trình Creator Rewards"
+        }
+      ],
+      "video_duration": 264.334,
+      "video_id": 7670111207986122000,
+      "video_id_str": "7670111207986122006",
+      "video_name": "岩本🥷忍者ドラマに⁉️あの女優さんが⁉️なにわ全員ロケ新冠番組🐙キンプリ海人バスツアー (P1) #snowman #岩本照",
+      "video_thumbnail": "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-p-0037-no/okaxVqmREr5bAFZNWCkIwgFtAOScBfD9CIYfVR~tplv-tiktokx-origin.image?dr=10395&refresh_token=32fe100c&x-expires=1789693200&x-signature=JBsLajcvF23CLYqyI8bFuWt0mxw%3D&t=4d5b0474&ps=13740610&shp=1ed43066&shcp=54b777da&idc=no1a",
+      "views": 450
+    }
+  ]
+}

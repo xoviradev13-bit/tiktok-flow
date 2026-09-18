@@ -94,8 +94,15 @@ export default function VideoCrossCheckModal({
   const accountInfo = data?.account;
   const itemStatus = data?.checklistItem;
 
-  const countryBadge = (code?: string) => {
-    const c = (code || "US").toUpperCase();
+  const countryBadge = (code?: string | null) => {
+    if (!code) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+          <span>🌐</span> Chưa xác định
+        </span>
+      );
+    }
+    const c = code.toUpperCase();
     const flag = c === "US" ? "🇺🇸" : c === "UK" || c === "GB" ? "🇬🇧" : c === "VN" ? "🇻🇳" : c === "DE" ? "🇩🇪" : "🌐";
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
@@ -142,23 +149,37 @@ export default function VideoCrossCheckModal({
               </div>
             </div>
 
-            {/* Quick Refresh Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => refetch()}
-                  disabled={isFetching}
-                  className="h-8.5 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto disabled:opacity-50 shrink-0"
+            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+              {accountInfo?.id && (
+                <Link
+                  href={`/accounts/${accountInfo.id}?tab=rewards`}
+                  target="_blank"
+                  className="h-8.5 px-3 rounded-xl border border-pink-200 dark:border-pink-900/40 bg-pink-50 hover:bg-pink-100 dark:bg-pink-950/40 dark:hover:bg-pink-900/40 text-xs font-semibold text-pink-600 dark:text-pink-400 flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin text-pink-500" : ""}`} />
-                  <span>Làm mới</span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                Cập nhật lại danh sách video mới nhất
-              </TooltipContent>
-            </Tooltip>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Xem Thưởng Từng Video</span>
+                  <ExternalLink className="w-3 h-3 ml-0.5 opacity-60" />
+                </Link>
+              )}
+
+              {/* Quick Refresh Button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => refetch()}
+                    disabled={isFetching}
+                    className="h-8.5 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin text-pink-500" : ""}`} />
+                    <span>Làm mới</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  Cập nhật lại danh sách video mới nhất
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </div>
 
           {/* Quick Status Bar */}

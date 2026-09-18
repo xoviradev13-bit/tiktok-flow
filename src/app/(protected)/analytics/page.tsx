@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useMemo, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useUrlParams } from "@/hooks/useUrlState";
 import { trpc } from "@/lib/trpc";
@@ -126,13 +126,34 @@ function AnalyticsPageContent() {
     return () => window.removeEventListener("refreshData", handleRefresh);
   }, [utils]);
 
+  const normalizedFilterOptions = useMemo(() => {
+    if (!filterOptions) return undefined;
+    return {
+      ...filterOptions,
+      countries: filterOptions.countries.filter((c): c is string => Boolean(c)),
+    };
+  }, [filterOptions]);
+
+  const sanitizedData = useMemo(() => {
+    if (!data) return undefined;
+    const sanitizeAccount = (acc: any) => ({
+      ...acc,
+      country: acc.country || "Chưa xác định",
+    });
+    return {
+      ...data,
+      topAccounts: data.topAccounts.map(sanitizeAccount),
+      atRiskAccounts: data.atRiskAccounts.map(sanitizeAccount),
+    };
+  }, [data]);
+
   const handleExportExcel = () => {
-    if (!data) {
+    if (!sanitizedData) {
       toast.error("Chưa có dữ liệu để xuất Excel.");
       return;
     }
     try {
-      exportAnalyticsToExcel(data);
+      exportAnalyticsToExcel(sanitizedData as any);
       toast.success("Xuất báo cáo Excel thành công!");
     } catch (err: any) {
       toast.error("Không thể xuất file Excel: " + (err?.message || "Lỗi không xác định"));
@@ -186,7 +207,7 @@ function AnalyticsPageContent() {
         setCountry={setCountry}
         status={status}
         setStatus={setStatus}
-        filterOptions={filterOptions}
+        filterOptions={normalizedFilterOptions as any}
         isLoading={isLoading || isRefetching}
         onRefresh={() => refetch()}
         onExportExcel={handleExportExcel}
@@ -241,18 +262,18 @@ function AnalyticsPageContent() {
       </div>
 
       {/* 4. Active Tab Content */}
-      {isLoading && !data ? (
+      {isLoading && (!data || !sanitizedData) ? (
         <div className="h-96 rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse flex items-center justify-center text-slate-400 text-xs">
           Đang tải dữ liệu phân tích hệ thống...
         </div>
-      ) : data ? (
+      ) : data && sanitizedData ? (
         <>
           {activeTab === "OVERVIEW" && (
             <OverviewTab
               timeSeries={data.timeSeries}
               distributions={data.distributions}
-              topAccounts={data.topAccounts}
-              atRiskAccounts={data.atRiskAccounts}
+              topAccounts={sanitizedData.topAccounts as any}
+              atRiskAccounts={sanitizedData.atRiskAccounts as any}
               isStaff={data.isStaff}
             />
           )}
@@ -261,7 +282,7 @@ function AnalyticsPageContent() {
             <RevenueAnalyticsTab
               timeSeries={data.timeSeries}
               countryDistribution={data.distributions.country}
-              topAccounts={data.topAccounts}
+              topAccounts={sanitizedData.topAccounts as any}
             />
           )}
 

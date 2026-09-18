@@ -75,10 +75,16 @@ export async function GET(req: Request) {
       // Recalculate final score for this checklist
       const allItems = await prisma.dailyChecklistItem.findMany({
         where: { checklistId: checklist.id },
+        include: { account: true },
       });
 
-      const totalAssigned = allItems.length;
-      const completedCount = allItems.filter((i) => i.isCompleted || (i.isPosted && i.isSynced)).length;
+      const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+      const eligibleItems = shouldExcludeBanned
+        ? allItems.filter((i) => (i as any).account?.status !== "BANNED")
+        : allItems;
+
+      const totalAssigned = eligibleItems.length;
+      const completedCount = eligibleItems.filter((i) => i.isCompleted || (i.isPosted && i.isSynced)).length;
       const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
 
       // Lock checklist at 10:00 AM cutoff

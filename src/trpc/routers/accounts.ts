@@ -1,7 +1,8 @@
 import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { calculateWorkdayScore } from "@/lib/scoring-engine";
+import { calculateWorkdayScore, getScoringConfig } from "@/lib/scoring-engine";
+import { isAccountOnline, getOnlineCutoffDate } from "@/lib/account-status";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -45,12 +46,39 @@ export const accountsRouter = router({
         where.status = input.status;
       }
 
+      const onlineCutoff = getOnlineCutoffDate();
+
       if (input?.onlineStatus && input.onlineStatus !== "ALL") {
-        where.isOnline = input.onlineStatus === "ONLINE";
+        if (input.onlineStatus === "ONLINE") {
+          where.isOnline = true;
+          where.lastSyncedAt = { gte: onlineCutoff };
+        } else {
+          where.OR = [
+            { isOnline: false },
+            { lastSyncedAt: null },
+            { lastSyncedAt: { lt: onlineCutoff } },
+          ];
+        }
       }
 
       if (input?.country && input.country !== "ALL") {
         where.country = input.country;
+      }
+
+      // Base condition for online count (fleet-wide or filtered by other fields, not constrained by onlineStatus filter itself)
+      const baseCountWhere = { ...where };
+      if (input?.onlineStatus && input.onlineStatus !== "ALL") {
+        delete baseCountWhere.isOnline;
+        delete baseCountWhere.lastSyncedAt;
+        if (input?.search) {
+          const s = input.search.trim();
+          baseCountWhere.OR = [
+            { username: { contains: s, mode: "insensitive" } },
+            { groupName: { contains: s, mode: "insensitive" } },
+          ];
+        } else {
+          delete baseCountWhere.OR;
+        }
       }
 
       const [accounts, statusGroups, onlineCount] = await Promise.all([
@@ -71,6 +99,11 @@ export const accountsRouter = router({
               where: { status: "OPEN" },
               orderBy: { createdAt: "desc" },
             },
+            analytics: {
+              select: {
+                postRewards: true,
+              },
+            },
           },
           orderBy: { updatedAt: "desc" },
         }),
@@ -81,11 +114,23 @@ export const accountsRouter = router({
         }),
         ctx.prisma.tiktokAccount.count({
           where: {
-            ...where,
+            ...baseCountWhere,
             isOnline: true,
+            lastSyncedAt: { gte: onlineCutoff },
           },
         }),
       ]);
+
+      // Lazily heal stale online records in the DB
+      ctx.prisma.tiktokAccount
+        .updateMany({
+          where: {
+            isOnline: true,
+            OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: onlineCutoff } }],
+          },
+          data: { isOnline: false },
+        })
+        .catch(() => {});
 
       const statusMap = statusGroups.reduce<Record<string, number>>((acc, curr) => {
         acc[curr.status] = curr._count.id;
@@ -103,8 +148,13 @@ export const accountsRouter = router({
         0
       );
 
+      const items = accounts.map((acc) => ({
+        ...acc,
+        isOnline: isAccountOnline(acc),
+      }));
+
       return {
-        items: serializeBigInt(accounts),
+        items: serializeBigInt(items),
         stats: {
           total: totalCount,
           active: activeCount,
@@ -146,6 +196,7 @@ export const accountsRouter = router({
             orderBy: { date: "desc" },
             take: 60,
           },
+          analytics: true,
         },
       });
 
@@ -164,7 +215,10 @@ export const accountsRouter = router({
         });
       }
 
-      return serializeBigInt(account);
+      return serializeBigInt({
+        ...account,
+        isOnline: isAccountOnline(account),
+      });
     }),
 
   // 3. Create TikTok Account (LEAD / ADMIN)
@@ -393,7 +447,7 @@ export const accountsRouter = router({
       return logs;
     }),
 
-  // 8. Sync Account with Live TikTok Studio Scraper
+  // 8. Sync Account with Live TikTok Studio Scraper (Targeted Single Profile)
   syncAccount: protectedProcedure
     .input(z.object({ accountId: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -408,14 +462,15 @@ export const accountsRouter = router({
         });
       }
 
-      // Enqueue sync job in SyncQueue for Client Agent to sweep on the member's machine
+      // Enqueue sync job in SyncQueue scoped specifically to THIS profile & account
       const targetUserId = account.assignedUserId || ctx.session.user.id;
+      const targetScope = `USER:${targetUserId}|PROFILE:${account.gpmProfileId || ""}|HANDLE:${account.username || ""}`;
       try {
         await ctx.prisma.syncQueue.create({
           data: {
             requestedById: ctx.session.user.id,
             status: "PENDING",
-            targetScope: targetUserId,
+            targetScope,
             requestedAt: new Date(),
           },
         });
@@ -433,6 +488,7 @@ export const accountsRouter = router({
           alerts: { orderBy: { createdAt: "desc" } },
           logs: { orderBy: { createdAt: "desc" }, take: 50 },
           dailyRevenues: { orderBy: { date: "desc" }, take: 60 },
+          analytics: true,
         },
       });
 
@@ -459,13 +515,19 @@ export const accountsRouter = router({
             data: { isSynced, isCompleted },
           });
 
-          // Recalculate score for that checklist
+          // Recalculate score for that checklist (excluding BANNED if configured, keeping RESTRICTED)
           const allItems = await ctx.prisma.dailyChecklistItem.findMany({
             where: { checklistId: openChecklistItem.checklistId },
+            include: { account: true },
           });
-          const totalAssigned = allItems.length;
-          const completedCount = allItems.filter((i) => i.isCompleted || i.isPosted).length;
-          const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount);
+          const scoringConfig = await getScoringConfig(ctx.prisma);
+          const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+          const eligibleItems = shouldExcludeBanned
+            ? allItems.filter((i) => i.account?.status !== "BANNED")
+            : allItems;
+          const totalAssigned = eligibleItems.length;
+          const completedCount = eligibleItems.filter((i) => i.isCompleted || i.isPosted).length;
+          const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
 
           await ctx.prisma.dailyChecklist.update({
             where: { id: openChecklistItem.checklistId },
@@ -480,6 +542,48 @@ export const accountsRouter = router({
         account: serializeBigInt(updated),
         queued: true,
       };
+    }),
+
+  // 8.0 Stop Sync for a specific account or user's active jobs
+  stopSyncAccount: protectedProcedure
+    .input(z.object({ accountId: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const isLeadOrAdmin = ctx.session.user.role === "ADMIN" || ctx.session.user.role === "LEAD";
+      const whereClause: any = {
+        status: { in: ["PENDING", "PROCESSING"] },
+      };
+
+      if (input.accountId) {
+        const account = await ctx.prisma.tiktokAccount.findUnique({
+          where: { id: input.accountId },
+          select: { gpmProfileId: true, username: true, assignedUserId: true },
+        });
+        if (account) {
+          whereClause.OR = [
+            { targetScope: { contains: account.gpmProfileId || "N/A" } },
+            { targetScope: { contains: account.username } },
+            { targetScope: { contains: account.assignedUserId || ctx.session.user.id } },
+            { requestedById: ctx.session.user.id },
+          ];
+        }
+      } else if (!isLeadOrAdmin) {
+        whereClause.OR = [
+          { requestedById: ctx.session.user.id },
+          { targetScope: { contains: ctx.session.user.id } },
+        ];
+      }
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Người dùng";
+      const updated = await ctx.prisma.syncQueue.updateMany({
+        where: whereClause,
+        data: {
+          status: "CANCELLED",
+          completedAt: new Date(),
+          errorMessage: `Đã dừng bởi ${actorName}`,
+        },
+      });
+
+      return { success: true, count: updated.count };
     }),
 
   // 8.1 Resolve Alert
