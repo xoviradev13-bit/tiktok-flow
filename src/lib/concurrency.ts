@@ -4,12 +4,12 @@
  * 
  * @param items Array of input items to process
  * @param mapper Async function executed per item
- * @param concurrency Maximum number of promises running simultaneously (default: 6)
+ * @param concurrency Maximum number of promises running simultaneously (default: 3)
  */
 export async function pMap<T, R>(
   items: T[],
   mapper: (item: T, index: number) => Promise<R>,
-  concurrency = 6
+  concurrency = 3
 ): Promise<R[]> {
   if (!items || items.length === 0) return [];
   const results: R[] = new Array(items.length);

@@ -8,10 +8,11 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 const connectionString =
-  process.env.DIRECT_URL || process.env.DATABASE_URL || "";
+  process.env.DATABASE_URL || process.env.DIRECT_URL || "";
 
-// Prefer a small pool + keepAlive: remote Postgres (and Next.js HMR) otherwise
-// leave half-dead sockets that surface as "Connection terminated due to connection timeout".
+// Prefer Supabase Transaction Pooler (DATABASE_URL on port 6543) for runtime queries.
+// Use a balanced pool capacity (15) so concurrent operations (NextAuth, Extension reports,
+// GPM background sync) do not starve the pool while keeping memory and connections stable.
 const pool =
   globalForPrisma.pool ??
   new Pool({
@@ -19,9 +20,9 @@ const pool =
     ssl: connectionString.includes("localhost")
       ? undefined
       : { rejectUnauthorized: false },
-    max: Number(process.env.PG_POOL_MAX || 5),
-    idleTimeoutMillis: 20_000,
-    connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 20_000),
+    max: Number(process.env.PG_POOL_MAX || 15),
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 30_000),
     allowExitOnIdle: true,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,

@@ -427,7 +427,7 @@ export async function POST(req: Request) {
           updatedCount++;
         }
       },
-      6
+      3
     );
 
     // Update lastRunAt in central sync_schedule

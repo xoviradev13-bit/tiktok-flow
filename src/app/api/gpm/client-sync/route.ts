@@ -646,7 +646,7 @@ export async function POST(req: Request) {
         }
         updatedCount++;
       },
-      6
+      3
     );
 
     // Update lastRunAt in central sync_schedule to prevent duplicate run

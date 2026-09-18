@@ -761,9 +761,38 @@ const personalTokenUserSelect = {
   deletedAt: true,
 } as const;
 
+const personalTokenUserCache = new Map<
+  string,
+  { user: any; expiresAt: number }
+>();
+const PERSONAL_TOKEN_CACHE_TTL_MS = 15_000;
+const PERSONAL_TOKEN_CACHE_MAX_SIZE = 5_000;
+
+function cacheUserToken(key: string, user: any) {
+  if (personalTokenUserCache.size >= PERSONAL_TOKEN_CACHE_MAX_SIZE) {
+    // JavaScript Map iterates in insertion order: delete the oldest entry (LRU)
+    const oldestKey = personalTokenUserCache.keys().next().value;
+    if (oldestKey !== undefined) personalTokenUserCache.delete(oldestKey);
+  }
+  personalTokenUserCache.set(key, {
+    user,
+    expiresAt: Date.now() + PERSONAL_TOKEN_CACHE_TTL_MS,
+  });
+}
+
 export async function findUserByPersonalToken(personalToken: string) {
   const plain = personalToken.trim();
   if (!isLegacyPlainPersonalToken(plain)) return null;
+
+  const now = Date.now();
+  const cached = personalTokenUserCache.get(plain);
+  if (cached) {
+    if (cached.expiresAt > now) {
+      return cached.user;
+    }
+    // Expired: remove stale entry
+    personalTokenUserCache.delete(plain);
+  }
 
   const key = getPersonalTokenCryptoKey();
   const hmac = crypto.createHmac("sha256", key).update(plain, "utf8").digest("hex");
@@ -771,7 +800,10 @@ export async function findUserByPersonalToken(personalToken: string) {
     where: { extensionToken: { startsWith: `e1.${hmac}.` } },
     select: personalTokenUserSelect,
   });
-  if (sealed) return sealed;
+  if (sealed) {
+    cacheUserToken(plain, sealed);
+    return sealed;
+  }
 
   const legacy = await prisma.user.findUnique({
     where: { extensionToken: plain },
@@ -786,8 +818,11 @@ export async function findUserByPersonalToken(personalToken: string) {
       where: { id: legacy.id },
       data: { extensionToken: sealedValue },
     });
-    return { ...legacy, extensionToken: sealedValue };
+    const upgraded = { ...legacy, extensionToken: sealedValue };
+    cacheUserToken(plain, upgraded);
+    return upgraded;
   } catch {
+    cacheUserToken(plain, legacy);
     return legacy;
   }
 }
