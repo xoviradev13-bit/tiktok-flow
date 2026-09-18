@@ -34,8 +34,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const targetBucket = (formData.get("bucket") as string) || BUCKET_NAME;
-    const folder = (formData.get("folder") as string) || (targetBucket === "avatars" ? "users" : "reports");
+    const ALLOWED_BUCKETS = new Set(["avatars", "reports", "tiktokflow", "uploads"]);
+    const ALLOWED_FOLDERS = new Set(["users", "reports", "avatars", "proofs", "checklist"]);
+    const ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
+
+    const rawBucket = (formData.get("bucket") as string) || BUCKET_NAME;
+    const targetBucket = ALLOWED_BUCKETS.has(rawBucket) ? rawBucket : BUCKET_NAME;
+
+    const rawFolder = (formData.get("folder") as string) || (targetBucket === "avatars" ? "users" : "reports");
+    const sanitizedFolder = rawFolder.replace(/[^a-zA-Z0-9_-]/g, "");
+    const folder = ALLOWED_FOLDERS.has(sanitizedFolder) ? sanitizedFolder : "reports";
+
     const uploadedUrls: string[] = [];
 
     for (let i = 0; i < files.length; i++) {
@@ -44,7 +53,7 @@ export async function POST(req: Request) {
       // Validate MIME type
       if (!file.type.startsWith("image/")) {
         return NextResponse.json(
-          { error: `Tệp "${file.name}" không phải định dạng ảnh hợp lệ (PNG, JPG, WEBP, GIF).` },
+          { error: `Tệp "${file.name}" không phải định dạng ảnh hợp lệ (PNG, JPG, WEBP).` },
           { status: 400 }
         );
       }
@@ -58,7 +67,8 @@ export async function POST(req: Request) {
       }
 
       const buffer = Buffer.from(await file.arrayBuffer());
-      const ext = file.name.split(".").pop() || "png";
+      const rawExt = (file.name.split(".").pop() || "png").toLowerCase();
+      const ext = ALLOWED_EXTENSIONS.has(rawExt) ? rawExt : "png";
       const sanitizedName = `${userId}_${Date.now()}_${i}.${ext}`;
       const filePath = `${folder}/${sanitizedName}`;
 
@@ -89,11 +99,18 @@ export async function POST(req: Request) {
 
       // Graceful local fallback to public/uploads if Supabase storage is not initialized
       if (!fileUploaded) {
-        const uploadDir = path.join(process.cwd(), "public", "uploads", targetBucket, folder);
+        const uploadsBaseDir = path.resolve(process.cwd(), "public", "uploads");
+        const uploadDir = path.resolve(uploadsBaseDir, targetBucket, folder);
+        if (!uploadDir.startsWith(uploadsBaseDir)) {
+          return NextResponse.json({ error: "Thư mục tải lên không hợp lệ." }, { status: 400 });
+        }
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
-        const localDest = path.join(uploadDir, sanitizedName);
+        const localDest = path.resolve(uploadDir, sanitizedName);
+        if (!localDest.startsWith(uploadDir)) {
+          return NextResponse.json({ error: "Đường dẫn tệp không hợp lệ." }, { status: 400 });
+        }
         fs.writeFileSync(localDest, buffer);
         uploadedUrls.push(`/uploads/${targetBucket}/${folder}/${sanitizedName}`);
       }

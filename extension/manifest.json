@@ -36,11 +36,9 @@
     "http://127.0.0.1:19994/*",
     "http://localhost:19994/*",
     "http://127.0.0.1:8848/*",
-    "http://localhost:8848/*",
-    "http://127.0.0.1/*",
-    "http://localhost/*",
-    "https://*/*"
+    "http://localhost:8848/*"
   ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqbVvXhav9VaD7yb7NDBRknc1I59xVClShOK8d5SSPcHOCIn16FogiLPzx9Ip+KuuhpcsXEiwXSopMIbiHfBePzLmae5bFm2HUFna1Wr2dOk/NCqm/uvq3Jd9f/WTVOcsa5Ezl6s0GXK1dLTu3ZMZ8p3qUz9Gv1EV4/OS9G3jBTre7XRU9ScD1Xp03iM5VjEb6yEXI+XcD5l6cZsIARrw3E8501NPAE3I9HKaogmQLIg2IGwKyvg5wD2NS3m+2JoZ45cuKf7yjRNIyycDHmwKHH30n5XE0Qk5pC6FvlskYF616GHBT1duIpQBZ2TWyZxofAixovzQJ1cTJATF8akElwIDAQAB",
   "background": {
     "service_worker": "background.js"
   },

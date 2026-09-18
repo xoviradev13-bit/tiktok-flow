@@ -233,34 +233,35 @@ export async function GET(req: Request) {
       },
     });
 
-    // Query active job from SyncQueue specifically for this authenticated user (or ALL)
+    // Query active job from SyncQueue specifically for this authenticated user
+    const userJobFilter = {
+      OR: [
+        { requestedById: authResult.user.id },
+        { targetScope: `USER:${authResult.user.id}` },
+        { targetScope: authResult.user.id },
+        { targetScope: { startsWith: `USER:${authResult.user.id}|` } },
+      ],
+    };
+
     const activeSyncJob = await prisma.syncQueue.findFirst({
       where: {
         status: { in: ["PENDING", "PROCESSING"] },
-        OR: [
-          { requestedById: authResult.user.id },
-          { targetScope: authResult.user.id },
-          { targetScope: { contains: authResult.user.id } },
-          { targetScope: "ALL" },
-        ],
+        ...userJobFilter,
       },
       orderBy: { requestedAt: "desc" },
     });
 
-    // Check if the most recent job was cancelled within the last 5 minutes
-    const cancelledJob = await prisma.syncQueue.findFirst({
+    // Check if any job belonging to this user was cancelled within the last 5 minutes
+    const cancelledJobs = await prisma.syncQueue.findMany({
       where: {
         status: "CANCELLED",
         updatedAt: { gte: new Date(Date.now() - 5 * 60 * 1000) },
-        OR: [
-          { requestedById: authResult.user.id },
-          { targetScope: authResult.user.id },
-          { targetScope: { contains: authResult.user.id } },
-          { targetScope: "ALL" },
-        ],
+        ...userJobFilter,
       },
       orderBy: { updatedAt: "desc" },
+      select: { id: true },
     });
+    const cancelledJob = cancelledJobs[0] || null;
 
     let targetProfileId: string | null = null;
     let targetHandle: string | null = null;
@@ -303,6 +304,7 @@ export async function GET(req: Request) {
       syncJob,
       syncSignal,
       cancelledJobId: cancelledJob?.id || null,
+      cancelledJobIds: cancelledJobs.map((j) => j.id),
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

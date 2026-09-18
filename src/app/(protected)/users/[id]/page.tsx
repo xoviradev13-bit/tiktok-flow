@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, Suspense } from "react";
+import { useState, useMemo, useEffect, useRef, Suspense } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useUrlParams } from "@/hooks/useUrlState";
@@ -36,8 +36,12 @@ import {
   Globe,
   Ban,
   CheckCircle2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 import { UserDetailSkeleton } from "@/components/skeletons/PageSkeletons";
@@ -46,6 +50,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -160,6 +169,42 @@ const normalizeCountry = (country?: string | null): string => {
   return country.trim().toUpperCase();
 };
 
+export type AccountSortKey =
+  | "totalRevenue"
+  | "totalViews"
+  | "totalFollowers"
+  | "totalVideos"
+  | "username"
+  | "country"
+  | "status"
+  | "isOnline"
+  | "lastSyncedAt";
+
+const ACCOUNT_SORT_OPTIONS: Array<{ key: AccountSortKey; label: string }> = [
+  { key: "totalRevenue", label: "Doanh thu" },
+  { key: "totalViews", label: "Lượt xem" },
+  { key: "totalFollowers", label: "Lượt theo dõi" },
+  { key: "totalVideos", label: "Số lượng video" },
+  { key: "username", label: "Tên tài khoản" },
+  { key: "country", label: "Quốc gia" },
+  { key: "status", label: "Trạng thái" },
+  { key: "isOnline", label: "Trạng thái Online" },
+  { key: "lastSyncedAt", label: "Đồng bộ lần cuối" },
+];
+
+const USER_ACCOUNTS_COLUMN_RESIZE_CONFIG = {
+  username: { minWidth: 160, maxWidth: 450, defaultWidth: 240 },
+  isOnline: { minWidth: 80, maxWidth: 160, defaultWidth: 100 },
+  country: { minWidth: 80, maxWidth: 180, defaultWidth: 110 },
+  status: { minWidth: 100, maxWidth: 200, defaultWidth: 130 },
+  totalViews: { minWidth: 90, maxWidth: 220, defaultWidth: 120 },
+  totalFollowers: { minWidth: 90, maxWidth: 220, defaultWidth: 120 },
+  totalVideos: { minWidth: 80, maxWidth: 180, defaultWidth: 100 },
+  totalRevenue: { minWidth: 90, maxWidth: 240, defaultWidth: 120 },
+  lastSyncedAt: { minWidth: 110, maxWidth: 260, defaultWidth: 140 },
+  actions: { minWidth: 80, maxWidth: 200, defaultWidth: 110 },
+} as const;
+
 function UserDetailPageContent() {
   const params = useParams();
   const router = useRouter();
@@ -187,6 +232,55 @@ function UserDetailPageContent() {
   const initialCountry = searchParams?.get("country") || "ALL";
   const [accountCountryFilter, setAccountCountryFilter] = useState(initialCountry);
 
+  // Sorting
+  const initialSortKey = (searchParams?.get("sort") || searchParams?.get("sortBy") || "totalRevenue") as AccountSortKey;
+  const initialSortDesc = (searchParams?.get("dir") || searchParams?.get("sortOrder")) === "asc" ? false : true;
+  const [sortConfig, setSortConfig] = useState<{ key: AccountSortKey; desc: boolean }>({
+    key: initialSortKey,
+    desc: initialSortDesc,
+  });
+
+  const currentSortOption = useMemo(() => {
+    return (
+      ACCOUNT_SORT_OPTIONS.find((opt) => opt.key === sortConfig.key) || {
+        key: sortConfig.key,
+        label: "Mặc định",
+      }
+    );
+  }, [sortConfig.key]);
+
+  const sortDirectionText = sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑";
+
+  const handleAccountSort = (key: AccountSortKey) => {
+    setSortConfig((prev) => ({
+      key,
+      desc:
+        prev.key === key
+          ? !prev.desc
+          : ["totalRevenue", "totalViews", "totalFollowers", "totalVideos", "lastSyncedAt"].includes(key),
+    }));
+  };
+
+  const renderAccountSortIndicator = (key: AccountSortKey) => {
+    if (sortConfig.key !== key) {
+      return (
+        <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-60 group-hover:opacity-100 transition-opacity" />
+      );
+    }
+    return sortConfig.desc ? (
+      <ArrowDown className="w-3.5 h-3.5 text-pink-500" />
+    ) : (
+      <ArrowUp className="w-3.5 h-3.5 text-pink-500" />
+    );
+  };
+
+  const tableRef = useRef<HTMLDivElement>(null);
+  const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
+    tableId: "user_accounts",
+    columns: USER_ACCOUNTS_COLUMN_RESIZE_CONFIG,
+    tableRef,
+  });
+
   const [toastMsg, setToastMsg] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
 
   // Auto sync active state to URL
@@ -198,12 +292,16 @@ function UserDetailPageContent() {
         q: accountSearch,
         status: accountStatusFilter,
         country: accountCountryFilter,
+        sort: sortConfig.key,
+        dir: sortConfig.desc ? "desc" : "asc",
       },
       {
         days: 28,
         q: "",
         status: "ALL",
         country: "ALL",
+        sort: "totalRevenue",
+        dir: "desc",
       }
     );
   }, [
@@ -212,6 +310,7 @@ function UserDetailPageContent() {
     accountSearch,
     accountStatusFilter,
     accountCountryFilter,
+    sortConfig,
     updateUrlParams,
   ]);
 
@@ -372,10 +471,10 @@ function UserDetailPageContent() {
     }
   };
 
-  // Filter accounts
+  // Filter and sort accounts
   const filteredAccounts = useMemo(() => {
     if (!userDetail?.tiktokAccounts) return [];
-    return userDetail.tiktokAccounts.filter((acc: any) => {
+    const filtered = userDetail.tiktokAccounts.filter((acc: any) => {
       const matchSearch =
         !accountSearch ||
         acc.username.toLowerCase().includes(accountSearch.toLowerCase()) ||
@@ -387,7 +486,49 @@ function UserDetailPageContent() {
 
       return matchSearch && matchStatus && matchCountry;
     });
-  }, [userDetail?.tiktokAccounts, accountSearch, accountStatusFilter, accountCountryFilter]);
+
+    // Sorting
+    filtered.sort((a: any, b: any) => {
+      let aVal = a[sortConfig.key];
+      let bVal = b[sortConfig.key];
+
+      if (sortConfig.key === "totalRevenue") {
+        aVal = Number(a.analytics?.totalRevenue ?? a.totalRevenue ?? 0);
+        bVal = Number(b.analytics?.totalRevenue ?? b.totalRevenue ?? 0);
+      } else if (
+        sortConfig.key === "totalViews" ||
+        sortConfig.key === "totalFollowers" ||
+        sortConfig.key === "totalVideos"
+      ) {
+        aVal = Number(aVal || 0);
+        bVal = Number(bVal || 0);
+      } else if (sortConfig.key === "isOnline") {
+        aVal = a.isOnline ? 1 : 0;
+        bVal = b.isOnline ? 1 : 0;
+      } else if (sortConfig.key === "lastSyncedAt") {
+        aVal = a.lastSyncedAt ? new Date(a.lastSyncedAt).getTime() : 0;
+        bVal = b.lastSyncedAt ? new Date(b.lastSyncedAt).getTime() : 0;
+      } else if (sortConfig.key === "country") {
+        aVal = normalizeCountry(a.country);
+        bVal = normalizeCountry(b.country);
+      } else {
+        aVal = (aVal || "").toString().toLowerCase();
+        bVal = (bVal || "").toString().toLowerCase();
+      }
+
+      if (aVal < bVal) return sortConfig.desc ? 1 : -1;
+      if (aVal > bVal) return sortConfig.desc ? -1 : 1;
+      return 0;
+    });
+
+    return filtered;
+  }, [
+    userDetail?.tiktokAccounts,
+    accountSearch,
+    accountStatusFilter,
+    accountCountryFilter,
+    sortConfig,
+  ]);
 
   if (loading) {
     return <UserDetailSkeleton />;
@@ -852,11 +993,66 @@ function UserDetailPageContent() {
                     </Tooltip>
                   )}
                 </div>
+
+                {/* Sort Popover */}
+                <Popover>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${
+                            sortConfig.key
+                              ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
+                              : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
+                          }`}
+                        >
+                          <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-pink-600 dark:text-pink-400" : "text-slate-500"}`} />
+                          <span>Sắp xếp</span>
+                          {currentSortOption && (
+                            <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-pink-100/90 dark:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-200/60 dark:border-pink-800/60">
+                              {currentSortOption.label} {sortConfig.desc ? "↓" : "↑"}
+                            </span>
+                          )}
+                        </button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      Đang sắp xếp: {currentSortOption.label} ({sortDirectionText})
+                    </TooltipContent>
+                  </Tooltip>
+                  <PopoverContent align="end" className="w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-1.5">
+                    <div className="text-xs font-semibold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
+                      Sắp xếp theo cột
+                    </div>
+                    {ACCOUNT_SORT_OPTIONS.map((item) => {
+                      const isSelected = sortConfig.key === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          onClick={() => handleAccountSort(item.key)}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
+                              : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
+                          }`}
+                        >
+                          <span>{item.label}</span>
+                          {isSelected && (
+                            <span className="text-xs font-bold text-pink-600 dark:text-pink-400">
+                              {sortConfig.desc ? "Giảm dần ↓" : "Tăng dần ↑"}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
             {/* Active Filter Chips */}
-            {(accountSearch || accountStatusFilter !== "ALL" || accountCountryFilter !== "ALL") && (
+            {(accountSearch || accountStatusFilter !== "ALL" || accountCountryFilter !== "ALL" || sortConfig.key !== "totalRevenue" || !sortConfig.desc) && (
               <div className="flex flex-wrap items-center gap-2">
                 {accountSearch && (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
@@ -897,6 +1093,22 @@ function UserDetailPageContent() {
                     </Tooltip>
                   </span>
                 )}
+                {(sortConfig.key !== "totalRevenue" || !sortConfig.desc) && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
+                    <span>Sắp xếp: {currentSortOption.label} ({sortConfig.desc ? "Giảm dần" : "Tăng dần"})</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => setSortConfig({ key: "totalRevenue", desc: true })}
+                          className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Đặt lại sắp xếp mặc định</TooltipContent>
+                    </Tooltip>
+                  </span>
+                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -904,6 +1116,7 @@ function UserDetailPageContent() {
                         setAccountSearch("");
                         setAccountStatusFilter("ALL");
                         setAccountCountryFilter("ALL");
+                        setSortConfig({ key: "totalRevenue", desc: true });
                       }}
                       className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer ml-1"
                     >
@@ -929,23 +1142,115 @@ function UserDetailPageContent() {
             </div>
           ) : (
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden relative z-0 isolate">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" ref={tableRef} style={getTableVars()}>
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 normal-case">
                     <tr>
-                      <th className="py-3.5 px-4 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px] whitespace-nowrap">
-                        Tài khoản TikTok & GPM
+                      <th
+                        style={getColumnStyle("username")}
+                        onClick={() => handleAccountSort("username")}
+                        className="relative group/th py-3.5 px-4 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Tài khoản TikTok & GPM</span>
+                          {renderAccountSortIndicator("username")}
+                        </div>
+                        {renderResizeHandle("username")}
                       </th>
-                      <th className="py-3.5 px-4 text-center whitespace-nowrap min-w-[90px]">Online</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[100px]">Quốc gia</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[110px]">Trạng thái</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[90px]">Lượt xem</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[90px]">Followers</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[80px]">Số video</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[90px]">Doanh thu</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[120px]">Đồng bộ lần cuối</th>
-                      <th className="py-3.5 px-4 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
+                      <th
+                        style={getColumnStyle("isOnline")}
+                        onClick={() => handleAccountSort("isOnline")}
+                        className="relative group/th py-3.5 px-4 text-center whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span>Online</span>
+                          {renderAccountSortIndicator("isOnline")}
+                        </div>
+                        {renderResizeHandle("isOnline")}
+                      </th>
+                      <th
+                        style={getColumnStyle("country")}
+                        onClick={() => handleAccountSort("country")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Quốc gia</span>
+                          {renderAccountSortIndicator("country")}
+                        </div>
+                        {renderResizeHandle("country")}
+                      </th>
+                      <th
+                        style={getColumnStyle("status")}
+                        onClick={() => handleAccountSort("status")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Trạng thái</span>
+                          {renderAccountSortIndicator("status")}
+                        </div>
+                        {renderResizeHandle("status")}
+                      </th>
+                      <th
+                        style={getColumnStyle("totalViews")}
+                        onClick={() => handleAccountSort("totalViews")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Lượt xem</span>
+                          {renderAccountSortIndicator("totalViews")}
+                        </div>
+                        {renderResizeHandle("totalViews")}
+                      </th>
+                      <th
+                        style={getColumnStyle("totalFollowers")}
+                        onClick={() => handleAccountSort("totalFollowers")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Followers</span>
+                          {renderAccountSortIndicator("totalFollowers")}
+                        </div>
+                        {renderResizeHandle("totalFollowers")}
+                      </th>
+                      <th
+                        style={getColumnStyle("totalVideos")}
+                        onClick={() => handleAccountSort("totalVideos")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Số video</span>
+                          {renderAccountSortIndicator("totalVideos")}
+                        </div>
+                        {renderResizeHandle("totalVideos")}
+                      </th>
+                      <th
+                        style={getColumnStyle("totalRevenue")}
+                        onClick={() => handleAccountSort("totalRevenue")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Doanh thu</span>
+                          {renderAccountSortIndicator("totalRevenue")}
+                        </div>
+                        {renderResizeHandle("totalRevenue")}
+                      </th>
+                      <th
+                        style={getColumnStyle("lastSyncedAt")}
+                        onClick={() => handleAccountSort("lastSyncedAt")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Đồng bộ lần cuối</span>
+                          {renderAccountSortIndicator("lastSyncedAt")}
+                        </div>
+                        {renderResizeHandle("lastSyncedAt")}
+                      </th>
+                      <th
+                        style={getColumnStyle("actions")}
+                        className="relative group/th py-3.5 px-4 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]"
+                      >
                         Thao tác
+                        {renderResizeHandle("actions", "left")}
                       </th>
                     </tr>
                   </thead>
@@ -956,7 +1261,10 @@ function UserDetailPageContent() {
                         className="group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                       >
                         {/* Username & GPM Profile - Sticky Left */}
-                        <td className="py-3.5 px-4 sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px] transition-colors">
+                        <td
+                          style={getColumnStyle("username")}
+                          className="py-3.5 px-4 sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] transition-colors"
+                        >
                           <div>
                             <Link
                               href={`/accounts/${acc.id}`}
@@ -979,42 +1287,42 @@ function UserDetailPageContent() {
                         </td>
 
                         {/* Separate Online Column */}
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap min-w-[90px]">
+                        <td style={getColumnStyle("isOnline")} className="py-3.5 px-4 text-center whitespace-nowrap">
                           <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" />
                         </td>
 
                         {/* Country */}
-                        <td className="py-3.5 px-4 whitespace-nowrap min-w-[100px]">
+                        <td style={getColumnStyle("country")} className="py-3.5 px-4 whitespace-nowrap">
                           {getCountryBadge(acc.country)}
                         </td>
 
                         {/* Status */}
-                        <td className="py-3.5 px-4 whitespace-nowrap min-w-[110px]">
+                        <td style={getColumnStyle("status")} className="py-3.5 px-4 whitespace-nowrap">
                           {getStatusBadge(acc.status)}
                         </td>
 
                         {/* Views */}
-                        <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap min-w-[90px]">
+                        <td style={getColumnStyle("totalViews")} className="py-3.5 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap">
                           {Number(acc.totalViews || 0).toLocaleString()}
                         </td>
 
                         {/* Followers */}
-                        <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap min-w-[90px]">
+                        <td style={getColumnStyle("totalFollowers")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap">
                           {Number(acc.totalFollowers || 0).toLocaleString()}
                         </td>
 
                         {/* Videos */}
-                        <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap min-w-[80px]">
+                        <td style={getColumnStyle("totalVideos")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap">
                           {Number(acc.totalVideos || 0).toLocaleString()}
                         </td>
 
                         {/* Revenue */}
-                        <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap min-w-[90px]">
+                        <td style={getColumnStyle("totalRevenue")} className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                           ${Number(acc.totalRevenue || 0).toFixed(2)}
                         </td>
 
                         {/* Last Synced */}
-                        <td className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-[120px]">
+                        <td style={getColumnStyle("lastSyncedAt")} className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
                           {acc.lastSyncedAt
                             ? new Date(acc.lastSyncedAt).toLocaleString("vi-VN", {
                                 hour: "2-digit",
@@ -1026,7 +1334,10 @@ function UserDetailPageContent() {
                         </td>
 
                         {/* Action Buttons - Sticky Right */}
-                        <td className="py-3.5 px-4 text-center sticky right-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px] whitespace-nowrap transition-colors">
+                        <td
+                          style={getColumnStyle("actions")}
+                          className="py-3.5 px-4 text-center sticky right-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap transition-colors"
+                        >
                           <div className="flex items-center justify-center gap-1.5">
                             {/* Sync Button */}
                             <Tooltip>

@@ -3,9 +3,16 @@ import path from "path";
 import os from "os";
 import http from "http";
 import crypto from "crypto";
-import { execSync } from "child_process";
+import { exec, execSync } from "child_process";
+import util from "util";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright-core";
+
+const execAsync = util.promisify(exec);
+
+/** Bounded concurrency & pacing constants for internal TikTok Studio monetization API */
+export const M10N_MAX_CONCURRENT_PROGRAMS = 2; // Bounded parallelism per profile
+export const M10N_PAGE_PACING_MS = 150;        // Inter-page delay to prevent rate-limiting
 
 // ==========================================
 // 0. MACHINE-WIDE SINGLETON (1 Agent / PC)
@@ -42,6 +49,77 @@ let openProfilesSnapshot = {
   scanAllDirsOnly: false,
 };
 
+// ==========================================
+// 0.1 PER-PROFILE MUTEX & SESSION COOKIE CACHE
+// ==========================================
+const SESSIONS_DIR = path.join(AGENT_LOCK_DIR, "sessions");
+try { fs.mkdirSync(SESSIONS_DIR, { recursive: true }); } catch { }
+
+const activeProfileCookies = new Map(); // profileId -> { at: number, cookies: array }
+const profileLocks = new Map(); // profileId -> Promise chain
+
+export function withProfileLock(profileId, fn) {
+  const key = String(profileId || "global").toLowerCase();
+  const prev = profileLocks.get(key) || Promise.resolve();
+  let release;
+  const barrier = new Promise((r) => { release = r; });
+  const next = prev.then(async () => {
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  });
+  profileLocks.set(key, barrier);
+  return next;
+}
+
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours max TTL for cached sessions
+
+export function saveProfileSession(profileId, cookies) {
+  if (!profileId || !Array.isArray(cookies) || !cookies.length) return;
+  const hasAuth = cookies.some(
+    (c) => c.name === "sessionid" || c.name === "sessionid_ss" || c.name === "sid_tt"
+  );
+  if (!hasAuth) return;
+  const normId = String(profileId).toLowerCase();
+  activeProfileCookies.set(normId, { at: Date.now(), cookies });
+  try {
+    const file = path.join(SESSIONS_DIR, `${normId}.json`);
+    fs.writeFileSync(file, JSON.stringify({ at: Date.now(), cookies }), "utf8");
+  } catch { }
+}
+
+export function loadProfileSession(profileId) {
+  if (!profileId) return null;
+  const normId = String(profileId).toLowerCase();
+  const mem = activeProfileCookies.get(normId);
+  if (mem && (Date.now() - mem.at < SESSION_TTL_MS)) {
+    return mem.cookies;
+  }
+  try {
+    const file = path.join(SESSIONS_DIR, `${normId}.json`);
+    if (fs.existsSync(file)) {
+      const data = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (data && Array.isArray(data.cookies) && (Date.now() - (data.at || 0) < SESSION_TTL_MS)) {
+        activeProfileCookies.set(normId, { at: data.at || Date.now(), cookies: data.cookies });
+        return data.cookies;
+      }
+    }
+  } catch { }
+  return null;
+}
+
+export function clearProfileSession(profileId) {
+  if (!profileId) return;
+  const normId = String(profileId).toLowerCase();
+  activeProfileCookies.delete(normId);
+  try {
+    const file = path.join(SESSIONS_DIR, `${normId}.json`);
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch { }
+}
+
 function withResolveSlot(fn) {
   return new Promise((resolve, reject) => {
     const run = () => {
@@ -60,11 +138,20 @@ function withResolveSlot(fn) {
   });
 }
 
+const ALLOWED_EXTENSION_IDS = new Set([
+  "kfmalbcleehaphfiimeoccklecikbcjj",
+  ...(process.env.TIKTOKFLOW_DEV_EXTENSION_ID
+    ? [process.env.TIKTOKFLOW_DEV_EXTENSION_ID.toLowerCase().trim()]
+    : []),
+]);
+
 function isExtensionOrigin(origin) {
-  return (
-    origin.startsWith("chrome-extension://") ||
-    origin.startsWith("moz-extension://")
-  );
+  if (!origin || typeof origin !== "string") return false;
+  if (origin.startsWith("chrome-extension://")) {
+    const extId = origin.replace("chrome-extension://", "").split("/")[0].toLowerCase();
+    return ALLOWED_EXTENSION_IDS.has(extId);
+  }
+  return false;
 }
 
 function readBody(req) {
@@ -193,6 +280,31 @@ function detectCountryFromText(text) {
   if (/\b(kr|korea|hàn\s*quốc)\b/i.test(s)) return "KR";
   if (/\b(br|brazil)\b/i.test(s)) return "BR";
   return null;
+}
+
+export function detectAccountCountry({
+  passportCountryRaw,
+  cookieCountryRaw,
+  pageCountryHints,
+  currency,
+  profileName,
+  gpmGroupName,
+}) {
+  const passportCountry = resolveCountryFromRaw(passportCountryRaw, true);
+  const rawStore = cookieCountryRaw || pageCountryHints?.storeCountry;
+  const cookieCountry = resolveCountryFromRaw(rawStore, true);
+  const regionCountry = resolveCountryFromRaw(pageCountryHints?.region, true);
+  const currencyCountry = detectCountryFromCurrency(currency);
+  const nameCountry = detectCountryFromText(profileName) || detectCountryFromText(gpmGroupName);
+
+  return (
+    passportCountry ||
+    cookieCountry ||
+    regionCountry ||
+    currencyCountry ||
+    nameCountry ||
+    null
+  );
 }
 
 function computeMachineFingerprint() {
@@ -621,6 +733,7 @@ function acquireAgentLock() {
                 typeof body.storageBeacon === "string"
                   ? body.storageBeacon.trim()
                   : "",
+              cookies: Array.isArray(body.cookies) ? body.cookies : null,
             });
           };
 
@@ -636,6 +749,31 @@ function acquireAgentLock() {
               error: err?.message || "internal_error",
             })
           );
+          return;
+        }
+      }
+
+      // Live Cookie Sync Endpoint from Companion Extension
+      if (
+        req.method === "POST" &&
+        (urlPath === "/sync-cookies" || urlPath === "/profiles/sync-cookies")
+      ) {
+        try {
+          const body = await readBody(req);
+          const profileId = body.gpmProfileId || body.profileId;
+          const cookies = body.cookies;
+          if (profileId && Array.isArray(cookies) && cookies.length) {
+            saveProfileSession(profileId, cookies);
+            res.writeHead(200, headers);
+            res.end(JSON.stringify({ ok: true, profileId, count: cookies.length }));
+            return;
+          }
+          res.writeHead(400, headers);
+          res.end(JSON.stringify({ ok: false, error: "missing_profile_or_cookies" }));
+          return;
+        } catch (err) {
+          res.writeHead(500, headers);
+          res.end(JSON.stringify({ ok: false, error: err.message }));
           return;
         }
       }
@@ -682,6 +820,8 @@ let config = {
   agentAttestSecret: "",
   concurrency: "auto",
   headless: true,
+  m10nMaxConcurrentPrograms: M10N_MAX_CONCURRENT_PROGRAMS,
+  m10nPagePacingMs: M10N_PAGE_PACING_MS,
 };
 
 if (fs.existsSync(CONFIG_FILE)) {
@@ -696,7 +836,24 @@ if (fs.existsSync(CONFIG_FILE)) {
 // Normalize serverUrl
 config.serverUrl = (config.serverUrl || "http://localhost:3000").replace(/\/+$/, "");
 
-function persistConfig() {
+let persistConfigTimer = null;
+function persistConfig(immediate = false) {
+  if (immediate) {
+    persistConfig.flush();
+    return;
+  }
+  if (persistConfigTimer) clearTimeout(persistConfigTimer);
+  persistConfigTimer = setTimeout(() => {
+    persistConfigTimer = null;
+    persistConfig.flush();
+  }, 300);
+}
+
+persistConfig.flush = function () {
+  if (persistConfigTimer) {
+    clearTimeout(persistConfigTimer);
+    persistConfigTimer = null;
+  }
   try {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
       encoding: "utf-8",
@@ -710,7 +867,7 @@ function persistConfig() {
   } catch (err) {
     console.warn("[!] Khong the ghi config.json:", err.message);
   }
-}
+};
 
 /**
  * Clear local token after server revoke so the agent cannot keep replaying a dead secret.
@@ -730,7 +887,7 @@ function markTokenRevoked(reason, httpStatus) {
   config.tokenRevoked = true;
   config.tokenRevokedReason = message;
   config.tokenRevokedAt = new Date().toISOString();
-  persistConfig();
+  persistConfig(true); // immediate synchronous flush on token revoke
 
   console.error("\n========================================================");
   console.error("   [YEU CAU XAC THUC LAI] PERSONAL TOKEN BI THU HOI     ");
@@ -919,14 +1076,17 @@ const cpuCount = os.cpus()?.length || 4;
 const freeMemGb = os.freemem() / (1024 * 1024 * 1024);
 
 let autoConcurrency = 3;
-if (freeMemGb < 1.8) {
-  // Máy đang bận hoặc ít RAM (<1.8GB trống): Giữ ở 2 luồng cực nhẹ
+if (freeMemGb < 1.2) {
+  // Machine heavily constrained (<1.2GB RAM free): single worker to avoid thrashing/OOM
+  autoConcurrency = 1;
+} else if (freeMemGb < 2.5 || cpuCount < 4) {
+  // Moderate load or dual-core (<2.5GB RAM free): 2 workers
   autoConcurrency = 2;
-} else if (cpuCount >= 12 && freeMemGb >= 5.0) {
-  // Máy khỏe, RAM dư nhiều: Đẩy lên 5 luồng cào siêu tốc
+} else if (cpuCount >= 12 && freeMemGb >= 6.0) {
+  // High-spec workstation (12+ vCPUs, >=6GB RAM free): 5 concurrent workers
   autoConcurrency = 5;
-} else if (cpuCount >= 8 && freeMemGb >= 3.0) {
-  // Máy chuẩn văn phòng đời mới: 4 luồng mượt mà
+} else if (cpuCount >= 8 && freeMemGb >= 4.0) {
+  // Modern standard desktop: 4 concurrent workers
   autoConcurrency = 4;
 } else {
   autoConcurrency = 3;
@@ -935,7 +1095,7 @@ if (freeMemGb < 1.8) {
 if (!config.concurrency || config.concurrency === "auto") {
   config.concurrency = autoConcurrency;
 } else {
-  config.concurrency = Math.max(1, Math.min(Number(config.concurrency) || 3, 8));
+  config.concurrency = Math.max(1, Math.min(Number(config.concurrency) || 3, 6));
 }
 
 const USER_AGENT =
@@ -951,6 +1111,8 @@ const LAUNCH_ARGS = [
   "--mute-audio",
   "--no-first-run",
   "--no-default-browser-check",
+  "--blink-settings=imagesEnabled=false",
+  "--disable-remote-fonts",
 ];
 
 // Folders skipped during copy to guarantee instant snapshots (saves ~2GB per profile)
@@ -1038,6 +1200,7 @@ function sweepStaleTempDirs(storageRoot) {
 
 // Ensure all spawned Chrome instances and temp folders are cleanly destroyed on exit or Ctrl+C
 async function emergencyCleanup() {
+  persistConfig.flush();
   for (const ctx of activeContexts) {
     try { await ctx.close(); } catch { }
   }
@@ -1048,6 +1211,7 @@ async function emergencyCleanup() {
 }
 
 process.on("exit", () => {
+  persistConfig.flush();
   releaseAgentLock();
 });
 
@@ -1143,7 +1307,7 @@ export function getChromeExecutablePath() {
 }
 
 /** Common GPMLogin local API ports (same set as Extension / server). */
-const GPM_PORT_CANDIDATES = [9495, 19995, 19996, 19994, 8848];
+const GPM_PORT_CANDIDATES = [9495, 9496, 19995, 19996, 19994, 8848];
 const GPM_API_VERSIONS = ["v1", "v3"];
 
 function readGpmConfiguredApiPort() {
@@ -1252,6 +1416,45 @@ function normalizeGpmProfileRows(json) {
   }
   if (!rows[0] || typeof rows[0] !== "object" || !rows[0].id) return null;
   return rows;
+}
+
+/** Robust pagination loop supporting thousands of profiles without boundary drops */
+export async function fetchAllGpmProfiles(base) {
+  if (!base) return [];
+  const all = [];
+  const seenIds = new Set();
+  let page = 1;
+  const maxPages = 100; // up to 10,000 accounts
+  while (page <= maxPages) {
+    try {
+      const resp = await fetch(
+        `${base}/profiles?page=${page}&per_page=100&page_size=100`,
+        { signal: AbortSignal.timeout(6000) }
+      );
+      if (!resp.ok) break;
+      const json = await resp.json().catch(() => ({}));
+      const rows = normalizeGpmProfileRows(json) || [];
+      if (!rows.length) break;
+      let newCount = 0;
+      for (const r of rows) {
+        const id = String(r.id || "");
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          all.push(r);
+          newCount++;
+        }
+      }
+      if (newCount === 0) break;
+      const total = Number(json?.data?.total || json?.total);
+      const lastPage = Number(json?.data?.last_page || json?.last_page);
+      if (lastPage && page >= lastPage) break;
+      if (total && all.length >= total) break;
+      page++;
+    } catch {
+      break;
+    }
+  }
+  return all;
 }
 
 function profileLooksRunning(p) {
@@ -1375,7 +1578,9 @@ function rankProfilesForBeaconScan(storageRoot, profiles) {
 
 /** Parse open GPM profile ids from Chromium --user-data-dir=...\{uuid}. */
 let processOpenCache = { at: 0, root: "", ids: new Set() };
-function listOpenProfileIdsFromProcesses(storageRoot) {
+let processScanInFlight = null;
+
+async function listOpenProfileIdsFromProcesses(storageRoot) {
   const rootKey = String(storageRoot || "");
   if (
     Date.now() - processOpenCache.at < 2500 &&
@@ -1384,53 +1589,63 @@ function listOpenProfileIdsFromProcesses(storageRoot) {
   ) {
     return processOpenCache.ids;
   }
-  const open = new Set();
-  const rootNorm = path.resolve(storageRoot || "").toLowerCase();
-  const uuidRe = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
-  function ingestLine(line) {
-    if (!line) return;
-    const re = /--user-data-dir(?:=|\s+)(?:"([^"]+)"|(\S+))/gi;
-    let m;
-    while ((m = re.exec(line))) {
-      const dir = path.resolve(String(m[1] || m[2] || "").replace(/^"|"$/g, ""));
-      const lower = dir.toLowerCase();
-      const id = path.basename(dir);
-      if (!uuidRe.test(id)) continue;
-      if (rootNorm && lower.startsWith(rootNorm)) {
-        open.add(id);
-        continue;
-      }
-      // Also accept UUID dirs that look like GPM storage even if root mismatch
-      if (/tiktok\s*automation|gpmlogin|gpm.?login/i.test(lower)) {
-        open.add(id);
-      }
-    }
+  if (processScanInFlight) {
+    return processScanInFlight;
   }
 
-  const commands = [
-    'powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match \'chrome|gpm|chromium\' } | Select-Object -ExpandProperty CommandLine"',
-    'wmic process where "name=\'chrome.exe\' or name=\'gpm_browser.exe\' or name=\'GPMBrowser.exe\'" get CommandLine /value',
-  ];
+  processScanInFlight = (async () => {
+    const open = new Set();
+    const rootNorm = path.resolve(storageRoot || "").toLowerCase();
+    const uuidRe = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
-  for (const cmd of commands) {
-    try {
-      const out = execSync(cmd, {
-        encoding: "utf8",
-        timeout: 5000,
-        windowsHide: true,
-        maxBuffer: 8 * 1024 * 1024,
-      });
-      for (const line of String(out || "").split(/\r?\n/)) ingestLine(line);
-      if (open.size) break;
-    } catch {
-      /* try next */
+    function ingestLine(line) {
+      if (!line) return;
+      const re = /--user-data-dir(?:=|\s+)(?:"([^"]+)"|(\S+))/gi;
+      let m;
+      while ((m = re.exec(line))) {
+        const dir = path.resolve(String(m[1] || m[2] || "").replace(/^"|"$/g, ""));
+        const lower = dir.toLowerCase();
+        const id = path.basename(dir);
+        if (!uuidRe.test(id)) continue;
+        if (rootNorm && lower.startsWith(rootNorm)) {
+          open.add(id);
+          continue;
+        }
+        // Also accept UUID dirs that look like GPM storage even if root mismatch
+        if (/tiktok\s*automation|gpmlogin|gpm.?login/i.test(lower)) {
+          open.add(id);
+        }
+      }
     }
-  }
 
+    const commands = [
+      'powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match \'chrome|gpm|chromium\' } | Select-Object -ExpandProperty CommandLine"',
+      'wmic process where "name=\'chrome.exe\' or name=\'gpm_browser.exe\' or name=\'GPMBrowser.exe\'" get CommandLine /value',
+    ];
 
-  processOpenCache = { at: Date.now(), root: rootKey, ids: open };
-  return open;
+    for (const cmd of commands) {
+      try {
+        const { stdout } = await execAsync(cmd, {
+          encoding: "utf8",
+          timeout: 5000,
+          windowsHide: true,
+          maxBuffer: 8 * 1024 * 1024,
+        });
+        for (const line of String(stdout || "").split(/\r?\n/)) ingestLine(line);
+        if (open.size) break;
+      } catch {
+        /* try next */
+      }
+    }
+
+    processOpenCache = { at: Date.now(), root: rootKey, ids: open };
+    return open;
+  })().finally(() => {
+    processScanInFlight = null;
+  });
+
+  return processScanInFlight;
 }
 
 function readDevToolsActivePort(storageRoot, profileId) {
@@ -1471,10 +1686,11 @@ function listAllGpmProfileDirs(storageRoot) {
 }
 
 /** Open profiles from process cmdline + live Chromium locks (no GPM HTTP API). */
-function listOpenProfilesFromDisk(storageRoot) {
+async function listOpenProfilesFromDisk(storageRoot) {
   const ids = new Set();
   if (!storageRoot) return [];
-  for (const id of listOpenProfileIdsFromProcesses(storageRoot)) ids.add(id);
+  const procIds = await listOpenProfileIdsFromProcesses(storageRoot);
+  for (const id of procIds) ids.add(id);
   let lockAlive = 0;
   let lockStale = 0;
   try {
@@ -1717,10 +1933,9 @@ async function enrichResolveWithGroup(payload, storagePath, gpmBase) {
 }
 
 /** Match extension chrome.storage beacon inside Local Extension Settings leveldb. */
-function profileContainsStorageBeacon(storageRoot, profileId, beacon, opts = {}) {
+async function profileContainsStorageBeaconAsync(storageRoot, profileId, beacon, opts = {}) {
   if (!beacon || beacon.length < 12) return false;
   const logOnly = opts.logOnly === true;
-  const maxTail = Math.max(64 * 1024, Number(opts.maxTail) || 512 * 1024);
   const root = path.join(
     storageRoot,
     String(profileId),
@@ -1729,12 +1944,13 @@ function profileContainsStorageBeacon(storageRoot, profileId, beacon, opts = {})
   );
   if (!fs.existsSync(root)) return false;
   try {
-    for (const extDir of fs.readdirSync(root, { withFileTypes: true })) {
+    const extDirs = await fs.promises.readdir(root, { withFileTypes: true });
+    for (const extDir of extDirs) {
       if (!extDir.isDirectory()) continue;
       const dir = path.join(root, extDir.name);
       let files = [];
       try {
-        files = fs.readdirSync(dir);
+        files = await fs.promises.readdir(dir);
       } catch {
         continue;
       }
@@ -1762,16 +1978,17 @@ function profileContainsStorageBeacon(storageRoot, profileId, beacon, opts = {})
       for (const { full } of limited) {
         let text = null;
         try {
-          const st = fs.statSync(full);
-          const fd = fs.openSync(full, "r");
+          const st = await fs.promises.stat(full);
+          const maxTail = Number(opts.maxTail) > 0 ? opts.maxTail : (st.size <= 10 * 1024 * 1024 ? st.size : 4 * 1024 * 1024);
+          const handle = await fs.promises.open(full, "r");
           try {
             const start = Math.max(0, st.size - maxTail);
             const len = st.size - start;
             const buf = Buffer.alloc(len);
-            fs.readSync(fd, buf, 0, len, start);
+            await handle.read(buf, 0, len, start);
             text = buf.toString("latin1");
           } finally {
-            fs.closeSync(fd);
+            await handle.close();
           }
         } catch {
           text = null;
@@ -1799,19 +2016,15 @@ function withBeaconScanLock(fn) {
 async function findOpenProfileByStorageBeacon(storageRoot, openProfiles, beacon) {
   if (!beacon || !storageRoot || !openProfiles?.length) return [];
   return withBeaconScanLock(async () => {
-    const scanStarted = Date.now();
-    let profilesScanned = 0;
-    // Profile that just flushed chrome.storage has the newest .log — scan it first.
+    // Serialization invariant: LevelDB disk reads must NOT execute concurrently across workers
     const ranked = rankProfilesForBeaconScan(storageRoot, openProfiles);
     for (let attempt = 0; attempt < 2; attempt++) {
       const logOnly = attempt === 0;
       for (const p of ranked) {
-        profilesScanned += 1;
         let ok = false;
         try {
-          ok = profileContainsStorageBeacon(storageRoot, p.id, beacon, {
+          ok = await profileContainsStorageBeaconAsync(storageRoot, p.id, beacon, {
             logOnly,
-            maxTail: logOnly ? 256 * 1024 : 1024 * 1024,
           });
         } catch {
           ok = false;
@@ -1893,6 +2106,7 @@ async function resolveBrowserBySessionHash({
   nonce,
   challengeTs,
   storageBeacon,
+  cookies,
 }) {
   const started = Date.now();
   const finish = async (payload) => {
@@ -1906,6 +2120,10 @@ async function resolveBrowserBySessionHash({
     try {
       const base = { ...payload, ...attest };
       if (!base.ok || !base.gpmProfileId) return base;
+      if (Array.isArray(cookies) && cookies.length > 0) {
+        saveProfileSession(base.gpmProfileId, cookies);
+        console.log(`[Agent:resolveBrowser] Auto-saved ${cookies.length} live session cookies for ${base.gpmProfileId}`);
+      }
       const meta = storagePath
         ? readGpmProfileMetaFromDisk(storagePath, base.gpmProfileId)
         : { name: null, groupName: null, groupId: null };
@@ -1973,7 +2191,7 @@ async function resolveBrowserBySessionHash({
   // Beacon is unique per resolve — scan open profile dirs (locks/PID) even when GPM app is closed.
   // Process cmdline often returns 0 when Agent runs as a service; locks + DevToolsActivePort still work.
   if (storageBeacon && storagePath) {
-    let candidates = listOpenProfilesFromDisk(storagePath);
+    let candidates = await listOpenProfilesFromDisk(storagePath);
     const usedAllDirs = !candidates.length;
     if (usedAllDirs) {
       candidates = listAllGpmProfileDirs(storagePath);
@@ -2034,7 +2252,7 @@ async function resolveBrowserBySessionHash({
       }
     }
 
-    const processOpenIds = listOpenProfileIdsFromProcesses(storagePath);
+    const processOpenIds = await listOpenProfileIdsFromProcesses(storagePath);
     if (profiles.length) {
       openProfiles = profiles.filter((p) => {
         if (!p?.id) return false;
@@ -2046,7 +2264,7 @@ async function resolveBrowserBySessionHash({
     }
 
     if (!openProfiles.length) {
-      openProfiles = listOpenProfilesFromDisk(storagePath);
+      openProfiles = await listOpenProfilesFromDisk(storagePath);
     }
 
     // API list exists but nothing looks "open" — still allow beacon against API ids.
@@ -2114,7 +2332,7 @@ async function resolveBrowserBySessionHash({
       const byHandle = [];
       for (const p of openProfiles) {
         try {
-          const h = findTikTokHandleInProfile(path.join(storagePath, String(p.id)));
+          const h = await findTikTokHandleInProfileAsync(path.join(storagePath, String(p.id)));
           if (h && String(h).toLowerCase() === want) {
             byHandle.push({
               id: String(p.id),
@@ -2247,7 +2465,7 @@ async function resolveBrowserBySessionHash({
     const byHandle = [];
     for (const p of openProfiles) {
       try {
-        const h = findTikTokHandleInProfile(path.join(storagePath, String(p.id)));
+        const h = await findTikTokHandleInProfileAsync(path.join(storagePath, String(p.id)));
         if (h && String(h).toLowerCase() === want) {
           byHandle.push({
             id: String(p.id),
@@ -2347,51 +2565,52 @@ function scoreLoggedInHandleFromArtifacts(blob) {
   return null;
 }
 
-export function findTikTokHandleInProfile(profileDir) {
+export async function readBestEffortAsync(src, maxBytes = 8 * 1024 * 1024) {
+  try {
+    const buf = await fs.promises.readFile(src);
+    return buf.toString("latin1", 0, Math.min(buf.length, maxBytes));
+  } catch {
+    /* locked while browser open */
+  }
+  const tmp = path.join(
+    os.tmpdir(),
+    `ttf-rd-${crypto.randomBytes(6).toString("hex")}`
+  );
+  try {
+    await fs.promises.copyFile(src, tmp);
+    const buf = await fs.promises.readFile(tmp);
+    return buf.toString("latin1", 0, Math.min(buf.length, maxBytes));
+  } catch {
+    return null;
+  } finally {
+    try {
+      await fs.promises.unlink(tmp);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export async function findTikTokHandleInProfileAsync(profileDir) {
   try {
     const defaultDir = path.join(profileDir, "Default");
     if (!fs.existsSync(defaultDir)) return null;
-
-    const readBestEffort = (src, maxBytes = 8 * 1024 * 1024) => {
-      try {
-        const buf = fs.readFileSync(src);
-        return buf.toString("latin1", 0, Math.min(buf.length, maxBytes));
-      } catch {
-        /* locked while browser open */
-      }
-      const tmp = path.join(
-        os.tmpdir(),
-        `ttf-rd-${crypto.randomBytes(6).toString("hex")}`
-      );
-      try {
-        fs.copyFileSync(src, tmp);
-        const buf = fs.readFileSync(tmp);
-        return buf.toString("latin1", 0, Math.min(buf.length, maxBytes));
-      } catch {
-        return null;
-      } finally {
-        try {
-          fs.unlinkSync(tmp);
-        } catch {
-          /* ignore */
-        }
-      }
-    };
 
     const chunks = [];
 
     const historyPath = path.join(defaultDir, "History");
     if (fs.existsSync(historyPath)) {
-      const t = readBestEffort(historyPath, 16 * 1024 * 1024);
+      const t = await readBestEffortAsync(historyPath, 16 * 1024 * 1024);
       if (t) chunks.push(t);
     }
 
     const levelDbDir = path.join(defaultDir, "Local Storage", "leveldb");
     if (fs.existsSync(levelDbDir)) {
       try {
-        for (const f of fs.readdirSync(levelDbDir)) {
+        const files = await fs.promises.readdir(levelDbDir);
+        for (const f of files) {
           if (!f.endsWith(".log") && !f.endsWith(".ldb")) continue;
-          const t = readBestEffort(path.join(levelDbDir, f));
+          const t = await readBestEffortAsync(path.join(levelDbDir, f));
           if (t) chunks.push(t);
         }
       } catch {
@@ -2402,7 +2621,7 @@ export function findTikTokHandleInProfile(profileDir) {
     for (const rel of ["Preferences", "Secure Preferences", "Network/Cookies", "Cookies"]) {
       const p = path.join(defaultDir, rel);
       if (!fs.existsSync(p)) continue;
-      const t = readBestEffort(p);
+      const t = await readBestEffortAsync(p);
       if (t) chunks.push(t);
     }
 
@@ -2418,62 +2637,79 @@ export function findTikTokHandleInProfile(profileDir) {
 // 5. ISOLATED READ-ONLY SNAPSHOT ENGINE
 // ==========================================
 
-function copyDirRecursive(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  let entries = [];
-  try {
-    entries = fs.readdirSync(src, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    const lowerName = entry.name.toLowerCase();
-    // Skip file locks, sockets, and active debugging ports so running GPMLogin is never disturbed and temp instance never collides
-    if (
-      entry.name === "SingletonLock" ||
-      entry.name === "SingletonCookie" ||
-      entry.name === "SingletonSocket" ||
-      entry.name === "DevToolsActivePort" ||
-      entry.name === "lockfile" ||
-      entry.name === "parent.lock" ||
-      lowerName === "lock" ||
-      lowerName.endsWith(".lock")
-    ) {
-      continue;
-    }
-    if (entry.isDirectory() && SKIP_DIR_NAMES.has(entry.name)) {
-      continue;
-    }
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
+async function copyFileWithRetryAsync(src, dest, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      if (entry.isDirectory()) {
-        copyDirRecursive(srcPath, destPath);
-      } else {
-        // Safe Read-only copy into Temp
-        fs.copyFileSync(srcPath, destPath);
+      await fs.promises.copyFile(src, dest);
+      return { ok: true };
+    } catch (err) {
+      if (attempt < maxRetries - 1 && (err.code === "EBUSY" || err.code === "EPERM")) {
+        await new Promise((r) => setTimeout(r, 150));
+        continue;
       }
-    } catch { }
+      return { ok: false, code: err.code };
+    }
   }
+  return { ok: false };
 }
 
-function snapshotProfileToTemp(profileDir, profileId) {
+export async function createMinimalProfileSnapshot(profileDir, profileId) {
   if (!fs.existsSync(profileDir)) return null;
   let tempDir = null;
+  let cookiesLocked = false;
   try {
     const baseParent = path.dirname(profileDir);
     const tempRoot = fs.existsSync(baseParent) ? path.join(baseParent, ".gpm_temp") : os.tmpdir();
-    fs.mkdirSync(tempRoot, { recursive: true });
-    tempDir = fs.mkdtempSync(path.join(tempRoot, `agent-${String(profileId).slice(0, 8)}-`));
+    await fs.promises.mkdir(tempRoot, { recursive: true });
+    tempDir = await fs.promises.mkdtemp(path.join(tempRoot, `agent-min-${String(profileId).slice(0, 8)}-`));
     activeTempDirs.add(path.resolve(tempDir));
-    copyDirRecursive(profileDir, tempDir);
-    return tempDir;
+
+    const copySafe = async (relPath) => {
+      const s = path.join(profileDir, relPath);
+      if (!fs.existsSync(s)) return true;
+      const d = path.join(tempDir, relPath);
+      await fs.promises.mkdir(path.dirname(d), { recursive: true });
+      const res = await copyFileWithRetryAsync(s, d);
+      if (!res.ok && /cookies/i.test(relPath)) {
+        cookiesLocked = true;
+      }
+      return res.ok;
+    };
+
+    // Root files
+    await copySafe("Local State");
+    await copySafe("gpm_pi.dat");
+
+    // Preferences & Network
+    await copySafe("Default/Preferences");
+    await copySafe("Default/Secure Preferences");
+    await copySafe("Default/Network/Cookies");
+    await copySafe("Default/Network/Cookies-journal");
+    await copySafe("Default/Network/Cookies-wal");
+    await copySafe("Default/Network/Network Persistent State");
+    await copySafe("Default/Cookies");
+    await copySafe("Default/Cookies-journal");
+    await copySafe("Default/Cookies-wal");
+
+    // Local Storage LevelDB files (skip LOCK)
+    const levelDbDir = path.join(profileDir, "Default", "Local Storage", "leveldb");
+    if (fs.existsSync(levelDbDir)) {
+      try {
+        const files = await fs.promises.readdir(levelDbDir);
+        for (const f of files) {
+          if (f === "LOCK" || f.endsWith(".lock")) continue;
+          await copySafe(path.join("Default", "Local Storage", "leveldb", f));
+        }
+      } catch { }
+    }
+
+    return { tempDir, cookiesLocked };
   } catch (err) {
     cleanupTempDir(tempDir);
-    return null;
+    return { tempDir: null, error: err.message };
   }
 }
+
 
 // ==========================================
 // 6. CONTROLLED CONCURRENCY (pMap)
@@ -2501,25 +2737,12 @@ async function pMap(items, mapper, concurrency = 2) {
 // ==========================================
 // 7. HIGH-PERFORMANCE & RELIABLE STUDIO EXTRACTOR
 // ==========================================
-export async function extractProfileStudio(profileDir, profileId, chromePath, detectedHandle) {
-  const tempDir = snapshotProfileToTemp(profileDir, profileId);
-  if (!tempDir) {
-    return { success: false, error: "Khong the tao snapshot profile" };
-  }
-
-  let context = null;
+async function scrapePageMetrics(page, context, profileDir, profileId, detectedHandle, methodLabel = "snapshot") {
   try {
-    context = await chromium.launchPersistentContext(tempDir, {
-      headless: config.headless !== false,
-      executablePath: chromePath,
-      args: LAUNCH_ARGS,
-      userAgent: USER_AGENT,
-      viewport: { width: 1440, height: 900 },
-      timeout: 15000,
-    });
-
-    activeContexts.add(context);
-    const page = await context.newPage();
+    const t_start = Date.now();
+    let t_nav = 0;
+    let t_insights = 0;
+    let t_m10n = 0;
 
     let userInfo = null;
     let followerCount = 0;
@@ -2605,10 +2828,12 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     });
 
     // Navigate to TikTok Studio Content
+    const t_nav_start = Date.now();
     await page.goto("https://www.tiktok.com/tiktokstudio/content", {
       waitUntil: "domcontentloaded",
       timeout: 20000,
     }).catch(() => { });
+    t_nav = Date.now() - t_nav_start;
 
     // Reliable Login Detection
     const isLoginPage = /login|passport/i.test(page.url()) || (await page.title().catch(() => "")).includes("Log in");
@@ -2801,6 +3026,16 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
 
     const totalViewsCombined = videosList.reduce((sum, v) => sum + v.views, 0);
 
+    let studioTotalVideos = 0;
+    try {
+      const tabCount = await page.evaluate(() => {
+        const text = document.body?.innerText || "";
+        const m = text.match(/(?:Bài đăng|Posts?|Videos?)\s+(\d+)/i) || text.match(/(\d+)\s+(?:bài đăng|posts?|videos?)/i);
+        return m ? parseInt(m[1], 10) : 0;
+      }).catch(() => 0);
+      if (tabCount > 0) studioTotalVideos = tabCount;
+    } catch { }
+
     // Reliable Username: Studio API UniqId > Passport session > disk (never prefer visited public profiles)
     let sessionHandle = userInfo?.UniqId || null;
     if (!sessionHandle) {
@@ -2845,6 +3080,24 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       };
     }
 
+    // Extract authoritative lifetime stats (totalLikes, public videoCount) from profile rehydration
+    let publicStats = null;
+    try {
+      publicStats = await page.evaluate(async (handle) => {
+        try {
+          const res = await fetch(`https://www.tiktok.com/@${handle}`, { credentials: "include", signal: AbortSignal.timeout(6000) });
+          if (!res.ok) return null;
+          const html = await res.text();
+          const match = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+          if (match) {
+            const parsed = JSON.parse(match[1]);
+            return parsed["__DEFAULT_SCOPE__"]?.["webapp.user-detail"]?.userInfo?.stats || null;
+          }
+        } catch { }
+        return null;
+      }, finalHandle).catch(() => null);
+    } catch { }
+
     // Step 2: Visit Analytics (/tiktokstudio/analytics) for period views & engagement
     let views7d = 0;
     let views28d = 0;
@@ -2867,34 +3120,48 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     let profileViews60d = 0;
     let profileViews365d = 0;
 
+    const t_insights_start = Date.now();
     try {
-      await page.goto("https://www.tiktok.com/tiktokstudio/analytics", {
-        waitUntil: "domcontentloaded",
-        timeout: 15000,
-      }).catch(() => { });
-      await page.waitForTimeout(2500);
-
-      const rawInsightMap = await page.evaluate(async () => {
-        const out = {};
-        const ranges = [7, 28, 60, 365];
-        for (const days of ranges) {
-          try {
-            const typeRequests = [
-              { insigh_type: "vv_history", days: days, end_days: 0 },
-              { insigh_type: "pv_history", days: days, end_days: 0 },
-              { insigh_type: "like_history", days: days, end_days: 0 },
-              { insigh_type: "comment_history", days: days, end_days: 0 },
-              { insigh_type: "share_history", days: days, end_days: 0 },
-            ];
-            const url = "/aweme/v2/data/insight/?tz_offset=25200&type_requests=" + encodeURIComponent(JSON.stringify(typeRequests));
-            const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-            out[days] = await res.json();
-          } catch (e) {
-            out[days] = {};
+      // Fast in-page evaluation: query insight endpoints directly matching Studio UI parameters
+      const evaluateInsightMap = async () => {
+        return await page.evaluate(async () => {
+          const out = {};
+          const ranges = [
+            { key: "7", days: 8, end_days: 1 },
+            { key: "28", days: 29, end_days: 1 },
+            { key: "60", days: 61, end_days: 1 },
+            { key: "365", days: 366, end_days: 1 },
+          ];
+          for (const r of ranges) {
+            try {
+              const typeRequests = [
+                { insigh_type: "vv_history", days: r.days, end_days: r.end_days },
+                { insigh_type: "pv_history", days: r.days, end_days: r.end_days },
+                { insigh_type: "like_history", days: r.days, end_days: r.end_days },
+                { insigh_type: "comment_history", days: r.days, end_days: r.end_days },
+                { insigh_type: "share_history", days: r.days, end_days: r.end_days },
+              ];
+              const url = "/aweme/v2/data/insight/?tz_offset=25200&type_requests=" + encodeURIComponent(JSON.stringify(typeRequests));
+              const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+              out[r.key] = await res.json();
+            } catch (e) {
+              out[r.key] = {};
+            }
           }
-        }
-        return out;
-      }).catch(() => ({}));
+          return out;
+        }).catch(() => ({}));
+      };
+
+      let rawInsightMap = await evaluateInsightMap();
+      // If direct fetch didn't return data, fall back to navigating to /analytics
+      if (!rawInsightMap || !rawInsightMap["7"] || rawInsightMap["7"].vv_history === undefined) {
+        await page.goto("https://www.tiktok.com/tiktokstudio/analytics", {
+          waitUntil: "domcontentloaded",
+          timeout: 8000,
+        }).catch(() => { });
+        await page.waitForTimeout(1000);
+        rawInsightMap = await evaluateInsightMap();
+      }
 
       const sumMetricHistory = (arr) => {
         if (!arr || !Array.isArray(arr)) return 0;
@@ -2934,10 +3201,12 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     } catch (anErr) {
       console.warn("   [!] Analytics fetch warning:", anErr.message);
     }
+    t_insights = Date.now() - t_insights_start;
 
     const totalViews = Math.max(totalViewsCombined, views365d);
 
     // Step 3: Visit monetization tab to extract Active Programs (LIVE rewards, TikTok Shop, Creator Rewards)
+    const t_m10n_start = Date.now();
     let totalRewardsUsd = null;
     let shopRewardsUsd = null;
     let shopProgramName = "TikTok Shop for Seller";
@@ -2955,15 +3224,36 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     let bannedReason = null;
 
     try {
-      await page.goto("https://www.tiktok.com/tiktokstudio/monetization", {
-        waitUntil: "domcontentloaded",
-        timeout: 12000,
-      }).catch(() => { });
+      // Fast in-page query: check reward analytics API directly before navigating
+      if (!interceptedRewardAnalytics) {
+        try {
+          const directM10n = await page.evaluate(async () => {
+            try {
+              const res = await fetch("/tiktok/v1/creator/m10n_center/reward_analytics", {
+                credentials: "include",
+                signal: AbortSignal.timeout(4000),
+              });
+              if (res.ok) return await res.json();
+            } catch { }
+            return null;
+          }).catch(() => null);
+          if (directM10n && (directM10n.data || directM10n.seven_d_income || directM10n.daily_estimated_income)) {
+            interceptedRewardAnalytics = directM10n.data || directM10n;
+          }
+        } catch { }
+      }
 
-      // Wait up to 2.5s for interceptedRewardAnalytics to arrive
-      const waitStart = Date.now();
-      while (Date.now() - waitStart < 2500 && !interceptedRewardAnalytics) {
-        await page.waitForTimeout(200);
+      if (!interceptedRewardAnalytics) {
+        await page.goto("https://www.tiktok.com/tiktokstudio/monetization", {
+          waitUntil: "domcontentloaded",
+          timeout: 8000,
+        }).catch(() => { });
+
+        // Wait up to 1.5s for interceptedRewardAnalytics to arrive
+        const waitStart = Date.now();
+        while (Date.now() - waitStart < 1500 && !interceptedRewardAnalytics) {
+          await page.waitForTimeout(150);
+        }
       }
 
       const parseMoney = (m) => {
@@ -3157,13 +3447,13 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
           await page.goto(`https://www.tiktok.com/tiktokstudio/monetization/item/${sampleVideoId}/`, {
             waitUntil: "domcontentloaded",
             timeout: 15000,
-          }).catch(() => {});
+          }).catch(() => { });
 
           const itemStart = Date.now();
           while (Date.now() - itemStart < 8000 && (!interceptedPerPostUrl || interceptedPerPostRewards.length === 0)) {
             await page.waitForTimeout(300);
           }
-        } catch {}
+        } catch { }
       }
 
       // Extract Post Rewards ("Phần thưởng mỗi bài đăng")
@@ -3217,27 +3507,32 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
         }
 
         let postDateStr = null;
+        let publishTimeUnix = null;
         if (item.publish_date_unix_time) {
-          const d = new Date(Number(item.publish_date_unix_time) * 1000);
+          publishTimeUnix = Number(item.publish_date_unix_time);
+          const d = new Date(publishTimeUnix * 1000);
           if (!isNaN(d.getTime())) {
             postDateStr = d.toISOString().split("T")[0];
           }
         }
 
+        const viewsCount = Number(item.views) || Number(item.total_views) || Number(item.quvv) || 0;
         let rpmStr = null;
         if (item.rpm_metadata?.rpm_integer) {
           const rVal = (Number(item.rpm_metadata.rpm_integer) / 100).toFixed(2);
           rpmStr = `${cur}${rVal}`;
-        } else if (amt > 0 && item.quvv > 0) {
-          rpmStr = `${cur}${((amt / item.quvv) * 1000).toFixed(2)}`;
+        } else if (amt > 0 && Number(item.quvv) > 0) {
+          rpmStr = `${cur}${((amt / Number(item.quvv)) * 1000).toFixed(2)}`;
+        } else if (amt > 0 && viewsCount > 0) {
+          rpmStr = `${cur}${((amt / viewsCount) * 1000).toFixed(2)}`;
         }
 
         // Map exact program details from item
         const rawPrograms = Array.isArray(item.video_analytics_programs) ? item.video_analytics_programs : [];
         const programDetails = rawPrograms.map((p) => {
           const progId = Number(p.m10n_program ?? p.program_id ?? p.id);
-          const progName = (p.program_name && String(p.program_name).trim()) 
-            ? String(p.program_name).trim() 
+          const progName = (p.program_name && String(p.program_name).trim())
+            ? String(p.program_name).trim()
             : (PROGRAM_ID_MAP[progId] || (progId ? `Program ${progId}` : "Chương trình Creator Rewards"));
           return {
             id: progId,
@@ -3261,6 +3556,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
           duration: durationStr,
           postDate: postDateStr,
           publishDate: postDateStr,
+          publishTimeUnix,
           programId: queriedProgId || programDetails[0]?.id || 9,
           programName: primaryProgramName,
           isPunished,
@@ -3283,9 +3579,11 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       let allApiItems = [];
       if (paginationBaseUrl) {
         try {
-          allApiItems = await page.evaluate(async ({ baseReqUrl, allPrograms }) => {
+          const evalResult = await page.evaluate(async ({ baseReqUrl, allPrograms, maxConcurrentPrograms, pagePacingMs }) => {
             const extra = [];
             let activeProgramIds = [];
+
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
             // 1. Probe page 0 to discover all active programs for this account
             try {
@@ -3293,11 +3591,14 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
               probeUrl.pathname = "/tiktok/v1/creator/m10n_center/reward_analytics_per_post";
               probeUrl.searchParams.set("page", "0");
               probeUrl.searchParams.set("video_analytics_filter", JSON.stringify({
-                video_analytics_display_time_range: 1,
-                video_analytics_sort_by_type: 3,
+                video_analytics_display_time_range: 1, // 1 = VIDEO_ANALYTICS_DISPLAY_TIME_RANGE_ALL_TIME (lay tat ca video theo thoi gian)
+                video_analytics_sort_by_type: 3,       // 3 = VIDEO_ANALYTICS_SORT_BY_TYPE_PUBLISH_DATE (moi nhat len dau)
                 video_analytics_programs: allPrograms,
               }));
               const probeRes = await fetch(probeUrl.toString(), { credentials: "include" });
+              if (probeRes.status === 429) {
+                return { items: [], rateLimited: true, progId: "probe", page: 0 };
+              }
               const probeJson = await probeRes.json();
               const probePayload = probeJson?.data || probeJson;
               if (Array.isArray(probePayload?.video_analytics_active_programs) && probePayload.video_analytics_active_programs.length > 0) {
@@ -3313,60 +3614,33 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
               }
             } catch { }
 
-            // 2. If multiple programs exist (e.g. Creator Rewards 9 AND TikTok Shop 8):
-            // Query each program separately so rewards are strictly separated per program
-            if (activeProgramIds.length > 1) {
-              for (const progId of activeProgramIds) {
-                let p = 0;
-                let keepGoing = true;
-                while (keepGoing && p < 20) {
-                  try {
-                    const u = new URL(baseReqUrl, window.location.origin);
-                    u.pathname = "/tiktok/v1/creator/m10n_center/reward_analytics_per_post";
-                    u.searchParams.set("page", String(p));
-                    u.searchParams.set("video_analytics_filter", JSON.stringify({
-                      video_analytics_display_time_range: 1,
-                      video_analytics_sort_by_type: 3,
-                      video_analytics_programs: [progId],
-                    }));
-                    const r = await fetch(u.toString(), { credentials: "include" });
-                    const j = await r.json();
-                    const payload = j?.data || j;
-                    const list = payload?.video_analytics_video_list || [];
-                    for (const item of list) {
-                      item._queried_program_id = progId;
-                      extra.push(item);
-                    }
-                    keepGoing = !!payload?.has_more;
-                    if (!list.length) break;
-                    p++;
-                  } catch {
-                    break;
-                  }
-                }
-              }
-            } else {
-              // Single program (e.g. Creator Rewards only): continue paginating remaining pages
-              let p = 1;
+            async function fetchProgramPages(progId, startPage = 0, maxPages = 20) {
+              const progItems = [];
+              let p = startPage;
               let keepGoing = true;
-              const targetProgId = activeProgramIds[0] || 9;
-              while (keepGoing && p < 25) {
+              while (keepGoing && p < maxPages) {
+                if (p > startPage && pagePacingMs > 0) {
+                  await sleep(pagePacingMs);
+                }
                 try {
                   const u = new URL(baseReqUrl, window.location.origin);
                   u.pathname = "/tiktok/v1/creator/m10n_center/reward_analytics_per_post";
                   u.searchParams.set("page", String(p));
                   u.searchParams.set("video_analytics_filter", JSON.stringify({
-                    video_analytics_display_time_range: 1,
-                    video_analytics_sort_by_type: 3,
-                    video_analytics_programs: [targetProgId],
+                    video_analytics_display_time_range: 1, // 1 = VIDEO_ANALYTICS_DISPLAY_TIME_RANGE_ALL_TIME
+                    video_analytics_sort_by_type: 3,       // 3 = VIDEO_ANALYTICS_SORT_BY_TYPE_PUBLISH_DATE
+                    video_analytics_programs: [progId],
                   }));
                   const r = await fetch(u.toString(), { credentials: "include" });
+                  if (r.status === 429) {
+                    return { progItems, rateLimited: true, page: p };
+                  }
                   const j = await r.json();
                   const payload = j?.data || j;
                   const list = payload?.video_analytics_video_list || [];
                   for (const item of list) {
-                    item._queried_program_id = targetProgId;
-                    extra.push(item);
+                    item._queried_program_id = progId;
+                    progItems.push(item);
                   }
                   keepGoing = !!payload?.has_more;
                   if (!list.length) break;
@@ -3375,9 +3649,51 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
                   break;
                 }
               }
+              return { progItems, rateLimited: false, page: p };
             }
-            return extra;
-          }, { baseReqUrl: paginationBaseUrl, allPrograms: ALL_M10N_PROGRAMS });
+
+            // 2. If multiple programs exist: run in batches of maxConcurrentPrograms
+            if (activeProgramIds.length > 1) {
+              for (let i = 0; i < activeProgramIds.length; i += maxConcurrentPrograms) {
+                const batch = activeProgramIds.slice(i, i + maxConcurrentPrograms);
+                const batchResults = await Promise.all(batch.map((progId) => fetchProgramPages(progId, 0, 20)));
+                for (let bIdx = 0; bIdx < batchResults.length; bIdx++) {
+                  const bRes = batchResults[bIdx];
+                  if (bRes.progItems && bRes.progItems.length > 0) {
+                    extra.push(...bRes.progItems);
+                  }
+                  if (bRes.rateLimited) {
+                    return { items: extra, rateLimited: true, progId: batch[bIdx], page: bRes.page };
+                  }
+                }
+              }
+            } else {
+              // Single program: continue paginating remaining pages from page 1
+              const targetProgId = activeProgramIds[0] || 9;
+              const res = await fetchProgramPages(targetProgId, 1, 25);
+              if (res.progItems && res.progItems.length > 0) {
+                extra.push(...res.progItems);
+              }
+              if (res.rateLimited) {
+                return { items: extra, rateLimited: true, progId: targetProgId, page: res.page };
+              }
+            }
+            return { items: extra, rateLimited: false };
+          }, {
+            baseReqUrl: paginationBaseUrl,
+            allPrograms: ALL_M10N_PROGRAMS,
+            maxConcurrentPrograms: Number(config.m10nMaxConcurrentPrograms) > 0 ? Number(config.m10nMaxConcurrentPrograms) : M10N_MAX_CONCURRENT_PROGRAMS,
+            pagePacingMs: Number.isFinite(Number(config.m10nPagePacingMs)) ? Number(config.m10nPagePacingMs) : M10N_PAGE_PACING_MS,
+          });
+
+          if (evalResult) {
+            allApiItems = evalResult.items || [];
+            if (evalResult.rateLimited) {
+              console.warn(
+                `   [RATE-LIMIT] Tier A (program: ${evalResult.progId}, page: ${evalResult.page}) returned HTTP 429 on @${finalHandle || detectedHandle || profileId}`
+              );
+            }
+          }
         } catch { }
       }
 
@@ -3410,33 +3726,45 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       // Priority 2: In-session authenticated fetch to internal API if interception was missed
       if (!postRewards || postRewards.length === 0) {
         try {
-          const directApiResult = await page.evaluate(async (allPrograms) => {
+          const directApiResult = await page.evaluate(async ({ allPrograms, pagePacingMs }) => {
             try {
               const perfEntries = performance.getEntriesByType("resource")
                 .map((e) => e.name)
                 .filter((u) => u.includes("reward_analytics_per_post"));
               const defaultFilter = encodeURIComponent(JSON.stringify({
-                video_analytics_display_time_range: 1,
-                video_analytics_sort_by_type: 3,
+                video_analytics_display_time_range: 1, // 1 = VIDEO_ANALYTICS_DISPLAY_TIME_RANGE_ALL_TIME
+                video_analytics_sort_by_type: 3,       // 3 = VIDEO_ANALYTICS_SORT_BY_TYPE_PUBLISH_DATE
                 video_analytics_programs: allPrograms,
               }));
               const baseUrl = perfEntries[0] || `/tiktok/v1/creator/m10n_center/reward_analytics_per_post?page=0&video_analytics_filter=${defaultFilter}`;
               const allItems = [];
               let p = 0;
               let keepGoing = true;
-              while (keepGoing && p < 25) {
+              let rateLimited = false;
+              let rateLimitedPage = 0;
+              const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+              while (keepGoing && p < 8) {
+                if (p > 0 && pagePacingMs > 0) {
+                  await sleep(pagePacingMs);
+                }
                 try {
                   const u = new URL(baseUrl, window.location.origin);
                   u.searchParams.set("page", String(p));
                   u.searchParams.set("video_analytics_filter", JSON.stringify({
-                    video_analytics_display_time_range: 1,
-                    video_analytics_sort_by_type: 3,
+                    video_analytics_display_time_range: 1, // 1 = VIDEO_ANALYTICS_DISPLAY_TIME_RANGE_ALL_TIME
+                    video_analytics_sort_by_type: 3,       // 3 = VIDEO_ANALYTICS_SORT_BY_TYPE_PUBLISH_DATE
                     video_analytics_programs: allPrograms,
                   }));
                   const res = await fetch(u.toString(), {
                     credentials: "include",
                     signal: AbortSignal.timeout(5000),
                   });
+                  if (res.status === 429) {
+                    rateLimited = true;
+                    rateLimitedPage = p;
+                    break;
+                  }
                   const j = await res.json();
                   const payload = j?.data || j;
                   const list = payload?.video_analytics_video_list || [];
@@ -3448,13 +3776,23 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
                   break;
                 }
               }
-              return allItems;
+              return { items: allItems, rateLimited, rateLimitedPage };
             } catch (e) {
-              return [];
+              return { items: [], rateLimited: false, rateLimitedPage: 0 };
             }
-          }, ALL_M10N_PROGRAMS);
-          if (Array.isArray(directApiResult) && directApiResult.length > 0) {
-            const mapped = directApiResult.map(mapInternalVideoItem);
+          }, {
+            allPrograms: ALL_M10N_PROGRAMS,
+            pagePacingMs: Number.isFinite(Number(config.m10nPagePacingMs)) ? Number(config.m10nPagePacingMs) : M10N_PAGE_PACING_MS,
+          });
+
+          if (directApiResult?.rateLimited) {
+            console.warn(
+              `   [RATE-LIMIT] Tier B (page: ${directApiResult.rateLimitedPage}) returned HTTP 429 on @${finalHandle || detectedHandle || profileId}`
+            );
+          }
+
+          if (Array.isArray(directApiResult?.items) && directApiResult.items.length > 0) {
+            const mapped = directApiResult.items.map(mapInternalVideoItem);
             const seenIds = new Set();
             postRewards = [];
             for (const item of mapped) {
@@ -3578,11 +3916,18 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
                 }
 
                 if (coverUrl || title || moneyInfo.amount > 0) {
+                  let publishTimeUnix = null;
+                  if (postDate) {
+                    const parsedTs = new Date(postDate).getTime();
+                    if (!isNaN(parsedTs)) publishTimeUnix = Math.floor(parsedTs / 1000);
+                  }
                   results.push({
                     title: title || "Video",
                     coverUrl,
                     duration,
                     postDate,
+                    publishDate: postDate,
+                    publishTimeUnix,
                     programName,
                     reward: moneyInfo.amount,
                     currency: moneyInfo.currency,
@@ -3614,20 +3959,30 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
         }
       } catch { }
     } catch { }
+    t_m10n = Date.now() - t_m10n_start;
 
-    // Query lifetime total likes from header
-    let totalLikes = cleanNum(userInfo?.totalLikes || 0);
+    // Query lifetime total likes from public stats (301K), header, or 365d analytics
+    let totalLikes = cleanNum(publicStats?.heartCount || publicStats?.heart || userInfo?.totalLikes || 0);
     try {
       const headerLikes = await page.evaluate(() => {
         const text = document.body?.innerText || "";
-        const m = text.match(/Likes?\s*([\d,.]+[kKmM]?)/i) || text.match(/([\d,.]+[kKmM]?)\s*Likes?/i);
-        return m ? m[1] : null;
+        const m = text.match(/(?:Lượt thích|Likes?)\s*\n*\s*([\d,.]+[kKmM]?)/i) || text.match(/([\d,.]+[kKmM]?)\s*\n*\s*(?:Lượt thích|Likes?)/i);
+        return m ? (m[1] || m[2]) : null;
       }).catch(() => null);
       if (headerLikes) {
         const parsed = cleanNum(headerLikes);
-        if (parsed > 0) totalLikes = parsed;
+        if (parsed > totalLikes) totalLikes = parsed;
       }
     } catch { }
+    if (!totalLikes || totalLikes < likes365d) {
+      totalLikes = likes365d;
+    }
+
+    const sumPostRewards = (postRewards || []).reduce((s, p) => s + (Number(p.rewards) || Number(p.reward) || 0), 0);
+    const effectiveTotalRevenue = Number((totalRewardsUsd || revenue365d || sumPostRewards || 0).toFixed(2));
+    if (totalViews > 0 && effectiveTotalRevenue > 0) {
+      rpm = Number(((effectiveTotalRevenue / totalViews) * 1000).toFixed(3));
+    }
 
     // Construct structured revenueBreakdown (no duplicate TikTok Shop in activePrograms)
     const revenueBreakdown = {
@@ -3654,7 +4009,7 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
       revenue28d: revenue28d || 0,
       revenue60d: revenue60d || 0,
       revenue365d: revenue365d || 0,
-      totalRevenue: revenue365d || totalRewardsUsd || 0,
+      totalRevenue: effectiveTotalRevenue,
     };
 
     const sumViews = {
@@ -3700,20 +4055,14 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
     if (!gpmGroupName && meta.groupId) {
       gpmGroupName = await lookupGpmGroupName(lastGoodGpmBase || null, meta.groupId);
     }
-    const passportCountry = resolveCountryFromRaw(passportCountryRaw, true);
-    const rawStore = cookieCountryRaw || pageCountryHints?.storeCountry;
-    const cookieCountry = resolveCountryFromRaw(rawStore, true);
-    const regionCountry = resolveCountryFromRaw(pageCountryHints?.region, true);
-    const currencyCountry = detectCountryFromCurrency(currency);
-    const nameCountry = detectCountryFromText(meta.name) || detectCountryFromText(gpmGroupName);
-
-    const detectedCountry =
-      passportCountry ||
-      cookieCountry ||
-      regionCountry ||
-      currencyCountry ||
-      nameCountry ||
-      null;
+    const detectedCountry = detectAccountCountry({
+      passportCountryRaw,
+      cookieCountryRaw,
+      pageCountryHints,
+      currency,
+      profileName: meta.name,
+      gpmGroupName,
+    });
 
     // Cross-reference and enrich each video in videosList with its monetization program and rewards
     if (Array.isArray(videosList) && videosList.length > 0 && Array.isArray(postRewards) && postRewards.length > 0) {
@@ -3738,16 +4087,31 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
 
     const gpmProfileName = meta.name || `Profile ${String(profileId).slice(0, 8)}`;
 
+    const t_total = Date.now() - t_start;
+    console.log(
+      `   [PERF] Profile ${profileId} (@${finalHandle || "unknown"}): total=${t_total}ms (nav=${t_nav}ms, insights=${t_insights}ms, m10n=${t_m10n}ms, videos=${videosList.length})`
+    );
+
+    const realTotalVideos = studioTotalVideos || publicStats?.videoCount || videosList.length;
+    const finalFollowerCount = Math.max(followerCount, publicStats?.followerCount || 0);
+
+    if (!userInfo && !realTotalVideos && !finalFollowerCount && !totalRewardsUsd) {
+      return {
+        success: false,
+        error: "unauthenticated_session_empty_data",
+      };
+    }
+
     return {
       success: true,
       data: {
         username: finalHandle,
         nickname: userInfo?.NickName || null,
-        followersCount: followerCount,
+        followersCount: finalFollowerCount,
         totalLikes,
         totalViews,
-        videoCount: videosList.length,
-        totalVideos: videosList.length,
+        videoCount: realTotalVideos,
+        totalVideos: realTotalVideos,
         totalRevenue: totalRewardsUsd,
         currency,
         country: detectedCountry,
@@ -3770,17 +4134,166 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
         gpmProfileName,
         gpmGroupName: gpmGroupName || undefined,
         memberEmail: config.memberEmail,
+        extractionMethod: methodLabel,
       },
     };
   } catch (err) {
     return { success: false, error: err.message };
-  } finally {
-    if (context) {
-      activeContexts.delete(context);
-      await context.close().catch(() => { });
-    }
-    cleanupTempDir(tempDir);
   }
+}
+
+export async function extractProfileStudio(profileDir, profileId, chromePath, detectedHandle) {
+  return withProfileLock(profileId, async () => {
+    const storageRoot = path.dirname(profileDir);
+    let lastError = null;
+
+    // -------------------------------------------------------------------------
+    // TIER 1: Direct CDP attach if profile browser is running with DevTools port
+    // -------------------------------------------------------------------------
+    const activePort = readDevToolsActivePort(storageRoot, profileId);
+    if (activePort) {
+      console.log(`   [CDP] Profile ${profileId.slice(0, 8)} has active port :${activePort}. Testing connection...`);
+      let cdpBrowser = null;
+      let cdpPage = null;
+      try {
+        cdpBrowser = await chromium.connectOverCDP(`http://127.0.0.1:${activePort}`, { timeout: 8000 });
+        const contexts = cdpBrowser.contexts();
+        if (contexts.length > 0) {
+          const cdpContext = contexts[0];
+          // SAFETY: Dedicated isolated new tab — never touch, navigate, or disrupt existing user tabs!
+          cdpPage = await cdpContext.newPage();
+          console.log(`   [CDP] Opened isolated probe tab. Extracting TikTok Studio metrics...`);
+          const res = await scrapePageMetrics(cdpPage, cdpContext, profileDir, profileId, detectedHandle, "cdp");
+          if (res.success) {
+            console.log(`   [CDP] Tier 1 extraction succeeded for @${res.data.username}`);
+            try {
+              const liveCookies = await cdpContext.cookies(["https://www.tiktok.com", "https://tiktok.com"]);
+              if (liveCookies?.length) saveProfileSession(profileId, liveCookies);
+            } catch { }
+            return res;
+          } else {
+            console.warn(`   [CDP] Tier 1 extraction returned unauthenticated/error: ${res.error}. Falling back...`);
+            lastError = res.error;
+          }
+        }
+      } catch (cdpErr) {
+        console.warn(`   [CDP] Connection/attach failed on :${activePort}: ${cdpErr.message}. Falling back...`);
+        lastError = cdpErr.message;
+      } finally {
+        if (cdpPage) {
+          await cdpPage.close().catch(() => { });
+        }
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // TIER 2: Cookie Bridge (Live extension cookies / local session cache)
+    // -------------------------------------------------------------------------
+    const cachedCookies = loadProfileSession(profileId);
+    if (cachedCookies && cachedCookies.length > 0) {
+      console.log(`   [COOKIE-BRIDGE] Found ${cachedCookies.length} session cookies for ${profileId.slice(0, 8)}. Launching clean context...`);
+      let bBrowser = null;
+      let bContext = null;
+      try {
+        bBrowser = await chromium.launch({
+          headless: config.headless !== false,
+          executablePath: chromePath,
+          args: LAUNCH_ARGS,
+          timeout: 15000,
+        });
+        bContext = await bBrowser.newContext({
+          userAgent: USER_AGENT,
+          viewport: { width: 1440, height: 900 },
+        });
+        activeContexts.add(bContext);
+
+        const formatted = cachedCookies.map((c) => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain?.startsWith(".") ? c.domain : `.${c.domain}`,
+          path: c.path || "/",
+          expires: c.expirationDate || c.expires || (Math.floor(Date.now() / 1000) + 86400 * 30),
+          httpOnly: !!c.httpOnly,
+          secure: c.secure !== false,
+          sameSite: c.sameSite === "no_restriction" ? "None" : (c.sameSite === "lax" ? "Lax" : "None"),
+        }));
+        await bContext.addCookies(formatted);
+
+        const bPage = await bContext.newPage();
+        const res = await scrapePageMetrics(bPage, bContext, profileDir, profileId, detectedHandle, "cookie_bridge");
+        if (res.success && res.data && (res.data.videoCount > 0 || !detectedHandle)) {
+          console.log(`   [COOKIE-BRIDGE] Tier 2 extraction succeeded for @${res.data.username} (${res.data.videoCount} videos)`);
+          return res;
+        } else {
+          console.warn(`   [COOKIE-BRIDGE] Incomplete data from cookie session (videos: ${res.data?.videoCount || 0}). Falling back to Tier 3 Snapshot...`);
+          clearProfileSession(profileId);
+          lastError = res.error || "incomplete_cookie_bridge_data";
+        }
+      } catch (bridgeErr) {
+        console.warn(`   [COOKIE-BRIDGE] Error during cookie bridge: ${bridgeErr.message}. Falling back...`);
+        lastError = bridgeErr.message;
+      } finally {
+        if (bContext) {
+          activeContexts.delete(bContext);
+          await bContext.close().catch(() => { });
+        }
+        if (bBrowser) {
+          await bBrowser.close().catch(() => { });
+        }
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // TIER 3: Ultra-fast minimal profile snapshot
+    // -------------------------------------------------------------------------
+    console.log(`   [SNAPSHOT] Running Tier 3 minimal snapshot for ${profileId.slice(0, 8)}...`);
+    const snapshotResult = await createMinimalProfileSnapshot(profileDir, profileId);
+    if (!snapshotResult || !snapshotResult.tempDir) {
+      return { success: false, error: snapshotResult?.error || "Khong the tao snapshot profile" };
+    }
+
+    const { tempDir, cookiesLocked } = snapshotResult;
+    if (cookiesLocked) {
+      console.warn(`   [SNAPSHOT] Network\\Cookies is locked by an active Chrome instance without CDP port. Profile is in use.`);
+      cleanupTempDir(tempDir);
+      return {
+        success: false,
+        error: "profile_in_use_cookies_locked",
+      };
+    }
+
+    let snapContext = null;
+    try {
+      snapContext = await chromium.launchPersistentContext(tempDir, {
+        headless: config.headless !== false,
+        executablePath: chromePath,
+        args: LAUNCH_ARGS,
+        userAgent: USER_AGENT,
+        viewport: { width: 1440, height: 900 },
+        timeout: 15000,
+      });
+      activeContexts.add(snapContext);
+      const snapPage = await snapContext.newPage();
+      const res = await scrapePageMetrics(snapPage, snapContext, profileDir, profileId, detectedHandle, "snapshot");
+      if (res.success) {
+        console.log(`   [SNAPSHOT] Tier 3 extraction succeeded for @${res.data.username}`);
+        try {
+          const freshCookies = await snapContext.cookies(["https://www.tiktok.com", "https://tiktok.com"]);
+          if (freshCookies?.length) saveProfileSession(profileId, freshCookies);
+        } catch { }
+        return res;
+      }
+      return res;
+    } catch (snapErr) {
+      return { success: false, error: snapErr.message || lastError || "Snapshot extraction failed" };
+    } finally {
+      if (snapContext) {
+        activeContexts.delete(snapContext);
+        await snapContext.close().catch(() => { });
+      }
+      cleanupTempDir(tempDir);
+    }
+  });
 }
 
 // ==========================================
@@ -3801,6 +4314,9 @@ async function isJobCancelled(jobId) {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.cancelledJobIds) && data.cancelledJobIds.includes(jobId)) {
+        return true;
+      }
+      if (data.cancelledJobId && data.cancelledJobId === jobId) {
         return true;
       }
     }
@@ -3870,19 +4386,14 @@ async function performFullSweep(syncJob = null) {
   let allowedIds = null;
   if (gpmApi.online && gpmApi.base) {
     try {
-      const resp = await fetch(
-        `${gpmApi.base}/profiles?page=1&per_page=500&page_size=500`,
-        { signal: AbortSignal.timeout(8000) }
-      );
-      const json = await resp.json().catch(() => ({}));
-      const rows = normalizeGpmProfileRows(json) || [];
+      const rows = await fetchAllGpmProfiles(gpmApi.base);
       allowedIds = new Set(rows.map((r) => String(r.id)));
-      console.log(`[*] GPM API danh sach: ${allowedIds.size} profile (loc o dia theo API).`);
+      console.log(`[*] GPM API danh sach: ${allowedIds.size} profile (loc o dia theo API, ho tro phan trang day du).`);
     } catch (err) {
       console.warn(`[*] Khong doc duoc GPM API list: ${err?.message || err}`);
     }
   }
-  const openIds = listOpenProfileIdsFromProcesses(storagePath);
+  const openIds = await listOpenProfileIdsFromProcesses(storagePath);
   const profileDirs = diskDirs.filter((e) => {
     if (allowedIds && allowedIds.size) return allowedIds.has(e.name);
     // When API is offline, sync all valid profiles on disk
@@ -3897,7 +4408,7 @@ async function performFullSweep(syncJob = null) {
   const profilesToSync = [];
   for (const p of profileDirs) {
     const fullDir = path.join(storagePath, p.name);
-    const handle = findTikTokHandleInProfile(fullDir);
+    const handle = await findTikTokHandleInProfileAsync(fullDir);
     const meta = readGpmProfileMetaFromDisk(storagePath, p.name);
     const profileName = meta.name || `Profile ${p.name.slice(0, 8)}`;
     let groupName = meta.groupName || null;
@@ -4074,33 +4585,51 @@ async function performFullSweep(syncJob = null) {
         const gpmGroupName = d.gpmGroupName || p.groupName || undefined;
 
         // Send Studio Report to Server with Token (session UniqId + gpmProfileId)
-        try {
-          const reportRes = await fetch(`${config.serverUrl}/api/extension/report`, {
-            method: "POST",
-            headers: authHeaders,
-            body: JSON.stringify({
-              ...d,
-              postRewards: d.postRewards,
-              creatorRewardsMissing: d.creatorRewardsMissing,
-              bannedReason: d.bannedReason,
-              gpmProfileName,
-              gpmGroupName,
-              source: "agent",
-              metricsSource: "agent",
-              // Prefer Bearer session identity — avoid stale zip email mismatch
-              memberEmail: undefined,
-            }),
-          });
-          if (reportRes.status === 401 || reportRes.status === 403) {
-            const errData = await reportRes.json().catch(() => ({}));
-            markTokenRevoked(errData.error, reportRes.status);
-            authBlocked = true;
-            console.warn(`   [!] Bao cao bi tu choi (auth) — dung cac profile con lai.`);
-          } else if (!reportRes.ok) {
-            console.warn(`   [!] May chu tu choi bao cao @${d.username}: HTTP ${reportRes.status}`);
+        let reportOk = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const reportRes = await fetch(`${config.serverUrl}/api/extension/report`, {
+              method: "POST",
+              headers: authHeaders,
+              body: JSON.stringify({
+                ...d,
+                postRewards: d.postRewards,
+                creatorRewardsMissing: d.creatorRewardsMissing,
+                bannedReason: d.bannedReason,
+                gpmProfileName,
+                gpmGroupName,
+                source: "agent",
+                metricsSource: "agent",
+                // Prefer Bearer session identity — avoid stale zip email mismatch
+                memberEmail: undefined,
+              }),
+            });
+            if (reportRes.status === 401 || reportRes.status === 403) {
+              const errData = await reportRes.json().catch(() => ({}));
+              markTokenRevoked(errData.error, reportRes.status);
+              authBlocked = true;
+              console.warn(`   [!] Bao cao bi tu choi (auth) — dung cac profile con lai.`);
+              break;
+            } else if (reportRes.status === 429 || reportRes.status >= 500) {
+              const backoffMs = 1500 * (attempt + 1) + Math.floor(Math.random() * 1000);
+              console.warn(`   [!] Server tra ve ${reportRes.status} khi bao cao @${d.username}. Thu lai sau ${backoffMs}ms... (lan ${attempt + 1}/3)`);
+              await new Promise((r) => setTimeout(r, backoffMs));
+              continue;
+            } else if (!reportRes.ok) {
+              console.warn(`   [!] May chu tu choi bao cao @${d.username}: HTTP ${reportRes.status}`);
+              break;
+            } else {
+              reportOk = true;
+              break;
+            }
+          } catch (postErr) {
+            if (attempt < 2) {
+              const backoffMs = 1500 * (attempt + 1) + Math.floor(Math.random() * 1000);
+              await new Promise((r) => setTimeout(r, backoffMs));
+            } else {
+              console.warn(`   [!] Khong the gui bao cao @${d.username} len server:`, postErr.message);
+            }
           }
-        } catch (postErr) {
-          console.warn(`   [!] Khong the gui bao cao @${d.username} len server:`, postErr.message);
         }
       } else {
         failCount++;

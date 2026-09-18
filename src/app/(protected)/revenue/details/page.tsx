@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, Suspense } from "react";
+import { useState, useMemo, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useUrlParams } from "@/hooks/useUrlState";
 import { useSession } from "next-auth/react";
@@ -59,6 +59,18 @@ import {
 } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { useTableColumnResize } from "@/hooks/useTableColumnResize";
+
+const REVENUE_DETAILS_COLUMN_RESIZE_CONFIG = {
+  accountUsername: { minWidth: 160, maxWidth: 400, defaultWidth: 200 },
+  assignedUser: { minWidth: 140, maxWidth: 320, defaultWidth: 180 },
+  date: { minWidth: 100, maxWidth: 220, defaultWidth: 130 },
+  views: { minWidth: 100, maxWidth: 250, defaultWidth: 140 },
+  rpm: { minWidth: 90, maxWidth: 220, defaultWidth: 120 },
+  revenue: { minWidth: 110, maxWidth: 260, defaultWidth: 140 },
+  sourceType: { minWidth: 110, maxWidth: 260, defaultWidth: 150 },
+  actions: { minWidth: 80, maxWidth: 200, defaultWidth: 100 },
+} as const;
 
 type RevenueSortKey =
   | "accountUsername"
@@ -188,6 +200,13 @@ function RevenueDetailsPageContent() {
   const visibleColumnCount = useMemo(() => {
     return 1 /* checkbox */ + Object.values(visibleColumns).filter(Boolean).length + 1 /* Thao tác */;
   }, [visibleColumns]);
+
+  const tableRef = useRef<HTMLDivElement>(null);
+  const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
+    tableId: "revenue_details",
+    columns: REVENUE_DETAILS_COLUMN_RESIZE_CONFIG,
+    tableRef,
+  });
 
   // Selection & Actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -511,8 +530,6 @@ function RevenueDetailsPageContent() {
   const activeFiltersCount =
     (search ? 1 : 0) +
     (sourceTypeFilter !== "ALL" ? 1 : 0) +
-    (startDate ? 1 : 0) +
-    (endDate ? 1 : 0) +
     (minRevenue ? 1 : 0) +
     (minViews ? 1 : 0);
 
@@ -1121,32 +1138,7 @@ function RevenueDetailsPageContent() {
                   </Tooltip>
                 </span>
               )}
-              {startDate && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
-                  <span>Từ: {format(new Date(startDate + "T00:00:00"), "dd/MM/yyyy")}</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button onClick={() => setStartDate("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
-                        <X className="w-3 h-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
-                  </Tooltip>
-                </span>
-              )}
-              {endDate && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
-                  <span>Đến: {format(new Date(endDate + "T00:00:00"), "dd/MM/yyyy")}</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button onClick={() => setEndDate("")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
-                        <X className="w-3 h-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
-                  </Tooltip>
-                </span>
-              )}
+
               {minRevenue && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
                   <span>Doanh thu ≥ ${minRevenue}</span>
@@ -1194,7 +1186,7 @@ function RevenueDetailsPageContent() {
         <DataTableSkeleton columnCount={visibleColumnCount} rowCount={pageSize} />
       ) : (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" ref={tableRef} style={getTableVars()}>
             <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 min-w-[950px]">
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none normal-case">
                 <tr>
@@ -1210,91 +1202,109 @@ function RevenueDetailsPageContent() {
                   {/* Account - Sticky Left 10 */}
                   {visibleColumns.accountUsername && (
                     <th
+                      style={getColumnStyle("accountUsername")}
                       onClick={() => handleSort("accountUsername")}
-                      className="sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[170px]"
+                      className="relative group/th sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]"
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span>Tài khoản</span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">Tài khoản</span>
                         {renderSortIndicator("accountUsername")}
                       </div>
+                      {renderResizeHandle("accountUsername")}
                     </th>
                   )}
 
                   {visibleColumns.assignedUser && (
                     <th
+                      style={getColumnStyle("assignedUser")}
                       onClick={() => handleSort("assignedUser")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
+                      className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span>Người phụ trách</span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">Người phụ trách</span>
                         {renderSortIndicator("assignedUser")}
                       </div>
+                      {renderResizeHandle("assignedUser")}
                     </th>
                   )}
 
                   {visibleColumns.date && (
                     <th
+                      style={getColumnStyle("date")}
                       onClick={() => handleSort("date")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
+                      className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span>Ngày</span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">Ngày</span>
                         {renderSortIndicator("date")}
                       </div>
+                      {renderResizeHandle("date")}
                     </th>
                   )}
 
                   {visibleColumns.views && (
                     <th
+                      style={getColumnStyle("views")}
                       onClick={() => handleSort("views")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
+                      className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span>Lượt views</span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">Lượt views</span>
                         {renderSortIndicator("views")}
                       </div>
+                      {renderResizeHandle("views")}
                     </th>
                   )}
 
                   {visibleColumns.rpm && (
                     <th
+                      style={getColumnStyle("rpm")}
                       onClick={() => handleSort("rpm")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
+                      className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span>RPM ($)</span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">RPM ($)</span>
                         {renderSortIndicator("rpm")}
                       </div>
+                      {renderResizeHandle("rpm")}
                     </th>
                   )}
 
                   {visibleColumns.revenue && (
                     <th
+                      style={getColumnStyle("revenue")}
                       onClick={() => handleSort("revenue")}
-                      className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
+                      className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span>Doanh thu ($)</span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">Doanh thu ($)</span>
                         {renderSortIndicator("revenue")}
                       </div>
+                      {renderResizeHandle("revenue")}
                     </th>
                   )}
 
                   {visibleColumns.sourceType && (
                     <th
+                      style={getColumnStyle("sourceType")}
                       onClick={() => handleSort("sourceType")}
-                      className="px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
+                      className="relative group/th px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span>Nguồn thu</span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">Nguồn thu</span>
                         {renderSortIndicator("sourceType")}
                       </div>
+                      {renderResizeHandle("sourceType")}
                     </th>
                   )}
 
                   {/* Actions Column - Sticky Right 0 */}
-                  <th className="sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] px-4 py-3.5 text-center min-w-[100px]">
+                  <th
+                    style={getColumnStyle("actions")}
+                    className="relative group/th sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] px-4 py-3.5 text-center"
+                  >
                     Thao tác
+                    {renderResizeHandle("actions", "left")}
                   </th>
                 </tr>
               </thead>
@@ -1329,14 +1339,17 @@ function RevenueDetailsPageContent() {
 
                         {/* Account - Sticky Left 10 */}
                         {visibleColumns.accountUsername && (
-                          <td className={`sticky left-10 z-10 px-5 py-3.5 font-bold text-slate-900 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] backdrop-blur-xs ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}>
+                          <td
+                            style={getColumnStyle("accountUsername")}
+                            className={`sticky left-10 z-10 px-5 py-3.5 font-bold text-slate-900 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] backdrop-blur-xs ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}
+                          >
                             @{item.account?.username}
                           </td>
                         )}
 
                         {/* Staff */}
                         {visibleColumns.assignedUser && (
-                          <td className="px-4 py-3.5 text-slate-600 dark:text-slate-400">
+                          <td style={getColumnStyle("assignedUser")} className="px-4 py-3.5 text-slate-600 dark:text-slate-400">
                             {item.account?.assignedUser?.fullName ||
                               item.account?.assignedUser?.name ||
                               item.account?.assignedUser?.username ||
@@ -1346,35 +1359,35 @@ function RevenueDetailsPageContent() {
 
                         {/* Date */}
                         {visibleColumns.date && (
-                          <td className="px-4 py-3.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                          <td style={getColumnStyle("date")} className="px-4 py-3.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">
                             {item.date ? item.date.slice(0, 10) : "-"}
                           </td>
                         )}
 
                         {/* Views */}
                         {visibleColumns.views && (
-                          <td className="px-4 py-3.5 font-semibold text-slate-800 dark:text-slate-300">
+                          <td style={getColumnStyle("views")} className="px-4 py-3.5 font-semibold text-slate-800 dark:text-slate-300">
                             {Number(item.views || 0).toLocaleString()}
                           </td>
                         )}
 
                         {/* RPM */}
                         {visibleColumns.rpm && (
-                          <td className="px-4 py-3.5 font-bold text-emerald-600 dark:text-emerald-400">
+                          <td style={getColumnStyle("rpm")} className="px-4 py-3.5 font-bold text-emerald-600 dark:text-emerald-400">
                             {formatAmount(Number(item.rpm || 0), (item.account as any)?.country || "USD")}
                           </td>
                         )}
 
                         {/* Revenue */}
                         {visibleColumns.revenue && (
-                          <td className="px-4 py-3.5 font-black text-amber-600 dark:text-amber-300">
+                          <td style={getColumnStyle("revenue")} className="px-4 py-3.5 font-black text-amber-600 dark:text-amber-300">
                             {formatAmount(Number(item.revenue || 0), (item.account as any)?.country || "USD")}
                           </td>
                         )}
 
                         {/* Source */}
                         {visibleColumns.sourceType && (
-                          <td className="px-5 py-3.5">
+                          <td style={getColumnStyle("sourceType")} className="px-5 py-3.5">
                             <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs">
                               {item.sourceType}
                             </span>
@@ -1382,7 +1395,10 @@ function RevenueDetailsPageContent() {
                         )}
 
                         {/* Thao tác - Sticky Right 0 */}
-                        <td className={`sticky right-0 z-10 px-4 py-3.5 text-center border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] backdrop-blur-xs ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}>
+                        <td
+                          style={getColumnStyle("actions")}
+                          className={`sticky right-0 z-10 px-4 py-3.5 text-center border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] backdrop-blur-xs ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}
+                        >
                           {isAuto ? (
                             <span className="text-[11px] text-slate-400 italic" title="Bản ghi đồng bộ tự động từ Analytics">
                               Tự động

@@ -62,13 +62,13 @@ export async function POST(req: Request) {
       });
     }
 
-    // Check if user already exists
+    // Check if user already exists and is verified
     const { prisma } = await import("@/lib/prisma");
     const existingUser = await prisma.user.findUnique({
       where: { email: email.toLowerCase() }
     });
 
-    if (existingUser) {
+    if (existingUser && existingUser.isVerified) {
       const response = createErrorResponse(
         AUTH_ERROR_CODES.USER_EXISTS,
         "Tài khoản với email này đã tồn tại. Vui lòng đăng nhập."
@@ -115,14 +115,41 @@ export async function POST(req: Request) {
 
     // Hash password
     const hash = await bcrypt.hash(password, 10);
+    const rawUsername = name?.trim() || email.split("@")[0];
 
-    // Create verification token (preserving name and callbackUrl)
+    // Store unverified user record in PostgreSQL (password hash safely stored in DB, never in token)
+    let userRecord = existingUser;
+    if (!userRecord) {
+      userRecord = await prisma.user.create({
+        data: {
+          email: email.toLowerCase().trim(),
+          username: rawUsername,
+          name: rawUsername,
+          password: hash,
+          isVerified: false,
+          role: pendingInvite.role || "STAFF",
+          groupId: pendingInvite.groupId || null,
+          isActive: true,
+        },
+      });
+    } else {
+      userRecord = await prisma.user.update({
+        where: { id: userRecord.id },
+        data: {
+          password: hash,
+          name: name?.trim() || userRecord.name,
+          username: rawUsername,
+        },
+      });
+    }
+
+    // Create verification token (strictly omitting password hash)
     const token = jwt.sign(
       {
-        email,
-        password: hash,
-        name: name?.trim() || undefined,
-        callbackUrl: callbackUrl || undefined
+        sub: userRecord.id,
+        email: userRecord.email,
+        callbackUrl: callbackUrl || undefined,
+        typ: "email_verify",
       },
       JWT_SECRET,
       { expiresIn: "30m" }

@@ -252,6 +252,7 @@ model DailyChecklistItem {
   isSynced    Boolean        @default(false)
   isCompleted Boolean        @default(false)
   notes       String?
+  videosSnapshot Json?          // Snapshot of videos posted on this day [{ id, title, views, likes, postDate, ... }]
   updatedAt   DateTime       @updatedAt
 
   @@index([checklistId])

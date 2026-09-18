@@ -137,8 +137,8 @@ export const gpmRouter = router({
         select: { id: true, assignedUserId: true, gpmPort: true },
       });
 
-      if (ctx.session.user.role === "STAFF" && account) {
-        if (account.assignedUserId !== ctx.session.user.id) {
+      if (ctx.session.user.role === "STAFF") {
+        if (!account || account.assignedUserId !== ctx.session.user.id) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "Bạn không có quyền khởi động profile này. Profile chưa được gán cho bạn.",

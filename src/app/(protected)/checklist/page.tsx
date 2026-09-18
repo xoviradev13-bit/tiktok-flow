@@ -45,6 +45,7 @@ import {
   endOfMonth,
   startOfWeek,
   endOfWeek,
+  subDays,
 } from "date-fns";
 import confetti from "canvas-confetti";
 import * as XLSX from "xlsx";
@@ -1008,70 +1009,72 @@ function ChecklistPageContent() {
         {/* Filter & Toolbar Box */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-3.5 sm:p-4 shadow-sm space-y-3.5">
           {/* Row 1: Primary View Switcher (Table | Calendar | Charts) & Time Presets */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            {/* View Type Tabs */}
-            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            {/* Left: View Type Tabs */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
               <button
                 type="button"
                 onClick={() => setViewType("table")}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${viewType === "table"
+                className={`h-8 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${viewType === "table"
                   ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
               >
-                <CheckSquare className="w-3.5 h-3.5 text-emerald-500" />
+                <CheckSquare className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                 <span>Bảng Dữ Liệu</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setViewType("calendar")}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${viewType === "calendar"
+                className={`h-8 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${viewType === "calendar"
                   ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
               >
-                <CalendarIcon className="w-3.5 h-3.5 text-pink-500" />
+                <CalendarIcon className="w-3.5 h-3.5 text-pink-500 shrink-0" />
                 <span>Lịch Chấm Công</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setViewType("charts")}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${viewType === "charts"
+                className={`h-8 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${viewType === "charts"
                   ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
               >
-                <TrendingUp className="w-3.5 h-3.5 text-cyan-500" />
+                <TrendingUp className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
                 <span>Biểu Đồ & Thống Kê</span>
               </button>
             </div>
 
-            {/* In Table View: Sub-mode Toggle (Daily vs Range) */}
+            {/* Center: In Table View Sub-mode Toggle (Daily vs Range) */}
             {viewType === "table" && (
-              <div className="w-full sm:w-auto grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
                 <button
                   type="button"
                   onClick={() => setViewMode("daily")}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 min-w-0 ${viewMode === "daily"
-                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                  className={`h-8 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${viewMode === "daily"
+                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     }`}
                 >
-                  <span className="shrink-0">📅</span>
-                  <span className="truncate whitespace-nowrap">Theo Ngày (Roll Call)</span>
+                  <span className="shrink-0 text-xs">📅</span>
+                  <span>Theo ngày</span>
+                  <span className="hidden xl:inline text-slate-400 font-normal">(Roll Call)</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewMode("range")}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 min-w-0 ${viewMode === "range"
-                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                  className={`h-8 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${viewMode === "range"
+                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     }`}
                 >
-                  <span className="shrink-0">📈</span>
-                  <span className="truncate whitespace-nowrap">Khoảng Ngày (Timesheet)</span>
+                  <span className="shrink-0 text-xs">📈</span>
+                  <span>Khoảng ngày</span>
+                  <span className="hidden xl:inline text-slate-400 font-normal">(Timesheet)</span>
                 </button>
               </div>
             )}
@@ -1080,13 +1083,13 @@ function ChecklistPageContent() {
             {viewType === "calendar" ? (
               /* Calendar Mode: Staff Selector in header row */
               isLeadOrAdmin && (
-                <div className="self-start lg:self-auto w-full sm:w-auto">
+                <div className="w-full sm:w-auto shrink-0">
                   {renderStaffSelector("w-full sm:w-60 md:w-64")}
                 </div>
               )
             ) : viewType === "charts" || (viewType === "table" && viewMode === "range") ? (
               /* Charts or Table Range: Range presets */
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none py-1">
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
                 {[
                   { id: "7d", label: "7 Ngày", action: () => applyRangePreset(7, "7d") },
                   { id: "28d", label: "28 Ngày", action: () => applyRangePreset(28, "28d") },
@@ -1099,9 +1102,9 @@ function ChecklistPageContent() {
                     <button
                       key={p.id}
                       onClick={p.action}
-                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${isActive
-                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
+                      className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isActive
+                        ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                         }`}
                     >
                       {p.label}
@@ -1125,12 +1128,12 @@ function ChecklistPageContent() {
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${activeRangePreset === "custom"
-                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
+                      className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${activeRangePreset === "custom"
+                        ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                         }`}
                     >
-                      <CalendarIcon className="w-3.5 h-3.5" />
+                      <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
                       <span>
                         {activeRangePreset === "custom"
                           ? `${format(new Date(startDateStr + "T00:00:00"), "dd/MM")} - ${format(new Date(endDateStr + "T00:00:00"), "dd/MM/yy")}`
@@ -1163,6 +1166,7 @@ function ChecklistPageContent() {
                         onSelect={(range) => {
                           setRangeSelection(range);
                         }}
+                        disabled={(date) => date < subDays(new Date(), 60) || date > new Date()}
                         numberOfMonths={1}
                         className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
                         classNames={{
@@ -1206,13 +1210,13 @@ function ChecklistPageContent() {
               </div>
             ) : (
               /* Table Daily: Single day pills */
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto max-w-full scrollbar-none py-1">
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
                 <button
                   type="button"
                   onClick={() => setDateStr(todayStr)}
-                  className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyToday
-                    ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
+                  className={`h-8 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyToday
+                    ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     }`}
                 >
                   Hôm nay
@@ -1220,9 +1224,9 @@ function ChecklistPageContent() {
                 <button
                   type="button"
                   onClick={() => setDateStr(yesterdayStr)}
-                  className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyYesterday
-                    ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
+                  className={`h-8 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyYesterday
+                    ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     }`}
                 >
                   Hôm qua
@@ -1233,12 +1237,12 @@ function ChecklistPageContent() {
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${isDailyCustom
-                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60"
+                      className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${isDailyCustom
+                        ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                         }`}
                     >
-                      <CalendarIcon className="w-3.5 h-3.5" />
+                      <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
                       <span>
                         {isDailyCustom
                           ? format(new Date(dateStr + "T00:00:00"), "dd/MM/yyyy")
@@ -1271,6 +1275,7 @@ function ChecklistPageContent() {
                           if (d) setDateStr(format(d, "yyyy-MM-dd"));
                           setIsDatePickerOpen(false);
                         }}
+                        disabled={(date) => date < subDays(new Date(), 60) || date > new Date()}
                         className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
                         classNames={{
                           root: "w-full",

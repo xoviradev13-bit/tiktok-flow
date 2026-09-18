@@ -43,8 +43,13 @@ export async function POST(req: Request) {
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (user) {
-      // Only send email if user exists
-      const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "30m" });
+      // Only send email if user exists. Include password fingerprint for single-use invalidation.
+      const pwdStamp = user.password ? user.password.slice(-12) : user.updatedAt.getTime().toString();
+      const token = jwt.sign(
+        { email, pwdStamp, typ: "pwd_reset" },
+        JWT_SECRET,
+        { expiresIn: "30m" }
+      );
       const resetUrl = `${APP_URL}/auth/reset-password?token=${token}`;
 
       const html = `

@@ -127,3 +127,174 @@ export function getCutoffTimeInfo(config: ScoringRuleConfig = DEFAULT_SCORING_CO
     cutoffTimeString: `${String(config.cutOffHour).padStart(2, "0")}:${String(config.cutOffMinute).padStart(2, "0")} (Giờ VN)`,
   };
 }
+
+/**
+ * Centralized business date calculation.
+ * Ensures all components share the exact same UTC midnight representation of the Vietnam business day.
+ */
+export function getBusinessToday(timezone = "Asia/Ho_Chi_Minh"): {
+  todayDateOnly: Date;
+  sevenDaysAgoDateOnly: Date;
+  todayStr: string;
+  currentVnHour: number;
+  currentVnMinute: number;
+} {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(new Date());
+  const m: Record<string, string> = {};
+  for (const p of parts) m[p.type] = p.value;
+
+  const y = Number(m.year);
+  const mo = Number(m.month);
+  const d = Number(m.day);
+  const hour = Number(m.hour || 0);
+  const minute = Number(m.minute || 0);
+
+  const todayDateOnly = new Date(Date.UTC(y, mo - 1, d));
+  const sevenDaysAgoDateOnly = new Date(todayDateOnly.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const todayStr = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
+  return {
+    todayDateOnly,
+    sevenDaysAgoDateOnly,
+    todayStr,
+    currentVnHour: hour,
+    currentVnMinute: minute,
+  };
+}
+
+/**
+ * Evaluates and locks pending daily checklists.
+ * In catch-up mode (options.includeToday !== true), strictly locks past days:
+ * isLocked = false && date >= sevenDaysAgo && date < todayDateOnly.
+ * In cron/cutoff mode (options.includeToday === true), also locks today's checklist.
+ */
+export async function finalizePendingChecklists(
+  prisma: any,
+  options: { includeToday?: boolean } = {}
+): Promise<{
+  processedCount: number;
+  autoCheckedItemsCount: number;
+  checklists: Array<{ id: string; date: string; score: number }>;
+}> {
+  const { todayDateOnly, sevenDaysAgoDateOnly } = getBusinessToday();
+  const scoringConfig = await getScoringConfig(prisma);
+
+  const dateFilter: any = {
+    gte: sevenDaysAgoDateOnly,
+  };
+  if (options.includeToday) {
+    dateFilter.lte = todayDateOnly;
+  } else {
+    dateFilter.lt = todayDateOnly;
+  }
+
+  // Find candidate unfinalized checklists
+  const candidates = await prisma.dailyChecklist.findMany({
+    where: {
+      isLocked: false,
+      date: dateFilter,
+    },
+    include: {
+      items: {
+        include: { account: true },
+      },
+      user: {
+        select: { id: true, name: true, fullName: true, username: true },
+      },
+    },
+    orderBy: { date: "asc" },
+  });
+
+  if (!candidates || candidates.length === 0) {
+    return { processedCount: 0, autoCheckedItemsCount: 0, checklists: [] };
+  }
+
+  let processedCount = 0;
+  let autoCheckedItemsCount = 0;
+  const checklistsSummary: Array<{ id: string; date: string; score: number }> = [];
+
+  for (const checklist of candidates) {
+    // 1. Optimistic Atomic Locking: Only process if we successfully acquire the lock
+    const lockAcquired = await prisma.dailyChecklist.updateMany({
+      where: {
+        id: checklist.id,
+        isLocked: false,
+      },
+      data: {
+        isLocked: true,
+        lockedAt: new Date(),
+      },
+    });
+
+    if (lockAcquired.count === 0) {
+      // Concurrently finalized by another worker/process
+      continue;
+    }
+
+    // 2. Auto-check items with videosSnapshot or (isPosted && isSynced)
+    for (const item of checklist.items) {
+      const hasVideos = Array.isArray(item.videosSnapshot) && item.videosSnapshot.length > 0;
+      const isCompleted = item.isCompleted || (item.isPosted && item.isSynced) || hasVideos;
+
+      if (isCompleted !== item.isCompleted || (hasVideos && !item.isPosted)) {
+        await prisma.dailyChecklistItem.update({
+          where: { id: item.id },
+          data: {
+            isCompleted,
+            isPosted: item.isPosted || hasVideos,
+          },
+        });
+        if (isCompleted && !item.isCompleted) {
+          autoCheckedItemsCount++;
+        }
+      }
+    }
+
+    // 3. Recalculate workday score
+    const allItems = await prisma.dailyChecklistItem.findMany({
+      where: { checklistId: checklist.id },
+      include: { account: true },
+    });
+
+    const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+    const eligibleItems = shouldExcludeBanned
+      ? allItems.filter((i: any) => i.account?.status !== "BANNED")
+      : allItems;
+
+    const totalAssigned = eligibleItems.length;
+    const completedCount = eligibleItems.filter((i: any) => i.isCompleted || (i.isPosted && i.isSynced)).length;
+    const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
+
+    await prisma.dailyChecklist.update({
+      where: { id: checklist.id },
+      data: {
+        totalAssigned,
+        completedCount,
+        completionRate,
+        workdayScore,
+      },
+    });
+
+    processedCount++;
+    checklistsSummary.push({
+      id: checklist.id,
+      date: checklist.date.toISOString().split("T")[0],
+      score: workdayScore,
+    });
+  }
+
+  return {
+    processedCount,
+    autoCheckedItemsCount,
+    checklists: checklistsSummary,
+  };
+}

@@ -3,7 +3,7 @@ import jwt, { TokenExpiredError } from "jsonwebtoken";
 import { prisma } from "@/lib/prisma";
 import { rejectIfExtAccessTyp } from "@/lib/extension-auth";
 
-const JWT_SECRET = process.env.AUTH_SECRET || "default-secret";
+const JWT_SECRET = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 export async function GET(req: Request) {
@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   const token = searchParams.get("token");
 
   // Validate token presence
-  if (!token) {
+  if (!token || !JWT_SECRET) {
     return NextResponse.redirect(
       `${APP_URL}/auth/error?error=TOKEN_INVALID`
     );
@@ -19,15 +19,16 @@ export async function GET(req: Request) {
 
   try {
     // Verify token
-    let decoded: { email: string; password: string; name?: string; callbackUrl?: string; typ?: string };
+    let decoded: {
+      sub?: string;
+      email: string;
+      password?: string;
+      name?: string;
+      callbackUrl?: string;
+      typ?: string;
+    };
     try {
-      decoded = jwt.verify(token, JWT_SECRET) as {
-        email: string;
-        password: string;
-        name?: string;
-        callbackUrl?: string;
-        typ?: string;
-      };
+      decoded = jwt.verify(token, JWT_SECRET) as any;
     } catch (jwtError) {
       if (jwtError instanceof TokenExpiredError) {
         return NextResponse.redirect(
@@ -49,55 +50,91 @@ export async function GET(req: Request) {
       ? `&callbackUrl=${encodeURIComponent(decoded.callbackUrl)}`
       : "";
 
-    // Check if user already exists
-    const existing = await prisma.user.findUnique({
-      where: { email: decoded.email }
-    });
+    // Check if user exists (by sub ID or email)
+    const existing = decoded.sub
+      ? await prisma.user.findUnique({ where: { id: decoded.sub } })
+      : await prisma.user.findUnique({ where: { email: decoded.email.toLowerCase().trim() } });
 
     if (existing) {
-      // User already verified, redirect to login with message
+      if (existing.isVerified) {
+        // User already verified, redirect to login with message
+        return NextResponse.redirect(
+          `${APP_URL}/signin?verified=already${callbackParam}`
+        );
+      }
+
+      // Mark user as verified
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          isVerified: true,
+          emailVerified: new Date(),
+        },
+      });
+
+      // Close pending invitation
+      const pendingInvite = await prisma.invitation.findFirst({
+        where: {
+          email: { equals: existing.email.toLowerCase().trim(), mode: "insensitive" },
+          status: "PENDING",
+        },
+      });
+      if (pendingInvite) {
+        await prisma.invitation.update({
+          where: { id: pendingInvite.id },
+          data: {
+            status: "ACCEPTED",
+            acceptedAt: new Date(),
+          },
+        });
+      }
+
       return NextResponse.redirect(
-        `${APP_URL}/signin?verified=already${callbackParam}`
+        `${APP_URL}/signin?verified=success${callbackParam}`
       );
     }
 
-    const rawUsername = decoded.name?.trim() || decoded.email.split("@")[0];
-
-    // Check if there is an active pending invite
-    const pendingInvite = await prisma.invitation.findFirst({
-      where: {
-        email: { equals: decoded.email.toLowerCase().trim(), mode: "insensitive" },
-        status: "PENDING",
-      },
-    });
-
-    // Create new user in PostgreSQL with user-defined username and invitation details
-    await prisma.user.create({
-      data: {
-        email: decoded.email.toLowerCase().trim(),
-        username: rawUsername,
-        name: rawUsername,
-        password: decoded.password,
-        isVerified: true,
-        role: pendingInvite?.role || "STAFF",
-        groupId: pendingInvite?.groupId || null,
-        isActive: true,
-      },
-    });
-
-    if (pendingInvite) {
-      await prisma.invitation.update({
-        where: { id: pendingInvite.id },
-        data: {
-          status: "ACCEPTED",
-          acceptedAt: new Date(),
+    // Backward-compatibility fallback for older in-flight tokens carrying password
+    if (decoded.password) {
+      const rawUsername = decoded.name?.trim() || decoded.email.split("@")[0];
+      const pendingInvite = await prisma.invitation.findFirst({
+        where: {
+          email: { equals: decoded.email.toLowerCase().trim(), mode: "insensitive" },
+          status: "PENDING",
         },
       });
+
+      await prisma.user.create({
+        data: {
+          email: decoded.email.toLowerCase().trim(),
+          username: rawUsername,
+          name: rawUsername,
+          password: decoded.password,
+          isVerified: true,
+          emailVerified: new Date(),
+          role: pendingInvite?.role || "STAFF",
+          groupId: pendingInvite?.groupId || null,
+          isActive: true,
+        },
+      });
+
+      if (pendingInvite) {
+        await prisma.invitation.update({
+          where: { id: pendingInvite.id },
+          data: {
+            status: "ACCEPTED",
+            acceptedAt: new Date(),
+          },
+        });
+      }
+
+      return NextResponse.redirect(
+        `${APP_URL}/signin?verified=success${callbackParam}`
+      );
     }
 
-    // Redirect to login with success message & preserved callbackUrl
     return NextResponse.redirect(
-      `${APP_URL}/signin?verified=success${callbackParam}`
+      `${APP_URL}/auth/error?error=TOKEN_INVALID`
     );
 
   } catch (error) {

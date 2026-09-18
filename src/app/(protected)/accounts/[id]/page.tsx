@@ -444,8 +444,98 @@ function AccountDetailPageContent() {
   }, [account]);
 
   const punishedVideosList = useMemo(() => {
-    return postRewardsList.filter((item: any) => item.isPunished);
-  }, [postRewardsList]);
+    if (Array.isArray((account as any)?.punishedVideos30d)) {
+      return (account as any).punishedVideos30d;
+    }
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    return postRewardsList.filter((item: any) => {
+      if (!item.isPunished) return false;
+      const ts = item.publishTimeUnix
+        ? Number(item.publishTimeUnix) * 1000
+        : new Date(item.publishDate || item.postDate || item.postTime || "").getTime();
+      return !isNaN(ts) ? now - ts <= THIRTY_DAYS_MS : false;
+    });
+  }, [account, postRewardsList]);
+
+  const strikeTheme = useMemo(() => {
+    const count = punishedVideosList.length;
+    if (count <= 0) return null;
+    if (count === 1) {
+      return {
+        count,
+        levelText: "Mức 1 (1 video)",
+        bannerBg: "bg-gradient-to-r from-yellow-500/15 via-yellow-500/10 to-transparent border-yellow-300 dark:border-yellow-700/80",
+        iconBox: "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400",
+        title: "text-yellow-900 dark:text-yellow-200",
+        desc: "text-yellow-700 dark:text-yellow-400",
+        tag: "bg-yellow-500/20 text-yellow-800 dark:text-yellow-300 border-yellow-500/30",
+        btn: "bg-yellow-600 hover:bg-yellow-700 text-white",
+        btnTab: selectedRewardProgram === "PUNISHED_ONLY"
+          ? "bg-yellow-600 text-white shadow-sm ring-2 ring-yellow-500/30"
+          : "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900/60 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
+      };
+    }
+    if (count === 2) {
+      return {
+        count,
+        levelText: "Mức 2 (2 video)",
+        bannerBg: "bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent border-amber-300 dark:border-amber-700/80",
+        iconBox: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
+        title: "text-amber-900 dark:text-amber-200",
+        desc: "text-amber-700 dark:text-amber-400",
+        tag: "bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-500/30",
+        btn: "bg-amber-600 hover:bg-amber-700 text-white",
+        btnTab: selectedRewardProgram === "PUNISHED_ONLY"
+          ? "bg-amber-600 text-white shadow-sm ring-2 ring-amber-500/30"
+          : "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100 dark:hover:bg-amber-900/40",
+      };
+    }
+    if (count === 3) {
+      return {
+        count,
+        levelText: "Mức 3 (3 video - Nghiêm trọng)",
+        bannerBg: "bg-gradient-to-r from-orange-500/20 via-orange-500/10 to-transparent border-orange-300 dark:border-orange-700/80",
+        iconBox: "bg-orange-500/20 text-orange-600 dark:text-orange-400",
+        title: "text-orange-900 dark:text-orange-200",
+        desc: "text-orange-700 dark:text-orange-400",
+        tag: "bg-orange-500/20 text-orange-800 dark:text-orange-300 border-orange-500/30",
+        btn: "bg-orange-600 hover:bg-orange-700 text-white",
+        btnTab: selectedRewardProgram === "PUNISHED_ONLY"
+          ? "bg-orange-600 text-white shadow-sm ring-2 ring-orange-500/30"
+          : "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-900/60 hover:bg-orange-100 dark:hover:bg-orange-900/40",
+      };
+    }
+    if (count === 4) {
+      return {
+        count,
+        levelText: "Mức 4 (4 video - Nguy cơ mất quỹ)",
+        bannerBg: "bg-gradient-to-r from-rose-500/20 via-rose-500/10 to-transparent border-rose-300 dark:border-rose-800",
+        iconBox: "bg-rose-500/20 text-rose-600 dark:text-rose-400",
+        title: "text-rose-900 dark:text-rose-200",
+        desc: "text-rose-700 dark:text-rose-400",
+        tag: "bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-500/30",
+        btn: "bg-rose-600 hover:bg-rose-700 text-white",
+        btnTab: selectedRewardProgram === "PUNISHED_ONLY"
+          ? "bg-rose-600 text-white shadow-sm ring-2 ring-rose-500/30"
+          : "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40",
+      };
+    }
+    // 5 or > 5
+    return {
+      count,
+      levelText: `Mức 5 (${count} video - Nguy cấp)`,
+      bannerBg: "bg-gradient-to-r from-red-600/25 via-red-600/15 to-transparent border-2 border-red-500 dark:border-red-600 animate-pulse",
+      iconBox: "bg-red-600/20 text-red-600 dark:text-red-300",
+      title: "text-red-950 dark:text-red-100",
+      desc: "text-red-700 dark:text-red-300 font-bold",
+      tag: "bg-red-600/20 text-red-800 dark:text-red-200 border-red-500/40",
+      btn: "bg-red-600 hover:bg-red-700 text-white font-black",
+      btnTab: selectedRewardProgram === "PUNISHED_ONLY"
+        ? "bg-red-600 text-white shadow-sm ring-2 ring-red-500/30"
+        : "bg-red-100 dark:bg-red-950/70 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-800 hover:bg-red-200 dark:hover:bg-red-900/50",
+    };
+  }, [punishedVideosList.length, selectedRewardProgram]);
 
   const punishedProgramsMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -483,7 +573,7 @@ function AccountDetailPageContent() {
   const filteredPostRewards = useMemo(() => {
     if (selectedRewardProgram === "ALL") return postRewardsList;
     if (selectedRewardProgram === "PUNISHED_ONLY") {
-      return postRewardsList.filter((item: any) => item.isPunished);
+      return punishedVideosList;
     }
     return postRewardsList.filter((item: any) => {
       if (Array.isArray(item.programs) && item.programs.length > 0) {
@@ -494,7 +584,7 @@ function AccountDetailPageContent() {
         (item.programName && item.programName.includes(selectedRewardProgram))
       );
     });
-  }, [postRewardsList, selectedRewardProgram]);
+  }, [postRewardsList, selectedRewardProgram, punishedVideosList]);
 
   // Currency symbol helper
   const getCurrencySymbol = (country?: string | null) => {
@@ -1084,31 +1174,34 @@ function AccountDetailPageContent() {
       )}
 
       {/* Top Banner: PUNISHED VIDEOS ALERT (when not already banned or showing warning) */}
-      {!isBannedFromCreator && punishedVideosList.length > 0 && (
-        <div className="bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent border border-amber-300 dark:border-amber-800/60 rounded-3xl p-4.5 shadow-sm">
+      {!isBannedFromCreator && punishedVideosList.length > 0 && strikeTheme && (
+        <div className={`border rounded-3xl p-4.5 shadow-sm ${strikeTheme.bannerBg}`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
-              <div className="p-2 bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl shrink-0 mt-0.5">
+              <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${strikeTheme.iconBox}`}>
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h4 className="font-bold text-amber-900 dark:text-amber-200 text-xs sm:text-sm">
-                    Phát hiện {punishedVideosList.length} video bị phạt / hủy điều kiện nhận thưởng (Strike)
+                  <h4 className={`font-bold text-xs sm:text-sm ${strikeTheme.title}`}>
+                    Phát hiện {punishedVideosList.length} video bị phạt trong 30 ngày gần nhất (Strike)
                   </h4>
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${strikeTheme.tag}`}>
+                    {strikeTheme.levelText}
+                  </span>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {punishedProgramsMap.map((p) => (
                       <span
                         key={p.name}
-                        className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30"
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${strikeTheme.tag}`}
                       >
                         {p.name}: {p.count} video
                       </span>
                     ))}
                   </div>
                 </div>
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  Tài khoản có video bị đánh gậy bản quyền hoặc vi phạm chính sách của chương trình kiếm tiền tương ứng.
+                <p className={`text-xs ${strikeTheme.desc}`}>
+                  Tài khoản có video bị đánh gậy bản quyền hoặc vi phạm chính sách của chương trình kiếm tiền trong 30 ngày gần nhất.
                 </p>
               </div>
             </div>
@@ -1118,10 +1211,10 @@ function AccountDetailPageContent() {
                 setActiveTab("rewards");
                 setSelectedRewardProgram("PUNISHED_ONLY");
               }}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all flex items-center gap-1.5 shrink-0 self-start md:self-auto cursor-pointer"
+              className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer self-start md:self-auto ${strikeTheme.btn}`}
             >
-              <span>Xem danh sách video bị phạt</span>
-              <ChevronRight className="w-4 h-4" />
+              <AlertTriangle className="w-4 h-4" />
+              <span>Xem {punishedVideosList.length} video bị phạt (30 ngày)</span>
             </button>
           </div>
         </div>
@@ -1312,6 +1405,7 @@ function AccountDetailPageContent() {
                           onSelect={(range) => {
                             setRangeSelection(range);
                           }}
+                          disabled={(date) => date > new Date()}
                           numberOfMonths={1}
                           className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
                           classNames={{
@@ -1883,17 +1977,14 @@ function AccountDetailPageContent() {
                   {prog.name} ({prog.count} video • {formatAmount(prog.totalReward, account?.country)})
                 </button>
               ))}
-              {punishedVideosList.length > 0 && (
+              {punishedVideosList.length > 0 && strikeTheme && (
                 <button
                   type="button"
                   onClick={() => setSelectedRewardProgram("PUNISHED_ONLY")}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${selectedRewardProgram === "PUNISHED_ONLY"
-                    ? "bg-rose-600 text-white shadow-sm ring-2 ring-rose-500/30"
-                    : "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40"
-                    }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${strikeTheme.btnTab}`}
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>Video bị phạt ({punishedVideosList.length})</span>
+                  <span>Video bị phạt 30 ngày ({punishedVideosList.length})</span>
                 </button>
               )}
             </div>
@@ -1934,10 +2025,19 @@ function AccountDetailPageContent() {
                 };
                 const itemRpmDisplay = calculateItemRpm();
 
+                const isPunished30d = (() => {
+                  if (!item.isPunished) return false;
+                  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+                  const ts = item.publishTimeUnix
+                    ? Number(item.publishTimeUnix) * 1000
+                    : new Date(item.publishDate || item.postDate || item.postTime || "").getTime();
+                  return !isNaN(ts) ? Date.now() - ts <= THIRTY_DAYS_MS : false;
+                })();
+
                 return (
                   <div
                     key={idx}
-                    className={`group relative rounded-2xl p-3.5 transition-all flex flex-col justify-between border ${item.isPunished
+                    className={`group relative rounded-2xl p-3.5 transition-all flex flex-col justify-between border ${isPunished30d
                       ? "bg-rose-50/40 dark:bg-rose-950/25 border-rose-300 dark:border-rose-800/80 shadow-xs hover:border-rose-500"
                       : "bg-slate-50/70 dark:bg-slate-950/50 border-slate-200/80 dark:border-slate-800/80 hover:border-pink-500/40 hover:shadow-md"
                       }`}
@@ -1960,9 +2060,9 @@ function AccountDetailPageContent() {
                             <Video className="w-6 h-6 opacity-40" />
                           </div>
                         )}
-                        {item.isPunished && (
+                        {isPunished30d && (
                           <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-bold flex items-center gap-0.5 shadow-sm">
-                            <AlertTriangle className="w-2.5 h-2.5" /> Bị phạt
+                            <AlertTriangle className="w-2.5 h-2.5" /> Bị phạt (30 ngày)
                           </div>
                         )}
                         {item.duration && (
@@ -1976,7 +2076,7 @@ function AccountDetailPageContent() {
                       <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
                         <div className="space-y-1">
                           <h4
-                            className={`text-xs font-bold line-clamp-2 leading-snug transition-colors ${item.isPunished
+                            className={`text-xs font-bold line-clamp-2 leading-snug transition-colors ${isPunished30d
                               ? "text-rose-900 dark:text-rose-100 group-hover:text-rose-600"
                               : "text-slate-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400"
                               }`}
@@ -2014,7 +2114,7 @@ function AccountDetailPageContent() {
                               </span>
                             );
                           })()}
-                          {item.isPunished && (
+                          {isPunished30d && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500 text-white shadow-xs">
                               <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
                               Bị phạt ({item.programName || "Creator Rewards"})
@@ -2137,6 +2237,7 @@ function AccountDetailPageContent() {
                         onSelect={(range) => {
                           setHistoryRangeSelection(range);
                         }}
+                        disabled={(date) => date > new Date()}
                         numberOfMonths={1}
                         className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
                         classNames={{
@@ -2368,19 +2469,24 @@ function AccountDetailPageContent() {
             )}
 
             {/* 2. Punished Videos by Program Card */}
-            {punishedVideosList.length > 0 && (
-              <div className="p-4.5 rounded-2xl border border-amber-300 dark:border-amber-800/80 bg-amber-50/60 dark:bg-amber-950/20 space-y-3.5 shadow-sm">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-amber-200/80 dark:border-amber-900/40">
+            {punishedVideosList.length > 0 && strikeTheme && (
+              <div className={`p-4.5 rounded-2xl border space-y-3.5 shadow-sm ${strikeTheme.bannerBg}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-black/10 dark:border-white/10">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${strikeTheme.iconBox}`}>
                       <AlertTriangle className="w-5 h-5" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-amber-900 dark:text-amber-200 text-xs sm:text-sm">
-                        Danh sách video bị phạt vi phạm monetization ({punishedVideosList.length} video)
-                      </h4>
-                      <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
-                        Các video bị phạt theo từng chương trình kiếm tiền cụ thể trên tài khoản
+                      <div className="flex items-center gap-2">
+                        <h4 className={`font-bold text-xs sm:text-sm ${strikeTheme.title}`}>
+                          Danh sách video bị phạt monetization trong 30 ngày ({punishedVideosList.length} video)
+                        </h4>
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${strikeTheme.tag}`}>
+                          {strikeTheme.levelText}
+                        </span>
+                      </div>
+                      <p className={`text-[11px] mt-0.5 ${strikeTheme.desc}`}>
+                        Các video bị phạt theo từng chương trình kiếm tiền cụ thể trong 30 ngày gần nhất
                       </p>
                     </div>
                   </div>
@@ -2388,7 +2494,7 @@ function AccountDetailPageContent() {
                     {punishedProgramsMap.map((p) => (
                       <span
                         key={p.name}
-                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/30"
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${strikeTheme.tag}`}
                       >
                         {p.name}: {p.count} video
                       </span>

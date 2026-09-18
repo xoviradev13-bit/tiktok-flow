@@ -1,0 +1,85 @@
+{
+  "7d": {
+    "log_pb": {
+      "impr_id": "20260918234617BC528A8A8E18EF8FBC37"
+    },
+    "status_code": 3016030,
+    "status_msg": "Invalid parameters"
+  },
+  "30d": {
+    "log_pb": {
+      "impr_id": "202609182346170C42F93A0268E58D87CC"
+    },
+    "status_code": 3016030,
+    "status_msg": "Invalid parameters"
+  },
+  "60d": {
+    "log_pb": {
+      "impr_id": "202609182346178A27CD95AE2B5A8C7BC7"
+    },
+    "status_code": 3016030,
+    "status_msg": "Invalid parameters"
+  },
+  "all": {
+    "log_pb": {
+      "impr_id": "202609182346184B47B1658EF2498E578D"
+    },
+    "status_code": 3016030,
+    "status_msg": "Invalid parameters"
+  },
+  "all_time": {
+    "log_pb": {
+      "impr_id": "202609182346184111D9666CC84A8BA08A"
+    },
+    "status_code": 3016030,
+    "status_msg": "Invalid parameters"
+  },
+  "insight_126_range_1": {
+    "extra": {
+      "fatal_item_ids": [],
+      "logid": "2026091823461845639A1FB401D788108A",
+      "now": 1789746379000
+    },
+    "log_pb": {
+      "impr_id": "2026091823461845639A1FB401D788108A"
+    },
+    "status_code": 0,
+    "status_msg": ""
+  },
+  "insight_126_range_2": {
+    "extra": {
+      "fatal_item_ids": [],
+      "logid": "20260918234619565B594A618D0E8A5B29",
+      "now": 1789746379000
+    },
+    "log_pb": {
+      "impr_id": "20260918234619565B594A618D0E8A5B29"
+    },
+    "status_code": 0,
+    "status_msg": ""
+  },
+  "insight_126_range_3": {
+    "extra": {
+      "fatal_item_ids": [],
+      "logid": "202609182346195712D63538B38A8F281D",
+      "now": 1789746379000
+    },
+    "log_pb": {
+      "impr_id": "202609182346195712D63538B38A8F281D"
+    },
+    "status_code": 0,
+    "status_msg": ""
+  },
+  "insight_126_range_4": {
+    "extra": {
+      "fatal_item_ids": [],
+      "logid": "20260918234619061C2949A09EAD8FB2C1",
+      "now": 1789746379000
+    },
+    "log_pb": {
+      "impr_id": "20260918234619061C2949A09EAD8FB2C1"
+    },
+    "status_code": 0,
+    "status_msg": ""
+  }
+}

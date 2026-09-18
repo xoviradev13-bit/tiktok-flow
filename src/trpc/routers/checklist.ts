@@ -1,12 +1,10 @@
 import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { calculateWorkdayScore, getCutoffTimeInfo, getScoringConfig, DEFAULT_SCORING_CONFIG, ScoringRuleConfig } from "@/lib/scoring-engine";
+import { calculateWorkdayScore, getCutoffTimeInfo, getScoringConfig, DEFAULT_SCORING_CONFIG, ScoringRuleConfig, getBusinessToday, finalizePendingChecklists } from "@/lib/scoring-engine";
 
-function getTodayDateOnly(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-}
+let lastCatchupCheckTime = 0;
+const CATCHUP_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes in-memory cooldown per server instance
 
 function parseDateOnly(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -26,12 +24,35 @@ export const checklistRouter = router({
   getToday: protectedProcedure
     .input(z.object({ userId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
+      // Background catch-up with short-circuit & 5-minute in-memory cooldown
+      const nowMs = Date.now();
+      if (nowMs - lastCatchupCheckTime > CATCHUP_COOLDOWN_MS) {
+        lastCatchupCheckTime = nowMs;
+        const { todayDateOnly, sevenDaysAgoDateOnly } = getBusinessToday();
+        try {
+          const hasUnfinalizedPast = await ctx.prisma.dailyChecklist.findFirst({
+            where: {
+              isLocked: false,
+              date: { gte: sevenDaysAgoDateOnly, lt: todayDateOnly },
+            },
+            select: { id: true },
+          });
+          if (hasUnfinalizedPast) {
+            void finalizePendingChecklists(ctx.prisma, { includeToday: false }).catch((err) => {
+              console.warn("[ChecklistRouter] Auto catch-up error:", err);
+            });
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
       const targetUserId =
         (ctx.session.user.role === "LEAD" || ctx.session.user.role === "ADMIN") && input?.userId
           ? input.userId
           : ctx.session.user.id;
 
-      const today = getTodayDateOnly();
+      const { todayDateOnly: today } = getBusinessToday();
 
       let checklist = await ctx.prisma.dailyChecklist.findUnique({
         where: {
@@ -857,14 +878,48 @@ export const checklistRouter = router({
         });
       }
 
-      // 1. Retrieve video snapshot from AccountAnalytics SSOT or SystemConfig fallback
+      // 1. Fetch DailyChecklistItem for this account on target date
+      const targetDateObj = parseDateOnly(input.date);
+      const checklistItem = await ctx.prisma.dailyChecklistItem.findFirst({
+        where: {
+          accountId: account.id,
+          checklist: { date: targetDateObj },
+        },
+        include: {
+          checklist: {
+            include: {
+              user: { select: { id: true, name: true, fullName: true, username: true } },
+            },
+          },
+        },
+      });
+
+      // 2. Retrieve video snapshot: prioritize daily checklist snapshot if available
       let rawVideos: any[] = [];
       let lastSnapshotUpdated: string | null = null;
 
+      const dailySnapshotVideos = Array.isArray(checklistItem?.videosSnapshot)
+        ? (checklistItem.videosSnapshot as any[])
+        : [];
+
       const rawSnapshot = (account.analytics?.rawSnapshot as any);
-      if (rawSnapshot && Array.isArray(rawSnapshot.videosList)) {
-        rawVideos = rawSnapshot.videosList;
-        lastSnapshotUpdated = rawSnapshot.updatedAt || null;
+      const fallbackVideos = Array.isArray(rawSnapshot?.videosList) ? rawSnapshot.videosList : [];
+      lastSnapshotUpdated = rawSnapshot?.updatedAt || null;
+
+      if (dailySnapshotVideos.length > 0) {
+        // Merge daily snapshot videos with any other recent videos from rawSnapshot for secondary context
+        const map = new Map<string, any>();
+        for (const v of fallbackVideos) {
+          const key = String(v.id || v.item_id || v.title);
+          map.set(key, v);
+        }
+        for (const v of dailySnapshotVideos) {
+          const key = String(v.id || v.item_id || v.title);
+          map.set(key, v);
+        }
+        rawVideos = Array.from(map.values());
+      } else if (fallbackVideos.length > 0) {
+        rawVideos = fallbackVideos;
       } else {
         // Fallback to legacy SystemConfig
         const config = await ctx.prisma.systemConfig.findUnique({
@@ -880,22 +935,6 @@ export const checklistRouter = router({
           } catch {}
         }
       }
-
-      // 2. Fetch DailyChecklistItem for this account on target date
-      const targetDateObj = parseDateOnly(input.date);
-      const checklistItem = await ctx.prisma.dailyChecklistItem.findFirst({
-        where: {
-          accountId: account.id,
-          checklist: { date: targetDateObj },
-        },
-        include: {
-          checklist: {
-            include: {
-              user: { select: { id: true, name: true, fullName: true, username: true } },
-            },
-          },
-        },
-      });
 
       // Helper to parse date in Vietnam Time (Asia/Ho_Chi_Minh)
       const parseVideoTime = (v: any) => {

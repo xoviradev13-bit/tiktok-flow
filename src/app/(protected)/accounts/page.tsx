@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useUrlParams } from "@/hooks/useUrlState";
@@ -71,6 +71,22 @@ import { trpc } from "@/lib/trpc";
 import { launchGpmProfile } from "@/lib/gpm-client-bridge";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { useTableColumnResize } from "@/hooks/useTableColumnResize";
+
+const ACCOUNT_COLUMN_RESIZE_CONFIG = {
+  username: { minWidth: 160, maxWidth: 450, defaultWidth: 220 },
+  gpmGroup: { minWidth: 100, maxWidth: 300, defaultWidth: 140 },
+  gpmProfileId: { minWidth: 140, maxWidth: 350, defaultWidth: 180 },
+  country: { minWidth: 80, maxWidth: 200, defaultWidth: 110 },
+  status: { minWidth: 110, maxWidth: 260, defaultWidth: 140 },
+  assignedUser: { minWidth: 140, maxWidth: 350, defaultWidth: 180 },
+  totalViews: { minWidth: 100, maxWidth: 250, defaultWidth: 130 },
+  totalFollowers: { minWidth: 100, maxWidth: 250, defaultWidth: 140 },
+  totalVideos: { minWidth: 80, maxWidth: 200, defaultWidth: 110 },
+  totalRevenue: { minWidth: 100, maxWidth: 280, defaultWidth: 130 },
+  alertsCount: { minWidth: 100, maxWidth: 320, defaultWidth: 140 },
+  actions: { minWidth: 90, maxWidth: 220, defaultWidth: 110 },
+} as const;
 
 type AccountSortKey =
   | "username"
@@ -387,6 +403,13 @@ function AccountsPageContent() {
   const visibleColumnCount = useMemo(() => {
     return 1 /* checkbox */ + Object.values(visibleColumns).filter(Boolean).length;
   }, [visibleColumns]);
+
+  const tableRef = useRef<HTMLDivElement>(null);
+  const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
+    tableId: "accounts",
+    columns: ACCOUNT_COLUMN_RESIZE_CONFIG,
+    tableRef,
+  });
 
   // Modal states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -1643,7 +1666,7 @@ function AccountsPageContent() {
                     </div>
                     <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
                       {[
-                        { key: "username", label: "Tài khoản & nhóm", locked: true },
+                        { key: "username", label: "Tài khoản", locked: true },
                         { key: "gpmGroup", label: "GPM Group" },
                         { key: "gpmProfileId", label: "GPM Profile ID" },
                         { key: "country", label: "Quốc gia" },
@@ -2367,7 +2390,7 @@ function AccountsPageContent() {
           ) : (
             /* Table View */
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
-              <div className="overflow-x-auto relative">
+              <div className="overflow-x-auto relative" ref={tableRef} style={getTableVars()}>
                 <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 border-collapse min-w-[1050px]">
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none">
                     <tr>
@@ -2380,153 +2403,179 @@ function AccountsPageContent() {
                         />
                       </th>
 
-                      {/* Username & Group (Frozen Left, Locked) */}
+                      {/* Username (Frozen Left, Locked) */}
                       {visibleColumns.username && (
                         <th
+                          style={getColumnStyle("username")}
                           onClick={() => handleSort("username")}
-                          className="px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[200px]"
+                          className="relative group/th px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>Tài khoản & nhóm</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">Tài khoản</span>
                             {renderSortIndicator("username")}
                           </div>
+                          {renderResizeHandle("username")}
                         </th>
                       )}
 
                       {/* GPM Group */}
                       {visibleColumns.gpmGroup && (
                         <th
+                          style={getColumnStyle("gpmGroup")}
                           onClick={() => handleSort("groupName")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[130px] whitespace-nowrap"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white whitespace-nowrap"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>GPM Group</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">GPM Group</span>
                             {renderSortIndicator("groupName")}
                           </div>
+                          {renderResizeHandle("gpmGroup")}
                         </th>
                       )}
 
                       {/* GPM Profile ID */}
                       {visibleColumns.gpmProfileId && (
                         <th
+                          style={getColumnStyle("gpmProfileId")}
                           onClick={() => handleSort("gpmProfileId")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[160px]"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>GPM Profile ID</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">GPM Profile ID</span>
                             {renderSortIndicator("gpmProfileId")}
                           </div>
+                          {renderResizeHandle("gpmProfileId")}
                         </th>
                       )}
 
                       {/* Country */}
                       {visibleColumns.country && (
                         <th
+                          style={getColumnStyle("country")}
                           onClick={() => handleSort("country")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[110px]"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>Quốc gia</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">Quốc gia</span>
                             {renderSortIndicator("country")}
                           </div>
+                          {renderResizeHandle("country")}
                         </th>
                       )}
 
                       {/* Status */}
                       {visibleColumns.status && (
                         <th
+                          style={getColumnStyle("status")}
                           onClick={() => handleSort("status")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[130px]"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>Trạng thái</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">Trạng thái</span>
                             {renderSortIndicator("status")}
                           </div>
+                          {renderResizeHandle("status")}
                         </th>
                       )}
 
                       {/* Assigned User */}
                       {visibleColumns.assignedUser && (
                         <th
+                          style={getColumnStyle("assignedUser")}
                           onClick={() => handleSort("assignedUser")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[170px]"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>Người phụ trách</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">Người phụ trách</span>
                             {renderSortIndicator("assignedUser")}
                           </div>
+                          {renderResizeHandle("assignedUser")}
                         </th>
                       )}
 
                       {/* Views */}
                       {visibleColumns.totalViews && (
                         <th
+                          style={getColumnStyle("totalViews")}
                           onClick={() => handleSort("totalViews")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[110px]"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>Số views</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">Số views</span>
                             {renderSortIndicator("totalViews")}
                           </div>
+                          {renderResizeHandle("totalViews")}
                         </th>
                       )}
 
                       {/* Followers */}
                       {visibleColumns.totalFollowers && (
                         <th
+                          style={getColumnStyle("totalFollowers")}
                           onClick={() => handleSort("totalFollowers")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[150px] whitespace-nowrap"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white whitespace-nowrap"
                         >
-                          <div className="flex items-center gap-1.5 whitespace-nowrap">
-                            <span className="whitespace-nowrap">Số followers</span>
+                          <div className="flex items-center gap-1.5 whitespace-nowrap truncate">
+                            <span className="whitespace-nowrap truncate">Số followers</span>
                             {renderSortIndicator("totalFollowers")}
                           </div>
+                          {renderResizeHandle("totalFollowers")}
                         </th>
                       )}
 
                       {/* Video Count */}
                       {visibleColumns.totalVideos && (
                         <th
+                          style={getColumnStyle("totalVideos")}
                           onClick={() => handleSort("totalVideos")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[110px]"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>Số video</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">Số video</span>
                             {renderSortIndicator("totalVideos")}
                           </div>
+                          {renderResizeHandle("totalVideos")}
                         </th>
                       )}
 
                       {/* Revenue */}
                       {visibleColumns.totalRevenue && (
                         <th
+                          style={getColumnStyle("totalRevenue")}
                           onClick={() => handleSort("totalRevenue")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[120px]"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>Doanh thu</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">Doanh thu</span>
                             {renderSortIndicator("totalRevenue")}
                           </div>
+                          {renderResizeHandle("totalRevenue")}
                         </th>
                       )}
 
                       {/* Alerts */}
                       {visibleColumns.alertsCount && (
                         <th
+                          style={getColumnStyle("alertsCount")}
                           onClick={() => handleSort("alertsCount")}
-                          className="px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[120px]"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                         >
-                          <div className="flex items-center gap-1.5">
-                            <span>Cảnh báo</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">Cảnh báo</span>
                             {renderSortIndicator("alertsCount")}
                           </div>
+                          {renderResizeHandle("alertsCount")}
                         </th>
                       )}
 
                       {/* Actions (Frozen Right) */}
                       {visibleColumns.actions && (
-                        <th className="px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
+                        <th
+                          style={getColumnStyle("actions")}
+                          className="relative group/th px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]"
+                        >
                           Thao tác
+                          {renderResizeHandle("actions", "left")}
                         </th>
                       )}
                     </tr>
@@ -2563,27 +2612,27 @@ function AccountsPageContent() {
                               />
                             </td>
 
-                            {/* Username & Group (Frozen Left, Locked) */}
+                            {/* Username (Frozen Left, Locked) */}
                             {visibleColumns.username && (
-                              <td className={`px-5 py-3.5 sticky left-10 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]`}>
-                                <div className="flex items-center gap-2 flex-wrap">
+                              <td
+                                style={getColumnStyle("username")}
+                                className={`px-5 py-3.5 sticky left-10 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]`}
+                              >
+                                <div className="flex items-center gap-2">
                                   <Link
                                     href={`/accounts/${acc.id}`}
                                     className="font-bold text-slate-900 dark:text-slate-100 hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors flex items-center gap-1.5"
                                   >
                                     <span>@{acc.username}</span>
                                   </Link>
-                                  <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" />
-                                </div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                  <span>{acc.groupName || "Chưa phân nhóm"}</span>
+                                  <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" showLabel={false} />
                                 </div>
                               </td>
                             )}
 
                             {/* GPM Group */}
                             {visibleColumns.gpmGroup && (
-                              <td className="px-4 py-3.5 whitespace-nowrap">
+                              <td style={getColumnStyle("gpmGroup")} className="px-4 py-3.5 whitespace-nowrap">
                                 <span className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
                                   {acc.groupName || "--"}
                                 </span>
@@ -2592,7 +2641,7 @@ function AccountsPageContent() {
 
                             {/* GPM Profile ID */}
                             {visibleColumns.gpmProfileId && (
-                              <td className="px-4 py-3.5 whitespace-nowrap">
+                              <td style={getColumnStyle("gpmProfileId")} className="px-4 py-3.5 whitespace-nowrap">
                                 {acc.gpmProfileId ? (
                                   <div className="inline-flex items-center gap-1.5 h-7.5 bg-cyan-50/80 dark:bg-cyan-950/50 border border-cyan-200/60 dark:border-cyan-800/40 rounded-xl px-2.5 shadow-2xs">
                                     <span
@@ -2656,14 +2705,14 @@ function AccountsPageContent() {
 
                             {/* Country */}
                             {visibleColumns.country && (
-                              <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                              <td style={getColumnStyle("country")} className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
                                 {getCountryFlag(acc.country)}
                               </td>
                             )}
 
                             {/* Status Dropdown */}
                             {visibleColumns.status && (
-                              <td className="px-4 py-3.5 whitespace-nowrap">
+                              <td style={getColumnStyle("status")} className="px-4 py-3.5 whitespace-nowrap">
                                 {(() => {
                                   const isBanned = acc.status === "BANNED";
                                   const statusElement = isLeadOrAdmin ? (
@@ -2725,7 +2774,7 @@ function AccountsPageContent() {
 
                             {/* Assigned Staff */}
                             {visibleColumns.assignedUser && (
-                              <td className="px-4 py-3.5 whitespace-nowrap">
+                              <td style={getColumnStyle("assignedUser")} className="px-4 py-3.5 whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
                                   {isLeadOrAdmin ? (
                                     <Select
@@ -2817,28 +2866,28 @@ function AccountsPageContent() {
 
                             {/* Total Views */}
                             {visibleColumns.totalViews && (
-                              <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                              <td style={getColumnStyle("totalViews")} className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
                                 <span>{Number(acc.totalViews || 0).toLocaleString()} views</span>
                               </td>
                             )}
 
                             {/* Total Followers */}
                             {visibleColumns.totalFollowers && (
-                              <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                              <td style={getColumnStyle("totalFollowers")} className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
                                 <span>{Number(acc.totalFollowers || 0).toLocaleString()} followers</span>
                               </td>
                             )}
 
                             {/* Total Videos */}
                             {visibleColumns.totalVideos && (
-                              <td className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                              <td style={getColumnStyle("totalVideos")} className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
                                 {acc.totalVideos || 0}
                               </td>
                             )}
 
                             {/* Total Revenue */}
                             {visibleColumns.totalRevenue && (
-                              <td className="px-4 py-3.5 whitespace-nowrap font-bold text-emerald-600 dark:text-emerald-400">
+                              <td style={getColumnStyle("totalRevenue")} className="px-4 py-3.5 whitespace-nowrap font-bold text-emerald-600 dark:text-emerald-400">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span className="cursor-help border-b border-dotted border-emerald-500/40">
@@ -2876,15 +2925,94 @@ function AccountsPageContent() {
 
                             {/* Alerts / Warnings */}
                             {visibleColumns.alertsCount && (
-                              <td className="px-4 py-3.5 whitespace-nowrap">
+                              <td style={getColumnStyle("alertsCount")} className="px-4 py-3.5 whitespace-nowrap">
                                 {(() => {
-                                  const rawPostRewards = Array.isArray((acc as any).analytics?.postRewards)
-                                    ? (acc as any).analytics.postRewards
-                                    : Array.isArray(((acc as any).analytics?.postRewards as any)?.items)
-                                    ? ((acc as any).analytics?.postRewards as any).items
-                                    : [];
+                                  const punishedVideos: any[] = Array.isArray((acc as any).punishedVideos30d)
+                                    ? (acc as any).punishedVideos30d
+                                    : (() => {
+                                        const rawPostRewards = Array.isArray((acc as any).analytics?.postRewards)
+                                          ? (acc as any).analytics.postRewards
+                                          : Array.isArray(((acc as any).analytics?.postRewards as any)?.items)
+                                          ? ((acc as any).analytics?.postRewards as any).items
+                                          : [];
 
-                                  const punishedVideos = rawPostRewards.filter((v: any) => v.isPunished);
+                                        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+                                        const now = Date.now();
+                                        return rawPostRewards.filter((v: any) => {
+                                          if (!v?.isPunished) return false;
+                                          const ts = v.publishTimeUnix
+                                            ? Number(v.publishTimeUnix) * 1000
+                                            : new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
+                                          return !isNaN(ts) ? now - ts <= THIRTY_DAYS_MS : false;
+                                        });
+                                      })();
+
+                                  const getStrikeTheme = (count: number) => {
+                                    if (count === 1) {
+                                      return {
+                                        badge: "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
+                                        icon: "text-yellow-500",
+                                        headerGrad: "from-yellow-500/15 via-yellow-500/10 to-transparent border-yellow-200 dark:border-yellow-900/40",
+                                        headerIcon: "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400",
+                                        headerText: "text-yellow-900 dark:text-yellow-200",
+                                        headerSub: "text-yellow-700 dark:text-yellow-400",
+                                        border: "border-yellow-200 dark:border-yellow-900/60",
+                                        label: "1 video bị phạt (30 ngày)",
+                                        levelTag: "Mức 1",
+                                      };
+                                    }
+                                    if (count === 2) {
+                                      return {
+                                        badge: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
+                                        icon: "text-amber-500",
+                                        headerGrad: "from-amber-500/15 via-amber-500/10 to-transparent border-amber-200 dark:border-amber-900/40",
+                                        headerIcon: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
+                                        headerText: "text-amber-900 dark:text-amber-200",
+                                        headerSub: "text-amber-700 dark:text-amber-400",
+                                        border: "border-amber-200 dark:border-amber-900/60",
+                                        label: "2 video bị phạt (30 ngày)",
+                                        levelTag: "Mức 2",
+                                      };
+                                    }
+                                    if (count === 3) {
+                                      return {
+                                        badge: "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
+                                        icon: "text-orange-500",
+                                        headerGrad: "from-orange-500/20 via-orange-500/10 to-transparent border-orange-200 dark:border-orange-900/40",
+                                        headerIcon: "bg-orange-500/20 text-orange-600 dark:text-orange-400",
+                                        headerText: "text-orange-900 dark:text-orange-200",
+                                        headerSub: "text-orange-700 dark:text-orange-400",
+                                        border: "border-orange-200 dark:border-orange-900/60",
+                                        label: "3 video bị phạt (30 ngày)",
+                                        levelTag: "Mức 3 - Nghiêm trọng",
+                                      };
+                                    }
+                                    if (count === 4) {
+                                      return {
+                                        badge: "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
+                                        icon: "text-rose-500",
+                                        headerGrad: "from-rose-500/20 via-rose-500/10 to-transparent border-rose-200 dark:border-rose-900/40",
+                                        headerIcon: "bg-rose-500/20 text-rose-600 dark:text-rose-400",
+                                        headerText: "text-rose-900 dark:text-rose-200",
+                                        headerSub: "text-rose-700 dark:text-rose-400",
+                                        border: "border-rose-200 dark:border-rose-900/60",
+                                        label: "4 video bị phạt (30 ngày)",
+                                        levelTag: "Mức 4 - Nguy cơ huỷ quỹ",
+                                      };
+                                    }
+                                    // 5 or > 5
+                                    return {
+                                      badge: "bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-200 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60 animate-pulse",
+                                      icon: "text-red-600 dark:text-red-400",
+                                      headerGrad: "from-red-600/25 via-red-600/15 to-transparent border-red-300 dark:border-red-800",
+                                      headerIcon: "bg-red-600/20 text-red-600 dark:text-red-300",
+                                      headerText: "text-red-950 dark:text-red-100",
+                                      headerSub: "text-red-700 dark:text-red-300 font-bold",
+                                      border: "border-red-400 dark:border-red-800",
+                                      label: `${count} video bị phạt (30 ngày - Nguy cấp)`,
+                                      levelTag: "Mức 5 - Nguy cơ huỷ quỹ",
+                                    };
+                                  };
 
                                   const isBannedFromCreator =
                                     acc.status === "BANNED" ||
@@ -2941,7 +3069,7 @@ function AccountsPageContent() {
                                               <div>
                                                 <div className="flex items-center justify-between mb-1.5">
                                                   <span className="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
-                                                    Video bị phạt / vi phạm ({punishedVideos.length}):
+                                                    Video bị phạt / vi phạm trong 30 ngày ({punishedVideos.length}):
                                                   </span>
                                                 </div>
                                                 <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
@@ -2990,33 +3118,39 @@ function AccountsPageContent() {
                                     );
                                   }
 
-                                  // Case 2: Punished Videos Warning
+                                  // Case 2: Punished Videos Warning (Dynamic Color Theme based on 1, 2, 3, 4, 5+ strikes)
                                   if (punishedVideos.length > 0) {
+                                    const theme = getStrikeTheme(punishedVideos.length);
                                     return (
                                       <Popover>
                                         <PopoverTrigger asChild>
                                           <button
                                             type="button"
-                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-800/80 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all shadow-sm cursor-pointer group"
+                                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all shadow-sm cursor-pointer group ${theme.badge}`}
                                           >
-                                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 group-hover:scale-110 transition-transform" />
-                                            <span>{punishedVideos.length} video bị phạt</span>
+                                            <AlertTriangle className={`w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform ${theme.icon}`} />
+                                            <span>{theme.label}</span>
                                           </button>
                                         </PopoverTrigger>
                                         <PopoverContent
                                           align="start"
-                                          className="w-[400px] p-0 rounded-2xl shadow-2xl border border-amber-200 dark:border-amber-900/60 bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs"
+                                          className={`w-[400px] p-0 rounded-2xl shadow-2xl border bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs ${theme.border}`}
                                         >
-                                          <div className="p-3.5 bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent border-b border-amber-200 dark:border-amber-900/40 flex items-start gap-2.5">
-                                            <div className="p-2 bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl shrink-0">
+                                          <div className={`p-3.5 bg-gradient-to-r border-b flex items-start gap-2.5 ${theme.headerGrad}`}>
+                                            <div className={`p-2 rounded-xl shrink-0 ${theme.headerIcon}`}>
                                               <AlertTriangle className="w-5 h-5" />
                                             </div>
                                             <div>
-                                              <h4 className="font-bold text-amber-900 dark:text-amber-200 text-sm">
-                                                {punishedVideos.length} Video Bị Phạt / Huỷ Điều Kiện
-                                              </h4>
-                                              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">
-                                                Tài khoản @{acc.username} có video không đủ điều kiện nhận thưởng
+                                              <div className="flex items-center gap-2">
+                                                <h4 className={`font-bold text-sm ${theme.headerText}`}>
+                                                  {punishedVideos.length} Video Bị Phạt (30 Ngày)
+                                                </h4>
+                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/60 dark:bg-black/40">
+                                                  {theme.levelTag}
+                                                </span>
+                                              </div>
+                                              <p className={`text-[11px] mt-0.5 ${theme.headerSub}`}>
+                                                Tài khoản @{acc.username} có video bị phạt vi phạm trong 30 ngày gần nhất
                                               </p>
                                             </div>
                                           </div>
@@ -3125,7 +3259,10 @@ function AccountsPageContent() {
 
                             {/* Actions (Frozen Right, DropdownMenu) */}
                             {visibleColumns.actions && (
-                              <td className={`px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]`}>
+                              <td
+                                style={getColumnStyle("actions")}
+                                className={`px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]`}
+                              >
                                 <div className="flex items-center justify-center gap-1">
                                   <DropdownMenu>
                                     <Tooltip>

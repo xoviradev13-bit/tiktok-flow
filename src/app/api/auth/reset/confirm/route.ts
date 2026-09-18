@@ -51,9 +51,9 @@ export async function POST(req: Request) {
     }
 
     // Verify token
-    let decoded: { email: string; typ?: string };
+    let decoded: { email: string; pwdStamp?: string; typ?: string };
     try {
-      decoded = jwt.verify(token, JWT_SECRET) as { email: string; typ?: string };
+      decoded = jwt.verify(token, JWT_SECRET) as { email: string; pwdStamp?: string; typ?: string };
     } catch (jwtError) {
       if (jwtError instanceof TokenExpiredError) {
         const response = createErrorResponse(
@@ -96,6 +96,22 @@ export async function POST(req: Request) {
       return NextResponse.json(response, {
         status: ERROR_CODE_TO_STATUS[AUTH_ERROR_CODES.USER_NOT_FOUND]
       });
+    }
+
+    // Enforce single-use token: if user has a password and pwdStamp was signed,
+    // verify that the current password hash still matches pwdStamp.
+    // If the password was already reset, pwdStamp will no longer match!
+    if (decoded.pwdStamp && user.password) {
+      const currentStamp = user.password.slice(-12);
+      if (currentStamp !== decoded.pwdStamp && user.updatedAt.getTime().toString() !== decoded.pwdStamp) {
+        const response = createErrorResponse(
+          AUTH_ERROR_CODES.TOKEN_EXPIRED,
+          "Liên kết đặt lại mật khẩu này đã được sử dụng hoặc không còn hiệu lực. Vui lòng yêu cầu liên kết mới."
+        );
+        return NextResponse.json(response, {
+          status: ERROR_CODE_TO_STATUS[AUTH_ERROR_CODES.TOKEN_EXPIRED]
+        });
+      }
     }
 
     // Hash new password and update

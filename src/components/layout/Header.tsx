@@ -49,6 +49,7 @@ export default function Header() {
   const { currency, setCurrency, rates } = useCurrency();
   const [mounted, setMounted] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
@@ -204,6 +205,7 @@ export default function Header() {
       if (res.ok) {
         const data = await res.json();
         const isRunning = Boolean(data.isSyncing);
+        setActiveJobId(data.activeJob?.id || null);
 
         if (isRunning) {
           setSyncing(true);
@@ -215,6 +217,7 @@ export default function Header() {
         } else if (prevSyncingRef.current && !isRunning) {
           // Sync finished
           setSyncing(false);
+          setActiveJobId(null);
           const finished = data.lastFinishedJob;
           if (finished?.status === "TIMED_OUT" || finished?.status === "FAILED") {
             setSyncMessage(`❌ ${finished.errorMessage || "Đồng bộ không thành công"}`);
@@ -262,6 +265,7 @@ export default function Header() {
       });
       const json = await res.json();
       if (json.success) {
+        if (json.jobId) setActiveJobId(json.jobId);
         setSyncMessage(`⏳ ${json.message}`);
         // Button stays disabled; checkSyncStatus polling will automatically detect completion!
       } else {
@@ -286,12 +290,13 @@ export default function Header() {
       const res = await fetch("/api/gpm/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "stop" }),
+        body: JSON.stringify({ action: "stop", jobId: activeJobId || undefined }),
       });
       const json = await res.json();
       if (json.success) {
         setSyncMessage("🛑 Đã gửi lệnh dừng đồng bộ.");
         setSyncing(false);
+        setActiveJobId(null);
         setTimeout(() => setSyncMessage(null), 4000);
       } else {
         setSyncMessage(`❌ ${json.message || "Không thể dừng đồng bộ"}`);

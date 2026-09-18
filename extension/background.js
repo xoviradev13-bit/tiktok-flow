@@ -2,8 +2,7 @@
 // Coordinates TikTok login verification, GPM fleet sync, alarms, and badge indicators
 
 const DEFAULT_SERVER_URL = "http://localhost:3000";
-const GPM_PORT_CANDIDATES = [9495, 19995, 19996, 19994, 8848];
-const GPM_API_VERSIONS = ["v1", "v3"];
+const GPM_PORT_CANDIDATES = [9495, 9496, 19995, 19996, 19994, 8848];
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5-minute cooldown between fleet syncs
 /** Same port as Client Agent singleton lock in agent.js */
 const AGENT_LOCK_PORT = 39741;
@@ -15,6 +14,20 @@ const IDENTITY_KEEPALIVE_ALARM = "tiktokflow_identity_keepalive";
 const GPM_LINK_ALARM = "tiktokflow_gpm_link";
 const IDENTITY_RETRY_ALARM = "tiktokflow_identity_retry";
 const TIKTOK_TAB_URLS = ["https://www.tiktok.com/*", "https://*.tiktok.com/*"];
+
+/** Centralized network and IPC timeouts for fleet tuning */
+const TIMEOUTS = {
+  AGENT_PROBE_MS: 1200,
+  GPM_PROBE_MS: 1500,
+  AGENT_ATTEST_MS: 5000,
+  AGENT_RESOLVE_MS: 120_000,
+  GPM_FETCH_PROFILES_MS: 4000,
+  GPM_FETCH_GROUPS_MS: 3000,
+  SERVER_SCHEDULE_MS: 4000,
+};
+
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+const DIGITS_RE = /^\d+$/;
 
 const LANG_ONLY_CODES = new Set([
   "vi", "en", "th", "id", "ms", "ja", "ko", "zh", "fr", "de", "es", "pt", "ru", "ar",
@@ -163,7 +176,7 @@ async function getAccessSession() {
 /** Probe Client Agent singleton status HTTP on localhost:39741 */
 async function probeClientAgent() {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 1200);
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUTS.AGENT_PROBE_MS);
   try {
     const resp = await fetch(`http://127.0.0.1:${AGENT_LOCK_PORT}/`, {
       signal: controller.signal,
@@ -234,7 +247,7 @@ async function requestAgentAttest(serverUrl) {
   const challengeTs = await fetchChallengeTs(serverUrl);
   const nonce = randomNonceHex();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUTS.AGENT_ATTEST_MS);
   try {
     const resp = await fetch(`http://127.0.0.1:${AGENT_LOCK_PORT}/attest`, {
       method: "POST",
@@ -300,6 +313,24 @@ async function resolveBrowserViaAgent(username) {
   const challengeTs = Date.now();
   const nonce = randomNonceHex();
 
+  // Export live .tiktok.com cookies to bridge session to Client Agent for open profile sweeps
+  let liveCookies = [];
+  try {
+    const allCookies = await chrome.cookies.getAll({ domain: ".tiktok.com" });
+    liveCookies = allCookies.map((c) => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path,
+      expires: c.expirationDate,
+      httpOnly: c.httpOnly,
+      secure: c.secure,
+      sameSite: c.sameSite === "no_restriction" ? "None" : (c.sameSite === "lax" ? "Lax" : "Strict"),
+    }));
+  } catch {
+    /* non-blocking */
+  }
+
   // Beacon written into this profile's chrome.storage → Local Extension Settings on disk.
   // Agent matches open GPM folders by finding this token (no CDP / remote-debug needed).
   const storageBeacon = `ttf_b_${randomNonceHex()}`;
@@ -315,7 +346,7 @@ async function resolveBrowserViaAgent(username) {
   const controller = new AbortController();
   // When GPM Login app is closed, process detect may be empty and beacon can queue;
   // keep waiting long enough for ranked lock-based disk scan to finish.
-  const timeoutId = setTimeout(() => controller.abort(), 120000);
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUTS.AGENT_RESOLVE_MS);
   try {
     // Brief pause so chrome.storage flushes to Local Extension Settings before Agent reads disk.
     await new Promise((r) => setTimeout(r, 200));
@@ -328,6 +359,7 @@ async function resolveBrowserViaAgent(username) {
         nonce,
         challengeTs,
         storageBeacon,
+        cookies: liveCookies,
       }),
       signal: controller.signal,
     });
@@ -368,6 +400,31 @@ async function resolveBrowserViaAgent(username) {
   }
 }
 
+async function pushCookiesToAgent(profileId) {
+  if (!profileId) return;
+  try {
+    const allCookies = await chrome.cookies.getAll({ domain: ".tiktok.com" });
+    const liveCookies = allCookies.map((c) => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path,
+      expires: c.expirationDate ? Math.round(c.expirationDate) : -1,
+      httpOnly: c.httpOnly,
+      secure: c.secure,
+      sameSite: c.sameSite === "no_restriction" ? "None" : (c.sameSite === "lax" ? "Lax" : "Strict"),
+    }));
+    if (!liveCookies.length) return;
+    await fetch(`http://127.0.0.1:${AGENT_LOCK_PORT}/sync-cookies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId, cookies: liveCookies }),
+    }).catch(() => {});
+  } catch {
+    /* non-blocking */
+  }
+}
+
 /** Probe local GPMLogin API ports; cache the first that returns a real profile list. */
 async function discoverGpmApiBase(force = false) {
   const stored = await chrome.storage.local.get(["gpmApiBase", "gpmApiPort", "gpmApiDiscoveredAt"]);
@@ -379,7 +436,7 @@ async function discoverGpmApiBase(force = false) {
 
   async function probeValidBase(base) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUTS.GPM_PROBE_MS);
     try {
       const resp = await fetch(`${base}/profiles?page=1&per_page=1&page_size=1`, {
         signal: controller.signal,
@@ -403,31 +460,43 @@ async function discoverGpmApiBase(force = false) {
     }
   }
 
-  const tryBases = [];
-  if (fresh && stored.gpmApiBase) tryBases.push(stored.gpmApiBase);
-  // Prefer v1 first (https://api-docs.gpmloginapp.com/)
-  for (const port of GPM_PORT_CANDIDATES) {
-    tryBases.push(`http://127.0.0.1:${port}/api/v1`);
-  }
-  for (const port of GPM_PORT_CANDIDATES) {
-    tryBases.push(`http://127.0.0.1:${port}/api/v3`);
+  // Fast-path: probe cached base first if fresh
+  if (fresh && stored.gpmApiBase) {
+    if (await probeValidBase(stored.gpmApiBase)) {
+      const portMatch = stored.gpmApiBase.match(/:(\d+)\//);
+      return { online: true, base: stored.gpmApiBase, port: portMatch ? Number(portMatch[1]) : null };
+    }
   }
 
-  const seen = new Set();
-  for (const base of tryBases) {
-    if (seen.has(base)) continue;
-    seen.add(base);
-    if (await probeValidBase(base)) {
-      const portMatch = base.match(/:(\d+)\//);
-      const port = portMatch ? Number(portMatch[1]) : null;
-      await chrome.storage.local.set({
-        gpmApiBase: base,
-        gpmApiPort: port,
-        gpmApiDiscoveredAt: Date.now(),
-        gpmApiOnline: true,
-      });
-      return { online: true, base, port };
-    }
+  // Parallel race: probe all candidates simultaneously (first success wins)
+  const candidateBases = [];
+  if (stored.gpmApiBase) candidateBases.push(stored.gpmApiBase);
+  for (const port of GPM_PORT_CANDIDATES) {
+    candidateBases.push(`http://127.0.0.1:${port}/api/v1`);
+    candidateBases.push(`http://127.0.0.1:${port}/api/v3`);
+  }
+  const uniqueCandidates = [...new Set(candidateBases)];
+
+  try {
+    const winner = await Promise.any(
+      uniqueCandidates.map(async (base) => {
+        const ok = await probeValidBase(base);
+        if (ok) return base;
+        throw new Error("unreachable");
+      })
+    );
+
+    const portMatch = winner.match(/:(\d+)\//);
+    const port = portMatch ? Number(portMatch[1]) : null;
+    await chrome.storage.local.set({
+      gpmApiBase: winner,
+      gpmApiPort: port,
+      gpmApiDiscoveredAt: Date.now(),
+      gpmApiOnline: true,
+    });
+    return { online: true, base: winner, port };
+  } catch {
+    // All candidates failed or GPM is offline
   }
 
   await chrome.storage.local.set({
@@ -733,94 +802,50 @@ async function bootstrapAuthFromAgent() {
 }
 
 /** Ensure this profile has credentials: storage → Agent → pairing code. */
-async function ensureExtensionAuth() {
-  const data = await chrome.storage.local.get(["personalToken", "tokenRevoked"]);
-  if (data.personalToken && !data.tokenRevoked) return { ok: true };
+async function ensureExtensionAuth(knownData) {
+  const data = knownData || (await chrome.storage.local.get(["personalToken", "tokenRevoked"]));
+  if (data.personalToken && !data.tokenRevoked) return { ok: true, data };
 
   const fromAgent = await bootstrapAuthFromAgent();
-  if (fromAgent.ok) return fromAgent;
+  if (fromAgent.ok) {
+    const refreshed = await chrome.storage.local.get([
+      "personalToken",
+      "tokenRevoked",
+      "serverUrl",
+      "refreshToken",
+      "userEmail",
+      "memberName",
+    ]);
+    return { ok: true, source: "agent", data: refreshed };
+  }
 
   await redeemPairingIfNeeded();
-  const again = await chrome.storage.local.get(["personalToken", "tokenRevoked"]);
-  if (again.personalToken && !again.tokenRevoked) return { ok: true, source: "pair" };
+  const again = await chrome.storage.local.get([
+    "personalToken",
+    "tokenRevoked",
+    "serverUrl",
+    "refreshToken",
+    "userEmail",
+    "memberName",
+  ]);
+  if (again.personalToken && !again.tokenRevoked) return { ok: true, source: "pair", data: again };
   return { ok: false, reason: fromAgent.reason || "no_auth" };
-}
-
-async function exchangeSessionFromPersonalToken(serverUrl, personalToken) {
-  let attest;
-  try {
-    attest = await requestAgentAttest(serverUrl);
-  } catch (err) {
-    return {
-      ok: false,
-      status: 403,
-      error: err?.message || "Client Agent chưa chứng thực thiết bị.",
-    };
-  }
-  const resp = await fetch(`${serverUrl}/api/extension/session`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${personalToken}`,
-    },
-    body: JSON.stringify({ ...attest }),
-  });
-  const json = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    return { ok: false, status: resp.status, error: json.error };
-  }
-  const expiresIn = Number(json.expiresIn) || 900;
-  await chrome.storage.local.set({
-    refreshToken: json.refreshToken,
-  });
-  await setAccessSession(json.accessToken, Date.now() + expiresIn * 1000 - 30_000);
-  return { ok: true };
-}
-
-async function refreshSession(serverUrl, refreshToken) {
-  const resp = await fetch(`${serverUrl}/api/extension/session`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshToken }),
-  });
-  const json = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    return {
-      ok: false,
-      status: resp.status,
-      error: json.error,
-      reuseDetected: !!json.reuseDetected,
-    };
-  }
-  const expiresIn = Number(json.expiresIn) || 900;
-  await chrome.storage.local.set({
-    refreshToken: json.refreshToken,
-  });
-  await setAccessSession(json.accessToken, Date.now() + expiresIn * 1000 - 30_000);
-  return { ok: true };
 }
 
 /** Ensure a usable bearer. Prefer personalToken — JWT session exchange stampede
  * across hundreds of GPM profiles causes refresh-reuse killAll + Prisma P2028. */
 async function ensureAccessToken() {
-  await ensureExtensionAuth();
   const data = await chrome.storage.local.get([
     "serverUrl",
     "personalToken",
     "refreshToken",
     "tokenRevoked",
   ]);
+  const auth = await ensureExtensionAuth(data);
+  const effectiveData = auth.data || data;
   const access = await getAccessSession();
 
-  if (data.tokenRevoked || !data.personalToken) {
-    // Still try Agent bootstrap before giving up
-    if (!data.personalToken && !data.tokenRevoked) {
-      await ensureExtensionAuth();
-      const again = await chrome.storage.local.get(["personalToken", "tokenRevoked"]);
-      if (again.personalToken && !again.tokenRevoked) {
-        return { ok: true, bearer: again.personalToken, legacy: true };
-      }
-    }
+  if (effectiveData.tokenRevoked || !effectiveData.personalToken) {
     return { ok: false, bearer: null, authRequired: true };
   }
 
@@ -830,7 +855,7 @@ async function ensureAccessToken() {
   }
 
   // Fleet-safe path: personalToken is accepted by report/sync APIs directly.
-  return { ok: true, bearer: data.personalToken, legacy: true };
+  return { ok: true, bearer: effectiveData.personalToken, legacy: true };
 }
 
 async function authorizedFetch(url, options = {}, retried = false) {
@@ -898,20 +923,18 @@ function extractHandleFromLabel(...parts) {
 }
 
 async function fetchLocalGpmProfiles() {
-  const discovered = await discoverGpmApiBase(false);
+  let discovered = await discoverGpmApiBase(false);
   if (!discovered.online) {
-    // One forced rediscovery before giving up
-    const again = await discoverGpmApiBase(true);
-    if (!again.online) return [];
+    discovered = await discoverGpmApiBase(true);
+    if (!discovered.online) return [];
   }
 
-  const stored = await chrome.storage.local.get(["gpmApiBase"]);
-  const base = stored.gpmApiBase;
+  let base = discovered.base;
   if (!base) return [];
 
   async function fetchGpmProfiles(url) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUTS.GPM_FETCH_PROFILES_MS);
     try {
       return await fetch(url, { signal: controller.signal });
     } catch {
@@ -921,28 +944,69 @@ async function fetchLocalGpmProfiles() {
     }
   }
 
-  let gpmResp = await fetchGpmProfiles(`${base}/profiles?page=1&per_page=300`);
-  if (!gpmResp || !gpmResp.ok) {
-    // Try alternate version on same port
+  function extractRows(json) {
+    if (!json) return [];
+    if (Array.isArray(json.data)) return json.data;
+    if (Array.isArray(json.data?.data)) return json.data.data;
+    if (Array.isArray(json)) return json;
+    return [];
+  }
+
+  // Probe base first to ensure version compatibility
+  let testResp = await fetchGpmProfiles(`${base}/profiles?page=1&per_page=100&page_size=100`);
+  if (!testResp || !testResp.ok) {
     const alt = base.includes("/api/v1")
       ? base.replace("/api/v1", "/api/v3")
       : base.replace("/api/v3", "/api/v1");
-    gpmResp = await fetchGpmProfiles(`${alt}/profiles?page=1&per_page=300`);
-    if (gpmResp && gpmResp.ok) {
+    testResp = await fetchGpmProfiles(`${alt}/profiles?page=1&per_page=100&page_size=100`);
+    if (testResp && testResp.ok) {
+      base = alt;
       await chrome.storage.local.set({ gpmApiBase: alt, gpmApiDiscoveredAt: Date.now() });
+    } else {
+      return [];
     }
   }
-  if (!gpmResp || !gpmResp.ok) return [];
 
-  const gpmData = await gpmResp.json();
-  let rawProfiles = [];
-  if (gpmData && gpmData.data) {
-    if (Array.isArray(gpmData.data)) rawProfiles = gpmData.data;
-    else if (Array.isArray(gpmData.data.data)) rawProfiles = gpmData.data.data;
-  } else if (Array.isArray(gpmData)) {
-    rawProfiles = gpmData;
+  const allProfiles = [];
+  const seenIds = new Set();
+  const firstJson = await testResp.json().catch(() => null);
+  const firstRows = extractRows(firstJson);
+  for (const r of firstRows) {
+    const id = String(r?.id || "");
+    if (id && !seenIds.has(id)) {
+      seenIds.add(id);
+      allProfiles.push(r);
+    }
   }
-  return Array.isArray(rawProfiles) ? rawProfiles : [];
+
+  // If first page returned fewer than 100, we got all profiles
+  if (firstRows.length < 100) {
+    return allProfiles;
+  }
+
+  // Paginate remaining pages up to 50 pages (5,000 profiles)
+  let page = 2;
+  const maxPages = 50;
+  while (page <= maxPages) {
+    const resp = await fetchGpmProfiles(`${base}/profiles?page=${page}&per_page=100&page_size=100`);
+    if (!resp || !resp.ok) break;
+    const json = await resp.json().catch(() => null);
+    const rows = extractRows(json);
+    if (!rows.length) break;
+    let newCount = 0;
+    for (const r of rows) {
+      const id = String(r?.id || "");
+      if (id && !seenIds.has(id)) {
+        seenIds.add(id);
+        allProfiles.push(r);
+        newCount++;
+      }
+    }
+    if (newCount === 0 || rows.length < 100) break;
+    page++;
+  }
+
+  return allProfiles;
 }
 
 async function fetchLocalGpmGroups(base) {
@@ -961,7 +1025,7 @@ async function fetchLocalGpmGroups(base) {
   }
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUTS.GPM_FETCH_GROUPS_MS);
     const resp = await fetch(`${base}/groups?page=1&per_page=200&page_size=200`, {
       signal: controller.signal,
     });
@@ -997,12 +1061,12 @@ async function fetchLocalGpmGroups(base) {
 
 function resolveGroupNameFromMap(map, groupId, rawGroupName) {
   const explicit = String(rawGroupName || "").trim();
-  if (explicit && !/^[0-9a-f-]{36}$/i.test(explicit)) return explicit;
+  if (explicit && !UUID_RE.test(explicit)) return explicit;
   const gid = String(groupId || "").trim();
   if (!gid) return null;
   if (map && map.has(gid)) return map.get(gid);
   // Do not treat a raw numeric id (e.g. "0" or "1") or UUID as a group name
-  if (!/^[0-9a-f-]{36}$/i.test(gid) && !/^\d+$/.test(gid)) return gid;
+  if (!UUID_RE.test(gid) && !DIGITS_RE.test(gid)) return gid;
   return null;
 }
 
@@ -1166,8 +1230,30 @@ async function reportTikTokStatus(payload) {
 
   const work = (async () => {
     try {
-      await ensureExtensionAuth();
-      const config = await getConfig();
+      const initialStore = await chrome.storage.local.get([
+        "serverUrl",
+        "personalToken",
+        "refreshToken",
+        "tokenRevoked",
+        "userEmail",
+        "memberName",
+        "latestAccount",
+        "linkedGpmProfileId",
+        "linkedGpmProfileName",
+        "linkedGpmGroupName",
+        "linkedGpmUsername",
+        "linkedGpmResolveAttest",
+        "pendingGpmLinks",
+      ]);
+
+      const auth = await ensureExtensionAuth(initialStore);
+      const store = auth?.data ? { ...initialStore, ...auth.data } : initialStore;
+      const config = {
+        serverUrl: (store.serverUrl || "").replace(/\/+$/, ""),
+        personalToken: store.personalToken || "",
+        userEmail: store.userEmail || "",
+        memberName: store.memberName || "",
+      };
       if (!config.serverUrl) return { ok: false, error: "no_server" };
 
       // Viewing someone else's public profile: still allow identity sync when we know
@@ -1208,17 +1294,12 @@ async function reportTikTokStatus(payload) {
       const resolvedCountry = await resolveReportCountry(payload.country);
 
       async function postIdentity(gpmMatch) {
-        const prevStored = await chrome.storage.local.get([
-          "linkedGpmProfileId",
-          "linkedGpmProfileName",
-          "linkedGpmGroupName",
-        ]);
         const effectiveId =
-          gpmMatch?.id || prevStored.linkedGpmProfileId || undefined;
+          gpmMatch?.id || store.linkedGpmProfileId || undefined;
         const effectiveGroupName =
-          gpmMatch?.groupName || prevStored.linkedGpmGroupName || undefined;
+          gpmMatch?.groupName || store.linkedGpmGroupName || undefined;
         const effectiveProfileName =
-          gpmMatch?.name || prevStored.linkedGpmProfileName || undefined;
+          gpmMatch?.name || store.linkedGpmProfileName || undefined;
 
         const body = {
           username,
@@ -1300,8 +1381,7 @@ async function reportTikTokStatus(payload) {
         setBadge("OFF", "#6b7280");
       }
 
-      const prevStore = await chrome.storage.local.get(["latestAccount"]);
-      const prev = prevStore.latestAccount || {};
+      const prev = store.latestAccount || {};
       await chrome.storage.local.set({
         latestAccount: {
           ...prev,
@@ -1319,28 +1399,27 @@ async function reportTikTokStatus(payload) {
         reportSyncAt: Date.now(),
       });
 
+      const targetProfileId = outcome.linkedId || prev.gpmProfileId || null;
+      if (targetProfileId) {
+        void pushCookiesToAgent(targetProfileId);
+      }
+
       // Phase 2 via alarm — MV3 kills SW after sendResponse; void async is unreliable.
       // Skip enqueue when this profile already has a fresh linked GPM (stops resolve/challenge storms).
       // But if the server row still has no GPM, force phase-2 (local cache can lie).
-      const linked = await chrome.storage.local.get([
-        "linkedGpmProfileId",
-        "linkedGpmUsername",
-        "linkedGpmResolveAttest",
-      ]);
       const serverGpm =
         outcome.result?.account?.gpmProfileId ||
         outcome.linkedId ||
         null;
       const alreadyLinked =
-        linked.linkedGpmProfileId &&
-        String(linked.linkedGpmUsername || "").toLowerCase() === cleanUser &&
-        Number.isFinite(Number(linked.linkedGpmResolveAttest?.ts)) &&
-        Math.abs(Date.now() - Number(linked.linkedGpmResolveAttest.ts)) < 10 * 60_000 &&
+        store.linkedGpmProfileId &&
+        String(store.linkedGpmUsername || "").toLowerCase() === cleanUser &&
+        Number.isFinite(Number(store.linkedGpmResolveAttest?.ts)) &&
+        Math.abs(Date.now() - Number(store.linkedGpmResolveAttest.ts)) < 10 * 60_000 &&
         !!serverGpm;
       if (!alreadyLinked) {
-        const pendingStore = await chrome.storage.local.get(["pendingGpmLinks"]);
-        const pendingList = Array.isArray(pendingStore.pendingGpmLinks)
-          ? pendingStore.pendingGpmLinks
+        const pendingList = Array.isArray(store.pendingGpmLinks)
+          ? store.pendingGpmLinks
           : [];
         const alreadyQueued = pendingList.some(
           (x) =>
@@ -1607,6 +1686,7 @@ async function processPendingGpmLinks() {
             reportSyncMessage: `Đã xác minh · @${cleanUser} · GPM`,
             reportSyncAt: Date.now(),
           });
+          void pushCookiesToAgent(linkedId);
         }
         processed++;
       } catch (err) {
@@ -1800,6 +1880,9 @@ async function checkTikTokCookie() {
           source: "extension",
           metricsSource: "identity",
         });
+        chrome.storage.local.get(["linkedGpmProfileId"], (s) => {
+          if (s?.linkedGpmProfileId) void pushCookiesToAgent(s.linkedGpmProfileId);
+        });
       }
     } catch {
       /* ignore */
@@ -1818,7 +1901,7 @@ async function fetchServerSchedule() {
     if (!config.serverUrl) return null;
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUTS.SERVER_SCHEDULE_MS);
     const { resp, authRequired } = await authorizedFetch(
       `${config.serverUrl}/api/gpm/client-sync`,
       { method: "GET", signal: controller.signal }
@@ -2050,6 +2133,9 @@ chrome.cookies.onChanged.addListener((changeInfo) => {
     } else {
       setBadge("OK", "#10b981");
       void pingTikTokIdentityTabs("sessionid");
+      chrome.storage.local.get(["linkedGpmProfileId"], (s) => {
+        if (s?.linkedGpmProfileId) void pushCookiesToAgent(s.linkedGpmProfileId);
+      });
     }
   }
 });

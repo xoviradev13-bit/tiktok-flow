@@ -1,7 +1,7 @@
 {
   "serverUrl": "http://localhost:3000",
-  "memberEmail": "",
-  "personalToken": "",
+  "memberEmail": "xoviraceo@gmail.com",
+  "personalToken": "ttf_sec_b129a0825d6a0f68e3b3713a178d749e",
   "concurrency": "auto",
   "headless": true
 }

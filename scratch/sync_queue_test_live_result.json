@@ -1,0 +1,79 @@
+{
+  "username": "ousnowfan",
+  "nickname": null,
+  "followersCount": 0,
+  "totalLikes": 0,
+  "totalViews": 0,
+  "videoCount": 0,
+  "totalVideos": 0,
+  "totalRevenue": null,
+  "currency": "$",
+  "country": null,
+  "rpm": null,
+  "videosList": [],
+  "postRewards": [],
+  "creatorRewardsMissing": false,
+  "bannedReason": null,
+  "sumRevenue": {
+    "revenue7d": 0,
+    "revenue28d": 0,
+    "revenue60d": 0,
+    "revenue365d": 0,
+    "totalRevenue": 0
+  },
+  "sumViews": {
+    "views7d": 0,
+    "views28d": 0,
+    "views60d": 0,
+    "views365d": 0,
+    "totalViews": 0
+  },
+  "sumLikes": {
+    "likes7d": 0,
+    "likes28d": 0,
+    "likes60d": 0,
+    "likes365d": 0,
+    "totalLikes": 0
+  },
+  "sumComments": {
+    "comments7d": 0,
+    "comments28d": 0,
+    "comments60d": 0,
+    "comments365d": 0
+  },
+  "sumShares": {
+    "shares7d": 0,
+    "shares28d": 0,
+    "shares60d": 0,
+    "shares365d": 0
+  },
+  "sumProfileViews": {
+    "profileViews7d": 0,
+    "profileViews28d": 0,
+    "profileViews60d": 0,
+    "profileViews365d": 0
+  },
+  "revenueBreakdown": {
+    "totalRevenue": {
+      "revenue7d": 0,
+      "revenue30d": 0,
+      "revenue60d": 0
+    },
+    "tiktokShop": {
+      "name": "TikTok Shop for Seller",
+      "programId": 11,
+      "revenue7d": 0,
+      "revenue30d": 0,
+      "revenue60d": 0
+    },
+    "activePrograms": []
+  },
+  "dailyRevenueBreakdown": [],
+  "insightsHistory": null,
+  "isLoggedIn": true,
+  "gpmProfileId": "500a1071-8dd2-43dd-9685-220721b0c4a4",
+  "gpmProfileName": "Profile 2492",
+  "gpmGroupName": "Default group",
+  "memberEmail": "admin@tiktokflow.com",
+  "extractionMethod": "snapshot"
+}

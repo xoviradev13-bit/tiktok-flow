@@ -148,10 +148,35 @@ export const accountsRouter = router({
         0
       );
 
-      const items = accounts.map((acc) => ({
-        ...acc,
-        isOnline: isAccountOnline(acc),
-      }));
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+
+      const items = accounts.map((acc) => {
+        const rawPostRewards = Array.isArray((acc as any).analytics?.postRewards)
+          ? (acc as any).analytics.postRewards
+          : Array.isArray(((acc as any).analytics?.postRewards as any)?.items)
+          ? ((acc as any).analytics?.postRewards as any).items
+          : [];
+
+        const punishedVideos30d = rawPostRewards.filter((v: any) => {
+          if (!v?.isPunished) return false;
+          const ts = v.publishTimeUnix
+            ? Number(v.publishTimeUnix) * 1000
+            : new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
+          return !isNaN(ts) ? now - ts <= THIRTY_DAYS_MS : false;
+        });
+
+        const strikeCount = punishedVideos30d.length;
+        const strikeLevel = strikeCount >= 5 ? 5 : strikeCount;
+
+        return {
+          ...acc,
+          isOnline: isAccountOnline(acc),
+          punishedVideos30d,
+          punishedVideosCount30d: strikeCount,
+          strikeLevel,
+        };
+      });
 
       return {
         items: serializeBigInt(items),
@@ -215,9 +240,31 @@ export const accountsRouter = router({
         });
       }
 
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const rawPostRewards = Array.isArray((account as any).analytics?.postRewards)
+        ? (account as any).analytics.postRewards
+        : Array.isArray(((account as any).analytics?.postRewards as any)?.items)
+        ? ((account as any).analytics?.postRewards as any).items
+        : [];
+
+      const punishedVideos30d = rawPostRewards.filter((v: any) => {
+        if (!v?.isPunished) return false;
+        const ts = v.publishTimeUnix
+          ? Number(v.publishTimeUnix) * 1000
+          : new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
+        return !isNaN(ts) ? now - ts <= THIRTY_DAYS_MS : false;
+      });
+
+      const strikeCount = punishedVideos30d.length;
+      const strikeLevel = strikeCount >= 5 ? 5 : strikeCount;
+
       return serializeBigInt({
         ...account,
         isOnline: isAccountOnline(account),
+        punishedVideos30d,
+        punishedVideosCount30d: strikeCount,
+        strikeLevel,
       });
     }),
 
@@ -559,17 +606,32 @@ export const accountsRouter = router({
           select: { gpmProfileId: true, username: true, assignedUserId: true },
         });
         if (account) {
-          whereClause.OR = [
-            { targetScope: { contains: account.gpmProfileId || "N/A" } },
-            { targetScope: { contains: account.username } },
-            { targetScope: { contains: account.assignedUserId || ctx.session.user.id } },
-            { requestedById: ctx.session.user.id },
-          ];
+          const accountMatches: any[] = [];
+          if (account.gpmProfileId) {
+            accountMatches.push({ targetScope: { contains: `PROFILE:${account.gpmProfileId}` } });
+            accountMatches.push({ targetScope: { contains: account.gpmProfileId } });
+          }
+          if (account.username) {
+            accountMatches.push({ targetScope: { contains: `HANDLE:${account.username}` } });
+            accountMatches.push({ targetScope: { contains: account.username } });
+          }
+
+          if (accountMatches.length > 0) {
+            whereClause.OR = accountMatches;
+          }
+
+          // Permissions: If not lead/admin and not the assigned user, caller can only cancel if they requested it
+          if (!isLeadOrAdmin && account.assignedUserId !== ctx.session.user.id) {
+            whereClause.requestedById = ctx.session.user.id;
+          }
         }
-      } else if (!isLeadOrAdmin) {
+      } else {
+        // Without specific accountId, strictly stop ONLY jobs belonging to the current user
         whereClause.OR = [
           { requestedById: ctx.session.user.id },
-          { targetScope: { contains: ctx.session.user.id } },
+          { targetScope: `USER:${ctx.session.user.id}` },
+          { targetScope: ctx.session.user.id },
+          { targetScope: { startsWith: `USER:${ctx.session.user.id}|` } },
         ];
       }
 

@@ -69,9 +69,9 @@ async function getActiveSyncJobForUser(userId: string) {
       status: { in: ["PENDING", "PROCESSING"] },
       OR: [
         { requestedById: userId },
+        { targetScope: `USER:${userId}` },
         { targetScope: userId },
-        { targetScope: { contains: userId } },
-        { targetScope: "ALL" },
+        { targetScope: { startsWith: `USER:${userId}|` } },
       ],
     },
     orderBy: { requestedAt: "desc" },
@@ -116,13 +116,25 @@ export async function POST(req: Request) {
       const whereClause: any = {
         status: { in: ["PENDING", "PROCESSING"] },
       };
-      if (!isLeadOrAdmin) {
-        whereClause.OR = [
-          { requestedById: currentUserId },
-          { targetScope: currentUserId },
-          { targetScope: { contains: currentUserId } },
-        ];
+
+      const userOwnershipFilter = [
+        { requestedById: currentUserId },
+        { targetScope: `USER:${currentUserId}` },
+        { targetScope: currentUserId },
+        { targetScope: { startsWith: `USER:${currentUserId}|` } },
+      ];
+
+      if (body.jobId) {
+        whereClause.id = String(body.jobId);
+        // If not Admin/Lead, user can only stop their own job
+        if (!isLeadOrAdmin) {
+          whereClause.OR = userOwnershipFilter;
+        }
+      } else {
+        // Without explicit jobId, strictly cancel ONLY jobs belonging to the current user
+        whereClause.OR = userOwnershipFilter;
       }
+
       const updated = await prisma.syncQueue.updateMany({
         where: whereClause,
         data: {
@@ -540,8 +552,9 @@ export async function GET(req: Request) {
     const userScopeFilter = {
       OR: [
         { requestedById: user.id },
+        { targetScope: `USER:${user.id}` },
         { targetScope: user.id },
-        { targetScope: { contains: user.id } },
+        { targetScope: { startsWith: `USER:${user.id}|` } },
       ],
     };
 

@@ -130,7 +130,9 @@ export interface ExtensionReportPayload {
 export async function POST(req: Request) {
   try {
     const ip = getClientIp(req) || "unknown";
-    const ipLimit = checkRateLimit(`report:ip:${ip}`, 180);
+    const authHeaderEarly = req.headers.get("authorization");
+    const isBearer = authHeaderEarly?.startsWith("Bearer ");
+    const ipLimit = checkRateLimit(`report:ip:${ip}`, isBearer ? 2400 : 180);
     if (!ipLimit.ok) {
       return NextResponse.json(
         { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
@@ -226,7 +228,9 @@ export async function POST(req: Request) {
 
     const memberUser = authResult.user;
 
-    const userLimit = checkRateLimit(`report:user:${memberUser.id}`, 120);
+    const isAgentSource = body.source === "agent" || body.metricsSource === "agent";
+    const userLimitMax = isAgentSource ? 1200 : 120;
+    const userLimit = checkRateLimit(`report:user:${memberUser.id}`, userLimitMax);
     if (!userLimit.ok) {
       return NextResponse.json(
         { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
@@ -341,16 +345,14 @@ export async function POST(req: Request) {
           newStatus: targetStatus,
           logType: "STATUS_CHANGE",
           message: isIdentityOnly
-            ? `Tài khoản TikTok @${cleanUsername} được phát hiện qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${
-                resolvedGpmProfileId
-                  ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
-                  : ""
-              } Số liệu sẽ do Client Agent cập nhật.`
-            : `Tài khoản TikTok @${cleanUsername} được phát hiện trực tiếp qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${
-                resolvedGpmProfileId
-                  ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
-                  : ""
-              }`,
+            ? `Tài khoản TikTok @${cleanUsername} được phát hiện qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${resolvedGpmProfileId
+              ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
+              : ""
+            } Số liệu sẽ do Client Agent cập nhật.`
+            : `Tài khoản TikTok @${cleanUsername} được phát hiện trực tiếp qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${resolvedGpmProfileId
+              ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
+              : ""
+            }`,
           actorName,
         },
       });
@@ -451,6 +453,79 @@ export async function POST(req: Request) {
             }
           }
         }
+      } else if (body.creatorRewardsMissing === false && account.status === "BANNED") {
+        // AUTO-RECOVERY: TikTok Creator Rewards Program has been restored!
+        const meta = (account.metadata as Record<string, any>) || {};
+        const isBannedDueToRewards =
+          meta.creatorRewardsStatus === "BANNED" ||
+          (account.bannedReason && /creator|quỹ|beta/i.test(account.bannedReason));
+
+        if (isBannedDueToRewards) {
+          updateData.status = "ACTIVE";
+          updateData.bannedReason = null;
+          updateData.metadata = {
+            ...meta,
+            creatorRewardsStatus: "ACTIVE",
+            recoveredAt: new Date().toISOString(),
+          };
+          delete (updateData.metadata as any).bannedReason;
+
+          await prisma.accountLog.create({
+            data: {
+              accountId: account.id,
+              oldStatus: "BANNED",
+              newStatus: "ACTIVE",
+              logType: "STATUS_CHANGE",
+              message: `[KHÔI PHÚC QUYỀN KIẾM TIỀN] Đã phát hiện lại chương trình Creator Rewards Program trên TikTok Studio -> Trạng thái khôi phục: ACTIVE.`,
+              actorName: actorName || "Client Agent",
+            },
+          });
+
+          // Resolve open PROGRAM_DISQUALIFIED alert
+          await prisma.accountAlert.updateMany({
+            where: {
+              accountId: account.id,
+              alertType: "PROGRAM_DISQUALIFIED",
+              status: "OPEN",
+            },
+            data: {
+              status: "RESOLVED",
+              resolvedAt: new Date(),
+            },
+          });
+
+          // Recalculate daily checklist on recovery (restore account to active scoring pool)
+          try {
+            const scoringRecord = await prisma.systemConfig.findUnique({ where: { key: "scoring_rules" } });
+            const scoringCfg = scoringRecord?.value ? JSON.parse(scoringRecord.value) : {};
+            const shouldExcludeBanned = scoringCfg.excludeBannedAccounts !== false;
+
+            if (shouldExcludeBanned) {
+              const now = new Date();
+              const todayOnly = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+              const checkItem = await prisma.dailyChecklistItem.findFirst({
+                where: { accountId: account.id, checklist: { date: todayOnly } },
+                include: { checklist: { include: { items: { include: { account: true } } } } },
+              });
+              if (checkItem?.checklist) {
+                // Now account is ACTIVE, so it counts towards eligible items
+                const eligibleItems = checkItem.checklist.items.filter(
+                  (i) => i.accountId === account.id || i.account?.status !== "BANNED"
+                );
+                const totalAssigned = eligibleItems.length;
+                const completedCount = eligibleItems.filter((i) => i.isCompleted || i.isPosted).length;
+                const { calculateWorkdayScore } = await import("@/lib/scoring-engine");
+                const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringCfg);
+                await prisma.dailyChecklist.update({
+                  where: { id: checkItem.checklist.id },
+                  data: { totalAssigned, completedCount, completionRate, workdayScore },
+                });
+              }
+            }
+          } catch (calcErr) {
+            console.warn("[ExtensionReport] Failed to recalculate checklist after recovery:", calcErr);
+          }
+        }
       }
 
       if (body.metadata && !isBannedFromCreatorRewards) {
@@ -458,7 +533,7 @@ export async function POST(req: Request) {
         updateData.metadata = { ...existingMeta, ...body.metadata };
       }
 
-      if (!isBannedFromCreatorRewards && account.status !== "BANNED" && isLoggedIn && account.status !== "ACTIVE") {
+      if (!isBannedFromCreatorRewards && account.status !== "BANNED" && isLoggedIn && account.status !== "ACTIVE" && updateData.status !== "ACTIVE") {
         updateData.status = "ACTIVE";
       }
 
@@ -514,92 +589,82 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. Record into DailyRevenue for each revenue stream (Agent metrics only)
-    const effectiveTotalRevenue =
-      typeof totalRevenue === "number"
-        ? totalRevenue
-        : typeof sumRevenue?.totalRevenue === "number"
-        ? sumRevenue.totalRevenue
-        : 0;
+    // 4. Daily Checklist Video Ingestion: Store videos posted today into DailyChecklistItem.videosSnapshot
+    if (Array.isArray(videosList) && videosList.length > 0) {
+      try {
+        const now = new Date();
+        const todayOnly = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+        
+        // Helper to extract Vietnam Date string (YYYY-MM-DD)
+        const parseVnDate = (v: any) => {
+          let d: Date | null = null;
+          if (v.createTime || v.create_time || v.createtime) {
+            const sec = Number(v.createTime || v.create_time || v.createtime);
+            d = new Date(sec > 1e11 ? sec : sec * 1000);
+          } else if (v.postDate) {
+            const parsed = new Date(v.postDate);
+            if (!isNaN(parsed.getTime())) d = parsed;
+          }
+          if (!d || isNaN(d.getTime())) return null;
+          const vnString = d.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" });
+          const vnDate = new Date(vnString);
+          const y = vnDate.getFullYear();
+          const m = String(vnDate.getMonth() + 1).padStart(2, "0");
+          const day = String(vnDate.getDate()).padStart(2, "0");
+          return `${y}-${m}-${day}`;
+        };
 
-    if (
-      applyMetrics &&
-      (effectiveTotalRevenue > 0 || (totalViews && totalViews > 0) || rpm)
-    ) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+        const todayVnString = (() => {
+          const vnNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+          const y = vnNow.getFullYear();
+          const m = String(vnNow.getMonth() + 1).padStart(2, "0");
+          const day = String(vnNow.getDate()).padStart(2, "0");
+          return `${y}-${m}-${day}`;
+        })();
 
-      // Creator Rewards Program / Main overview revenue
-      const crRevenue = effectiveTotalRevenue;
-      if (crRevenue > 0 || (totalViews && totalViews > 0) || rpm) {
-        try {
-          await prisma.dailyRevenue.upsert({
-            where: {
-              accountId_date_sourceType: {
-                accountId: account.id,
-                date: today,
-                sourceType: "CREATOR_REWARDS",
-              },
-            },
-            create: {
-              accountId: account.id,
-              date: today,
-              views: BigInt(totalViews || 0),
-              revenue: crRevenue,
-              rpm: rpm || 0,
-              sourceType: "CREATOR_REWARDS",
-            },
-            update: {
-              ...(totalViews !== undefined && totalViews > 0 ? { views: BigInt(totalViews) } : {}),
-              ...(crRevenue > 0 ? { revenue: crRevenue } : {}),
-              ...(rpm !== undefined && rpm > 0 ? { rpm } : {}),
-            },
+        const todayVideos = videosList.filter((v) => parseVnDate(v) === todayVnString);
+
+        const checkItem = await prisma.dailyChecklistItem.findFirst({
+          where: {
+            accountId: account.id,
+            checklist: { date: todayOnly },
+          },
+        });
+
+        if (checkItem) {
+          const updateFields: Record<string, any> = { isSynced: true };
+          if (todayVideos.length > 0) {
+            updateFields.isPosted = true;
+            updateFields.videosSnapshot = todayVideos;
+          }
+          await prisma.dailyChecklistItem.update({
+            where: { id: checkItem.id },
+            data: updateFields,
           });
-        } catch (err: any) {
-          console.warn("[ExtensionReport] Failed to upsert DailyRevenue (CREATOR_REWARDS):", err.message);
         }
-      }
-
-      // TikTok Shop for Seller (from revenueBreakdown.tiktokShop)
-      const shopRevenue = revenueBreakdown?.tiktokShop?.revenue30d || revenueBreakdown?.tiktokShop?.revenue7d || 0;
-      if (shopRevenue > 0) {
-        try {
-          await prisma.dailyRevenue.upsert({
-            where: {
-              accountId_date_sourceType: {
-                accountId: account.id,
-                date: today,
-                sourceType: "TIKTOK_SHOP",
-              },
-            },
-            create: {
-              accountId: account.id,
-              date: today,
-              views: BigInt(0),
-              revenue: shopRevenue,
-              rpm: 0,
-              sourceType: "TIKTOK_SHOP",
-            },
-            update: {
-              revenue: shopRevenue,
-            },
-          });
-        } catch (err: any) {
-          console.warn("[ExtensionReport] Failed to upsert DailyRevenue (TIKTOK_SHOP):", err.message);
-        }
+      } catch (checkItemErr) {
+        console.warn("[ExtensionReport] Failed to ingest daily checklist videos:", checkItemErr);
       }
     }
 
     // 5. Persist comprehensive analytics snapshot (Agent metrics only — never zero out from Extension)
     let analyticsSnapshot: Record<string, unknown> | null = null;
+    let resolvedPostRewards: any[] | undefined = Array.isArray(body.postRewards) ? body.postRewards : undefined;
     if (applyMetrics) {
-      // Clean rawSnapshot: pure video list & top videos (all summaries are in dedicated columns)
+      // Clean rawSnapshot: keep newest 20 videos for lightweight preview
       analyticsSnapshot = {
         username: cleanUsername,
         updatedAt: new Date().toISOString(),
-        videosList: videosList || [],
+        videosList: Array.isArray(videosList) ? videosList.slice(0, 20) : [],
         topVideos: topVideos || {},
       };
+
+      const effectiveTotalRevenue =
+        typeof totalRevenue === "number"
+          ? totalRevenue
+          : typeof sumRevenue?.totalRevenue === "number"
+            ? sumRevenue.totalRevenue
+            : 0;
 
       const resolvedSumRevenue = sumRevenue || {
         revenue7d: 0,
@@ -649,6 +714,76 @@ export async function POST(req: Request) {
       const resolvedRevenueBreakdown = revenueBreakdown || null;
       const resolvedDailyRevenueBreakdown = dailyRevenueBreakdown || null;
 
+      // Smart Retention & Capping (150-video rule) for postRewards
+      if (Array.isArray(body.postRewards)) {
+        try {
+          const existingAnalytics = await prisma.accountAnalytics.findUnique({
+            where: { accountId: account.id },
+            select: { postRewards: true },
+          });
+          const existingList = Array.isArray(existingAnalytics?.postRewards)
+            ? (existingAnalytics.postRewards as any[])
+            : [];
+          
+          const map = new Map<string, any>();
+          for (const item of existingList) {
+            const key = String((item as any).id || (item as any).videoId || (item as any).title);
+            map.set(key, item);
+          }
+          for (const item of body.postRewards) {
+            const key = String((item as any).id || (item as any).videoId || (item as any).title);
+            map.set(key, item);
+          }
+
+          const allMerged = Array.from(map.values());
+          const nowMs = Date.now();
+          const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
+
+          const parseTimeMs = (v: any) => {
+            if (v.publishTimeUnix) return Number(v.publishTimeUnix) * 1000;
+            const parsed = new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
+            return !isNaN(parsed) ? parsed : 0;
+          };
+
+          const parseRewardAmount = (v: any) => {
+            const val = v.reward ?? v.rewardAmount ?? v.rewards ?? 0;
+            if (typeof val === "number") return val;
+            const parsed = parseFloat(String(val).replace(/[^0-9.-]/g, ""));
+            return !isNaN(parsed) ? parsed : 0;
+          };
+
+          const recentVideos = allMerged.filter((v) => {
+            const ts = parseTimeMs(v);
+            return ts > 0 && nowMs - ts <= SIXTY_DAYS_MS;
+          });
+
+          const olderVideos = allMerged.filter((v) => {
+            const ts = parseTimeMs(v);
+            return ts <= 0 || nowMs - ts > SIXTY_DAYS_MS;
+          });
+
+          // Sort older videos descending by revenue, then by timestamp
+          olderVideos.sort((a, b) => {
+            const revDiff = parseRewardAmount(b) - parseRewardAmount(a);
+            if (Math.abs(revDiff) > 0.0001) return revDiff;
+            return parseTimeMs(b) - parseTimeMs(a);
+          });
+
+          // Cap total to 150 items max
+          const MAX_POST_REWARDS_CAP = 150;
+          const allowedOlderCount = Math.max(0, MAX_POST_REWARDS_CAP - recentVideos.length);
+          const retainedOlderVideos = olderVideos.slice(0, allowedOlderCount);
+
+          const finalPostRewards = [...recentVideos, ...retainedOlderVideos];
+          // Sort final list newest first for clean UI rendering
+          finalPostRewards.sort((a, b) => parseTimeMs(b) - parseTimeMs(a));
+
+          resolvedPostRewards = finalPostRewards;
+        } catch (postRewardsErr) {
+          console.warn("[ExtensionReport] Error during postRewards smart capping:", postRewardsErr);
+        }
+      }
+
       // 5a. Upsert into AccountAnalytics (Single Source of Truth)
       try {
         await prisma.accountAnalytics.upsert({
@@ -665,7 +800,7 @@ export async function POST(req: Request) {
             revenueBreakdown: resolvedRevenueBreakdown as any,
             dailyRevenueBreakdown: resolvedDailyRevenueBreakdown as any,
             insightsHistory: insightsHistory || (body as any).insightsHistory || null,
-            postRewards: (body.postRewards as any) || undefined,
+            postRewards: (resolvedPostRewards as any) || undefined,
             rawSnapshot: analyticsSnapshot as any,
           },
           update: {
@@ -679,7 +814,7 @@ export async function POST(req: Request) {
             revenueBreakdown: resolvedRevenueBreakdown as any,
             dailyRevenueBreakdown: resolvedDailyRevenueBreakdown as any,
             insightsHistory: insightsHistory || (body as any).insightsHistory || undefined,
-            postRewards: (body.postRewards as any) || undefined,
+            postRewards: (resolvedPostRewards as any) || undefined,
             rawSnapshot: analyticsSnapshot as any,
           },
         });
@@ -723,9 +858,41 @@ export async function POST(req: Request) {
       }
     }
 
-    // Handle alerts for punished / disqualified videos
-    if (Array.isArray(body.postRewards)) {
-      const punishedVideos = body.postRewards.filter((v: any) => v.isPunished);
+    // Handle alerts for punished / disqualified videos (within nearest 30 days)
+    const listToExamine = Array.isArray(resolvedPostRewards) ? resolvedPostRewards : body.postRewards;
+    if (Array.isArray(listToExamine)) {
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const punishedVideos = listToExamine.filter((v: any) => {
+        if (!v?.isPunished) return false;
+        const ts = v.publishTimeUnix
+          ? Number(v.publishTimeUnix) * 1000
+          : new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
+        return !isNaN(ts) ? now - ts <= THIRTY_DAYS_MS : false;
+      });
+
+      // Persist strike level and 30-day count directly into account metadata
+      const strikeLevel = punishedVideos.length >= 5 ? 5 : punishedVideos.length;
+      try {
+        const latestAccountRecord = await prisma.tiktokAccount.findUnique({
+          where: { id: account.id },
+          select: { metadata: true },
+        });
+        const currentMeta = (latestAccountRecord?.metadata as Record<string, any>) || {};
+        await prisma.tiktokAccount.update({
+          where: { id: account.id },
+          data: {
+            metadata: {
+              ...currentMeta,
+              punishedVideosCount30d: punishedVideos.length,
+              strikeLevel,
+            },
+          },
+        });
+      } catch (metaErr) {
+        console.warn("[ExtensionReport] Could not update strike metadata:", metaErr);
+      }
+
       if (punishedVideos.length > 0) {
         const progCounts: Record<string, number> = {};
         for (const pv of punishedVideos) {
@@ -736,8 +903,9 @@ export async function POST(req: Request) {
           .map(([name, count]) => `${count} video thuộc ${name}`)
           .join(", ");
 
-        const desc = `Có ${punishedVideos.length} video bị huỷ điều kiện kiếm tiền (${progSummary}).`;
-        const severity = punishedVideos.length >= 3 ? "CRITICAL" : "WARNING";
+        const desc = `Có ${punishedVideos.length} video bị huỷ điều kiện kiếm tiền trong 30 ngày gần nhất (${progSummary}).`;
+        const severity: "CRITICAL" | "WARNING" =
+          punishedVideos.length >= 3 ? "CRITICAL" : "WARNING";
 
         const existingStrikeAlert = await prisma.accountAlert.findFirst({
           where: {

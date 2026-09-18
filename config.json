@@ -1,0 +1,10 @@
+{
+  "serverUrl": "http://localhost:3000",
+  "memberEmail": "admin@tiktokflow.com",
+  "personalToken": "",
+  "agentAttestSecret": "",
+  "concurrency": 1,
+  "headless": true,
+  "m10nMaxConcurrentPrograms": 2,
+  "m10nPagePacingMs": 150
+}

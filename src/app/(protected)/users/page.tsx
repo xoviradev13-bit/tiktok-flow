@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useUrlParams } from "@/hooks/useUrlState";
@@ -77,6 +77,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
+import { useTableColumnResize } from "@/hooks/useTableColumnResize";
+
+const USERS_COLUMN_RESIZE_CONFIG = {
+  fullName: { minWidth: 160, maxWidth: 450, defaultWidth: 220 },
+  username: { minWidth: 110, maxWidth: 300, defaultWidth: 150 },
+  email: { minWidth: 140, maxWidth: 380, defaultWidth: 200 },
+  role: { minWidth: 90, maxWidth: 240, defaultWidth: 130 },
+  groupName: { minWidth: 120, maxWidth: 300, defaultWidth: 160 },
+  accountsCount: { minWidth: 110, maxWidth: 260, defaultWidth: 155 },
+  isActive: { minWidth: 110, maxWidth: 260, defaultWidth: 150 },
+  actions: { minWidth: 90, maxWidth: 220, defaultWidth: 110 },
+} as const;
 
 type SortKey = "fullName" | "username" | "email" | "role" | "groupName" | "accountsCount" | "isActive" | "createdAt";
 
@@ -229,6 +241,13 @@ function UsersManagementContent() {
   const visibleColumnCount = useMemo(() => {
     return 1 /* checkbox */ + Object.values(visibleColumns).filter(Boolean).length;
   }, [visibleColumns]);
+
+  const tableRef = useRef<HTMLDivElement>(null);
+  const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
+    tableId: "users",
+    columns: USERS_COLUMN_RESIZE_CONFIG,
+    tableRef,
+  });
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -1903,7 +1922,7 @@ function UsersManagementContent() {
           </div>
         ) : (
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
-            <div className="overflow-x-auto relative">
+            <div className="overflow-x-auto relative" ref={tableRef} style={getTableVars()}>
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none normal-case">
                   <tr>
@@ -1919,92 +1938,110 @@ function UsersManagementContent() {
                     {/* Columns */}
                     {visibleColumns.fullName && (
                       <th
+                        style={getColumnStyle("fullName")}
                         onClick={() => handleSort("fullName")}
-                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px]"
+                        className="relative group/th py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]"
                       >
-                        <div className="flex items-center gap-1.5">
-                          <span>Họ & tên</span>
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Họ & tên</span>
                           {renderSortIndicator("fullName")}
                         </div>
+                        {renderResizeHandle("fullName")}
                       </th>
                     )}
 
                     {visibleColumns.username && (
                       <th
+                        style={getColumnStyle("username")}
                         onClick={() => handleSort("username")}
-                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[140px]"
+                        className="relative group/th py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                       >
-                        <div className="flex items-center gap-1.5">
-                          <span>Username</span>
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Username</span>
                           {renderSortIndicator("username")}
                         </div>
+                        {renderResizeHandle("username")}
                       </th>
                     )}
 
                     {visibleColumns.email && (
                       <th
+                        style={getColumnStyle("email")}
                         onClick={() => handleSort("email")}
-                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[180px]"
+                        className="relative group/th py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                       >
-                        <div className="flex items-center gap-1.5">
-                          <span>Email</span>
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Email</span>
                           {renderSortIndicator("email")}
                         </div>
+                        {renderResizeHandle("email")}
                       </th>
                     )}
 
                     {visibleColumns.role && (
                       <th
+                        style={getColumnStyle("role")}
                         onClick={() => handleSort("role")}
-                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[120px]"
+                        className="relative group/th py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                       >
-                        <div className="flex items-center gap-1.5">
-                          <span>Vai trò</span>
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Vai trò</span>
                           {renderSortIndicator("role")}
                         </div>
+                        {renderResizeHandle("role")}
                       </th>
                     )}
 
                     {/* Group Column */}
                     {visibleColumns.groupName && (
                       <th
+                        style={getColumnStyle("groupName")}
                         onClick={() => handleSort("groupName")}
-                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[160px]"
+                        className="relative group/th py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                       >
-                        <div className="flex items-center gap-1.5">
-                          <span>Nhóm</span>
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Nhóm</span>
                           {renderSortIndicator("groupName")}
                         </div>
+                        {renderResizeHandle("groupName")}
                       </th>
                     )}
 
                     {visibleColumns.accountsCount && (
                       <th
+                        style={getColumnStyle("accountsCount")}
                         onClick={() => handleSort("accountsCount")}
-                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[155px] whitespace-nowrap"
+                        className="relative group/th py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white whitespace-nowrap"
                       >
-                        <div className="flex items-center gap-1.5">
-                          <span>Số acc phụ trách</span>
+                        <div className="flex items-center gap-1.5 whitespace-nowrap truncate">
+                          <span className="whitespace-nowrap truncate">Số acc phụ trách</span>
                           {renderSortIndicator("accountsCount")}
                         </div>
+                        {renderResizeHandle("accountsCount")}
                       </th>
                     )}
 
                     {visibleColumns.isActive && (
                       <th
+                        style={getColumnStyle("isActive")}
                         onClick={() => handleSort("isActive")}
-                        className="py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white min-w-[150px] whitespace-nowrap"
+                        className="relative group/th py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white whitespace-nowrap"
                       >
-                        <div className="flex items-center gap-1.5">
-                          <span>Trạng thái</span>
+                        <div className="flex items-center gap-1.5 whitespace-nowrap truncate">
+                          <span className="whitespace-nowrap truncate">Trạng thái</span>
                           {renderSortIndicator("isActive")}
                         </div>
+                        {renderResizeHandle("isActive")}
                       </th>
                     )}
 
                     {visibleColumns.actions && (
-                      <th className="py-3.5 px-6 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] min-w-[110px]">
+                      <th
+                        style={getColumnStyle("actions")}
+                        className="relative group/th py-3.5 px-6 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]"
+                      >
                         Thao tác
+                        {renderResizeHandle("actions", "left")}
                       </th>
                     )}
                   </tr>
@@ -2042,7 +2079,10 @@ function UsersManagementContent() {
 
                           {/* Full Name (Frozen Left) */}
                           {visibleColumns.fullName && (
-                            <td className="py-3 px-4 sticky left-10 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] min-w-[220px]">
+                            <td
+                              style={getColumnStyle("fullName")}
+                              className="py-3 px-4 sticky left-10 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]"
+                            >
                               <Link
                                 href={`/users/${u.id}`}
                                 className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 transition-colors flex items-center gap-2 group/link"
@@ -2069,28 +2109,28 @@ function UsersManagementContent() {
 
                           {/* Username */}
                           {visibleColumns.username && (
-                            <td className="py-3 px-4 text-slate-600 dark:text-slate-300 font-mono text-xs">
+                            <td style={getColumnStyle("username")} className="py-3 px-4 text-slate-600 dark:text-slate-300 font-mono text-xs">
                               @{u.username}
                             </td>
                           )}
 
                           {/* Email */}
                           {visibleColumns.email && (
-                            <td className="py-3 px-4 text-slate-600 dark:text-slate-400">
+                            <td style={getColumnStyle("email")} className="py-3 px-4 text-slate-600 dark:text-slate-400">
                               {u.email}
                             </td>
                           )}
 
                           {/* Role */}
                           {visibleColumns.role && (
-                            <td className="py-3 px-4">
+                            <td style={getColumnStyle("role")} className="py-3 px-4">
                               {getRoleBadge(u.role)}
                             </td>
                           )}
 
                           {/* Group Select Dropdown */}
                           {visibleColumns.groupName && (
-                            <td className="py-3 px-4">
+                            <td style={getColumnStyle("groupName")} className="py-3 px-4">
                               <Select
                                 value={u.groupName || "NONE"}
                                 onValueChange={(val) => {
@@ -2128,7 +2168,7 @@ function UsersManagementContent() {
 
                           {/* Accounts Count */}
                           {visibleColumns.accountsCount && (
-                            <td className="py-3 px-4">
+                            <td style={getColumnStyle("accountsCount")} className="py-3 px-4">
                               <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
                                 {u.accountsCount} tài khoản
                               </span>
@@ -2137,7 +2177,7 @@ function UsersManagementContent() {
 
                           {/* Status */}
                           {visibleColumns.isActive && (
-                            <td className="py-3 px-4 whitespace-nowrap min-w-[150px]">
+                            <td style={getColumnStyle("isActive")} className="py-3 px-4 whitespace-nowrap">
                               <button
                                 disabled={u.id === session?.user?.id}
                                 onClick={() => openToggleStatusModal(u)}
@@ -2168,7 +2208,10 @@ function UsersManagementContent() {
 
                           {/* Action Menu (Frozen Right) */}
                           {visibleColumns.actions && (
-                            <td className="py-3 px-6 text-center sticky right-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]">
+                            <td
+                              style={getColumnStyle("actions")}
+                              className="py-3 px-6 text-center sticky right-0 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]"
+                            >
                               <DropdownMenu>
                                 <Tooltip>
                                   <TooltipTrigger asChild>

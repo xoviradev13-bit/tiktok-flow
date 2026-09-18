@@ -24,15 +24,36 @@ document.addEventListener("DOMContentLoaded", async () => {
   const agentStatusText = document.getElementById("agentStatusText");
   const agentHintText = document.getElementById("agentHintText");
 
+  const personalTokenInput = document.getElementById("personalTokenInput");
+  const testTokenBtn = document.getElementById("testTokenBtn");
+  const saveTokenBtn = document.getElementById("saveTokenBtn");
+  const tokenSaveMsg = document.getElementById("tokenSaveMsg");
+  const authBanner = document.getElementById("authBanner");
+  const authBannerText = document.getElementById("authBannerText");
+  const identityCard = document.querySelector(".identity-card");
+
+  // Promisified helper for chrome.runtime.sendMessage
+  function sendMsg(type, payload = {}) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type, ...payload }, (res) => {
+        if (chrome.runtime.lastError) {
+          resolve(null);
+        } else {
+          resolve(res);
+        }
+      });
+    });
+  }
+
   function setSyncBar(barEl, textEl, status, message) {
     if (!barEl || !textEl) return;
     const st = status || "idle";
     barEl.className = `sync-status-bar status-${st}`;
     textEl.textContent = message || (
       st === "syncing" ? "Đang đồng bộ…" :
-      st === "ok" ? "Đã đồng bộ" :
-      st === "error" ? "Đồng bộ lỗi" :
-      "Chưa đồng bộ"
+        st === "ok" ? "Đã đồng bộ" :
+          st === "error" ? "Đồng bộ lỗi" :
+            "Chưa đồng bộ"
     );
   }
 
@@ -49,105 +70,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       statusPillText.textContent = "Chưa đăng nhập";
     }
   }
-
-  // 1. Load config from config.json if storage is empty
-  let data = await chrome.storage.local.get([
-    "serverUrl",
-    "personalToken",
-    "memberName",
-    "userEmail",
-    "latestAccount",
-    "lastFleetSyncTime",
-    "gpmProfileCount",
-    "tokenRevoked",
-    "tokenRevokedReason",
-    "authRequired",
-  ]);
-
-  // Clear stuck banner from the old email-mismatch 403 (server no longer returns it)
-  const staleReason = String(data.tokenRevokedReason || "");
-  if (data.tokenRevoked && /không khớp|khong khop|personalToken/i.test(staleReason)) {
-    await chrome.storage.local.set({
-      tokenRevoked: false,
-      tokenRevokedReason: "",
-      tokenRevokedAt: null,
-      authRequired: !data.personalToken,
-    });
-    data = {
-      ...data,
-      tokenRevoked: false,
-      tokenRevokedReason: "",
-      authRequired: !data.personalToken,
-    };
-  }
-
-  // Seed from bundled config.json. Fresh pairing zip clears a stuck re-auth banner
-  // left by older false 403 "email mismatch" errors.
-  try {
-    const resp = await fetch(chrome.runtime.getURL("config.json"));
-    if (resp.ok) {
-      const fileCfg = await resp.json();
-      const freshPairing =
-        typeof fileCfg.pairingCode === "string" &&
-        fileCfg.pairingCode.startsWith("ttf_pair_");
-
-      if (freshPairing && (data.tokenRevoked || !data.personalToken)) {
-        // Re-check storage to avoid wiping a token that another path just redeemed.
-        const latest = await chrome.storage.local.get([
-          "personalToken",
-          "tokenRevoked",
-          "pairingCode",
-        ]);
-        if (latest.personalToken && !latest.tokenRevoked) {
-          data = { ...data, personalToken: latest.personalToken, tokenRevoked: false };
-        } else {
-          // Never spread full fileCfg — config.json personalToken is empty and can
-          // race-overwrite a concurrent successful redeem.
-          await chrome.storage.local.set({
-            serverUrl: fileCfg.serverUrl || data.serverUrl,
-            memberName: fileCfg.memberName || data.memberName,
-            userEmail: fileCfg.userEmail || data.userEmail,
-            pairingCode: fileCfg.pairingCode,
-            tokenRevoked: false,
-            tokenRevokedReason: "",
-            tokenRevokedAt: null,
-            authRequired: false,
-          });
-          data = {
-            ...data,
-            serverUrl: fileCfg.serverUrl || data.serverUrl,
-            memberName: fileCfg.memberName || data.memberName,
-            userEmail: fileCfg.userEmail || data.userEmail,
-            pairingCode: fileCfg.pairingCode,
-            tokenRevoked: false,
-            tokenRevokedReason: "",
-            authRequired: false,
-          };
-          chrome.runtime.sendMessage({ type: "FORCE_PAIR_REDEEM" }).catch(() => {});
-        }
-      } else if (!data.tokenRevoked && (!data.memberName || !data.personalToken)) {
-        await chrome.storage.local.set({
-          serverUrl: fileCfg.serverUrl || data.serverUrl,
-          memberName: fileCfg.memberName || data.memberName,
-          userEmail: fileCfg.userEmail || data.userEmail,
-        });
-        data = { ...data, ...fileCfg, personalToken: data.personalToken || "" };
-      }
-    }
-  } catch (e) {}
-
-  // Populate Identity Badge
-  memberNameText.textContent = data.memberName || data.userEmail || "Nhân sự hệ thống";
-  serverUrlText.textContent = data.serverUrl || "http://localhost:3000";
-
-  // Token Management & Security Validation
-  const personalTokenInput = document.getElementById("personalTokenInput");
-  const testTokenBtn = document.getElementById("testTokenBtn");
-  const saveTokenBtn = document.getElementById("saveTokenBtn");
-  const tokenSaveMsg = document.getElementById("tokenSaveMsg");
-  const authBanner = document.getElementById("authBanner");
-  const authBannerText = document.getElementById("authBannerText");
-  const identityCard = document.querySelector(".identity-card");
 
   function setReauthUi(show, reason) {
     if (authBanner) {
@@ -170,15 +92,48 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  if (data.personalToken && personalTokenInput) {
-    personalTokenInput.value = data.personalToken;
+  function applyGpmStatus(online, port) {
+    if (!gpmIndicator || !gpmStatusText) return;
+    if (online) {
+      gpmIndicator.className = "gpm-indicator online";
+      gpmStatusText.textContent = `localhost:${port || "?"} Online`;
+    } else {
+      gpmIndicator.className = "gpm-indicator offline";
+      gpmStatusText.textContent = "GPM Offline";
+    }
   }
 
-  if (data.tokenRevoked || data.authRequired) {
-    setReauthUi(true, data.tokenRevokedReason);
-    if (personalTokenInput) {
-      personalTokenInput.value = "";
-      personalTokenInput.focus();
+  function applyAgentStatus(online) {
+    if (!agentIndicator || !agentStatusText) return;
+    if (online) {
+      agentIndicator.className = "gpm-indicator online";
+      agentStatusText.textContent = "Online · 1 Agent đang chạy";
+      if (agentHintText) {
+        agentHintText.textContent =
+          "OK — 1 Extension + 1 Agent trên máy này. Số liệu do Agent cập nhật.";
+      }
+    } else {
+      agentIndicator.className = "gpm-indicator offline";
+      agentStatusText.textContent = "Offline — chạy run-agent.bat";
+      if (agentHintText) {
+        agentHintText.textContent =
+          "Mỗi máy: 1 Extension + 1 Agent. Bật Agent để đồng bộ số liệu TikTok.";
+      }
+    }
+  }
+
+  function renderScheduleText(summary, intervalMinutes, autoEnabled) {
+    if (!serverScheduleText) return;
+    if (autoEnabled === false) {
+      serverScheduleText.textContent = "Đang tắt";
+      serverScheduleText.style.color = "#94a3b8";
+    } else if (summary) {
+      serverScheduleText.textContent = summary;
+      serverScheduleText.style.color = "#38bdf8";
+    } else {
+      const min = intervalMinutes || 30;
+      serverScheduleText.textContent = min >= 60 ? `Mỗi ${min / 60} giờ` : `Mỗi ${min} phút`;
+      serverScheduleText.style.color = "#38bdf8";
     }
   }
 
@@ -189,9 +144,142 @@ document.addEventListener("DOMContentLoaded", async () => {
     tokenSaveMsg.style.display = "block";
   }
 
+  // 1. Single upfront batched storage read (all keys across the whole popup)
+  const state = await chrome.storage.local.get([
+    "serverUrl",
+    "personalToken",
+    "memberName",
+    "userEmail",
+    "latestAccount",
+    "lastFleetSyncTime",
+    "gpmProfileCount",
+    "tokenRevoked",
+    "tokenRevokedReason",
+    "tokenRevokedAt",
+    "authRequired",
+    "fleetSyncStatus",
+    "fleetSyncMessage",
+    "serverScheduleSummary",
+    "serverIntervalMinutes",
+    "serverAutoEnabled",
+    "agentOnline",
+    "gpmApiPort",
+    "gpmApiOnline",
+    "gpmApiBase",
+  ]);
+
+  // Clear stuck banner from the old email-mismatch 403 if applicable
+  const staleReason = String(state.tokenRevokedReason || "");
+  if (state.tokenRevoked && /không khớp|khong khop/i.test(staleReason) && state.personalToken) {
+    await chrome.storage.local.set({
+      tokenRevoked: false,
+      tokenRevokedReason: "",
+      tokenRevokedAt: null,
+      authRequired: false,
+    });
+    state.tokenRevoked = false;
+    state.tokenRevokedReason = "";
+    state.authRequired = false;
+  }
+
+  // 2. Only fetch config.json if configuration is missing or needs pairing
+  const needsConfigSeed = !state.personalToken || state.tokenRevoked || state.authRequired || !state.memberName;
+  if (needsConfigSeed) {
+    try {
+      const resp = await fetch(chrome.runtime.getURL("config.json"));
+      if (resp.ok) {
+        const fileCfg = await resp.json();
+        const freshPairing =
+          typeof fileCfg.pairingCode === "string" &&
+          fileCfg.pairingCode.startsWith("ttf_pair_");
+
+        if (freshPairing && (state.tokenRevoked || !state.personalToken)) {
+          // Re-check storage to avoid wiping a token that another path just redeemed.
+          const latest = await chrome.storage.local.get([
+            "personalToken",
+            "tokenRevoked",
+            "pairingCode",
+          ]);
+          if (latest.personalToken && !latest.tokenRevoked) {
+            state.personalToken = latest.personalToken;
+            state.tokenRevoked = false;
+          } else {
+            const updates = {
+              serverUrl: fileCfg.serverUrl || state.serverUrl,
+              memberName: fileCfg.memberName || state.memberName,
+              userEmail: fileCfg.userEmail || state.userEmail,
+              pairingCode: fileCfg.pairingCode,
+              tokenRevoked: false,
+              tokenRevokedReason: "",
+              tokenRevokedAt: null,
+              authRequired: false,
+            };
+            await chrome.storage.local.set(updates);
+            Object.assign(state, updates);
+            void sendMsg("FORCE_PAIR_REDEEM");
+          }
+        } else if (!state.tokenRevoked && (!state.memberName || !state.personalToken)) {
+          const updates = {
+            serverUrl: fileCfg.serverUrl || state.serverUrl,
+            memberName: fileCfg.memberName || state.memberName,
+            userEmail: fileCfg.userEmail || state.userEmail,
+          };
+          await chrome.storage.local.set(updates);
+          Object.assign(state, updates);
+        }
+      }
+    } catch (err) {
+      console.warn("[TikTokFlow Popup] Optional config.json load bypassed:", err?.message || err);
+    }
+  }
+
+  // 3. Immediate synchronous paint from batched storage cache (no spinner lag / no flicker)
+  memberNameText.textContent = state.memberName || state.userEmail || "Nhân sự hệ thống";
+  serverUrlText.textContent = state.serverUrl || "http://localhost:3000";
+
+  if (state.personalToken && personalTokenInput) {
+    personalTokenInput.value = state.personalToken;
+  }
+
+  if (state.tokenRevoked || state.authRequired) {
+    setReauthUi(true, state.tokenRevokedReason);
+    if (personalTokenInput) {
+      personalTokenInput.value = "";
+      personalTokenInput.focus();
+    }
+  }
+
+  if (state.latestAccount) {
+    renderAccountIdentity(state.latestAccount);
+  }
+
+  setSyncBar(fleetSyncBar, fleetSyncText, state.fleetSyncStatus, state.fleetSyncMessage);
+
+  if (state.gpmProfileCount) {
+    gpmProfileCount.textContent = `${state.gpmProfileCount} profiles`;
+  }
+
+  if (state.lastFleetSyncTime) {
+    const d = new Date(state.lastFleetSyncTime);
+    lastSyncText.textContent = `Đồng bộ lần cuối: ${d.toLocaleTimeString("vi-VN")}`;
+  }
+
+  renderScheduleText(state.serverScheduleSummary, state.serverIntervalMinutes, state.serverAutoEnabled);
+
+  // Paint cached GPM & Agent statuses immediately
+  if (state.gpmApiOnline && (state.gpmApiPort || state.gpmApiBase)) {
+    const port = state.gpmApiPort || String(state.gpmApiBase || "").match(/:(\d+)/)?.[1];
+    applyGpmStatus(true, port);
+  } else if (state.gpmApiOnline === false) {
+    applyGpmStatus(false);
+  }
+
+  if (state.agentOnline === true || state.agentOnline === false) {
+    applyAgentStatus(!!state.agentOnline);
+  }
+
+  // 4. Token Management & Security Validation Handlers
   async function verifyTokenOnline(tokenToVerify) {
-    // Local format checks first (cheap reject). Well-formed but revoked tokens
-    // still require the network call below — that is intentional, not a gap.
     if (!tokenToVerify) {
       return { ok: false, error: "Vui lòng nhập mã Token.", authRequired: true };
     }
@@ -205,7 +293,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       return { ok: false, error: "Mã Token quá ngắn hoặc thiếu ký tự." };
     }
 
-    const currentServer = (data.serverUrl || "http://localhost:3000").replace(/\/+$/, "");
+    const currentServer = (state.serverUrl || "http://localhost:3000").replace(/\/+$/, "");
     try {
       const resp = await fetch(`${currentServer}/api/extension/verify-token`, {
         method: "POST",
@@ -267,26 +355,27 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    await chrome.storage.local.set({
+    const updates = {
       personalToken: candidate,
-      memberName: result.user?.name || data.memberName,
-      userEmail: result.user?.email || data.userEmail,
+      memberName: result.user?.name || state.memberName,
+      userEmail: result.user?.email || state.userEmail,
       tokenRevoked: false,
       tokenRevokedReason: "",
       tokenRevokedAt: null,
       authRequired: false,
-      // Force fresh session after token paste
       accessToken: "",
       accessExpiresAt: 0,
       refreshToken: "",
-    });
+    };
 
-    chrome.runtime.sendMessage({
-      type: "CLEAR_TOKEN_REVOKED",
+    await chrome.storage.local.set(updates);
+    Object.assign(state, updates);
+
+    void sendMsg("CLEAR_TOKEN_REVOKED", {
       updates: {
         personalToken: candidate,
-        memberName: result.user?.name || data.memberName,
-        userEmail: result.user?.email || data.userEmail,
+        memberName: updates.memberName,
+        userEmail: updates.userEmail,
       },
     });
 
@@ -300,180 +389,89 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 4000);
   });
 
-  // Live updates when background marks token revoked mid-session / sync progress
+  // 5. Live updates listener — keeps mutable `state` fresh to prevent stale closure bugs
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
+    for (const key of Object.keys(changes)) {
+      state[key] = changes[key].newValue;
+    }
+
     if (changes.tokenRevoked?.newValue === true || changes.authRequired?.newValue === true) {
-      setReauthUi(true, changes.tokenRevokedReason?.newValue || data.tokenRevokedReason);
+      setReauthUi(true, state.tokenRevokedReason);
       if (personalTokenInput) personalTokenInput.value = "";
     }
     if (changes.fleetSyncStatus || changes.fleetSyncMessage) {
       setSyncBar(
         fleetSyncBar,
         fleetSyncText,
-        changes.fleetSyncStatus?.newValue || data.fleetSyncStatus,
-        changes.fleetSyncMessage?.newValue || data.fleetSyncMessage
+        state.fleetSyncStatus,
+        state.fleetSyncMessage
       );
     }
     if (changes.latestAccount?.newValue) {
       renderAccountIdentity(changes.latestAccount.newValue);
     }
     if (changes.gpmApiPort || changes.gpmApiOnline) {
-      const port = changes.gpmApiPort?.newValue;
-      const online = changes.gpmApiOnline?.newValue;
-      if (online && port) {
-        gpmIndicator.className = "gpm-indicator online";
-        gpmStatusText.textContent = `localhost:${port} Online`;
-      } else if (online === false) {
-        gpmIndicator.className = "gpm-indicator offline";
-        gpmStatusText.textContent = "GPM Offline";
-      }
+      applyGpmStatus(!!state.gpmApiOnline, state.gpmApiPort);
     }
     if (changes.agentOnline) {
-      applyAgentProbe({ online: !!changes.agentOnline.newValue });
+      applyAgentStatus(!!state.agentOnline);
+    }
+    if (changes.serverScheduleSummary || changes.serverIntervalMinutes || changes.serverAutoEnabled) {
+      renderScheduleText(state.serverScheduleSummary, state.serverIntervalMinutes, state.serverAutoEnabled);
     }
   });
 
-  function applyAgentProbe(res) {
-    if (!agentIndicator || !agentStatusText) return;
-    if (res && res.online) {
-      agentIndicator.className = "gpm-indicator online";
-      agentStatusText.textContent = "Online · 1 Agent đang chạy";
-      if (agentHintText) {
-        agentHintText.textContent =
-          "OK — 1 Extension + 1 Agent trên máy này. Số liệu do Agent cập nhật.";
-      }
-    } else {
-      agentIndicator.className = "gpm-indicator offline";
-      agentStatusText.textContent = "Offline — chạy run-agent.bat";
-      if (agentHintText) {
-        agentHintText.textContent =
-          "Mỗi máy: 1 Extension + 1 Agent. Bật Agent để đồng bộ số liệu TikTok.";
-      }
-    }
-  }
+  // 6. Background probes & refresh (run concurrently without blocking initial UI paint)
+  void sendMsg("REQUEST_IDENTITY_SCAN");
 
-  // Populate Account Card (identity only — metrics live on web / Client Agent)
-  if (data.latestAccount) {
-    renderAccountIdentity(data.latestAccount);
-  }
-
-  chrome.storage.local.get(["fleetSyncStatus", "fleetSyncMessage"], (syncData) => {
-    setSyncBar(fleetSyncBar, fleetSyncText, syncData.fleetSyncStatus, syncData.fleetSyncMessage);
-  });
-
-  if (data.gpmProfileCount) {
-    gpmProfileCount.textContent = `${data.gpmProfileCount} profiles`;
-  }
-
-  if (data.lastFleetSyncTime) {
-    const d = new Date(data.lastFleetSyncTime);
-    lastSyncText.textContent = `Đồng bộ lần cuối: ${d.toLocaleTimeString("vi-VN")}`;
-  }
-
-  // Display Server Sync Schedule
-  function renderScheduleText(summary, intervalMinutes, autoEnabled) {
-    if (!serverScheduleText) return;
-    if (autoEnabled === false) {
-      serverScheduleText.textContent = "Đang tắt";
-      serverScheduleText.style.color = "#94a3b8";
-    } else if (summary) {
-      serverScheduleText.textContent = summary;
-      serverScheduleText.style.color = "#38bdf8";
-    } else {
-      const min = intervalMinutes || 30;
-      serverScheduleText.textContent = min >= 60 ? `Mỗi ${min / 60} giờ` : `Mỗi ${min} phút`;
-      serverScheduleText.style.color = "#38bdf8";
-    }
-  }
-
-  chrome.storage.local.get(["serverScheduleSummary", "serverIntervalMinutes", "serverAutoEnabled"], (stored) => {
-    renderScheduleText(stored?.serverScheduleSummary, stored?.serverIntervalMinutes, stored?.serverAutoEnabled);
-  });
-
-  chrome.runtime.sendMessage({ type: "REFRESH_SCHEDULE" }, (res) => {
+  sendMsg("REFRESH_SCHEDULE").then((res) => {
     if (res) {
       renderScheduleText(res.serverScheduleSummary, res.serverIntervalMinutes, res.serverAutoEnabled);
     }
   });
 
-  // Ask open TikTok tabs to re-detect identity + GPM link (don't rely on click alone).
-  chrome.runtime.sendMessage({ type: "REQUEST_IDENTITY_SCAN" }, () => {
-    void chrome.runtime.lastError;
-  });
-
-  // 2. Auto-detect GPM API port (9495 / 19995 / 19996 / …)
-  function applyGpmProbe(res) {
-    if (res && res.online) {
-      gpmIndicator.className = "gpm-indicator online";
-      gpmStatusText.textContent = `localhost:${res.port || "?"} Online`;
+  sendMsg("PROBE_GPM").then((res) => {
+    if (res) {
+      applyGpmStatus(!!res.online, res.port);
     } else {
-      gpmIndicator.className = "gpm-indicator offline";
-      gpmStatusText.textContent = "GPM Offline (đã dò cổng)";
+      applyGpmStatus(false);
     }
-  }
-
-  chrome.runtime.sendMessage({ type: "PROBE_GPM" }, (res) => {
-    if (chrome.runtime.lastError) {
-      gpmIndicator.className = "gpm-indicator offline";
-      gpmStatusText.textContent = "GPM Offline";
-      return;
-    }
-    applyGpmProbe(res);
   });
 
-  // Paint cached agent/GPM status immediately so popup is not stuck on "Đang kiểm tra…"
-  // while the service worker is busy with a long resolve/report.
-  chrome.storage.local.get(
-    ["agentOnline", "gpmApiPort", "gpmApiOnline", "gpmApiBase"],
-    (cached) => {
-      if (cached.agentOnline === true || cached.agentOnline === false) {
-        applyAgentProbe({ online: !!cached.agentOnline });
-      }
-      if (cached.gpmApiOnline && (cached.gpmApiPort || cached.gpmApiBase)) {
-        const port =
-          cached.gpmApiPort ||
-          String(cached.gpmApiBase || "").match(/:(\d+)/)?.[1];
-        applyGpmProbe({ online: true, port });
-      } else if (cached.gpmApiOnline === false) {
-        applyGpmProbe({ online: false });
-      }
+  sendMsg("PROBE_AGENT").then((res) => {
+    if (res) {
+      applyAgentStatus(!!res.online);
+    } else {
+      applyAgentStatus(false);
     }
-  );
-
-  chrome.runtime.sendMessage({ type: "PROBE_AGENT" }, (res) => {
-    if (chrome.runtime.lastError) {
-      applyAgentProbe({ online: false });
-      return;
-    }
-    applyAgentProbe(res);
   });
 
-  // 3. Trigger Manual Sync Action
+  // 7. Trigger Manual Sync Action
   syncNowBtn.addEventListener("click", () => {
     syncNowBtn.disabled = true;
     syncNowBtn.classList.add("spinning");
     syncBtnText.textContent = "Đang quét GPM...";
     setSyncBar(fleetSyncBar, fleetSyncText, "syncing", "Đang quét GPMLogin…");
 
-    chrome.runtime.sendMessage({ type: "TRIGGER_MANUAL_SYNC" }, (response) => {
+    sendMsg("TRIGGER_MANUAL_SYNC").then((response) => {
       syncNowBtn.disabled = false;
       syncNowBtn.classList.remove("spinning");
       syncBtnText.textContent = "Đồng bộ GPM ngay";
 
-      if (chrome.runtime.lastError) {
-        setSyncBar(fleetSyncBar, fleetSyncText, "error", chrome.runtime.lastError.message);
-        alert(`Lỗi extension: ${chrome.runtime.lastError.message}`);
+      if (!response) {
+        setSyncBar(fleetSyncBar, fleetSyncText, "error", "Lỗi kết nối background");
+        alert("Lỗi kết nối đến background service worker.");
         return;
       }
 
-      if (response && response.success) {
+      if (response.success) {
         gpmProfileCount.textContent = `${response.count} profiles`;
         const now = new Date();
         lastSyncText.textContent = `Đồng bộ lần cuối: ${now.toLocaleTimeString("vi-VN")}`;
         setSyncBar(fleetSyncBar, fleetSyncText, "ok", `Đã đồng bộ ${response.count} profiles lên server.`);
-        chrome.runtime.sendMessage({ type: "PROBE_GPM" }, applyGpmProbe);
-      } else if (response && response.authRequired) {
+        sendMsg("PROBE_GPM").then((res) => applyGpmStatus(!!res?.online, res?.port));
+      } else if (response.authRequired) {
         setReauthUi(true, response.error);
         setSyncBar(fleetSyncBar, fleetSyncText, "error", response.error || "Cần xác thực lại");
         if (personalTokenInput) {
@@ -482,9 +480,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
         alert(
           response.error ||
-            "Token đã bị thu hồi. Vui lòng nhập Personal Token mới từ trang Cài đặt."
+          "Token đã bị thu hồi. Vui lòng nhập Personal Token mới từ trang Cài đặt."
         );
-      } else if (response && response.skipped) {
+      } else if (response.skipped) {
         const reason = response.reason || "unknown";
         if (reason === "GPMLogin offline") {
           setSyncBar(fleetSyncBar, fleetSyncText, "error", "GPMLogin offline");
@@ -497,7 +495,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         setSyncBar(fleetSyncBar, fleetSyncText, "error", response?.error || "Đồng bộ thất bại");
         alert(
           response?.error ||
-            "Đồng bộ thất bại. Kiểm tra Personal Token và máy chủ TikTokFlow."
+          "Đồng bộ thất bại. Kiểm tra Personal Token và máy chủ TikTokFlow."
         );
       }
     });

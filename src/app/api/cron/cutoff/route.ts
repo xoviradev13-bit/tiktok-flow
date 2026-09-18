@@ -1,13 +1,51 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { calculateWorkdayScore, DEFAULT_SCORING_CONFIG, ScoringRuleConfig } from "@/lib/scoring-engine";
+import {
+  calculateWorkdayScore,
+  DEFAULT_SCORING_CONFIG,
+  ScoringRuleConfig,
+  getScoringConfig,
+  getBusinessToday,
+  finalizePendingChecklists,
+} from "@/lib/scoring-engine";
 import { auth } from "@/lib/auth";
 import { getOrSyncExchangeRates } from "@/lib/currency";
 import { purgeExpiredExtensionAuthData } from "@/lib/extension-auth";
 
-function getTodayDateOnly(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+/**
+ * Circuit-breaker chunked deletion helper to delete in batches of 1,000 without locking tables
+ * Stops when fewer than batchSize items are found OR maxIterations (50k rows) is reached.
+ */
+async function chunkedDeleteById(
+  model: any,
+  whereClause: any,
+  batchSize = 1000
+): Promise<{ deletedCount: number; hitCircuitBreaker: boolean }> {
+  let totalDeleted = 0;
+  const maxIterations = 50; // Safety cap: max 50,000 rows per run
+  let iteration = 0;
+  let hitCircuitBreaker = false;
+
+  while (iteration < maxIterations) {
+    iteration++;
+    const records = await model.findMany({
+      where: whereClause,
+      select: { id: true },
+      take: batchSize,
+    });
+    if (!records || records.length === 0) break;
+    const ids = records.map((r: any) => r.id);
+    const res = await model.deleteMany({
+      where: { id: { in: ids } },
+    });
+    totalDeleted += res.count;
+    if (res.count === 0 || records.length < batchSize) break;
+    if (iteration >= maxIterations) {
+      hitCircuitBreaker = true;
+    }
+  }
+
+  return { deletedCount: totalDeleted, hitCircuitBreaker };
 }
 
 export async function GET(req: Request) {
@@ -19,100 +57,29 @@ export async function GET(req: Request) {
     const isAdmin = session?.user?.role === "ADMIN";
 
     if (!isCronAuthorized && !isAdmin) {
-      return NextResponse.json({ error: "Unauthorized: Yêu cầu quyền Quản trị viên hoặc CRON_SECRET hợp lệ." }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized: Yêu cầu quyền Quản trị viên hoặc CRON_SECRET hợp lệ." },
+        { status: 401 }
+      );
     }
 
-    // 1. Fetch system scoring rules
-    let scoringConfig: ScoringRuleConfig = DEFAULT_SCORING_CONFIG;
-    const configRecord = await prisma.systemConfig.findUnique({
-      where: { key: "scoring_rules" },
-    });
-    if (configRecord) {
-      try {
-        scoringConfig = { ...DEFAULT_SCORING_CONFIG, ...JSON.parse(configRecord.value) };
-      } catch (e) {}
-    }
+    // Parse URL query params
+    const { searchParams } = new URL(req.url);
+    const forceToday = searchParams.get("forceToday") === "true";
 
-    const today = getTodayDateOnly();
+    // 1. Fetch system scoring rules & business date boundaries
+    const scoringConfig = await getScoringConfig(prisma);
+    const { todayDateOnly, sevenDaysAgoDateOnly, currentVnHour } = getBusinessToday();
 
-    // 2. Fetch all daily checklists for today
-    const checklists = await prisma.dailyChecklist.findMany({
-      where: { date: today },
-      include: {
-        user: true,
-        items: {
-          include: { account: true },
-        },
-      },
+    // SINGLE SOURCE OF TRUTH: Today is only eligible if cutoff hour has passed OR admin explicit override
+    const canFinalizeToday = currentVnHour >= scoringConfig.cutOffHour || forceToday;
+
+    // 2. Execute Bounded Self-Healing Finalization
+    const finalizationResult = await finalizePendingChecklists(prisma, {
+      includeToday: canFinalizeToday,
     });
 
-    let totalChecklistsProcessed = 0;
-    let totalItemsAutoChecked = 0;
-    const results: any[] = [];
-
-    for (const checklist of checklists) {
-      // Check synced status from database for each item
-      for (const item of checklist.items) {
-        const isSyncedToday = Boolean(
-          item.account.lastSyncedAt &&
-          new Date(item.account.lastSyncedAt).getTime() >= today.getTime()
-        );
-        const isSynced = item.isSynced || isSyncedToday;
-        const isPosted = item.isPosted;
-        const isCompleted = item.isCompleted || (isPosted && isSynced);
-
-        if (isSynced !== item.isSynced || isCompleted !== item.isCompleted) {
-          await prisma.dailyChecklistItem.update({
-            where: { id: item.id },
-            data: { isSynced, isCompleted },
-          });
-          if (isCompleted && !item.isCompleted) {
-            totalItemsAutoChecked++;
-          }
-        }
-      }
-
-      // Recalculate final score for this checklist
-      const allItems = await prisma.dailyChecklistItem.findMany({
-        where: { checklistId: checklist.id },
-        include: { account: true },
-      });
-
-      const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
-      const eligibleItems = shouldExcludeBanned
-        ? allItems.filter((i) => (i as any).account?.status !== "BANNED")
-        : allItems;
-
-      const totalAssigned = eligibleItems.length;
-      const completedCount = eligibleItems.filter((i) => i.isCompleted || (i.isPosted && i.isSynced)).length;
-      const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
-
-      // Lock checklist at 10:00 AM cutoff
-      const updated = await prisma.dailyChecklist.update({
-        where: { id: checklist.id },
-        data: {
-          totalAssigned,
-          completedCount,
-          completionRate,
-          workdayScore,
-          isLocked: true,
-          lockedAt: new Date(),
-        },
-      });
-
-      totalChecklistsProcessed++;
-      results.push({
-        userId: checklist.userId,
-        userName: checklist.user.fullName || checklist.user.username,
-        totalAssigned,
-        completedCount,
-        completionRate,
-        workdayScore,
-        isLocked: true,
-      });
-    }
-
-    // 4. Daily Maintenance: Auto-sync exchange rates & purge expired auth data
+    // 3. Daily Maintenance: Auto-sync exchange rates
     let ratesSynced = false;
     try {
       await getOrSyncExchangeRates(prisma, { forceLive: true });
@@ -121,28 +88,51 @@ export async function GET(req: Request) {
       console.warn("[/api/cron/cutoff] Daily currency sync skipped:", e);
     }
 
-    let authPurged = false;
-    try {
-      await purgeExpiredExtensionAuthData();
-      authPurged = true;
-    } catch (e) {
-      console.warn("[/api/cron/cutoff] Daily auth purge skipped:", e);
-    }
+    // 4. Daily Maintenance: Circuit-breaker chunked system data purge
+    const now = Date.now();
+    const SEVEN_DAYS_AGO = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    const THIRTY_DAYS_AGO = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const SIXTY_DAYS_AGO = new Date(now - 60 * 24 * 60 * 60 * 1000);
+
+    const [syncQueuePurge, alertsPurge, logsPurge, authPurged] = await Promise.all([
+      chunkedDeleteById(prisma.syncQueue, {
+        status: { in: ["COMPLETED", "FAILED", "TIMED_OUT"] },
+        createdAt: { lt: SEVEN_DAYS_AGO },
+      }),
+      chunkedDeleteById(prisma.accountAlert, {
+        status: "RESOLVED",
+        resolvedAt: { lt: THIRTY_DAYS_AGO },
+      }),
+      chunkedDeleteById(prisma.accountLog, {
+        createdAt: { lt: SIXTY_DAYS_AGO },
+      }),
+      purgeExpiredExtensionAuthData().catch((e) => {
+        console.warn("[/api/cron/cutoff] Daily auth purge skipped:", e);
+        return null;
+      }),
+    ]);
 
     return NextResponse.json({
       success: true,
-      message: `Đã tự động chốt công lúc 10:00 AM cho ${totalChecklistsProcessed} nhân sự (${totalItemsAutoChecked} accounts auto-checked).`,
-      checklistsProcessed: totalChecklistsProcessed,
-      itemsAutoChecked: totalItemsAutoChecked,
-      ratesSynced,
-      authPurged,
+      message: `Đã xử lý chốt công (${finalizationResult.processedCount} checklists, ${finalizationResult.autoCheckedItemsCount} items auto-checked).`,
+      canFinalizeToday,
       cutoffTime: new Date().toISOString(),
-      results,
+      finalizedChecklists: finalizationResult.checklists,
+      ratesSynced,
+      purgeMetrics: {
+        syncQueueDeleted: syncQueuePurge.deletedCount,
+        syncQueueHitCap: syncQueuePurge.hitCircuitBreaker,
+        alertsDeleted: alertsPurge.deletedCount,
+        alertsHitCap: alertsPurge.hitCircuitBreaker,
+        logsDeleted: logsPurge.deletedCount,
+        logsHitCap: logsPurge.hitCircuitBreaker,
+        authPurged: Boolean(authPurged),
+      },
     });
   } catch (err: any) {
     console.error("[/api/cron/cutoff] Error:", err);
     return NextResponse.json(
-      { success: false, error: err?.message || "Lỗi tự động chốt công 10:00 AM" },
+      { success: false, error: err?.message || "Lỗi tự động chốt công" },
       { status: 500 }
     );
   }

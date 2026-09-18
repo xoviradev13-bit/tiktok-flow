@@ -1,0 +1,108 @@
+[
+  {
+    "profileId": "02b450d2-5e34-4bf0-ad29-015452faa002",
+    "name": null,
+    "handle": null,
+    "status": "NO_COOKIE_DB",
+    "reason": "Profile has no Default/Network/Cookies file"
+  },
+  {
+    "profileId": "30dabc91-9f51-49e9-9b6b-007d4c086b3b",
+    "name": "Profile 4712",
+    "username": "user008437433",
+    "followers": 0,
+    "totalViews": 0,
+    "revenue": 0,
+    "currency": "$",
+    "status": "EXTRACTED_SUCCESS",
+    "elapsedSeconds": 17.9
+  },
+  {
+    "profileId": "32ace987-065a-4fb5-82bf-1cf195fa007c",
+    "name": "Profile 3359 [clone hlkcf] 000",
+    "username": "user7300481501918",
+    "followers": 2,
+    "totalViews": 0,
+    "revenue": 0,
+    "currency": "$",
+    "status": "EXTRACTED_SUCCESS",
+    "elapsedSeconds": 21.6
+  },
+  {
+    "profileId": "4b36c020-e4d8-4ad4-90a6-125eefef965f",
+    "name": "Profile 3708",
+    "username": "dat.nguyen6284",
+    "followers": 1,
+    "totalViews": 1054,
+    "revenue": 0,
+    "currency": "$",
+    "status": "EXTRACTED_SUCCESS",
+    "elapsedSeconds": 28
+  },
+  {
+    "profileId": "500a1071-8dd2-43dd-9685-220721b0c4a4",
+    "name": "Profile 2492",
+    "username": "ousnowfan",
+    "followers": 10293,
+    "totalViews": 2548051,
+    "revenue": 29.4,
+    "currency": "$",
+    "status": "EXTRACTED_SUCCESS",
+    "elapsedSeconds": 22.2
+  },
+  {
+    "profileId": "5c7067f3-df4a-44f6-af28-41cd7425a89c",
+    "name": "Profile 2228",
+    "username": "user7300481501918",
+    "followers": 2,
+    "totalViews": 0,
+    "revenue": 0,
+    "currency": "$",
+    "status": "EXTRACTED_SUCCESS",
+    "elapsedSeconds": 15.7
+  },
+  {
+    "profileId": "80d8f999-e7f6-4f06-bb33-15896a70b332",
+    "name": "Profile 3359",
+    "username": "dat.nguyen6284",
+    "followers": 1,
+    "totalViews": 1054,
+    "revenue": 0,
+    "currency": "$",
+    "status": "EXTRACTED_SUCCESS",
+    "elapsedSeconds": 23.3
+  },
+  {
+    "profileId": "91d83a58-0226-4a1c-9829-a53738842afe",
+    "name": "Profile 2414",
+    "username": "ceotelamonix",
+    "followers": 6,
+    "totalViews": 1450,
+    "revenue": 0,
+    "currency": "$",
+    "status": "EXTRACTED_SUCCESS",
+    "elapsedSeconds": 30.5
+  },
+  {
+    "profileId": "b255d876-c886-450f-a4a8-3451206b9346",
+    "name": "Profile 5404",
+    "username": "hong.minh3808",
+    "followers": 0,
+    "totalViews": 0,
+    "revenue": null,
+    "currency": "$",
+    "status": "EXTRACTED_SUCCESS",
+    "elapsedSeconds": 23.9
+  },
+  {
+    "profileId": "b57d9f1b-4dae-4377-a870-99d5b8be8434",
+    "name": "Profile 2524",
+    "username": "ceotelamonix",
+    "followers": 6,
+    "totalViews": 1450,
+    "revenue": 0,
+    "currency": "$",
+    "status": "EXTRACTED_SUCCESS",
+    "elapsedSeconds": 29.6
+  }
+]
