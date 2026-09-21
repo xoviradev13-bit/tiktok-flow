@@ -73,6 +73,7 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { launchGpmProfile } from "@/lib/gpm-client-bridge";
 import {
   getAccountRevenuePeriods,
@@ -789,7 +790,7 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   // tRPC Mutations
@@ -802,7 +803,7 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const updateMutation = trpc.accounts.update.useMutation({
@@ -812,7 +813,7 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const deleteMutation = trpc.accounts.delete.useMutation({
@@ -823,7 +824,7 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const bulkDeleteMutation = trpc.accounts.bulkDelete.useMutation({
@@ -834,7 +835,7 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const bulkUpdateStatusMutation = trpc.accounts.bulkUpdateStatus.useMutation({
@@ -845,7 +846,7 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const bulkAssignMutation = trpc.accounts.bulkAssign.useMutation({
@@ -856,7 +857,7 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const syncMutation = trpc.accounts.syncAccount.useMutation({
@@ -865,7 +866,7 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const stopSyncMutation = trpc.accounts.stopSyncAccount.useMutation({
@@ -874,7 +875,7 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const { data: gpmStatus } = trpc.gpm.checkStatus.useQuery();
@@ -4053,7 +4054,7 @@ function AccountsPageContent() {
                 disabled={bulkAssignMutation.isPending || !isLeadOrAdmin}
                 onClick={() => {
                   if (!isLeadOrAdmin) {
-                    alert("Chỉ Quản trị viên và Quản lý mới có quyền phân công nhân sự.");
+                    toast.warning("Chỉ Quản trị viên và Quản lý mới có quyền phân công nhân sự.");
                     return;
                   }
                   bulkAssignMutation.mutate({

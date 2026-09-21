@@ -61,6 +61,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 
 const GROUP_COLUMN_RESIZE_CONFIG = {
@@ -257,7 +258,7 @@ function GroupsManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi tạo nhóm");
+      toast.error(err.message || "Lỗi tạo nhóm");
     },
   });
 
@@ -273,7 +274,7 @@ function GroupsManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi cập nhật nhóm");
+      toast.error(err.message || "Lỗi cập nhật nhóm");
     },
   });
 
@@ -286,7 +287,7 @@ function GroupsManagementContent() {
     },
     onError: (err: any) => {
       setMemberPendingId(null);
-      alert(err.message || "Lỗi thêm thành viên");
+      toast.error(err.message || "Lỗi thêm thành viên");
     },
   });
 
@@ -299,7 +300,7 @@ function GroupsManagementContent() {
     },
     onError: (err: any) => {
       setMemberPendingId(null);
-      alert(err.message || "Lỗi xóa thành viên");
+      toast.error(err.message || "Lỗi xóa thành viên");
     },
   });
 
@@ -313,7 +314,7 @@ function GroupsManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi xóa nhóm");
+      toast.error(err.message || "Lỗi xóa nhóm");
     },
   });
 
@@ -328,7 +329,7 @@ function GroupsManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi xóa nhóm hàng loạt");
+      toast.error(err.message || "Lỗi xóa nhóm hàng loạt");
     },
   });
 
@@ -343,7 +344,7 @@ function GroupsManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi chỉ định leader");
+      toast.error(err.message || "Lỗi chỉ định leader");
     },
   });
 
@@ -357,7 +358,7 @@ function GroupsManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi đổi màu nhóm");
+      toast.error(err.message || "Lỗi đổi màu nhóm");
     },
   });
 

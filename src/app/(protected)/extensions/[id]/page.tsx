@@ -83,7 +83,7 @@ export default function ExtensionDetailPage() {
       setTimeout(() => setActionMsg(null), 5000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi tạo lại token");
+      toast.error(err.message || "Lỗi tạo lại token");
     },
   });
 
@@ -234,11 +234,10 @@ export default function ExtensionDetailPage() {
                         : "TikTokFlow-Extension.zip"
                     );
                   }}
-                  className={`flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl text-xs sm:text-sm font-bold ${
-                    isClientAgent
-                      ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-indigo-600/25"
-                      : "bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-pink-600/25"
-                  } text-white shadow-lg active:scale-95 transition-all cursor-pointer text-center`}
+                  className={`flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl text-xs sm:text-sm font-bold ${isClientAgent
+                    ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-indigo-600/25"
+                    : "bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-pink-600/25"
+                    } text-white shadow-lg active:scale-95 transition-all cursor-pointer text-center`}
                 >
                   <Download className="w-4 h-4 shrink-0" />
                   <span>{isClientAgent ? "Tải Client Agent (.zip cá nhân)" : "Tải Extension (ZIP cá nhân)"}</span>
@@ -310,11 +309,10 @@ export default function ExtensionDetailPage() {
               type={isTokenRevealed ? "text" : "password"}
               readOnly
               value={isAccessRevoked ? "QUYỀN EXTENSION ĐÃ BỊ ADMIN KHÓA" : ext.userToken || "Đang tạo token..."}
-              className={`w-full bg-slate-50 dark:bg-slate-950 border rounded-2xl px-4 py-3 text-xs font-mono pr-24 focus:outline-none ${
-                isAccessRevoked
-                  ? "border-rose-300 dark:border-rose-900/60 text-rose-500 font-bold"
-                  : "border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-              }`}
+              className={`w-full bg-slate-50 dark:bg-slate-950 border rounded-2xl px-4 py-3 text-xs font-mono pr-24 focus:outline-none ${isAccessRevoked
+                ? "border-rose-300 dark:border-rose-900/60 text-rose-500 font-bold"
+                : "border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                }`}
             />
             <div className="absolute right-2.5 flex items-center gap-1">
               {!isAccessRevoked && (

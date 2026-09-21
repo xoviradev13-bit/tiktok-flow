@@ -83,6 +83,7 @@ import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 import { useConfirmDialog } from "@/components/ui/confirm-modal";
 import { downloadPackage } from "@/lib/download-package";
@@ -369,7 +370,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 6000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi gửi thư mời");
+      toast.error(err.message || "Lỗi gửi thư mời");
     },
   });
 
@@ -380,7 +381,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi gửi lại thư mời");
+      toast.error(err.message || "Lỗi gửi lại thư mời");
     },
   });
 
@@ -391,7 +392,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi thu hồi lời mời");
+      toast.error(err.message || "Lỗi thu hồi lời mời");
     },
   });
 
@@ -402,7 +403,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi xóa lời mời");
+      toast.error(err.message || "Lỗi xóa lời mời");
     },
   });
 
@@ -415,7 +416,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi tạo nhóm");
+      toast.error(err.message || "Lỗi tạo nhóm");
     },
   });
 
@@ -427,7 +428,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi xóa nhóm");
+      toast.error(err.message || "Lỗi xóa nhóm");
     },
   });
 
@@ -439,7 +440,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 3000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi gán nhóm");
+      toast.error(err.message || "Lỗi gán nhóm");
     },
   });
 
@@ -452,7 +453,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi cập nhật vai trò");
+      toast.error(err.message || "Lỗi cập nhật vai trò");
     },
   });
 
@@ -465,7 +466,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi xóa nhân sự");
+      toast.error(err.message || "Lỗi xóa nhân sự");
     },
   });
 
@@ -478,7 +479,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi xóa hàng loạt nhân sự");
+      toast.error(err.message || "Lỗi xóa hàng loạt nhân sự");
     },
   });
 
@@ -494,7 +495,7 @@ function UsersManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const {
@@ -520,7 +521,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 5000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi khi cấp lại Token");
+      toast.error(err.message || "Lỗi khi cấp lại Token");
     },
   });
 
@@ -535,7 +536,7 @@ function UsersManagementContent() {
       setTimeout(() => setActionMsg(null), 5000);
     },
     onError: (err: any) => {
-      alert(err.message || "Lỗi khi vô hiệu hóa Token");
+      toast.error(err.message || "Lỗi khi vô hiệu hóa Token");
     },
   });
 
@@ -546,7 +547,7 @@ function UsersManagementContent() {
       setActionMsg("Đã hủy liên kết máy tính.");
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => alert(err.message || "Lỗi hủy liên kết máy"),
+    onError: (err: any) => toast.error(err.message || "Lỗi hủy liên kết máy"),
   });
 
   const { data: pendingMachineRequests = [] } =
@@ -576,7 +577,7 @@ function UsersManagementContent() {
         setActionMsg("Đã cập nhật yêu cầu đổi máy.");
         setTimeout(() => setActionMsg(null), 4000);
       },
-      onError: (err: any) => alert(err.message || "Lỗi duyệt yêu cầu"),
+      onError: (err: any) => toast.error(err.message || "Lỗi duyệt yêu cầu"),
     });
 
   const reviewExtensionAccessMutation =
@@ -589,7 +590,7 @@ function UsersManagementContent() {
         setActionMsg("Đã duyệt yêu cầu kích hoạt Extension.");
         setTimeout(() => setActionMsg(null), 4000);
       },
-      onError: (err: any) => alert(err.message || "Lỗi duyệt yêu cầu Extension"),
+      onError: (err: any) => toast.error(err.message || "Lỗi duyệt yêu cầu Extension"),
     });
 
   const deleteMachineRequestMutation = trpc.user.deleteMachineChangeRequest.useMutation({
@@ -600,7 +601,7 @@ function UsersManagementContent() {
       setActionMsg("Đã xóa yêu cầu đổi máy.");
       setTimeout(() => setActionMsg(null), 3000);
     },
-    onError: (err: any) => alert(err.message || "Lỗi xóa yêu cầu"),
+    onError: (err: any) => toast.error(err.message || "Lỗi xóa yêu cầu"),
   });
 
   const deleteExtensionRequestMutation = trpc.user.deleteExtensionAccessRequest.useMutation({
@@ -611,7 +612,7 @@ function UsersManagementContent() {
       setActionMsg("Đã xóa yêu cầu kích hoạt Extension.");
       setTimeout(() => setActionMsg(null), 3000);
     },
-    onError: (err: any) => alert(err.message || "Lỗi xóa yêu cầu"),
+    onError: (err: any) => toast.error(err.message || "Lỗi xóa yêu cầu"),
   });
 
   const requestPersonnelOptions = useMemo(() => {
@@ -737,7 +738,7 @@ function UsersManagementContent() {
     }
 
     if (allEmails.length === 0) {
-      alert("Vui lòng nhập ít nhất một địa chỉ email hợp lệ.");
+      toast.warning("Vui lòng nhập ít nhất một địa chỉ email hợp lệ.");
       return;
     }
 
@@ -786,7 +787,7 @@ function UsersManagementContent() {
 
   const handleToggleStatus = (userId: string, currentStatus: boolean) => {
     if (userId === session?.user?.id) {
-      alert("Bạn không thể tự chặn quyền truy cập của chính mình!");
+      toast.warning("Bạn không thể tự chặn quyền truy cập của chính mình!");
       return;
     }
     toggleStatusMutation.mutate({
@@ -1152,8 +1153,8 @@ function UsersManagementContent() {
                   >
                     <SelectTrigger
                       className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${roleFilter !== "ALL"
-                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                          : ""
+                        ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                        : ""
                         }`}
                     >
                       <SelectValue placeholder="Vai trò">
@@ -1233,8 +1234,8 @@ function UsersManagementContent() {
                   >
                     <SelectTrigger
                       className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${groupFilter !== "ALL"
-                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                          : ""
+                        ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                        : ""
                         }`}
                     >
                       <SelectValue placeholder="Nhóm / Team">
@@ -1278,8 +1279,8 @@ function UsersManagementContent() {
                     <button
                       type="button"
                       className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal border transition-all cursor-pointer ${activeAdvancedCount > 0
-                          ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 shadow-2xs font-medium"
-                          : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
+                        ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 shadow-2xs font-medium"
+                        : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
                         }`}
                     >
                       <Filter className="w-3.5 h-3.5" />
@@ -1332,8 +1333,8 @@ function UsersManagementContent() {
                         >
                           <SelectTrigger
                             className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${statusFilter !== "ALL"
-                                ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                                : ""
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
                               }`}
                           >
                             <SelectValue placeholder="Tất cả trạng thái" />
@@ -1382,8 +1383,8 @@ function UsersManagementContent() {
                         >
                           <SelectTrigger
                             className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${hasAccountsFilter !== "ALL"
-                                ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                                : ""
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
                               }`}
                           >
                             <SelectValue placeholder="Tất cả" />
@@ -1430,8 +1431,8 @@ function UsersManagementContent() {
                         <button
                           type="button"
                           className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${sortConfig.key
-                              ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
-                              : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
+                            ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
+                            : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
                             }`}
                         >
                           <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-pink-600 dark:text-pink-400" : "text-slate-500"}`} />
@@ -1459,8 +1460,8 @@ function UsersManagementContent() {
                           key={item.key}
                           onClick={() => handleSort(item.key)}
                           className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${isSelected
-                              ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
-                              : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
+                            ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
+                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
                             }`}
                         >
                           <span>{item.label}</span>
@@ -1483,8 +1484,8 @@ function UsersManagementContent() {
                         type="button"
                         onClick={() => handleViewModeChange("grid")}
                         className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "grid"
-                            ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
-                            : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                          ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                          : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                           }`}
                         aria-label="Chế độ xem dạng lưới (Cards)"
                       >
@@ -1501,8 +1502,8 @@ function UsersManagementContent() {
                         type="button"
                         onClick={() => handleViewModeChange("list")}
                         className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "list"
-                            ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
-                            : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                          ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
+                          : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                           }`}
                         aria-label="Chế độ xem dạng danh sách (Bảng)"
                       >
@@ -4010,7 +4011,7 @@ function UsersManagementContent() {
                 type="button"
                 onClick={() => {
                   if (tokenData?.accessEnabled === false) {
-                    alert("Quyền Extension của nhân sự này đang bị vô hiệu hóa. Hãy bấm 'Mở khóa & Cấp Token' trước.");
+                    toast.warning("Quyền Extension của nhân sự này đang bị vô hiệu hóa. Hãy bấm 'Mở khóa & Cấp Token' trước.");
                     return;
                   }
                   downloadPackage(

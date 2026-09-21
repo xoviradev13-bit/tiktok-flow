@@ -165,7 +165,7 @@ async function getAgentSyncHint(userId: string): Promise<{
       createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
     },
     orderBy: { createdAt: "desc" },
-    select: { reason: true },
+    select: { reason: true, createdAt: true },
   });
 
   const lastSeenMs = user?.gpmLastSeenAt?.getTime() ?? 0;
@@ -175,27 +175,42 @@ async function getAgentSyncHint(userId: string): Promise<{
   const gpmLastSeenAt = user?.gpmLastSeenAt?.toISOString() ?? null;
 
   if (
-    recentReject?.reason === "occupied" ||
-    recentReject?.reason === "race_occupied"
+    recentReject &&
+    (recentReject.reason === "occupied" || recentReject.reason === "race_occupied")
   ) {
-    return {
-      ready: false,
-      code: "machine_occupied",
-      message:
-        "Máy tính này đã được gắn với nhân sự khác. Client Agent không thể xác thực dưới tài khoản hiện tại — liên hệ Admin để hủy liên kết máy.",
-      boundMachineName,
-      gpmLastSeenAt,
-    };
+    // If a successful BIND was recorded *after* the rejection, the conflict is
+    // resolved — don't surface a stale "machine occupied" warning.
+    const newerBind = await prisma.machineBindingLog.findFirst({
+      where: { userId, action: "BIND", createdAt: { gt: recentReject.createdAt } },
+      select: { id: true },
+    });
+    if (!newerBind) {
+      return {
+        ready: false,
+        code: "machine_occupied",
+        message:
+          "Máy tính này đã được gắn với nhân sự khác. Client Agent không thể xác thực dưới tài khoản hiện tại — liên hệ Admin để hủy liên kết máy.",
+        boundMachineName,
+        gpmLastSeenAt,
+      };
+    }
   }
 
   if (recentReject?.reason === "mismatch") {
-    return {
-      ready: false,
-      code: "machine_mismatch",
-      message: `Tài khoản đã gắn máy "${boundMachineName || "khác"}". Không thể đồng bộ từ máy này — gửi yêu cầu đổi máy hoặc liên hệ Admin.`,
-      boundMachineName,
-      gpmLastSeenAt,
-    };
+    // Same: if re-bound successfully after the mismatch, the warning is stale.
+    const newerBind = await prisma.machineBindingLog.findFirst({
+      where: { userId, action: "BIND", createdAt: { gt: recentReject.createdAt } },
+      select: { id: true },
+    });
+    if (!newerBind) {
+      return {
+        ready: false,
+        code: "machine_mismatch",
+        message: `Tài khoản đã gắn máy "${boundMachineName || "khác"}". Không thể đồng bộ từ máy này — gửi yêu cầu đổi máy hoặc liên hệ Admin.`,
+        boundMachineName,
+        gpmLastSeenAt,
+      };
+    }
   }
 
   if (!agentFresh) {

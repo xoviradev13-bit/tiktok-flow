@@ -68,6 +68,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 import {
@@ -605,7 +606,7 @@ function RevenueDetailsPageContent() {
       : filteredAndSortedRecords;
 
     if (dataToExport.length === 0) {
-      alert("Không có dữ liệu để xuất file!");
+      toast.warning("Không có dữ liệu để xuất file!");
       return;
     }
 
@@ -661,7 +662,7 @@ function RevenueDetailsPageContent() {
 
   const handleDeleteSingle = async (item: any) => {
     if (item.id.startsWith("auto-")) {
-      alert("Bản ghi này được đồng bộ tự động từ Analytics, không thể xóa trực tiếp.");
+      toast.warning("Bản ghi này được đồng bộ tự động từ Analytics, không thể xóa trực tiếp.");
       return;
     }
     const ok = await confirm({
@@ -690,7 +691,7 @@ function RevenueDetailsPageContent() {
   const handleBulkDelete = async () => {
     const realIds = Array.from(selectedIds).filter((id) => !id.startsWith("auto-"));
     if (realIds.length === 0) {
-      alert("Các bản ghi đã chọn đều là bản ghi tự động từ Analytics, không thể xóa thủ công.");
+      toast.warning("Các bản ghi đã chọn đều là bản ghi tự động từ Analytics, không thể xóa thủ công.");
       return;
     }
     const autoCount = selectedIds.size - realIds.length;
