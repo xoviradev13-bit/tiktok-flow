@@ -514,8 +514,8 @@ function UsersManagementContent() {
         selectedUserForToken?.id === vars.userId
           ? selectedUserForToken?.fullName || selectedUserForToken?.username
           : (users as any[])?.find((u) => u.id === vars.userId)?.fullName ||
-            (users as any[])?.find((u) => u.id === vars.userId)?.username ||
-            "nhân sự";
+          (users as any[])?.find((u) => u.id === vars.userId)?.username ||
+          "nhân sự";
       setActionMsg(`🔑 Đã mở khóa / cấp Token mới thành công cho ${who}!`);
       setTimeout(() => setActionMsg(null), 5000);
     },
@@ -1118,9 +1118,8 @@ function UsersManagementContent() {
                       setSearch(e.target.value);
                       setPage(1);
                     }}
-                    className={`w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500 ${
-                      search ? "pr-8" : "pr-4"
-                    }`}
+                    className={`w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500 ${search ? "pr-8" : "pr-4"
+                      }`}
                   />
                   {search && (
                     <Tooltip>
@@ -1152,11 +1151,10 @@ function UsersManagementContent() {
                     }}
                   >
                     <SelectTrigger
-                      className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
-                        roleFilter !== "ALL"
+                      className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${roleFilter !== "ALL"
                           ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                           : ""
-                      }`}
+                        }`}
                     >
                       <SelectValue placeholder="Vai trò">
                         {roleFilter === "ALL" && "Tất cả vai trò"}
@@ -1234,11 +1232,10 @@ function UsersManagementContent() {
                     }}
                   >
                     <SelectTrigger
-                      className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
-                        groupFilter !== "ALL"
+                      className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${groupFilter !== "ALL"
                           ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                           : ""
-                      }`}
+                        }`}
                     >
                       <SelectValue placeholder="Nhóm / Team">
                         {groupFilter === "ALL" ? "Tất cả nhóm" : groupFilter}
@@ -1280,11 +1277,10 @@ function UsersManagementContent() {
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal border transition-all cursor-pointer ${
-                        activeAdvancedCount > 0
+                      className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-normal border transition-all cursor-pointer ${activeAdvancedCount > 0
                           ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 shadow-2xs font-medium"
                           : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
-                      }`}
+                        }`}
                     >
                       <Filter className="w-3.5 h-3.5" />
                       <span>Bộ lọc nâng cao</span>
@@ -1335,11 +1331,10 @@ function UsersManagementContent() {
                           }}
                         >
                           <SelectTrigger
-                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
-                              statusFilter !== "ALL"
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${statusFilter !== "ALL"
                                 ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                                 : ""
-                            }`}
+                              }`}
                           >
                             <SelectValue placeholder="Tất cả trạng thái" />
                           </SelectTrigger>
@@ -1386,11 +1381,10 @@ function UsersManagementContent() {
                           }}
                         >
                           <SelectTrigger
-                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
-                              hasAccountsFilter !== "ALL"
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${hasAccountsFilter !== "ALL"
                                 ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                                 : ""
-                            }`}
+                              }`}
                           >
                             <SelectValue placeholder="Tất cả" />
                           </SelectTrigger>
@@ -1435,11 +1429,10 @@ function UsersManagementContent() {
                       <PopoverTrigger asChild>
                         <button
                           type="button"
-                          className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${
-                            sortConfig.key
+                          className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${sortConfig.key
                               ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
                               : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
-                          }`}
+                            }`}
                         >
                           <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-pink-600 dark:text-pink-400" : "text-slate-500"}`} />
                           <span>Sắp xếp</span>
@@ -1465,11 +1458,10 @@ function UsersManagementContent() {
                         <button
                           key={item.key}
                           onClick={() => handleSort(item.key)}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                            isSelected
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${isSelected
                               ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
                               : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
-                          }`}
+                            }`}
                         >
                           <span>{item.label}</span>
                           {isSelected && (
@@ -1490,11 +1482,10 @@ function UsersManagementContent() {
                       <button
                         type="button"
                         onClick={() => handleViewModeChange("grid")}
-                        className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          viewMode === "grid"
+                        className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "grid"
                             ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
                             : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                        }`}
+                          }`}
                         aria-label="Chế độ xem dạng lưới (Cards)"
                       >
                         <LayoutGrid className="w-3.5 h-3.5" />
@@ -1509,11 +1500,10 @@ function UsersManagementContent() {
                       <button
                         type="button"
                         onClick={() => handleViewModeChange("list")}
-                        className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          viewMode === "list"
+                        className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "list"
                             ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
                             : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                        }`}
+                          }`}
                         aria-label="Chế độ xem dạng danh sách (Bảng)"
                       >
                         <List className="w-3.5 h-3.5" />

@@ -11,6 +11,9 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 // FIX: rate limit — this endpoint creates a fresh pairing code (and possibly
 // rotates the attest secret) on every call. A logged-in user could spam it
 // to churn secrets or fill the DB with pairing-code rows.

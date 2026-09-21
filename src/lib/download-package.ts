@@ -57,9 +57,12 @@ export async function downloadPackage(
     return true;
   } catch (error: any) {
     console.error("[downloadPackage] Error:", error);
-    toast.error(error.message || "Không thể kết nối tới máy chủ.", {
+    const msg = error?.message === "Failed to fetch"
+      ? "Lỗi mạng hoặc server không phản hồi (Failed to fetch). Kiểm tra lại kết nối hoặc log Vercel."
+      : (error?.message || "Không thể kết nối tới máy chủ.");
+    toast.error(msg, {
       id: toastId,
-      duration: 5000,
+      duration: 6000,
     });
     return false;
   }
