@@ -7,6 +7,11 @@ import type { NextConfig } from "next";
 EventEmitter.defaultMaxListeners = 30;
 
 const nextConfig: NextConfig = {
+  // Bundle the extension directory into the serverless function so it's
+  // available on Vercel at runtime (process.cwd()/extension).
+  outputFileTracingIncludes: {
+    "/api/extension/download": ["./extension/**/*"],
+  },
   async redirects() {
     return [
       {
