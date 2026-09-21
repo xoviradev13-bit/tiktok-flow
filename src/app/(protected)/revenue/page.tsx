@@ -39,7 +39,19 @@ function RevenuePageContent() {
   const { searchParams, updateUrlParams } = useUrlParams();
 
   const paramPreset = searchParams?.get("preset");
-  const initialPreset = paramPreset === "custom" ? "custom" : paramPreset ? Number(paramPreset) : 28;
+  // Legacy preset=0 (Toàn Bộ) → 365 (Studio daily data capped at 365 days)
+  const parsedPreset =
+    paramPreset === "custom"
+      ? "custom"
+      : paramPreset
+        ? Number(paramPreset)
+        : 28;
+  const initialPreset =
+    parsedPreset === "custom"
+      ? "custom"
+      : parsedPreset === 0 || !Number.isFinite(parsedPreset)
+        ? 365
+        : (parsedPreset as number);
   const [activePreset, setActivePreset] = useState<number | "custom">(initialPreset);
 
   const initialFrom = searchParams?.get("from") || "";
@@ -122,7 +134,6 @@ function RevenuePageContent() {
     { value: 28, label: "28 Ngày" },
     { value: 60, label: "60 Ngày" },
     { value: 365, label: "365 Ngày" },
-    { value: 0, label: "Toàn Bộ" },
   ];
 
   const getPeriodLabel = () => {
@@ -135,7 +146,6 @@ function RevenuePageContent() {
         return "Tùy chọn";
       }
     }
-    if (activePreset === 0) return "Toàn bộ";
     return `${activePreset} ngày`;
   };
 

@@ -24,12 +24,15 @@ import {
   Edit2,
   Trash2,
   Loader2,
+  MoreHorizontal,
+  Plus,
+  FileDown,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
-import { format, subDays } from "date-fns";
+import { format, subDays, addDays, differenceInCalendarDays, startOfDay } from "date-fns";
 import { DateRange } from "react-day-picker";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import {
@@ -53,6 +56,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -60,6 +70,17 @@ import {
 import { trpc } from "@/lib/trpc";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
+import {
+  formatRevenueSourceLabel,
+  getRevenueSourceSelectOptions,
+  matchesRevenueSourceFilter,
+  resolveRevenueSourceKey,
+} from "@/lib/m10n-programs";
+import { useConfirmDialog } from "@/components/ui/confirm-modal";
+
+const REVENUE_SOURCE_OPTIONS = getRevenueSourceSelectOptions();
+/** Studio daily nguồn thu only covers ~60 days — keep custom range in sync. */
+const MAX_CUSTOM_RANGE_DAYS = 60;
 
 const REVENUE_DETAILS_COLUMN_RESIZE_CONFIG = {
   accountUsername: { minWidth: 160, maxWidth: 400, defaultWidth: 200 },
@@ -68,7 +89,7 @@ const REVENUE_DETAILS_COLUMN_RESIZE_CONFIG = {
   views: { minWidth: 100, maxWidth: 250, defaultWidth: 140 },
   rpm: { minWidth: 90, maxWidth: 220, defaultWidth: 120 },
   revenue: { minWidth: 110, maxWidth: 260, defaultWidth: 140 },
-  sourceType: { minWidth: 110, maxWidth: 260, defaultWidth: 150 },
+  sourceType: { minWidth: 140, maxWidth: 360, defaultWidth: 220 },
   actions: { minWidth: 80, maxWidth: 200, defaultWidth: 100 },
 } as const;
 
@@ -93,17 +114,22 @@ const REVENUE_SORT_OPTIONS: Array<{ key: RevenueSortKey; label: string }> = [
 
 function RevenueDetailsPageContent() {
   const { currency, formatAmount } = useCurrency();
+  const { confirm, confirmDialog } = useConfirmDialog();
   // SaaS URL Query State Synchronization
   const { searchParams, updateUrlParams } = useUrlParams();
 
   const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
   const [search, setSearch] = useState(initialSearch);
 
-  const initialSource = searchParams?.get("source") || "ALL";
+  const initialSourceRaw = searchParams?.get("source") || "ALL";
+  const initialSource =
+    initialSourceRaw === "ALL" ? "ALL" : resolveRevenueSourceKey(initialSourceRaw);
   const [sourceTypeFilter, setSourceTypeFilter] = useState(initialSource);
 
-  const initialFrom = searchParams?.get("from") || "";
-  const initialTo = searchParams?.get("to") || "";
+  const initialFrom =
+    searchParams?.get("from") ||
+    format(subDays(new Date(), 60), "yyyy-MM-dd");
+  const initialTo = searchParams?.get("to") || format(new Date(), "yyyy-MM-dd");
   const [startDate, setStartDate] = useState(initialFrom);
   const [endDate, setEndDate] = useState(initialTo);
 
@@ -120,8 +146,13 @@ function RevenueDetailsPageContent() {
   const initialMinRev = searchParams?.get("minRev") || searchParams?.get("minRevenue") || "";
   const [minRevenue, setMinRevenue] = useState(initialMinRev);
 
-  const initialMinV = searchParams?.get("minV") || searchParams?.get("minViews") || "";
-  const [minViews, setMinViews] = useState(initialMinV);
+  const initialMinViews = searchParams?.get("minV") || searchParams?.get("minViews") || "";
+  const [minViews, setMinViews] = useState(initialMinViews);
+
+  const initialOrigin = searchParams?.get("origin") || "ALL";
+  const [originFilter, setOriginFilter] = useState<"ALL" | "MANUAL" | "AUTO">(
+    initialOrigin === "MANUAL" || initialOrigin === "AUTO" ? initialOrigin : "ALL"
+  );
 
   const initialSortKey = (searchParams?.get("sort") || searchParams?.get("sortBy") || "date") as RevenueSortKey;
   const initialSortDesc = (searchParams?.get("dir") || searchParams?.get("sortOrder")) === "asc" ? false : true;
@@ -151,6 +182,7 @@ function RevenueDetailsPageContent() {
         to: endDate,
         minRev: minRevenue,
         minV: minViews,
+        origin: originFilter,
         sort: sortConfig.key,
         dir: sortConfig.desc ? "desc" : "asc",
         p: page,
@@ -163,6 +195,7 @@ function RevenueDetailsPageContent() {
         to: "",
         minRev: "",
         minV: "",
+        origin: "ALL",
         sort: "date",
         dir: "desc",
         p: 1,
@@ -176,6 +209,7 @@ function RevenueDetailsPageContent() {
     endDate,
     minRevenue,
     minViews,
+    originFilter,
     sortConfig,
     page,
     pageSize,
@@ -219,30 +253,49 @@ function RevenueDetailsPageContent() {
   const [editViews, setEditViews] = useState<number | string>(0);
   const [editRpm, setEditRpm] = useState<number | string>(0);
   const [editRevenue, setEditRevenue] = useState<number | string>(0);
-  const [editSourceType, setEditSourceType] = useState("CREATOR_REWARDS");
+  const [editSourceType, setEditSourceType] = useState("M10N_PROGRAM_CREATOR_INCENTIVES");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const [isAddRevenueOpen, setIsAddRevenueOpen] = useState(false);
+  const [newRevAccountId, setNewRevAccountId] = useState("");
+  const [newRevDate, setNewRevDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [newRevViews, setNewRevViews] = useState("");
+  const [newRevRpm, setNewRevRpm] = useState("");
+  const [newRevAmount, setNewRevAmount] = useState("");
+  const [newRevSource, setNewRevSource] = useState("M10N_PROGRAM_CREATOR_INCENTIVES");
+  const importFileRef = useRef<HTMLInputElement>(null);
+
   const bulkDeleteMutation = trpc.revenue.bulkDelete.useMutation();
   const updateRecordMutation = trpc.revenue.updateRecord.useMutation();
+  const upsertRevenueMutation = trpc.revenue.upsert.useMutation();
+  const bulkImportMutation = trpc.revenue.bulkImport.useMutation();
+
+  const { data: accountsData } = trpc.accounts.list.useQuery(
+    {},
+    { enabled: isAddRevenueOpen || isLeadOrAdmin || isAdmin }
+  );
+  const accountOptions = useMemo(() => {
+    const list = (accountsData as any)?.items || [];
+    if (!Array.isArray(list)) return [] as Array<{ id: string; username: string }>;
+    return list
+      .map((a: any) => ({ id: a.id, username: a.username }))
+      .filter((a: any) => a.id && a.username)
+      .sort((a: any, b: any) => String(a.username).localeCompare(String(b.username)));
+  }, [accountsData]);
 
   const applyPresetRange = (days: number) => {
-    if (days === 0) {
-      setStartDate("");
-      setEndDate("");
-    } else {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(start.getDate() - days);
-      setStartDate(format(start, "yyyy-MM-dd"));
-      setEndDate(format(end, "yyyy-MM-dd"));
-    }
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    setStartDate(format(start, "yyyy-MM-dd"));
+    setEndDate(format(end, "yyyy-MM-dd"));
     setPage(1);
   };
 
   const getActivePreset = () => {
-    if (!startDate && !endDate) return 0;
+    if (!startDate || !endDate) return -1;
     const todayStr = format(new Date(), "yyyy-MM-dd");
     if (endDate === todayStr) {
       const end = new Date();
@@ -251,7 +304,6 @@ function RevenueDetailsPageContent() {
       if (Math.abs(diffDays - 7) <= 1) return 7;
       if (Math.abs(diffDays - 28) <= 1) return 28;
       if (Math.abs(diffDays - 60) <= 1) return 60;
-      if (Math.abs(diffDays - 365) <= 2) return 365;
     }
     return -1;
   };
@@ -266,6 +318,63 @@ function RevenueDetailsPageContent() {
   });
 
   // Handle Excel/CSV file upload
+  const parseImportRows = (data: any[]) => {
+    return data
+      .map((row) => {
+        const username = String(
+          row.Username ||
+            row.username ||
+            row["Tài khoản"] ||
+            row["Account Name"] ||
+            row["Account"] ||
+            ""
+        )
+          .trim()
+          .replace(/^@+/, "");
+        const rawDate =
+          row.Date || row.date || row["Ngày"] || row["Ngay"] || "";
+        let date = "";
+        if (typeof rawDate === "number" && Number.isFinite(rawDate)) {
+          // Excel serial date
+          const parsed = XLSX.SSF.parse_date_code(rawDate);
+          if (parsed) {
+            date = `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+          }
+        } else if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
+          date = format(rawDate, "yyyy-MM-dd");
+        } else {
+          date = String(rawDate || "").trim().slice(0, 10);
+        }
+        const views = Number(
+          row.Views || row.views || row["Lượt xem"] || row["Lượt xem (Views)"] || 0
+        );
+        const rpm = Number(row.RPM || row.rpm || row["RPM ($)"] || 0);
+        const revenue = Number(
+          row.Revenue ||
+            row.revenue ||
+            row["Doanh thu ($)"] ||
+            row["Doanh thu"] ||
+            row["Tiền"] ||
+            0
+        );
+        const sourceRaw =
+          row.Source ||
+          row.sourceType ||
+          row["Nguồn thu"] ||
+          row["Nguồn"] ||
+          "M10N_PROGRAM_CREATOR_INCENTIVES";
+        return {
+          username,
+          date,
+          views: Number.isFinite(views) ? views : 0,
+          rpm: Number.isFinite(rpm) ? rpm : 0,
+          revenue: Number.isFinite(revenue) ? revenue : 0,
+          sourceType: resolveRevenueSourceKey(String(sourceRaw)),
+        };
+      })
+      .filter((r) => r.username && r.date);
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -281,50 +390,115 @@ function RevenueDetailsPageContent() {
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const data: any[] = XLSX.utils.sheet_to_json(ws);
+        const fileRecords = parseImportRows(data);
 
-        // Map records
-        const fileRecords = data.map((row) => ({
-          username:
-            row.Username ||
-            row.username ||
-            row["Tài khoản"] ||
-            row["Account Name"] ||
-            "",
-          date:
-            row.Date ||
-            row.date ||
-            row["Ngày"] ||
-            new Date().toISOString().split("T")[0],
-          views: parseInt(row.Views || row.views || row["Lượt xem"] || "0", 10),
-          rpm: parseFloat(row.RPM || row.rpm || "0"),
-          revenue: parseFloat(
-            row.Revenue || row.revenue || row["Doanh thu ($)"] || row["Tiền"] || "0"
-          ),
-          sourceType: row.Source || "CREATOR_REWARDS",
-        }));
-
-        const res = await fetch("/api/revenue", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ records: fileRecords }),
-        });
-
-        const resJson = await res.json();
-        if (resJson.success) {
-          setActionMsg(`✅ ${resJson.message}`);
-          utils.revenue.listDetails.invalidate();
-          utils.revenue.getOverview.invalidate();
-        } else {
-          setActionMsg(`❌ ${resJson.error || "Lỗi import"}`);
+        if (fileRecords.length === 0) {
+          setActionMsg("❌ Không tìm thấy dòng hợp lệ trong file (cần cột Tài khoản + Ngày).");
+          return;
         }
+
+        const resJson = await bulkImportMutation.mutateAsync({ records: fileRecords });
+        setActionMsg(
+          resJson.errors?.length
+            ? `✅ ${resJson.message} — ${resJson.errors.slice(0, 3).join("; ")}`
+            : `✅ ${resJson.message}`
+        );
+        utils.revenue.listDetails.invalidate();
+        utils.revenue.getOverview.invalidate();
       } catch (err: any) {
-        setActionMsg(`❌ Lỗi đọc file: ${err.message}`);
+        setActionMsg(`❌ Lỗi import: ${err.message || "không xác định"}`);
       } finally {
         setImporting(false);
-        setTimeout(() => setActionMsg(null), 5000);
+        if (importFileRef.current) importFileRef.current.value = "";
+        setTimeout(() => setActionMsg(null), 6000);
       }
     };
     reader.readAsBinaryString(file);
+  };
+
+  const handleDownloadTemplate = () => {
+    const sampleAccount = accountOptions[0]?.username || "username_mau";
+    const today = format(new Date(), "yyyy-MM-dd");
+    const rows = [
+      {
+        "Tài khoản": sampleAccount,
+        Ngày: today,
+        "Lượt xem (Views)": 10000,
+        "RPM ($)": 0.85,
+        "Doanh thu ($)": 8.5,
+        "Nguồn thu": "M10N_PROGRAM_CREATOR_INCENTIVES",
+      },
+      {
+        "Tài khoản": sampleAccount,
+        Ngày: format(subDays(new Date(), 1), "yyyy-MM-dd"),
+        "Lượt xem (Views)": 5000,
+        "RPM ($)": 0.5,
+        "Doanh thu ($)": "",
+        "Nguồn thu": "M10N_PROGRAM_TIKTOK_SHOP",
+      },
+      {
+        "Tài khoản": "",
+        Ngày: "",
+        "Lượt xem (Views)": "",
+        "RPM ($)": "",
+        "Doanh thu ($)": "",
+        "Nguồn thu": "",
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 22 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 10 },
+      { wch: 14 },
+      { wch: 32 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Doanh thu");
+    XLSX.writeFile(wb, `mau-import-doanh-thu-${today}.xlsx`);
+    setActionMsg("✅ Đã tải file mẫu Excel. Điền thêm dòng rồi dùng Import Excel.");
+    setTimeout(() => setActionMsg(null), 4000);
+  };
+
+  const handleCreateRevenue = () => {
+    if (!newRevAccountId) {
+      setActionMsg("❌ Vui lòng chọn tài khoản.");
+      setTimeout(() => setActionMsg(null), 3000);
+      return;
+    }
+    const viewsNum = Number(newRevViews) || 0;
+    const rpmNum = Number(newRevRpm) || 0;
+    let revNum = Number(newRevAmount) || 0;
+    if (!revNum && viewsNum > 0 && rpmNum > 0) {
+      revNum = (viewsNum / 1000) * rpmNum;
+    }
+    upsertRevenueMutation.mutate(
+      {
+        accountId: newRevAccountId,
+        date: newRevDate,
+        views: viewsNum,
+        rpm: rpmNum,
+        revenue: revNum,
+        sourceType: newRevSource,
+      },
+      {
+        onSuccess: () => {
+          setActionMsg("✅ Đã tạo bản ghi doanh thu thủ công.");
+          setIsAddRevenueOpen(false);
+          setNewRevViews("");
+          setNewRevRpm("");
+          setNewRevAmount("");
+          utils.revenue.listDetails.invalidate();
+          utils.revenue.getOverview.invalidate();
+          setTimeout(() => setActionMsg(null), 4000);
+        },
+        onError: (err) => {
+          setActionMsg(`❌ ${err.message || "Lỗi tạo bản ghi"}`);
+          setTimeout(() => setActionMsg(null), 4000);
+        },
+      }
+    );
   };
 
   const handleSort = (key: RevenueSortKey) => {
@@ -343,7 +517,9 @@ function RevenueDetailsPageContent() {
       const staffName = (r.account?.assignedUser?.fullName || r.account?.assignedUser?.name || "").toLowerCase();
       const matchSearch = !s || username.includes(s) || staffName.includes(s);
 
-      const matchSource = sourceTypeFilter === "ALL" || r.sourceType === sourceTypeFilter;
+      const matchSource =
+        sourceTypeFilter === "ALL" ||
+        matchesRevenueSourceFilter(r.sourceType, sourceTypeFilter);
 
       const rev = Number(r.revenue || 0);
       const matchMinRev = !minRevenue || rev >= Number(minRevenue);
@@ -351,7 +527,13 @@ function RevenueDetailsPageContent() {
       const v = Number(r.views || 0);
       const matchMinViews = !minViews || v >= Number(minViews);
 
-      return matchSearch && matchSource && matchMinRev && matchMinViews;
+      const isAuto = String(r.id || "").startsWith("auto-");
+      const matchOrigin =
+        originFilter === "ALL" ||
+        (originFilter === "AUTO" && isAuto) ||
+        (originFilter === "MANUAL" && !isAuto);
+
+      return matchSearch && matchSource && matchMinRev && matchMinViews && matchOrigin;
     });
 
     filtered.sort((a: any, b: any) => {
@@ -381,7 +563,7 @@ function RevenueDetailsPageContent() {
     });
 
     return filtered;
-  }, [records, search, sourceTypeFilter, minRevenue, minViews, sortConfig]);
+  }, [records, search, sourceTypeFilter, minRevenue, minViews, originFilter, sortConfig]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedRecords.length / pageSize));
   const paginatedRecords = useMemo(() => {
@@ -434,7 +616,7 @@ function RevenueDetailsPageContent() {
       "Lượt xem (Views)": Number(r.views || 0),
       "RPM ($)": Number(r.rpm || 0),
       "Doanh thu ($)": Number(r.revenue || 0),
-      "Nguồn thu": r.sourceType || "CREATOR_REWARDS",
+      "Nguồn thu": formatRevenueSourceLabel(r.sourceType),
     }));
 
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -450,7 +632,7 @@ function RevenueDetailsPageContent() {
     setEditViews(Number(item.views || 0));
     setEditRpm(Number(item.rpm || 0));
     setEditRevenue(Number(item.revenue || 0));
-    setEditSourceType(item.sourceType || "CREATOR_REWARDS");
+    setEditSourceType(resolveRevenueSourceKey(item.sourceType));
   };
 
   const handleSaveEdit = async () => {
@@ -482,7 +664,13 @@ function RevenueDetailsPageContent() {
       alert("Bản ghi này được đồng bộ tự động từ Analytics, không thể xóa trực tiếp.");
       return;
     }
-    if (!confirm(`Bạn có chắc chắn muốn xóa bản ghi doanh thu ngày ${item.date ? item.date.slice(0, 10) : ""} của @${item.account?.username}?`)) return;
+    const ok = await confirm({
+      title: "Xác nhận xóa bản ghi",
+      description: `Xóa bản ghi doanh thu ngày ${item.date ? item.date.slice(0, 10) : ""} của @${item.account?.username}?`,
+      confirmLabel: "Xác nhận xóa",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       setDeletingId(item.id);
       await bulkDeleteMutation.mutateAsync({ ids: [item.id] });
@@ -506,11 +694,16 @@ function RevenueDetailsPageContent() {
       return;
     }
     const autoCount = selectedIds.size - realIds.length;
-    const confirmMessage = autoCount > 0
-      ? `Bạn đã chọn ${selectedIds.size} bản ghi (${autoCount} bản ghi tự động và ${realIds.length} bản ghi thủ công).\n\nHệ thống chỉ xóa ${realIds.length} bản ghi thủ công (các bản ghi tự động sẽ được giữ nguyên).\n\nBạn có muốn tiếp tục xóa?`
-      : `Bạn có chắc chắn muốn xóa ${realIds.length} bản ghi doanh thu thủ công đã chọn?`;
-
-    if (!confirm(confirmMessage)) return;
+    const ok = await confirm({
+      title: "Xác nhận xóa hàng loạt",
+      description:
+        autoCount > 0
+          ? `Bạn đã chọn ${selectedIds.size} bản ghi (${autoCount} tự động, ${realIds.length} thủ công). Hệ thống chỉ xóa ${realIds.length} bản ghi thủ công.`
+          : `Bạn có chắc chắn muốn xóa ${realIds.length} bản ghi doanh thu thủ công đã chọn?`,
+      confirmLabel: `Xác nhận xóa (${realIds.length})`,
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       setIsDeletingBulk(true);
       await bulkDeleteMutation.mutateAsync({ ids: realIds });
@@ -531,24 +724,28 @@ function RevenueDetailsPageContent() {
     (search ? 1 : 0) +
     (sourceTypeFilter !== "ALL" ? 1 : 0) +
     (minRevenue ? 1 : 0) +
-    (minViews ? 1 : 0);
+    (minViews ? 1 : 0) +
+    (originFilter !== "ALL" ? 1 : 0);
 
-  // Filters count for Advanced Filter Popover (minRevenue, minViews)
-  const advancedFiltersCount = (minRevenue ? 1 : 0) + (minViews ? 1 : 0);
+  // Filters count for Advanced Filter Popover
+  const advancedFiltersCount =
+    (minRevenue ? 1 : 0) + (minViews ? 1 : 0) + (originFilter !== "ALL" ? 1 : 0);
 
   const clearAdvancedFilters = () => {
     setMinRevenue("");
     setMinViews("");
+    setOriginFilter("ALL");
     setPage(1);
   };
 
   const clearAllFilters = () => {
     setSearch("");
     setSourceTypeFilter("ALL");
-    setStartDate("");
-    setEndDate("");
+    setStartDate(format(subDays(new Date(), 60), "yyyy-MM-dd"));
+    setEndDate(format(new Date(), "yyyy-MM-dd"));
     setMinRevenue("");
     setMinViews("");
+    setOriginFilter("ALL");
     setPage(1);
   };
 
@@ -611,27 +808,6 @@ function RevenueDetailsPageContent() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0 flex-nowrap self-start xl:self-auto">
-            {/* File Upload Button - Admin Only */}
-            {isAdmin && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <label className="h-10 flex items-center gap-1.5 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-cyan-600 dark:text-cyan-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs active:scale-95 whitespace-nowrap shrink-0">
-                    <Upload className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{importing ? "Đang Import..." : "Import File Excel/CSV"}</span>
-                    <input
-                      type="file"
-                      accept=".csv, .xlsx, .xls"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                  </label>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs font-normal">
-                  Nhập file dữ liệu doanh thu (.xlsx, .xls, .csv)
-                </TooltipContent>
-              </Tooltip>
-            )}
-
             {/* Export Excel Button */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -647,6 +823,74 @@ function RevenueDetailsPageContent() {
                 Xuất các bản ghi đang lọc ra file Excel (.xlsx)
               </TooltipContent>
             </Tooltip>
+
+            {/* More actions: create / template / import */}
+            {(isLeadOrAdmin || isAdmin) && (
+              <>
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="h-10 w-10 flex items-center justify-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs active:scale-95 shrink-0"
+                          aria-label="Thêm"
+                        >
+                          <MoreHorizontal className="w-4 h-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      Tùy chọn thêm bản ghi / import
+                    </TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-52 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl"
+                  >
+                    <DropdownMenuItem
+                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                      onClick={() => {
+                        setIsAddRevenueOpen(true);
+                        if (!newRevAccountId && accountOptions[0]?.id) {
+                          setNewRevAccountId(accountOptions[0].id);
+                        }
+                      }}
+                    >
+                      <Plus className="w-3.5 h-3.5 text-pink-500" />
+                      <span>Tạo bản ghi mới</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                      onClick={handleDownloadTemplate}
+                    >
+                      <FileDown className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Tải mẫu Excel</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                    <DropdownMenuItem
+                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                      disabled={importing || bulkImportMutation.isPending}
+                      onClick={() => importFileRef.current?.click()}
+                    >
+                      <Upload className="w-3.5 h-3.5 text-cyan-500" />
+                      <span>
+                        {importing || bulkImportMutation.isPending
+                          ? "Đang import..."
+                          : "Import Excel"}
+                      </span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
           </div>
         </div>
 
@@ -739,8 +983,6 @@ function RevenueDetailsPageContent() {
                   { value: 7, label: "7 Ngày" },
                   { value: 28, label: "28 Ngày" },
                   { value: 60, label: "60 Ngày" },
-                  { value: 365, label: "365 Ngày" },
-                  { value: 0, label: "Toàn Bộ" },
                 ].map((p) => {
                   const active = getActivePreset() === p.value;
                   return (
@@ -784,9 +1026,14 @@ function RevenueDetailsPageContent() {
                     className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
                   >
                     <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                        Chọn khoảng ngày thống kê
-                      </span>
+                      <div className="min-w-0">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                          Chọn khoảng ngày thống kê
+                        </span>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Tối đa {MAX_CUSTOM_RANGE_DAYS} ngày
+                        </p>
+                      </div>
                       {rangeSelection?.from && (
                         <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
                           {format(rangeSelection.from, "dd/MM/yy")} - {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
@@ -799,7 +1046,36 @@ function RevenueDetailsPageContent() {
                         mode="range"
                         selected={rangeSelection}
                         onSelect={(range) => {
+                          if (!range?.from) {
+                            setRangeSelection(range);
+                            return;
+                          }
+                          if (!range.to) {
+                            setRangeSelection({ from: range.from, to: undefined });
+                            return;
+                          }
+                          const span = Math.abs(
+                            differenceInCalendarDays(range.to, range.from)
+                          );
+                          if (span > MAX_CUSTOM_RANGE_DAYS) {
+                            const fromFirst =
+                              range.from.getTime() <= range.to.getTime()
+                                ? range.from
+                                : range.to;
+                            const toClamped = addDays(fromFirst, MAX_CUSTOM_RANGE_DAYS);
+                            setRangeSelection({ from: fromFirst, to: toClamped });
+                            return;
+                          }
                           setRangeSelection(range);
+                        }}
+                        disabled={(date) => {
+                          // While picking the end date, block days outside ±60 from start.
+                          if (!rangeSelection?.from || rangeSelection.to) return false;
+                          const from = rangeSelection.from;
+                          return (
+                            differenceInCalendarDays(date, from) > MAX_CUSTOM_RANGE_DAYS ||
+                            differenceInCalendarDays(from, date) > MAX_CUSTOM_RANGE_DAYS
+                          );
                         }}
                         numberOfMonths={1}
                         className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
@@ -826,10 +1102,19 @@ function RevenueDetailsPageContent() {
                         disabled={!rangeSelection?.from}
                         onClick={() => {
                           if (rangeSelection?.from) {
-                            const s = format(rangeSelection.from, "yyyy-MM-dd");
-                            const e = rangeSelection.to ? format(rangeSelection.to, "yyyy-MM-dd") : s;
-                            setStartDate(s);
-                            setEndDate(e);
+                            let from = rangeSelection.from;
+                            let to = rangeSelection.to || from;
+                            if (to.getTime() < from.getTime()) {
+                              const tmp = from;
+                              from = to;
+                              to = tmp;
+                            }
+                            if (differenceInCalendarDays(to, from) > MAX_CUSTOM_RANGE_DAYS) {
+                              to = addDays(from, MAX_CUSTOM_RANGE_DAYS);
+                            }
+                            setStartDate(format(from, "yyyy-MM-dd"));
+                            setEndDate(format(to, "yyyy-MM-dd"));
+                            setRangeSelection({ from, to });
                             setPage(1);
                           }
                           setIsRangePickerOpen(false);
@@ -851,24 +1136,29 @@ function RevenueDetailsPageContent() {
                 <Select
                   value={sourceTypeFilter}
                   onValueChange={(val) => {
-                    setSourceTypeFilter(val);
+                    setSourceTypeFilter(val === "ALL" ? "ALL" : resolveRevenueSourceKey(val));
                     setPage(1);
                   }}
                 >
                   <SelectTrigger
-                    className={`w-36 sm:w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${sourceTypeFilter !== "ALL"
+                    className={`w-44 sm:w-56 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${sourceTypeFilter !== "ALL"
                         ? "pr-8 border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/25 text-amber-700 dark:text-amber-300 [&_svg]:hidden"
                         : ""
                       }`}
                   >
                     <SelectValue placeholder="Tất cả nguồn thu" />
                   </SelectTrigger>
-                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-80">
                     <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nguồn thu</SelectItem>
-                    <SelectItem value="CREATOR_REWARDS" className="text-xs font-normal cursor-pointer">CREATOR_REWARDS</SelectItem>
-                    <SelectItem value="AFFILIATE" className="text-xs font-normal cursor-pointer">AFFILIATE</SelectItem>
-                    <SelectItem value="SHOP" className="text-xs font-normal cursor-pointer">TIKTOK SHOP</SelectItem>
-                    <SelectItem value="OTHER" className="text-xs font-normal cursor-pointer">KHÁC</SelectItem>
+                    {REVENUE_SOURCE_OPTIONS.map((opt) => (
+                      <SelectItem
+                        key={opt.value}
+                        value={opt.value}
+                        className="text-xs font-normal cursor-pointer"
+                      >
+                        {opt.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {sourceTypeFilter !== "ALL" && (
@@ -941,6 +1231,27 @@ function RevenueDetailsPageContent() {
 
                   {/* Doanh thu & Views tối thiểu */}
                   <div className="space-y-2.5">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        Cách thêm bản ghi
+                      </label>
+                      <Select
+                        value={originFilter}
+                        onValueChange={(val) => {
+                          setOriginFilter(val as "ALL" | "MANUAL" | "AUTO");
+                          setPage(1);
+                        }}
+                      >
+                        <SelectTrigger className="w-full h-8.5 text-xs font-normal bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl">
+                          <SelectItem value="ALL" className="text-xs cursor-pointer">Tất cả</SelectItem>
+                          <SelectItem value="MANUAL" className="text-xs cursor-pointer">Thêm thủ công</SelectItem>
+                          <SelectItem value="AUTO" className="text-xs cursor-pointer">Đồng bộ tự động</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Doanh thu ($) ≥
@@ -1127,10 +1438,26 @@ function RevenueDetailsPageContent() {
               )}
               {sourceTypeFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
-                  <span>Nguồn: {sourceTypeFilter}</span>
+                  <span>Nguồn: {formatRevenueSourceLabel(sourceTypeFilter)}</span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button onClick={() => setSourceTypeFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
+                </span>
+              )}
+
+              {originFilter !== "ALL" && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300">
+                  <span>
+                    {originFilter === "MANUAL" ? "Thêm thủ công" : "Đồng bộ tự động"}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setOriginFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
                         <X className="w-3 h-3" />
                       </button>
                     </TooltipTrigger>
@@ -1374,22 +1701,25 @@ function RevenueDetailsPageContent() {
                         {/* RPM */}
                         {visibleColumns.rpm && (
                           <td style={getColumnStyle("rpm")} className="px-4 py-3.5 font-bold text-emerald-600 dark:text-emerald-400">
-                            {formatAmount(Number(item.rpm || 0), (item.account as any)?.country || "USD")}
+                            {formatAmount(Number(item.rpm || 0), "USD")}
                           </td>
                         )}
 
                         {/* Revenue */}
                         {visibleColumns.revenue && (
                           <td style={getColumnStyle("revenue")} className="px-4 py-3.5 font-black text-amber-600 dark:text-amber-300">
-                            {formatAmount(Number(item.revenue || 0), (item.account as any)?.country || "USD")}
+                            {formatAmount(Number(item.revenue || 0), "USD")}
                           </td>
                         )}
 
                         {/* Source */}
                         {visibleColumns.sourceType && (
                           <td style={getColumnStyle("sourceType")} className="px-5 py-3.5">
-                            <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs">
-                              {item.sourceType}
+                            <span
+                              className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs max-w-full truncate"
+                              title={item.sourceType}
+                            >
+                              {formatRevenueSourceLabel(item.sourceType)}
                             </span>
                           </td>
                         )}
@@ -1566,11 +1896,12 @@ function RevenueDetailsPageContent() {
                     <SelectTrigger className="w-full h-9 text-xs">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="CREATOR_REWARDS" className="text-xs">CREATOR_REWARDS</SelectItem>
-                      <SelectItem value="AFFILIATE" className="text-xs">AFFILIATE</SelectItem>
-                      <SelectItem value="SHOP" className="text-xs">TIKTOK SHOP</SelectItem>
-                      <SelectItem value="OTHER" className="text-xs">KHÁC</SelectItem>
+                    <SelectContent className="max-h-80">
+                      {REVENUE_SOURCE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                          {opt.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1648,6 +1979,158 @@ function RevenueDetailsPageContent() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Create manual revenue record */}
+      <Dialog open={isAddRevenueOpen} onOpenChange={setIsAddRevenueOpen}>
+        <DialogContent className="sm:max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-pink-500" />
+              Tạo bản ghi doanh thu mới
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Tài khoản
+              </label>
+              <Select value={newRevAccountId} onValueChange={setNewRevAccountId}>
+                <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
+                  <SelectValue placeholder="Chọn tài khoản TikTok" />
+                </SelectTrigger>
+                <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-72">
+                  {accountOptions.map((acc) => (
+                    <SelectItem key={acc.id} value={acc.id} className="text-xs font-normal cursor-pointer">
+                      @{acc.username}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Ngày ghi nhận
+              </label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full h-9 inline-flex items-center justify-between gap-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-normal text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                  >
+                    <span>
+                      {newRevDate
+                        ? format(new Date(newRevDate + "T00:00:00"), "dd/MM/yyyy")
+                        : "Chọn ngày"}
+                    </span>
+                    <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  sideOffset={6}
+                  className="w-auto p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-[350]"
+                >
+                  <CalendarPicker
+                    mode="single"
+                    selected={
+                      newRevDate
+                        ? new Date(newRevDate + "T00:00:00")
+                        : undefined
+                    }
+                    onSelect={(date) => {
+                      if (date) setNewRevDate(format(date, "yyyy-MM-dd"));
+                    }}
+                    disabled={(date) => startOfDay(date) > startOfDay(new Date())}
+                    className="p-0 font-normal"
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Lượt xem (Views)
+                </label>
+                <Input
+                  type="number"
+                  placeholder="VD: 50000"
+                  value={newRevViews}
+                  onChange={(e) => setNewRevViews(e.target.value)}
+                  className="h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  RPM ($)
+                </label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="VD: 0.85"
+                  value={newRevRpm}
+                  onChange={(e) => setNewRevRpm(e.target.value)}
+                  className="h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Tổng tiền ($)
+              </label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="VD: 42.50 (tự tính nếu bỏ trống)"
+                value={newRevAmount}
+                onChange={(e) => setNewRevAmount(e.target.value)}
+                className="h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
+              />
+            </div>
+
+            <div>
+              <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Nguồn thu
+              </label>
+              <Select value={newRevSource} onValueChange={setNewRevSource}>
+                <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-72">
+                  {REVENUE_SOURCE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value} className="text-xs font-normal cursor-pointer">
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-3 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => setIsAddRevenueOpen(false)}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateRevenue}
+              disabled={upsertRevenueMutation.isPending}
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {upsertRevenueMutation.isPending ? "Đang lưu..." : "Lưu bản ghi"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {confirmDialog}
     </div>
   );
 }

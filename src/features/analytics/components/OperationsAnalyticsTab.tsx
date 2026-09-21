@@ -180,13 +180,12 @@ export default function OperationsAnalyticsTab({
                     </td>
                     <td className="py-3 text-center">
                       <span
-                        className={`font-bold px-2 py-0.5 rounded-lg text-xs ${
-                          op.completionRate >= 90
+                        className={`font-bold px-2 py-0.5 rounded-lg text-xs ${op.completionRate >= 90
                             ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                             : op.completionRate >= 70
-                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                            : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                        }`}
+                              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                              : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                          }`}
                       >
                         {op.completionRate}%
                       </span>
@@ -198,7 +197,7 @@ export default function OperationsAnalyticsTab({
                       ${op.avgRpm.toFixed(2)}
                     </td>
                     <td className="py-3 text-right font-black text-pink-600 dark:text-pink-400 text-sm">
-                      ${op.totalRevenue.toLocaleString()}
+                      ${Number(op.totalRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                   </tr>
                 ))}
@@ -222,10 +221,10 @@ export default function OperationsAnalyticsTab({
             <div className="bg-white/80 dark:bg-slate-900/80 rounded-xl p-4 border border-purple-500/10">
               <span className="text-xs text-slate-400">Doanh thu đóng góp:</span>
               <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1">
-                ${personalBenchmark.myRevenue.toLocaleString()}
+                ${Number(personalBenchmark.myRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Bình quân studio: ${personalBenchmark.studioAvgRevenue.toLocaleString()}
+                Bình quân studio: ${Number(personalBenchmark.studioAvgRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </div>
 

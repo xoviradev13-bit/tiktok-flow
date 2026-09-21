@@ -85,6 +85,9 @@ async function main() {
     });
   }
 
+  console.log("\n--- TOP VIDEOS 365D OUTPUT ---");
+  console.log("topVideos365d:", JSON.stringify(d.topVideos365d, null, 2));
+
   console.log("\n=== TEST COMPLETED SUCCESSFULLY ===");
 }
 

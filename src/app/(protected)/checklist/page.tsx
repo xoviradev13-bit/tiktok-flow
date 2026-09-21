@@ -92,11 +92,13 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { TimePickerField } from "@/features/schedule/ScheduleModal";
 import { Switch } from "@/components/ui/switch";
+import { useConfirmDialog } from "@/components/ui/confirm-modal";
 
 function ChecklistPageContent() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN" || (session?.user as any)?.userType === "ADMIN";
   const isLeadOrAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "LEAD";
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   // SaaS URL Query State Synchronization
   const { searchParams, updateUrlParams } = useUrlParams();
@@ -429,20 +431,34 @@ function ChecklistPageContent() {
     });
   };
 
-  const handleMassCompleteAll = () => {
-    if (confirm("Xác nhận chấm 100% hoàn thành (1.0 Ngày công) cho tất cả nhân sự đang hiển thị?")) {
+  const handleMassCompleteAll = async () => {
+    const ok = await confirm({
+      title: "Chấm hoàn thành hàng loạt",
+      description: "Xác nhận chấm 100% hoàn thành (1.0 Ngày công) cho tất cả nhân sự đang hiển thị?",
+      confirmLabel: "Xác nhận chấm công",
+      variant: "amber",
+      icon: "check",
+    });
+    if (ok) {
       massCompleteMutation.mutate({
         date: viewMode === "daily" ? dateStr : undefined,
       });
     }
   };
 
-  const handleAdminCheckComplete = (checklistId: string, fullName: string) => {
+  const handleAdminCheckComplete = async (checklistId: string, fullName: string) => {
     if (!isAdmin) {
       showToast("Chỉ Quản trị viên (Admin) mới có quyền duyệt hoàn thành công thủ công", "error");
       return;
     }
-    if (confirm(`Xác nhận duyệt hoàn thành 100% (1.0 Ngày công) cho nhân sự ${fullName}?`)) {
+    const ok = await confirm({
+      title: "Duyệt hoàn thành",
+      description: `Xác nhận duyệt hoàn thành 100% (1.0 Ngày công) cho nhân sự ${fullName}?`,
+      confirmLabel: "Xác nhận duyệt",
+      variant: "amber",
+      icon: "check",
+    });
+    if (ok) {
       massCompleteMutation.mutate(
         { checklistId },
         {
@@ -1149,9 +1165,14 @@ function ChecklistPageContent() {
                     className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
                   >
                     <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                        Chọn khoảng ngày chấm công
-                      </span>
+                      <div className="min-w-0">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                          Chọn khoảng ngày chấm công
+                        </span>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Trong vòng 365 ngày gần nhất
+                        </p>
+                      </div>
                       {rangeSelection?.from && (
                         <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800 whitespace-nowrap shrink-0">
                           {format(rangeSelection.from, "dd/MM/yy")} - {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
@@ -1166,7 +1187,9 @@ function ChecklistPageContent() {
                         onSelect={(range) => {
                           setRangeSelection(range);
                         }}
-                        disabled={(date) => date < subDays(new Date(), 60) || date > new Date()}
+                        disabled={(date) =>
+                          date < subDays(new Date(), 365) || date > new Date()
+                        }
                         numberOfMonths={1}
                         className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
                         classNames={{
@@ -1258,9 +1281,14 @@ function ChecklistPageContent() {
                     className="w-[300px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
                   >
                     <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        Chọn ngày chấm công
-                      </span>
+                      <div className="min-w-0">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                          Chọn ngày chấm công
+                        </span>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Trong vòng 365 ngày gần nhất
+                        </p>
+                      </div>
                       {dateStr && (
                         <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
                           {format(new Date(dateStr + "T00:00:00"), "dd/MM/yy")}
@@ -1275,7 +1303,9 @@ function ChecklistPageContent() {
                           if (d) setDateStr(format(d, "yyyy-MM-dd"));
                           setIsDatePickerOpen(false);
                         }}
-                        disabled={(date) => date < subDays(new Date(), 60) || date > new Date()}
+                        disabled={(date) =>
+                          date < subDays(new Date(), 365) || date > new Date()
+                        }
                         className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
                         classNames={{
                           root: "w-full",
@@ -2364,6 +2394,7 @@ function ChecklistPageContent() {
         onSyncAccount={(accId) => syncAccountMutation.mutate({ accountId: accId })}
         onViewVideos={(acc, dStr) => setCrossCheckItem({ accountId: acc.id, username: acc.username, dateStr: dStr, staffName: "", itemId: "" })}
       />
+      {confirmDialog}
     </div>
   );
 }

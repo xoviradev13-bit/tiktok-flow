@@ -33,23 +33,32 @@ import {
   Send,
   Plus,
   Trash2,
+  Filter,
   Check,
   ChevronRight,
   BarChart3,
   Sliders,
   Lock,
   Unlock,
+  MoreHorizontal,
+  Pencil,
+  History,
+  X,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { getInsightsUiState } from "@/lib/insights-ui";
+import { getAccountRevenuePeriods } from "@/lib/resolve-all-time-revenue";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ResponsiveContainer,
-  BarChart,
+  ComposedChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   Tooltip as RechartsTooltip,
   CartesianGrid,
+  Legend,
 } from "recharts";
 import { trpc } from "@/lib/trpc";
 import { launchGpmProfile } from "@/lib/gpm-client-bridge";
@@ -73,7 +82,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { useConfirmDialog } from "@/components/ui/confirm-modal";
 import { AccountDetailSkeleton } from "@/components/skeletons/PageSkeletons";
 import {
   Popover,
@@ -81,9 +98,70 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { DateRange } from "react-day-picker";
-import { format, subDays } from "date-fns";
+import { format, subDays, startOfDay } from "date-fns";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { formatRevenueSourceLabel, getRevenueSourceSelectOptions } from "@/lib/m10n-programs";
+import { cn } from "@/lib/utils";
+
+const REVENUE_SOURCE_OPTIONS = getRevenueSourceSelectOptions();
+const MAX_LOOKBACK_DAYS = 365;
+const getToday = () => startOfDay(new Date());
+const getMinSelectableDate = () => subDays(getToday(), MAX_LOOKBACK_DAYS);
+
+const renderUserAvatar = (
+  u?: { fullName?: string | null; name?: string | null; username?: string | null; avatar?: string | null } | null,
+  size = "w-5 h-5 text-[9px]"
+) => {
+  if (!u) return null;
+  const displayName = u.fullName || u.name || u.username || "U";
+  if (u.avatar) {
+    return (
+      <img
+        src={u.avatar}
+        alt={displayName}
+        className={`${size} rounded-full object-cover shrink-0`}
+      />
+    );
+  }
+  return (
+    <span className={`${size} rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 text-white font-bold flex items-center justify-center shrink-0 uppercase select-none`}>
+      {displayName.slice(0, 2)}
+    </span>
+  );
+};
+
+function parseRewardViews(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return 0;
+  if (s.endsWith("k")) return (parseFloat(s) || 0) * 1000;
+  if (s.endsWith("m")) return (parseFloat(s) || 0) * 1_000_000;
+  return parseFloat(s.replace(/[^0-9.]/g, "")) || 0;
+}
+
+function parseRewardAmount(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  return parseFloat(String(raw || "").replace(/[^0-9.-]/g, "")) || 0;
+}
+
+function getRewardPublishTs(item: any): number {
+  if (item?.publishTimeUnix) {
+    const n = Number(item.publishTimeUnix) * 1000;
+    if (Number.isFinite(n)) return n;
+  }
+  const d = new Date(item?.publishDate || item?.postDate || item?.postTime || "");
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function isWithinRewardDatePreset(item: any, presetDays: number): boolean {
+  const ts = getRewardPublishTs(item);
+  if (!ts) return true;
+  const now = Date.now();
+  const minTs = now - presetDays * 24 * 60 * 60 * 1000;
+  return ts >= minTs && ts <= now;
+}
 
 const COUNTRY_MAP: Record<string, string> = {
   unitedstates: "US", "united states": "US", usa: "US", us: "US", "mỹ": "US",
@@ -183,6 +261,7 @@ const COUNTRY_OPTIONS = [
 function AccountDetailPageContent() {
   const { data: session } = useSession();
   const isLeadOrAdmin = (session?.user as any)?.role === "ADMIN" || (session?.user as any)?.role === "LEAD";
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   const params = useParams();
   const router = useRouter();
@@ -196,16 +275,28 @@ function AccountDetailPageContent() {
   const initialTab = validTabs.includes(paramTab) ? paramTab : "overview";
   const [activeTab, setActiveTab] = useState<"overview" | "history" | "logs" | "alerts" | "rewards">(initialTab);
 
-  const validRanges = ["7d", "28d", "60d", "365d", "all", "custom"] as const;
+  const validRanges = ["7d", "28d", "60d", "365d", "custom"] as const;
   const paramRange = (searchParams?.get("range") || "28d") as any;
-  const initialRange = validRanges.includes(paramRange) ? paramRange : "28d";
-  const [selectedTimeRange, setSelectedTimeRange] = useState<"7d" | "28d" | "60d" | "365d" | "all" | "custom">(initialRange);
+  // Legacy "all" → 365d (TikTok Studio daily data is capped at 365 days)
+  const normalizedParamRange = paramRange === "all" ? "365d" : paramRange;
+  const initialRange = validRanges.includes(normalizedParamRange)
+    ? normalizedParamRange
+    : "28d";
+  const [selectedTimeRange, setSelectedTimeRange] = useState<
+    "7d" | "28d" | "60d" | "365d" | "custom"
+  >(initialRange);
 
   const initialFrom = searchParams?.get("from") || "";
   const initialTo = searchParams?.get("to") || "";
   const [customStartDate, setCustomStartDate] = useState<string>(initialFrom);
   const [customEndDate, setCustomEndDate] = useState<string>(initialTo);
   const [selectedRewardProgram, setSelectedRewardProgram] = useState<string>("ALL");
+  const [rewardDatePreset, setRewardDatePreset] = useState<7 | 30 | 60>(30);
+  const [rewardSortBy, setRewardSortBy] = useState<"reward" | "views" | "date">("reward");
+  const [isRewardFilterOpen, setIsRewardFilterOpen] = useState(false);
+  const [draftRewardProgram, setDraftRewardProgram] = useState("ALL");
+  const [draftRewardDatePreset, setDraftRewardDatePreset] = useState<7 | 30 | 60>(30);
+  const [draftRewardSortBy, setDraftRewardSortBy] = useState<"reward" | "views" | "date">("reward");
 
   const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
   const [rangeSelection, setRangeSelection] = useState<DateRange | undefined>(() => {
@@ -235,7 +326,9 @@ function AccountDetailPageContent() {
   }, [activeTab, selectedTimeRange, customStartDate, customEndDate, updateUrlParams]);
 
   // Separate time range filter state for "Biểu Đồ & Lịch Sử Doanh Thu" tab
-  const [historyTimeRange, setHistoryTimeRange] = useState<"7d" | "28d" | "60d" | "365d" | "all" | "custom">("28d");
+  const [historyTimeRange, setHistoryTimeRange] = useState<
+    "7d" | "28d" | "60d" | "365d" | "custom"
+  >("28d");
   const [historyStartDate, setHistoryStartDate] = useState<string>("");
   const [historyEndDate, setHistoryEndDate] = useState<string>("");
   const [isHistoryRangePickerOpen, setIsHistoryRangePickerOpen] = useState(false);
@@ -251,7 +344,7 @@ function AccountDetailPageContent() {
   const [newRevViews, setNewRevViews] = useState("");
   const [newRevRpm, setNewRevRpm] = useState("");
   const [newRevAmount, setNewRevAmount] = useState("");
-  const [newRevSource, setNewRevSource] = useState("CREATOR_REWARDS");
+  const [newRevSource, setNewRevSource] = useState("M10N_PROGRAM_CREATOR_INCENTIVES");
 
   // Reassignment & Handover Modal States
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -360,6 +453,14 @@ function AccountDetailPageContent() {
     onError: (err) => showToast(err.message || "Lỗi khi đóng profile GPM", "error"),
   });
 
+  const deleteAccountMutation = trpc.accounts.delete.useMutation({
+    onSuccess: () => {
+      showToast("Đã xóa tài khoản!", "success");
+      router.push("/accounts");
+    },
+    onError: (err) => showToast(err.message || "Lỗi khi xóa tài khoản", "error"),
+  });
+
   const resolveAlertMutation = trpc.accounts.resolveAlert.useMutation({
     onSuccess: () => {
       showToast("Đã giải quyết cảnh báo rủi ro!", "success");
@@ -460,80 +561,86 @@ function AccountDetailPageContent() {
 
   const strikeTheme = useMemo(() => {
     const count = punishedVideosList.length;
+  
     if (count <= 0) return null;
+  
     if (count === 1) {
       return {
         count,
         levelText: "Mức 1 (1 video)",
-        bannerBg: "bg-gradient-to-r from-yellow-500/15 via-yellow-500/10 to-transparent border-yellow-300 dark:border-yellow-700/80",
         iconBox: "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400",
         title: "text-yellow-900 dark:text-yellow-200",
         desc: "text-yellow-700 dark:text-yellow-400",
         tag: "bg-yellow-500/20 text-yellow-800 dark:text-yellow-300 border-yellow-500/30",
         btn: "bg-yellow-600 hover:bg-yellow-700 text-white",
-        btnTab: selectedRewardProgram === "PUNISHED_ONLY"
-          ? "bg-yellow-600 text-white shadow-sm ring-2 ring-yellow-500/30"
-          : "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900/60 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
+        btnTab:
+          selectedRewardProgram === "PUNISHED_ONLY"
+            ? "bg-yellow-600 text-white shadow-sm ring-2 ring-yellow-500/30"
+            : "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900/60 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
       };
     }
+  
     if (count === 2) {
       return {
         count,
         levelText: "Mức 2 (2 video)",
-        bannerBg: "bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent border-amber-300 dark:border-amber-700/80",
         iconBox: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
         title: "text-amber-900 dark:text-amber-200",
         desc: "text-amber-700 dark:text-amber-400",
         tag: "bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-500/30",
         btn: "bg-amber-600 hover:bg-amber-700 text-white",
-        btnTab: selectedRewardProgram === "PUNISHED_ONLY"
-          ? "bg-amber-600 text-white shadow-sm ring-2 ring-amber-500/30"
-          : "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100 dark:hover:bg-amber-900/40",
+        btnTab:
+          selectedRewardProgram === "PUNISHED_ONLY"
+            ? "bg-amber-600 text-white shadow-sm ring-2 ring-amber-500/30"
+            : "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100 dark:hover:bg-amber-900/40",
       };
     }
+  
     if (count === 3) {
       return {
         count,
-        levelText: "Mức 3 (3 video - Nghiêm trọng)",
-        bannerBg: "bg-gradient-to-r from-orange-500/20 via-orange-500/10 to-transparent border-orange-300 dark:border-orange-700/80",
+        levelText: "Mức 3 (3 video - Cần lưu ý)",
         iconBox: "bg-orange-500/20 text-orange-600 dark:text-orange-400",
         title: "text-orange-900 dark:text-orange-200",
         desc: "text-orange-700 dark:text-orange-400",
         tag: "bg-orange-500/20 text-orange-800 dark:text-orange-300 border-orange-500/30",
         btn: "bg-orange-600 hover:bg-orange-700 text-white",
-        btnTab: selectedRewardProgram === "PUNISHED_ONLY"
-          ? "bg-orange-600 text-white shadow-sm ring-2 ring-orange-500/30"
-          : "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-900/60 hover:bg-orange-100 dark:hover:bg-orange-900/40",
+        btnTab:
+          selectedRewardProgram === "PUNISHED_ONLY"
+            ? "bg-orange-600 text-white shadow-sm ring-2 ring-orange-500/30"
+            : "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-900/60 hover:bg-orange-100 dark:hover:bg-orange-900/40",
       };
     }
+  
     if (count === 4) {
       return {
         count,
-        levelText: "Mức 4 (4 video - Nguy cơ mất quỹ)",
-        bannerBg: "bg-gradient-to-r from-rose-500/20 via-rose-500/10 to-transparent border-rose-300 dark:border-rose-800",
+        levelText: "Mức 4 (4 video - Cảnh báo cao)",
         iconBox: "bg-rose-500/20 text-rose-600 dark:text-rose-400",
         title: "text-rose-900 dark:text-rose-200",
         desc: "text-rose-700 dark:text-rose-400",
         tag: "bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-500/30",
         btn: "bg-rose-600 hover:bg-rose-700 text-white",
-        btnTab: selectedRewardProgram === "PUNISHED_ONLY"
-          ? "bg-rose-600 text-white shadow-sm ring-2 ring-rose-500/30"
-          : "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40",
+        btnTab:
+          selectedRewardProgram === "PUNISHED_ONLY"
+            ? "bg-rose-600 text-white shadow-sm ring-2 ring-rose-500/30"
+            : "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40",
       };
     }
+  
     // 5 or > 5
     return {
       count,
-      levelText: `Mức 5 (${count} video - Nguy cấp)`,
-      bannerBg: "bg-gradient-to-r from-red-600/25 via-red-600/15 to-transparent border-2 border-red-500 dark:border-red-600 animate-pulse",
+      levelText: `Mức 5 (${count} video - Cảnh báo nghiêm trọng)`,
       iconBox: "bg-red-600/20 text-red-600 dark:text-red-300",
       title: "text-red-950 dark:text-red-100",
       desc: "text-red-700 dark:text-red-300 font-bold",
       tag: "bg-red-600/20 text-red-800 dark:text-red-200 border-red-500/40",
       btn: "bg-red-600 hover:bg-red-700 text-white font-black",
-      btnTab: selectedRewardProgram === "PUNISHED_ONLY"
-        ? "bg-red-600 text-white shadow-sm ring-2 ring-red-500/30"
-        : "bg-red-100 dark:bg-red-950/70 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-800 hover:bg-red-200 dark:hover:bg-red-900/50",
+      btnTab:
+        selectedRewardProgram === "PUNISHED_ONLY"
+          ? "bg-red-600 text-white shadow-sm ring-2 ring-red-500/30"
+          : "bg-red-100 dark:bg-red-950/70 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-800 hover:bg-red-200 dark:hover:bg-red-900/50",
     };
   }, [punishedVideosList.length, selectedRewardProgram]);
 
@@ -546,22 +653,29 @@ function AccountDetailPageContent() {
     return Array.from(map.entries()).map(([name, count]) => ({ name, count }));
   }, [punishedVideosList]);
 
-  const availableRewardPrograms = useMemo(() => {
-    const map = new Map<string, { count: number; totalReward: number }>();
-    for (const item of postRewardsList) {
-      const rewardVal = typeof item.reward === "number" ? item.reward : parseFloat(String(item.reward || "").replace(/[^0-9.-]/g, "")) || 0;
+  const dateScopedPostRewards = useMemo(() => {
+    return postRewardsList.filter((item: any) =>
+      isWithinRewardDatePreset(item, rewardDatePreset)
+    );
+  }, [postRewardsList, rewardDatePreset]);
+
+  const draftAvailableRewardPrograms = useMemo(() => {
+    const scoped = postRewardsList.filter((item: any) =>
+      isWithinRewardDatePreset(item, draftRewardDatePreset)
+    );
+    const map = new Map<string, number>();
+    for (const item of scoped) {
       const progName = item.programName || "Chương trình Creator Rewards";
-      const existing = map.get(progName) || { count: 0, totalReward: 0 };
-      existing.count += 1;
-      existing.totalReward += rewardVal;
-      map.set(progName, existing);
+      map.set(progName, (map.get(progName) || 0) + 1);
     }
-    return Array.from(map.entries()).map(([name, stat]) => ({
-      name,
-      count: stat.count,
-      totalReward: Math.round(stat.totalReward * 100) / 100,
-    }));
-  }, [postRewardsList]);
+    return Array.from(map.entries()).map(([name, count]) => ({ name, count }));
+  }, [postRewardsList, draftRewardDatePreset]);
+
+  const draftPunishedInRangeCount = useMemo(() => {
+    return punishedVideosList.filter((item: any) =>
+      isWithinRewardDatePreset(item, draftRewardDatePreset)
+    ).length;
+  }, [punishedVideosList, draftRewardDatePreset]);
 
   const totalAllPostRewards = useMemo(() => {
     return postRewardsList.reduce((sum: number, item: any) => {
@@ -571,20 +685,52 @@ function AccountDetailPageContent() {
   }, [postRewardsList]);
 
   const filteredPostRewards = useMemo(() => {
-    if (selectedRewardProgram === "ALL") return postRewardsList;
-    if (selectedRewardProgram === "PUNISHED_ONLY") {
-      return punishedVideosList;
-    }
-    return postRewardsList.filter((item: any) => {
-      if (Array.isArray(item.programs) && item.programs.length > 0) {
-        return item.programs.some((p: any) => (p.name || p.program_name) === selectedRewardProgram);
+    let list =
+      selectedRewardProgram === "PUNISHED_ONLY"
+        ? [...punishedVideosList]
+        : selectedRewardProgram === "ALL"
+          ? [...postRewardsList]
+          : postRewardsList.filter((item: any) => {
+              if (Array.isArray(item.programs) && item.programs.length > 0) {
+                return item.programs.some(
+                  (p: any) => (p.name || p.program_name) === selectedRewardProgram
+                );
+              }
+              return (
+                item.programName === selectedRewardProgram ||
+                (item.programName && item.programName.includes(selectedRewardProgram))
+              );
+            });
+
+    list = list.filter((item: any) =>
+      isWithinRewardDatePreset(item, rewardDatePreset)
+    );
+
+    list.sort((a: any, b: any) => {
+      if (rewardSortBy === "views") {
+        return parseRewardViews(b.views) - parseRewardViews(a.views);
       }
-      return (
-        item.programName === selectedRewardProgram ||
-        (item.programName && item.programName.includes(selectedRewardProgram))
-      );
+      if (rewardSortBy === "date") {
+        return getRewardPublishTs(b) - getRewardPublishTs(a);
+      }
+      return parseRewardAmount(b.reward) - parseRewardAmount(a.reward);
     });
-  }, [postRewardsList, selectedRewardProgram, punishedVideosList]);
+    return list;
+  }, [
+    postRewardsList,
+    selectedRewardProgram,
+    punishedVideosList,
+    rewardDatePreset,
+    rewardSortBy,
+  ]);
+
+  const rewardFilterActiveCount = useMemo(() => {
+    let n = 0;
+    if (selectedRewardProgram !== "ALL") n += 1;
+    if (rewardDatePreset !== 30) n += 1;
+    if (rewardSortBy !== "reward") n += 1;
+    return n;
+  }, [selectedRewardProgram, rewardDatePreset, rewardSortBy]);
 
   // Currency symbol helper
   const getCurrencySymbol = (country?: string | null) => {
@@ -681,16 +827,19 @@ function AccountDetailPageContent() {
     }> = [];
 
     const existingKeys = new Set<string>();
+    const viewsFromDb = new Set<string>();
 
     if (account?.dailyRevenues && account.dailyRevenues.length > 0) {
       for (const rec of account.dailyRevenues) {
         const dStr = new Date(rec.date).toISOString().split("T")[0];
         existingKeys.add(dStr);
+        const views = Number(rec.views || 0);
+        if (views > 0) viewsFromDb.add(dStr);
         records.push({
           id: rec.id,
           date: dStr,
           sourceType: rec.sourceType || "CREATOR_REWARDS",
-          views: Number(rec.views || 0),
+          views,
           rpm: Number(rec.rpm || 0),
           revenue: Number(rec.revenue || 0),
           isAutomated: false,
@@ -699,20 +848,28 @@ function AccountDetailPageContent() {
       }
     }
 
-    const breakdown = (account as any)?.analytics?.dailyBreakdown;
+    // Prefer dailyRevenueBreakdown (stored by agent); fall back to legacy dailyBreakdown
+    const breakdown =
+      (account as any)?.analytics?.dailyRevenueBreakdown ||
+      (account as any)?.analytics?.dailyBreakdown;
     if (Array.isArray(breakdown)) {
       for (const item of breakdown) {
         if (!item?.date) continue;
-        const dStr = item.date;
+        const dStr = String(item.date);
         if (!existingKeys.has(dStr)) {
           existingKeys.add(dStr);
           const rev = Number(item.revenue || 0);
           const vw = Number(item.views || 0);
+          if (vw > 0) viewsFromDb.add(dStr);
           const rpm = vw > 0 ? (rev * 1000) / vw : 0;
           records.push({
             id: `auto-${dStr}`,
             date: dStr,
-            sourceType: "CREATOR_REWARDS",
+            sourceType:
+              item.sourceType ||
+              item.programKey ||
+              item.program ||
+              "CREATOR_REWARDS",
             views: vw,
             rpm: Math.round(rpm * 100) / 100,
             revenue: rev,
@@ -723,15 +880,49 @@ function AccountDetailPageContent() {
       }
     }
 
+    // Overlay Studio Insights daily views when revenue rows lack views
+    const viewsBd = (account as any)?.analytics?.dailyViewsBreakdown;
+    if (Array.isArray(viewsBd)) {
+      const byDate = new Map(records.map((r) => [r.date, r]));
+      for (const item of viewsBd) {
+        if (!item?.date) continue;
+        const dStr = String(item.date);
+        const vw = Number(item.views || 0) || 0;
+        if (vw <= 0) continue;
+        const existing = byDate.get(dStr);
+        if (existing) {
+          if (!viewsFromDb.has(dStr) || existing.views <= 0) {
+            existing.views = vw;
+            existing.rpm =
+              existing.views > 0
+                ? Math.round(((existing.revenue * 1000) / existing.views) * 100) / 100
+                : existing.rpm;
+          }
+        } else {
+          records.push({
+            id: `views-${dStr}`,
+            date: dStr,
+            sourceType: "CREATOR_REWARDS",
+            views: vw,
+            rpm: 0,
+            revenue: 0,
+            isAutomated: true,
+            createdTime: "TikTok Insights",
+          });
+          byDate.set(dStr, records[records.length - 1]);
+        }
+      }
+    }
+
     // Sort chronologically ascending for charts
     records.sort((a, b) => a.date.localeCompare(b.date));
     return records;
   }, [account]);
 
-  // Helper to filter records by time range
+  // Helper to filter records by calendar time range (not last N rows)
   const filterRecordsByRange = (
     records: typeof allRevenueRecords,
-    range: "7d" | "28d" | "60d" | "365d" | "all" | "custom",
+    range: "7d" | "28d" | "60d" | "365d" | "custom",
     startDate?: string,
     endDate?: string
   ) => {
@@ -745,11 +936,14 @@ function AccountDetailPageContent() {
       }
       return records;
     }
-    if (range === "7d") return records.slice(-7);
-    if (range === "28d") return records.slice(-28);
-    if (range === "60d") return records.slice(-60);
-    if (range === "365d") return records.slice(-365);
-    return records; // "all"
+
+    const daysMap = { "7d": 7, "28d": 28, "60d": 60, "365d": 365 } as const;
+    const days = daysMap[range];
+    const cutoff = new Date();
+    cutoff.setUTCHours(0, 0, 0, 0);
+    cutoff.setUTCDate(cutoff.getUTCDate() - days);
+    const cutoffStr = cutoff.toISOString().split("T")[0];
+    return records.filter((r) => r.date >= cutoffStr);
   };
 
   // Format Daily Revenue Chart Data for Overview Tab (based on selectedTimeRange)
@@ -760,19 +954,34 @@ function AccountDetailPageContent() {
       customStartDate,
       customEndDate
     );
-    return filtered.map((r) => {
+    // Aggregate by calendar day so multi-source rows don't duplicate X-axis ticks
+    const byDate = new Map<string, { date: string; views: number; revenue: number; rpm: number }>();
+    for (const r of filtered) {
       const d = new Date(r.date + "T00:00:00");
       const dateStr = d.toLocaleDateString("vi-VN", {
         month: "2-digit",
         day: "2-digit",
       });
-      return {
-        date: dateStr,
-        views: r.views,
-        revenue: r.revenue,
-        rpm: r.rpm,
-      };
-    });
+      const prev = byDate.get(r.date);
+      if (prev) {
+        prev.views += r.views || 0;
+        prev.revenue += r.revenue || 0;
+        prev.rpm =
+          prev.views > 0
+            ? Math.round(((prev.revenue * 1000) / prev.views) * 100) / 100
+            : 0;
+      } else {
+        byDate.set(r.date, {
+          date: dateStr,
+          views: r.views || 0,
+          revenue: r.revenue || 0,
+          rpm: r.rpm || 0,
+        });
+      }
+    }
+    return Array.from(byDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, v]) => v);
   }, [allRevenueRecords, selectedTimeRange, customStartDate, customEndDate]);
 
   // Format Daily Revenue Chart Data for History Tab (based on historyTimeRange)
@@ -783,19 +992,33 @@ function AccountDetailPageContent() {
       historyStartDate,
       historyEndDate
     );
-    return filtered.map((r) => {
+    const byDate = new Map<string, { date: string; views: number; revenue: number; rpm: number }>();
+    for (const r of filtered) {
       const d = new Date(r.date + "T00:00:00");
       const dateStr = d.toLocaleDateString("vi-VN", {
         month: "2-digit",
         day: "2-digit",
       });
-      return {
-        date: dateStr,
-        views: r.views,
-        revenue: r.revenue,
-        rpm: r.rpm,
-      };
-    });
+      const prev = byDate.get(r.date);
+      if (prev) {
+        prev.views += r.views || 0;
+        prev.revenue += r.revenue || 0;
+        prev.rpm =
+          prev.views > 0
+            ? Math.round(((prev.revenue * 1000) / prev.views) * 100) / 100
+            : 0;
+      } else {
+        byDate.set(r.date, {
+          date: dateStr,
+          views: r.views || 0,
+          revenue: r.revenue || 0,
+          rpm: r.rpm || 0,
+        });
+      }
+    }
+    return Array.from(byDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, v]) => v);
   }, [allRevenueRecords, historyTimeRange, historyStartDate, historyEndDate]);
 
   // Filtered rows for History Table (newest date first, based on historyTimeRange)
@@ -814,11 +1037,40 @@ function AccountDetailPageContent() {
 
   // Derived Calculations
   const totalViewsNum = Number(account?.totalViews || 0);
-  const totalRevNum = Number((account as any)?.analytics?.totalRevenue ?? account?.totalRevenue ?? 0);
+  const revenuePeriods = useMemo(
+    () => getAccountRevenuePeriods((account as any) || {}),
+    [account]
+  );
+  const totalRevNum = revenuePeriods.totalRevenue;
   const calculatedRpm =
     totalViewsNum > 0
       ? Math.round(((totalRevNum * 1000) / totalViewsNum) * 100) / 100
       : 0;
+
+  const insightsSnap =
+    ((account as any)?.analytics?.rawSnapshot as Record<string, any>) || {};
+  const insightsUi = getInsightsUiState(
+    insightsSnap,
+    (account as any)?.analytics?.sumViews != null
+  );
+  const insightsStaleHint =
+    insightsUi === "stale"
+      ? `cập nhật lúc ${insightsSnap.insightsNumbersRefreshedAt ?? insightsSnap.insightsLastConfirmedAt ?? "—"}`
+      : null;
+  const formatInsightViews = (
+    raw: unknown,
+    dailyFallback: number | null
+  ): string => {
+    if (insightsUi === "unsynced") return "—";
+    if (insightsUi === "synced_empty") return "0";
+    if (raw != null && Number.isFinite(Number(raw))) {
+      return Number(raw).toLocaleString();
+    }
+    if (dailyFallback != null && dailyFallback > 0) {
+      return dailyFallback.toLocaleString();
+    }
+    return insightsUi === "synced" || insightsUi === "stale" ? "0" : "—";
+  };
 
   if (isLoading) {
     return <AccountDetailSkeleton />;
@@ -917,27 +1169,35 @@ function AccountDetailPageContent() {
                   Phụ trách: <strong className="text-slate-800 dark:text-slate-200">{account.assignedUser?.name || account.assignedUser?.fullName || account.assignedUser?.username || "Chưa gán"}</strong>
                 </span>
                 {isLeadOrAdmin ? (
-                  <button
-                    onClick={() => toggleLockMutation.mutate({ id: account.id, isLocked: !account.isAssignmentLocked })}
-                    disabled={toggleLockMutation.isPending}
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${account.isAssignmentLocked
-                      ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
-                      : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-                      }`}
-                    title={account.isAssignmentLocked ? "Click để mở khóa phân công" : "Click để khóa phân công"}
-                  >
-                    {account.isAssignmentLocked ? (
-                      <>
-                        <Lock className="w-3 h-3" />
-                        <span>Đã khóa phân công</span>
-                      </>
-                    ) : (
-                      <>
-                        <Unlock className="w-3 h-3" />
-                        <span>Đổi ca tự do</span>
-                      </>
-                    )}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => toggleLockMutation.mutate({ id: account.id, isLocked: !account.isAssignmentLocked })}
+                        disabled={toggleLockMutation.isPending}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${account.isAssignmentLocked
+                          ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
+                          : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                          }`}
+                      >
+                        {account.isAssignmentLocked ? (
+                          <>
+                            <Lock className="w-3 h-3" />
+                            <span>Đã khóa phân công</span>
+                          </>
+                        ) : (
+                          <>
+                            <Unlock className="w-3 h-3" />
+                            <span>Đổi ca tự do</span>
+                          </>
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {account.isAssignmentLocked
+                        ? "Mở khóa phân công"
+                        : "Bấm để khóa phân công (chặn Extension/Agent tự đổi người phụ trách)"}
+                    </TooltipContent>
+                  </Tooltip>
                 ) : account.isAssignmentLocked ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
                     <Lock className="w-3 h-3" />
@@ -1010,42 +1270,123 @@ function AccountDetailPageContent() {
               </Tooltip>
             )}
 
-            {/* Launch / Stop GPM Profile */}
-            {account.gpmProfileId && (
-              <div className="flex items-center gap-1.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
+            {/* More actions — same as account card + Mở Profile GPM */}
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
                     <button
+                      type="button"
+                      className="h-9 w-9 flex items-center justify-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shadow-xs"
+                      aria-label="Thao tác"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Tùy chọn thao tác</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent
+                align="end"
+                className="w-52 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl"
+              >
+                {account.gpmProfileId && (
+                  <>
+                    <DropdownMenuItem
                       onClick={handleStartGpm}
                       disabled={startingGpm || startGpmMutation.isPending}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm hover:shadow active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                     >
-                      <Play className={`w-3.5 h-3.5 fill-current shrink-0 ${startingGpm ? "animate-pulse" : ""}`} />
-                      <span>{startingGpm ? "Đang mở..." : "Mở Profile GPM"}</span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">
-                    Mở profile GPM (cổng {(account as any).gpmPort || gpmStatus?.port || "auto"})
-                  </TooltipContent>
-                </Tooltip>
-
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => stopGpmMutation.mutate({ gpmProfileId: account.gpmProfileId!, port: (account as any).gpmPort || gpmStatus?.port || undefined })}
+                      <Play className={`w-3.5 h-3.5 text-cyan-500 fill-current ${startingGpm ? "animate-pulse" : ""}`} />
+                      <span>
+                        {startingGpm
+                          ? "Đang mở..."
+                          : `Mở Profile GPM`}
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        stopGpmMutation.mutate({
+                          gpmProfileId: account.gpmProfileId!,
+                          port: (account as any).gpmPort || gpmStatus?.port || undefined,
+                        })
+                      }
                       disabled={stopGpmMutation.isPending}
-                      className="p-2 rounded-xl text-xs font-bold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-all cursor-pointer disabled:opacity-50"
-                      aria-label="Đóng trình duyệt GPM"
+                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                     >
-                      <Square className="w-3.5 h-3.5 fill-current shrink-0" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">
-                    Đóng trình duyệt GPM
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            )}
+                      <Square className="w-3.5 h-3.5 fill-current text-slate-400" />
+                      <span>Đóng trình duyệt GPM</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                  </>
+                )}
+
+                <DropdownMenuItem
+                  onClick={() => syncMutation.mutate({ accountId: account.id })}
+                  disabled={syncMutation.isPending}
+                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin text-pink-500" : ""}`} />
+                  <span>{syncMutation.isPending ? "Đang đồng bộ..." : "Đồng bộ số liệu"}</span>
+                </DropdownMenuItem>
+
+                {syncMutation.isPending && (
+                  <DropdownMenuItem
+                    onClick={() => stopSyncMutation.mutate({ accountId: account.id })}
+                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-current text-rose-500" />
+                    <span>Dừng đồng bộ</span>
+                  </DropdownMenuItem>
+                )}
+
+                <DropdownMenuItem
+                  onClick={() => setActiveTab("logs")}
+                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                >
+                  <History className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Lịch sử hoạt động</span>
+                </DropdownMenuItem>
+
+                {isLeadOrAdmin && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setActiveTab("overview");
+                        requestAnimationFrame(() => {
+                          document.getElementById("account-ops-panel")?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          });
+                        });
+                      }}
+                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Chỉnh sửa</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: "Xác nhận xóa tài khoản",
+                          description: `Bạn có chắc chắn muốn xóa @${account.username}? Toàn bộ dữ liệu số liệu và liên kết sẽ bị xóa vĩnh viễn.`,
+                          confirmLabel: "Xác nhận xóa",
+                          variant: "danger",
+                        });
+                        if (ok) {
+                          deleteAccountMutation.mutate({ id: account.id });
+                        }
+                      }}
+                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Xóa tài khoản</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -1173,53 +1514,6 @@ function AccountDetailPageContent() {
         </div>
       )}
 
-      {/* Top Banner: PUNISHED VIDEOS ALERT (when not already banned or showing warning) */}
-      {!isBannedFromCreator && punishedVideosList.length > 0 && strikeTheme && (
-        <div className={`border rounded-3xl p-4.5 shadow-sm ${strikeTheme.bannerBg}`}>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${strikeTheme.iconBox}`}>
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h4 className={`font-bold text-xs sm:text-sm ${strikeTheme.title}`}>
-                    Phát hiện {punishedVideosList.length} video bị phạt trong 30 ngày gần nhất (Strike)
-                  </h4>
-                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${strikeTheme.tag}`}>
-                    {strikeTheme.levelText}
-                  </span>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {punishedProgramsMap.map((p) => (
-                      <span
-                        key={p.name}
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${strikeTheme.tag}`}
-                      >
-                        {p.name}: {p.count} video
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <p className={`text-xs ${strikeTheme.desc}`}>
-                  Tài khoản có video bị đánh gậy bản quyền hoặc vi phạm chính sách của chương trình kiếm tiền trong 30 ngày gần nhất.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("rewards");
-                setSelectedRewardProgram("PUNISHED_ONLY");
-              }}
-              className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer self-start md:self-auto ${strikeTheme.btn}`}
-            >
-              <AlertTriangle className="w-4 h-4" />
-              <span>Xem {punishedVideosList.length} video bị phạt (30 ngày)</span>
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Top 6 KPI Cards Overview */}
       {activeTab !== "alerts" && activeTab !== "logs" && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
@@ -1234,7 +1528,7 @@ function AccountDetailPageContent() {
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 truncate">
               <Sparkles className="w-3 h-3 text-cyan-500 shrink-0" />
-              <span className="truncate">Toàn thời gian (Studio)</span>
+              <span className="truncate">365 ngày</span>
             </div>
           </div>
 
@@ -1276,7 +1570,7 @@ function AccountDetailPageContent() {
               {formatAmount(totalRevNum, account?.country)}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 truncate">
-              <span className="truncate">Creator Rewards</span>
+              <span className="truncate">Tiktok Rewards</span>
             </div>
           </div>
 
@@ -1348,7 +1642,6 @@ function AccountDetailPageContent() {
                     { id: "28d", label: "28 Ngày" },
                     { id: "60d", label: "60 Ngày" },
                     { id: "365d", label: "365 Ngày" },
-                    { id: "all", label: "Toàn Bộ" },
                   ].map((range) => (
                     <button
                       key={range.id}
@@ -1388,11 +1681,16 @@ function AccountDetailPageContent() {
                       className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
                     >
                       <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                          Chọn khoảng ngày thống kê
-                        </span>
+                        <div className="min-w-0">
+                          <span className="text-xs font-normal text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                            Chọn khoảng ngày thống kê
+                          </span>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Trong vòng {MAX_LOOKBACK_DAYS} ngày gần nhất
+                          </p>
+                        </div>
                         {rangeSelection?.from && (
-                          <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
+                          <span className="text-[11px] font-normal text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
                             {format(rangeSelection.from, "dd/MM/yy")} - {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
                           </span>
                         )}
@@ -1405,15 +1703,19 @@ function AccountDetailPageContent() {
                           onSelect={(range) => {
                             setRangeSelection(range);
                           }}
-                          disabled={(date) => date > new Date()}
+                          disabled={(date) => {
+                            const d = startOfDay(date);
+                            return d > getToday() || d < getMinSelectableDate();
+                          }}
                           numberOfMonths={1}
-                          className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                          className="w-full p-0 font-normal [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs [&_.rdp-button]:font-normal"
                           classNames={{
                             root: "w-full",
                             months: "relative flex flex-col w-full",
                             month: "w-full flex flex-col gap-1.5",
                             weekdays: "flex w-full justify-between",
                             week: "flex w-full mt-1 justify-between",
+                            caption_label: "select-none font-normal text-sm",
                           }}
                         />
                       </div>
@@ -1486,33 +1788,40 @@ function AccountDetailPageContent() {
               )}
 
               {/* Metric Comparison Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">7 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-cyan-600 dark:text-cyan-400 mt-1">
-                    {((account as any).analytics?.sumRevenue?.revenue7d ?? (account as any).analytics?.revenue7d) != null
-                      ? formatAmount(Number((account as any).analytics?.sumRevenue?.revenue7d ?? (account as any).analytics?.revenue7d), account?.country)
-                      : "—"}
+                    {formatAmount(revenuePeriods.revenue7d, account?.country)}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {((account as any).analytics?.sumViews?.views7d ?? (account as any).analytics?.views7d) != null
-                      ? Number((account as any).analytics?.sumViews?.views7d ?? (account as any).analytics?.views7d).toLocaleString()
-                      : account.dailyRevenues?.slice(0, 7).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}{" "}
+                    {formatInsightViews(
+                      (account as any).analytics?.sumViews?.views7d ??
+                        (account as any).analytics?.views7d,
+                      account.dailyRevenues
+                        ?.slice(0, 7)
+                        .reduce((acc: number, r: any) => acc + Number(r.views || 0), 0) ?? null
+                    )}{" "}
                     views
+                    {insightsStaleHint ? (
+                      <span className="block text-[10px] opacity-70">{insightsStaleHint}</span>
+                    ) : null}
                   </div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">28 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 mt-1">
-                    {((account as any).analytics?.sumRevenue?.revenue28d ?? (account as any).analytics?.revenue28d) != null
-                      ? formatAmount(Number((account as any).analytics?.sumRevenue?.revenue28d ?? (account as any).analytics?.revenue28d), account?.country)
-                      : "—"}
+                    {formatAmount(revenuePeriods.revenue28d, account?.country)}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {((account as any).analytics?.sumViews?.views28d ?? (account as any).analytics?.views28d) != null
-                      ? Number((account as any).analytics?.sumViews?.views28d ?? (account as any).analytics?.views28d).toLocaleString()
-                      : account.dailyRevenues?.slice(0, 28).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}{" "}
+                    {formatInsightViews(
+                      (account as any).analytics?.sumViews?.views28d ??
+                        (account as any).analytics?.views28d,
+                      account.dailyRevenues
+                        ?.slice(0, 28)
+                        .reduce((acc: number, r: any) => acc + Number(r.views || 0), 0) ?? null
+                    )}{" "}
                     views
                   </div>
                 </div>
@@ -1520,14 +1829,16 @@ function AccountDetailPageContent() {
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">60 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 mt-1">
-                    {((account as any).analytics?.sumRevenue?.revenue60d ?? (account as any).analytics?.revenue60d) != null
-                      ? formatAmount(Number((account as any).analytics?.sumRevenue?.revenue60d ?? (account as any).analytics?.revenue60d), account?.country)
-                      : "—"}
+                    {formatAmount(revenuePeriods.revenue60d, account?.country)}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {((account as any).analytics?.sumViews?.views60d ?? (account as any).analytics?.views60d) != null
-                      ? Number((account as any).analytics?.sumViews?.views60d ?? (account as any).analytics?.views60d).toLocaleString()
-                      : account.dailyRevenues?.slice(0, 60).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}{" "}
+                    {formatInsightViews(
+                      (account as any).analytics?.sumViews?.views60d ??
+                        (account as any).analytics?.views60d,
+                      account.dailyRevenues
+                        ?.slice(0, 60)
+                        .reduce((acc: number, r: any) => acc + Number(r.views || 0), 0) ?? null
+                    )}{" "}
                     views
                   </div>
                 </div>
@@ -1535,25 +1846,17 @@ function AccountDetailPageContent() {
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">365 Ngày (1 Năm)</div>
                   <div className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 mt-1">
-                    {((account as any).analytics?.sumRevenue?.revenue365d ?? (account as any).analytics?.revenue365d) != null
-                      ? formatAmount(Number((account as any).analytics?.sumRevenue?.revenue365d ?? (account as any).analytics?.revenue365d), account?.country)
-                      : "—"}
+                    {formatAmount(revenuePeriods.revenue365d, account?.country)}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {((account as any).analytics?.sumViews?.views365d ?? (account as any).analytics?.views365d) != null
-                      ? Number((account as any).analytics?.sumViews?.views365d ?? (account as any).analytics?.views365d).toLocaleString()
-                      : account.dailyRevenues?.slice(0, 365).reduce((acc: number, r: any) => acc + Number(r.views || 0), 0)?.toLocaleString() || "—"}{" "}
+                    {formatInsightViews(
+                      (account as any).analytics?.sumViews?.views365d ??
+                        (account as any).analytics?.views365d,
+                      account.dailyRevenues
+                        ?.slice(0, 365)
+                        .reduce((acc: number, r: any) => acc + Number(r.views || 0), 0) ?? null
+                    )}{" "}
                     views
-                  </div>
-                </div>
-
-                <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center col-span-2 sm:col-span-1">
-                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Toàn Thời Gian</div>
-                  <div className="text-base sm:text-lg font-black text-pink-600 dark:text-pink-400 mt-1">
-                    {formatAmount(totalRevNum, account?.country)}
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {totalViewsNum.toLocaleString()} views
                   </div>
                 </div>
               </div>
@@ -1577,11 +1880,9 @@ function AccountDetailPageContent() {
                             ? "60 ngày qua"
                             : selectedTimeRange === "365d"
                               ? "365 ngày qua"
-                              : selectedTimeRange === "all"
-                                ? "Toàn bộ"
-                                : customStartDate && customEndDate
-                                  ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
-                                  : "Tùy chọn"})
+                              : customStartDate && customEndDate
+                                ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
+                                : "Tùy chọn"})
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -1606,10 +1907,24 @@ function AccountDetailPageContent() {
               {chartData.length > 0 ? (
                 <div className="w-full pt-2 flex-1 min-h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                       <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
+                      <YAxis
+                        yAxisId="left"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) =>
+                          Number(v) >= 1000 ? `${(Number(v) / 1000).toFixed(0)}k` : String(v)
+                        }
+                      />
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) =>
+                          Number(v) >= 1000 ? `${(Number(v) / 1000).toFixed(0)}k` : String(v)
+                        }
+                      />
                       <RechartsTooltip
                         contentStyle={{
                           backgroundColor: "rgba(15, 23, 42, 0.95)",
@@ -1618,9 +1933,35 @@ function AccountDetailPageContent() {
                           color: "#fff",
                           fontSize: "12px",
                         }}
+                        formatter={(value: any, name: any) => {
+                          if (String(name).includes("Doanh thu")) {
+                            return [formatAmount(Number(value) || 0, account?.country), name];
+                          }
+                          if (String(name).includes("xem")) {
+                            return [Number(value || 0).toLocaleString(), name];
+                          }
+                          return [value, name];
+                        }}
                       />
-                      <Bar dataKey="revenue" name={`Doanh thu (${currencySymbol})`} fill="#ec4899" radius={[6, 6, 0, 0]} />
-                    </BarChart>
+                      <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+                      <Bar
+                        yAxisId="left"
+                        dataKey="revenue"
+                        name={`Doanh thu (${currencySymbol})`}
+                        fill="#ec4899"
+                        radius={[6, 6, 0, 0]}
+                      />
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="views"
+                        name="Lượt xem"
+                        stroke="#06b6d4"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               ) : (
@@ -1644,7 +1985,10 @@ function AccountDetailPageContent() {
           {/* Right Column: Operational Controls & GPM Integration */}
           <div className="space-y-6">
             {/* Account Settings & Quick Edit Card */}
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
+            <div
+              id="account-ops-panel"
+              className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4"
+            >
               <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
                 <Sliders className="w-4 h-4 text-pink-500" />
                 Thông Tin Vận Hành & Quản Lý
@@ -1702,7 +2046,16 @@ function AccountDetailPageContent() {
                   >
                     <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
                       <SelectValue placeholder="-- Chọn nhân sự --">
-                        {account.assignedUser ? account.assignedUser.fullName || account.assignedUser.username : "-- Chưa gán --"}
+                        {account.assignedUser ? (
+                          <span className="flex items-center gap-2">
+                            {renderUserAvatar(account.assignedUser, "w-4 h-4 text-[8px]")}
+                            <span className="truncate">
+                              {account.assignedUser.fullName || account.assignedUser.username}
+                            </span>
+                          </span>
+                        ) : (
+                          "-- Chưa gán --"
+                        )}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
@@ -1711,7 +2064,12 @@ function AccountDetailPageContent() {
                       </SelectItem>
                       {staffList.map((s: any) => (
                         <SelectItem key={s.id} value={s.id} className="text-xs font-normal cursor-pointer">
-                          {s.fullName} ({s.username})
+                          <div className="flex items-center gap-2">
+                            {renderUserAvatar(s, "w-4 h-4 text-[8px]")}
+                            <span>
+                              {s.fullName || s.name} ({s.username})
+                            </span>
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1935,60 +2293,292 @@ function AccountDetailPageContent() {
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Video className="w-5 h-5 text-pink-500" />
-                Phần Thưởng Mỗi Bài Đăng ({postRewardsList.length})
+                Phần Thưởng Mỗi Bài Đăng ({filteredPostRewards.length}
+                {filteredPostRewards.length !== dateScopedPostRewards.length
+                  ? ` / ${dateScopedPostRewards.length}`
+                  : ""}
+                )
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Dữ liệu thưởng theo từng video được trích xuất trực tiếp từ TikTok Studio Monetization qua bộ lọc chương trình và mốc từ trước tới nay.
+                Theo dõi thưởng từng video — dễ dàng lọc theo chương trình, khoảng thời gian và sắp xếp dữ liệu.
               </p>
             </div>
             {postRewardsList.length > 0 && (
-              <div className="flex items-center gap-3">
-                <div className="text-xs font-medium text-slate-500">
-                  Tổng video nhận thưởng: <span className="font-bold text-slate-900 dark:text-white">{postRewardsList.length}</span>
+              <div className="flex items-center gap-3 flex-wrap justify-end">
+                <div className="text-sm font-medium text-slate-500">
+                  Tổng thưởng:{" "}
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {formatAmount(
+                      filteredPostRewards.reduce(
+                        (s: number, i: any) => s + parseRewardAmount(i.reward),
+                        0
+                      ),
+                      account?.country
+                    )}
+                  </span>
                 </div>
+                <Popover
+                  open={isRewardFilterOpen}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      setDraftRewardProgram(selectedRewardProgram);
+                      setDraftRewardDatePreset(rewardDatePreset);
+                      setDraftRewardSortBy(rewardSortBy);
+                    }
+                    setIsRewardFilterOpen(open);
+                  }}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                        rewardFilterActiveCount > 0
+                          ? "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      <Filter className="w-3.5 h-3.5" />
+                      <span>Bộ lọc</span>
+                      {rewardFilterActiveCount > 0 && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setSelectedRewardProgram("ALL");
+                                setRewardDatePreset(30);
+                                setRewardSortBy("reward");
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setSelectedRewardProgram("ALL");
+                                  setRewardDatePreset(30);
+                                  setRewardSortBy("reward");
+                                }
+                              }}
+                              className="group/badge relative ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-600 hover:bg-rose-600 text-white text-[10px] font-bold transition-colors cursor-pointer shadow-2xs"
+                              aria-label="Xóa bộ lọc"
+                            >
+                              <span className="group-hover/badge:hidden">{rewardFilterActiveCount}</span>
+                              <X className="w-2.5 h-2.5 hidden group-hover/badge:block stroke-[2.5]" />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    sideOffset={8}
+                    className="w-[min(96vw,680px)] p-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-50 overflow-hidden"
+                  >
+                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-sm font-bold text-slate-900 dark:text-white">Bộ lọc</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => setIsRewardFilterOpen(false)}
+                            className="w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-110"
+                            aria-label="Đóng"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Đóng</TooltipContent>
+                      </Tooltip>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,1fr)] divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800">
+                      {/* Chương trình */}
+                      <div className="p-3 space-y-2 min-w-0">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 px-1">
+                          Chương trình
+                        </div>
+                        <RadioGroup
+                          value={draftRewardProgram}
+                          onValueChange={setDraftRewardProgram}
+                          className="gap-0.5"
+                        >
+                          <label className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer">
+                            <RadioGroupItem
+                              value="ALL"
+                              className="border-slate-300 dark:border-slate-600 text-rose-600 data-[state=checked]:border-rose-600 [&_[data-slot=radio-group-indicator]_svg]:fill-rose-600"
+                            />
+                            <span
+                              className={cn(
+                                "text-xs",
+                                draftRewardProgram === "ALL"
+                                  ? "font-semibold text-rose-700 dark:text-rose-300"
+                                  : "font-semibold text-slate-800 dark:text-slate-200"
+                              )}
+                            >
+                              Tất cả
+                            </span>
+                          </label>
+                          {draftAvailableRewardPrograms.map((prog) => (
+                            <label
+                              key={prog.name}
+                              className="flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer"
+                            >
+                              <RadioGroupItem
+                                value={prog.name}
+                                className="mt-0.5 border-slate-300 dark:border-slate-600 text-rose-600 data-[state=checked]:border-rose-600 [&_[data-slot=radio-group-indicator]_svg]:fill-rose-600"
+                              />
+                              <span
+                                className={cn(
+                                  "text-xs break-words leading-snug",
+                                  draftRewardProgram === prog.name
+                                    ? "font-semibold text-rose-700 dark:text-rose-300"
+                                    : "text-slate-700 dark:text-slate-300"
+                                )}
+                              >
+                                {prog.name} ({prog.count})
+                              </span>
+                            </label>
+                          ))}
+                          {punishedVideosList.length > 0 && (
+                            <label className="flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer">
+                              <RadioGroupItem
+                                value="PUNISHED_ONLY"
+                                className="mt-0.5 border-slate-300 dark:border-slate-600 text-rose-600 data-[state=checked]:border-rose-600 [&_[data-slot=radio-group-indicator]_svg]:fill-rose-600"
+                              />
+                              <span
+                                className={cn(
+                                  "text-xs break-words leading-snug",
+                                  draftRewardProgram === "PUNISHED_ONLY"
+                                    ? "font-semibold text-rose-700 dark:text-rose-300"
+                                    : "text-rose-700 dark:text-rose-300"
+                                )}
+                              >
+                                Video bị phạt ({draftPunishedInRangeCount})
+                              </span>
+                            </label>
+                          )}
+                        </RadioGroup>
+                      </div>
+
+                      {/* Phạm vi ngày */}
+                      <div className="p-3 space-y-2">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 px-1">
+                          Phạm vi ngày
+                        </div>
+                        <RadioGroup
+                          value={String(draftRewardDatePreset)}
+                          onValueChange={(val) =>
+                            setDraftRewardDatePreset(Number(val) as 7 | 30 | 60)
+                          }
+                          className="gap-0.5"
+                        >
+                          {(
+                            [
+                              { v: 7 as const, label: "7 ngày qua" },
+                              { v: 30 as const, label: "30 ngày qua" },
+                              { v: 60 as const, label: "60 ngày qua" },
+                            ] as const
+                          ).map((opt) => (
+                            <label
+                              key={opt.v}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer"
+                            >
+                              <RadioGroupItem
+                                value={String(opt.v)}
+                                className="border-slate-300 dark:border-slate-600 text-rose-600 data-[state=checked]:border-rose-600 [&_[data-slot=radio-group-indicator]_svg]:fill-rose-600"
+                              />
+                              <span
+                                className={cn(
+                                  "text-xs",
+                                  draftRewardDatePreset === opt.v
+                                    ? "font-semibold text-rose-700 dark:text-rose-300"
+                                    : "text-slate-700 dark:text-slate-300"
+                                )}
+                              >
+                                {opt.label}
+                              </span>
+                            </label>
+                          ))}
+                        </RadioGroup>
+                      </div>
+
+                      {/* Sắp xếp */}
+                      <div className="p-3 space-y-2">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 px-1">
+                          Sắp xếp theo
+                        </div>
+                        <RadioGroup
+                          value={draftRewardSortBy}
+                          onValueChange={(val) =>
+                            setDraftRewardSortBy(val as "reward" | "views" | "date")
+                          }
+                          className="gap-0.5"
+                        >
+                          {(
+                            [
+                              { v: "reward" as const, label: "Phần thưởng ước tính" },
+                              { v: "views" as const, label: "Lượt xem video" },
+                              { v: "date" as const, label: "Ngày đăng" },
+                            ] as const
+                          ).map((opt) => (
+                            <label
+                              key={opt.v}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer"
+                            >
+                              <RadioGroupItem
+                                value={opt.v}
+                                className="border-slate-300 dark:border-slate-600 text-rose-600 data-[state=checked]:border-rose-600 [&_[data-slot=radio-group-indicator]_svg]:fill-rose-600"
+                              />
+                              <span
+                                className={cn(
+                                  "text-xs",
+                                  draftRewardSortBy === opt.v
+                                    ? "font-semibold text-rose-700 dark:text-rose-300"
+                                    : "text-slate-700 dark:text-slate-300"
+                                )}
+                              >
+                                {opt.label}
+                              </span>
+                            </label>
+                          ))}
+                        </RadioGroup>
+                      </div>
+                    </div>
+
+                    <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDraftRewardProgram("ALL");
+                          setDraftRewardDatePreset(30);
+                          setDraftRewardSortBy("reward");
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        Đặt lại
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedRewardProgram(draftRewardProgram);
+                          setRewardDatePreset(draftRewardDatePreset);
+                          setRewardSortBy(draftRewardSortBy);
+                          setIsRewardFilterOpen(false);
+                        }}
+                        className="px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer shadow-sm"
+                      >
+                        Xác nhận
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             )}
           </div>
-
-          {/* Filter by Program Pills if multiple or active programs exist */}
-          {postRewardsList.length > 0 && availableRewardPrograms.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 mr-1">Chương trình:</span>
-              <button
-                type="button"
-                onClick={() => setSelectedRewardProgram("ALL")}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${selectedRewardProgram === "ALL"
-                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-                  }`}
-              >
-                Tất cả ({postRewardsList.length} video • {formatAmount(totalAllPostRewards, account?.country)})
-              </button>
-              {availableRewardPrograms.map((prog) => (
-                <button
-                  key={prog.name}
-                  type="button"
-                  onClick={() => setSelectedRewardProgram(prog.name)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${selectedRewardProgram === prog.name
-                    ? "bg-pink-600 text-white shadow-sm"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-                    }`}
-                >
-                  {prog.name} ({prog.count} video • {formatAmount(prog.totalReward, account?.country)})
-                </button>
-              ))}
-              {punishedVideosList.length > 0 && strikeTheme && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedRewardProgram("PUNISHED_ONLY")}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${strikeTheme.btnTab}`}
-                >
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>Video bị phạt 30 ngày ({punishedVideosList.length})</span>
-                </button>
-              )}
-            </div>
-          )}
 
           {postRewardsList.length === 0 ? (
             <div className="py-16 text-center space-y-3">
@@ -2000,6 +2590,16 @@ function AccountDetailPageContent() {
               </h4>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
                 Hãy nhấn "Đồng Bộ TikTok Studio" để Client-Agent quét và trích xuất danh sách video cùng tiền thưởng từ TikTok Studio.
+              </p>
+            </div>
+          ) : filteredPostRewards.length === 0 ? (
+            <div className="py-14 text-center space-y-3">
+              <Filter className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+              <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                Không có video khớp bộ lọc
+              </h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Thử đổi chương trình, phạm vi ngày hoặc bấm Đặt lại trong Bộ lọc.
               </p>
             </div>
           ) : (
@@ -2061,9 +2661,17 @@ function AccountDetailPageContent() {
                           </div>
                         )}
                         {isPunished30d && (
-                          <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-bold flex items-center gap-0.5 shadow-sm">
-                            <AlertTriangle className="w-2.5 h-2.5" /> Bị phạt (30 ngày)
-                          </div>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-bold flex items-center gap-0.5 shadow-sm cursor-help">
+                                <AlertTriangle className="w-2.5 h-2.5" /> Bị phạt
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              Bị tắt kiếm tiền chương trình{" "}
+                              {item.programName || "Creator Rewards"}
+                            </TooltipContent>
+                          </Tooltip>
                         )}
                         {item.duration && (
                           <span className="absolute bottom-1 right-1 px-1 py-0.5 rounded text-[9px] font-mono font-bold bg-black/75 text-white backdrop-blur-xs">
@@ -2114,12 +2722,6 @@ function AccountDetailPageContent() {
                               </span>
                             );
                           })()}
-                          {isPunished30d && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500 text-white shadow-xs">
-                              <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
-                              Bị phạt ({item.programName || "Creator Rewards"})
-                            </span>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -2180,7 +2782,6 @@ function AccountDetailPageContent() {
                   { id: "28d", label: "28 Ngày" },
                   { id: "60d", label: "60 Ngày" },
                   { id: "365d", label: "365 Ngày" },
-                  { id: "all", label: "Toàn Bộ" },
                 ].map((range) => (
                   <button
                     key={range.id}
@@ -2220,11 +2821,16 @@ function AccountDetailPageContent() {
                     className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
                   >
                     <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                        Chọn khoảng ngày thống kê
-                      </span>
+                      <div className="min-w-0">
+                        <span className="text-xs font-normal text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                          Chọn khoảng ngày thống kê
+                        </span>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Trong vòng {MAX_LOOKBACK_DAYS} ngày gần nhất
+                        </p>
+                      </div>
                       {historyRangeSelection?.from && (
-                        <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
+                        <span className="text-[11px] font-normal text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
                           {format(historyRangeSelection.from, "dd/MM/yy")} - {historyRangeSelection.to ? format(historyRangeSelection.to, "dd/MM/yy") : "..."}
                         </span>
                       )}
@@ -2237,15 +2843,19 @@ function AccountDetailPageContent() {
                         onSelect={(range) => {
                           setHistoryRangeSelection(range);
                         }}
-                        disabled={(date) => date > new Date()}
+                        disabled={(date) => {
+                          const d = startOfDay(date);
+                          return d > getToday() || d < getMinSelectableDate();
+                        }}
                         numberOfMonths={1}
-                        className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                        className="w-full p-0 font-normal [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs [&_.rdp-button]:font-normal"
                         classNames={{
                           root: "w-full",
                           months: "relative flex flex-col w-full",
                           month: "w-full flex flex-col gap-1.5",
                           weekdays: "flex w-full justify-between",
                           week: "flex w-full mt-1 justify-between",
+                          caption_label: "select-none font-normal text-sm",
                         }}
                       />
                     </div>
@@ -2283,9 +2893,9 @@ function AccountDetailPageContent() {
               {isLeadOrAdmin && (
                 <button
                   onClick={() => setIsAddRevenueOpen(true)}
-                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm hover:shadow transition-all cursor-pointer whitespace-nowrap"
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm hover:shadow transition-all cursor-pointer whitespace-nowrap"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Plus className="w-3.5 h-3.5" />
                   <span>Thêm Bản Ghi Mới</span>
                 </button>
               )}
@@ -2332,10 +2942,24 @@ function AccountDetailPageContent() {
           {historyChartData.length > 0 && (
             <div className="w-full pt-1 min-h-[260px] h-[260px] pb-2 border-b border-slate-100 dark:border-slate-800">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={historyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <ComposedChart data={historyChartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(v) =>
+                      Number(v) >= 1000 ? `${(Number(v) / 1000).toFixed(0)}k` : String(v)
+                    }
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(v) =>
+                      Number(v) >= 1000 ? `${(Number(v) / 1000).toFixed(0)}k` : String(v)
+                    }
+                  />
                   <RechartsTooltip
                     contentStyle={{
                       backgroundColor: "rgba(15, 23, 42, 0.95)",
@@ -2344,9 +2968,35 @@ function AccountDetailPageContent() {
                       color: "#fff",
                       fontSize: "12px",
                     }}
+                    formatter={(value: any, name: any) => {
+                      if (String(name).includes("Doanh thu")) {
+                        return [formatAmount(Number(value) || 0, account?.country), name];
+                      }
+                      if (String(name).includes("xem")) {
+                        return [Number(value || 0).toLocaleString(), name];
+                      }
+                      return [value, name];
+                    }}
                   />
-                  <Bar dataKey="revenue" name={`Doanh thu (${currencySymbol})`} fill="#ec4899" radius={[6, 6, 0, 0]} />
-                </BarChart>
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="revenue"
+                    name={`Doanh thu (${currencySymbol})`}
+                    fill="#ec4899"
+                    radius={[6, 6, 0, 0]}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="views"
+                    name="Lượt xem"
+                    stroke="#06b6d4"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           )}
@@ -2376,12 +3026,10 @@ function AccountDetailPageContent() {
                       </td>
                       <td className="py-3 px-4">
                         <span
-                          className={`px-2 py-0.5 rounded-md text-xs font-bold border ${rec.isAutomated
-                            ? "bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800"
-                            : "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800"
-                            }`}
+                          className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs max-w-full truncate"
+                          title={rec.sourceType}
                         >
-                          {rec.sourceType} {rec.isAutomated ? "• Studio" : "• Thủ công"}
+                          {formatRevenueSourceLabel(rec.sourceType)}
                         </span>
                       </td>
                       <td className="py-3 px-4 font-semibold text-cyan-600 dark:text-cyan-400">
@@ -2470,8 +3118,8 @@ function AccountDetailPageContent() {
 
             {/* 2. Punished Videos by Program Card */}
             {punishedVideosList.length > 0 && strikeTheme && (
-              <div className={`p-4.5 rounded-2xl border space-y-3.5 shadow-sm ${strikeTheme.bannerBg}`}>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-black/10 dark:border-white/10">
+              <div className="p-4.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 space-y-3.5 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-3">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${strikeTheme.iconBox}`}>
                       <AlertTriangle className="w-5 h-5" />
@@ -2479,14 +3127,14 @@ function AccountDetailPageContent() {
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className={`font-bold text-xs sm:text-sm ${strikeTheme.title}`}>
-                          Danh sách video bị phạt monetization trong 30 ngày ({punishedVideosList.length} video)
+                          Video bị phạt kiếm tiền trong 30 ngày ({punishedVideosList.length} video)
                         </h4>
                         <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${strikeTheme.tag}`}>
                           {strikeTheme.levelText}
                         </span>
                       </div>
                       <p className={`text-[11px] mt-0.5 ${strikeTheme.desc}`}>
-                        Các video bị phạt theo từng chương trình kiếm tiền cụ thể trong 30 ngày gần nhất
+                        Danh sách các video bị phạt kiếm tiền, được phân loại theo từng chương trình trong 30 ngày gần nhất.
                       </p>
                     </div>
                   </div>
@@ -2588,17 +3236,6 @@ function AccountDetailPageContent() {
                       </div>
                     </div>
                   </div>
-
-                  {alt.status === "OPEN" && (
-                    <button
-                      onClick={() => resolveAlertMutation.mutate({ alertId: alt.id })}
-                      disabled={resolveAlertMutation.isPending}
-                      className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all cursor-pointer whitespace-nowrap self-end sm:self-auto"
-                    >
-                      <Check className="w-3.5 h-3.5 inline mr-1" />
-                      Đánh dấu đã xử lý
-                    </button>
-                  )}
                 </div>
               ))
             ) : (
@@ -2705,21 +3342,49 @@ function AccountDetailPageContent() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <div>
+              <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Ngày ghi nhận
               </label>
-              <Input
-                type="date"
-                value={newRevDate}
-                onChange={(e) => setNewRevDate(e.target.value)}
-                className="h-9 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full h-9 inline-flex items-center justify-between gap-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-normal text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                  >
+                    <span>
+                      {newRevDate
+                        ? format(new Date(newRevDate + "T00:00:00"), "dd/MM/yyyy")
+                        : "Chọn ngày"}
+                    </span>
+                    <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  sideOffset={6}
+                  className="w-auto p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-[350]"
+                >
+                  <CalendarPicker
+                    mode="single"
+                    selected={
+                      newRevDate
+                        ? new Date(newRevDate + "T00:00:00")
+                        : undefined
+                    }
+                    onSelect={(date) => {
+                      if (date) setNewRevDate(format(date, "yyyy-MM-dd"));
+                    }}
+                    disabled={(date) => startOfDay(date) > getToday()}
+                    className="p-0"
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <div>
+                <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
                   Lượt xem (Views)
                 </label>
                 <Input
@@ -2731,8 +3396,8 @@ function AccountDetailPageContent() {
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <div>
+                <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
                   RPM ({currencySymbol})
                 </label>
                 <Input
@@ -2746,8 +3411,8 @@ function AccountDetailPageContent() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <div>
+              <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Tổng tiền ({currencySymbol})
               </label>
               <Input
@@ -2760,24 +3425,26 @@ function AccountDetailPageContent() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <div>
+              <label className="block mb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Nguồn tiền
               </label>
               <Select value={newRevSource} onValueChange={setNewRevSource}>
-                <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-medium cursor-pointer">
+                <SelectTrigger className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-normal cursor-pointer">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                  <SelectItem value="CREATOR_REWARDS" className="text-xs cursor-pointer">Creator Rewards Program</SelectItem>
-                  <SelectItem value="AFFILIATE" className="text-xs cursor-pointer">TikTok Shop Affiliate</SelectItem>
-                  <SelectItem value="SERIES" className="text-xs cursor-pointer">TikTok Series</SelectItem>
+                <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-72">
+                  {REVENUE_SOURCE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value} className="text-xs cursor-pointer">
+                      {opt.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-3 sm:gap-3">
             <button
               onClick={() => setIsAddRevenueOpen(false)}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
@@ -2840,7 +3507,12 @@ function AccountDetailPageContent() {
                   </SelectItem>
                   {staffList.map((s: any) => (
                     <SelectItem key={s.id} value={s.id} className="text-xs cursor-pointer">
-                      {s.name || s.username || s.email} ({s.role})
+                      <div className="flex items-center gap-2">
+                        {renderUserAvatar(s, "w-4 h-4 text-[8px]")}
+                        <span>
+                          {s.fullName || s.name || s.username || s.email} ({s.role})
+                        </span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -2862,7 +3534,7 @@ function AccountDetailPageContent() {
             </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-3">
             <button
               onClick={() => setIsTransferModalOpen(false)}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
@@ -2894,6 +3566,8 @@ function AccountDetailPageContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {confirmDialog}
     </div>
   );
 }

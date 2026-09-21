@@ -49,7 +49,7 @@ export default function AnalyticsKpiRibbon({ kpi, isStaff }: AnalyticsKpiRibbonP
       label: isStaff ? "Doanh Thu Của Bạn" : "Tổng Doanh Thu Studio",
       value: `$${kpi.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       delta: kpi.revenueGrowthPct,
-      deltaLabel: `vs kỳ trước ($${kpi.prevTotalRevenue.toLocaleString()})`,
+      deltaLabel: `vs kỳ trước ($${Number(kpi.prevTotalRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
       icon: DollarSign,
       gradient: "from-pink-500/10 via-rose-500/5 to-transparent",
       accent: "text-pink-600 dark:text-pink-400 bg-pink-500/10 border-pink-500/20",

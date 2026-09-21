@@ -26,6 +26,8 @@ import {
   FileText,
   Check,
   Square,
+  KeyRound,
+  Monitor,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -38,9 +40,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { parseSyncSummary } from "@/lib/insights-ui";
 import { useSidebar } from "@/components/providers/SidebarProvider";
 import BugReportModal from "@/components/bug-report/BugReportModal";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { StaffRequestModals } from "@/components/access-requests/StaffRequestModals";
+import { toast } from "sonner";
 
 export default function Header() {
   const pathname = usePathname();
@@ -53,7 +58,20 @@ export default function Header() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
+  const [machineModalOpen, setMachineModalOpen] = useState(false);
+  const [extensionModalOpen, setExtensionModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const { data: meProfile } = trpc.user.me.useQuery(undefined, {
+    enabled: !!session?.user?.id,
+    staleTime: 60_000,
+  });
+  const { data: pendingMachineChange } = trpc.user.myMachineChangeRequest.useQuery(undefined, {
+    enabled: !!session?.user?.id && !!meProfile?.boundMachineId,
+  });
+  const { data: pendingExtensionAccess } = trpc.user.myExtensionAccessRequest.useQuery(undefined, {
+    enabled: !!session?.user?.id && meProfile?.extensionAccessEnabled === false,
+  });
 
   // Poll sync schedule config for live sync freshness indicator
   const { data: configData, refetch: refetchConfig } = trpc.settings.getAll.useQuery(undefined, {
@@ -206,11 +224,18 @@ export default function Header() {
         const data = await res.json();
         const isRunning = Boolean(data.isSyncing);
         setActiveJobId(data.activeJob?.id || null);
+        const hint = data.agentHint as
+          | { ready?: boolean; code?: string; message?: string | null }
+          | null
+          | undefined;
 
         if (isRunning) {
           setSyncing(true);
           if (data.activeJob?.status === "PROCESSING") {
             setSyncMessage(`⏳ Agent (${data.activeJob.machineName || "máy trạm"}) đang quét GPMLogin...`);
+          } else if (hint && hint.ready === false && hint.message) {
+            // PENDING but agent cannot claim — surface binding / offline early
+            setSyncMessage(`⚠️ ${hint.message}`);
           } else {
             setSyncMessage("⏳ Đang chờ Client Agent nhận lệnh...");
           }
@@ -219,15 +244,77 @@ export default function Header() {
           setSyncing(false);
           setActiveJobId(null);
           const finished = data.lastFinishedJob;
-          if (finished?.status === "TIMED_OUT" || finished?.status === "FAILED") {
-            setSyncMessage(`❌ ${finished.errorMessage || "Đồng bộ không thành công"}`);
-            setTimeout(() => setSyncMessage(null), 8000);
+          if (finished?.status === "CANCELLED") {
+            // User explicitly stopped — don't overwrite the stop message if already set
+            setSyncMessage((prev) => prev?.startsWith("🛑") ? prev : "🛑 Đã dừng đồng bộ thành công.");
+            setTimeout(() => setSyncMessage(null), 4000);
+          } else if (finished?.status === "TIMED_OUT" || finished?.status === "FAILED") {
+            const tip =
+              hint && hint.ready === false && hint.message
+                ? ` — ${hint.message}`
+                : "";
+            setSyncMessage(
+              `❌ ${finished.errorMessage || "Đồng bộ không thành công"}${tip}`
+            );
+            setTimeout(() => setSyncMessage(null), 12000);
           } else if (finished?.status === "COMPLETED" || data.lastCompletedJob) {
-            const summary = finished?.resultSummary || data.lastCompletedJob?.resultSummary || "Dữ liệu đã cập nhật";
-            setSyncMessage(`✅ Đồng bộ hoàn tất! (${summary})`);
+            const rawSummary =
+              finished?.resultSummary ||
+              data.lastCompletedJob?.resultSummary ||
+              null;
+            const s = parseSyncSummary(rawSummary);
+            let msg: string;
+            let dismissMs = 6000;
+            if (s) {
+              const handles = (arr: any[]) =>
+                (Array.isArray(arr) ? arr : [])
+                  .slice(0, 3)
+                  .map((a) => `@${a.username}`)
+                  .join(", ");
+              const dbv = s.dbVerify;
+              const missingAnalytics = Number(dbv?.missingAnalytics || 0);
+              const staleAnalytics = Number(dbv?.staleAnalytics || 0);
+              const partial =
+                Number(s.relogin_needed || 0) +
+                Number(s.incomplete_insights || 0) +
+                Number(s.incomplete_rewards || 0) >
+                0;
+              if (missingAnalytics > 0) {
+                const miss = (Array.isArray(dbv.missingUsernames) ? dbv.missingUsernames : [])
+                  .slice(0, 3)
+                  .map((u: string) => `@${u}`)
+                  .join(", ");
+                msg = `⚠️ Agent xong nhưng DB thiếu AccountAnalytics cho ${missingAnalytics} account${miss ? ` (${miss})` : ""} — xem tmp/sync-flow-debug.jsonl`;
+                dismissMs = 14000;
+              } else if (staleAnalytics > 0) {
+                msg = `⚠️ Đồng bộ xong — ${staleAnalytics} account analytics chưa được làm mới trong job này`;
+                dismissMs = 12000;
+              } else if (Number(s.relogin_needed || 0) > 0) {
+                msg = `⚠️ ${s.relogin_needed} account cần đăng nhập lại TikTok / qua captcha (${handles(s.reloginNeeded)})`;
+                dismissMs = 10000;
+              } else if (Number(s.incomplete_insights || 0) > 0) {
+                msg = `⚠️ Đồng bộ xong — ${s.incomplete_insights} account chưa lấy được Insights (thử lại ở lần sync sau): ${handles(s.incompleteInsights)}`;
+                dismissMs = 10000;
+              } else if (Number(s.failed || 0) > 0) {
+                msg = `⚠️ Đồng bộ xong với lỗi (${s.failed} thất bại)`;
+                dismissMs = 8000;
+              } else if (partial) {
+                msg = `⚠️ Đồng bộ xong — một số account thiếu Rewards (lần sync sau sẽ thử lại)`;
+                dismissMs = 8000;
+              } else {
+                const verified = dbv
+                  ? ` · DB ${dbv.withAnalytics}/${dbv.accountsInScope} analytics`
+                  : "";
+                msg = `✅ Đồng bộ hoàn tất! (${s.ok ?? s.processedCount ?? "ok"} account${verified})`;
+              }
+            } else {
+              const summary = rawSummary || "Dữ liệu đã cập nhật";
+              msg = `✅ Đồng bộ hoàn tất! (${summary})`;
+            }
+            setSyncMessage(msg);
             window.dispatchEvent(new Event("refreshData"));
             refetchConfig();
-            setTimeout(() => setSyncMessage(null), 6000);
+            setTimeout(() => setSyncMessage(null), dismissMs);
           } else {
             setSyncMessage("✅ Đồng bộ hoàn tất!");
             window.dispatchEvent(new Event("refreshData"));
@@ -266,11 +353,22 @@ export default function Header() {
       const json = await res.json();
       if (json.success) {
         if (json.jobId) setActiveJobId(json.jobId);
-        setSyncMessage(`⏳ ${json.message}`);
+        // Machine binding / agent offline — tell the user immediately
+        if (json.agentBlocked && json.warning) {
+          setSyncMessage(`⚠️ ${json.warning}`);
+        } else if (json.warning) {
+          setSyncMessage(`⏳ ${json.message} — ${json.warning}`);
+        } else {
+          setSyncMessage(`⏳ ${json.message}`);
+        }
         // Button stays disabled; checkSyncStatus polling will automatically detect completion!
       } else {
         if (json.inProgress) {
-          setSyncMessage(`⏳ ${json.message}`);
+          if (json.agentHint?.message && json.agentHint?.ready === false) {
+            setSyncMessage(`⚠️ ${json.agentHint.message}`);
+          } else {
+            setSyncMessage(`⏳ ${json.message}`);
+          }
         } else {
           setSyncMessage(`❌ ${json.error || json.message || "Lỗi đồng bộ"}`);
           setSyncing(false);
@@ -287,15 +385,19 @@ export default function Header() {
   const handleStopSync = async () => {
     try {
       setSyncMessage("Đang gửi lệnh dừng đồng bộ...");
+      // NOTE: intentionally omit jobId — syncAll creates N jobs (one per user scope),
+      // sending a specific jobId would only cancel one. Without jobId the server
+      // runs updateMany and cancels ALL PENDING/PROCESSING jobs for this requester.
       const res = await fetch("/api/gpm/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "stop", jobId: activeJobId || undefined }),
+        body: JSON.stringify({ action: "stop" }),
       });
       const json = await res.json();
       if (json.success) {
         setSyncMessage("🛑 Đã gửi lệnh dừng đồng bộ.");
         setSyncing(false);
+        prevSyncingRef.current = false; // prevent next poll from re-entering the "finished" branch
         setActiveJobId(null);
         setTimeout(() => setSyncMessage(null), 4000);
       } else {
@@ -449,8 +551,8 @@ export default function Header() {
                   <DropdownMenuItem
                     onClick={() => setCurrency("USD")}
                     className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium cursor-pointer transition-colors ${currency === "USD"
-                        ? "bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-bold"
-                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      ? "bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-bold"
+                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
                       }`}
                   >
                     <div className="flex items-center gap-2">
@@ -463,8 +565,8 @@ export default function Header() {
                   <DropdownMenuItem
                     onClick={() => setCurrency("VND")}
                     className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium cursor-pointer transition-colors ${currency === "VND"
-                        ? "bg-slate-100 dark:bg-slate-800 text-pink-600 dark:text-pink-400 font-bold"
-                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      ? "bg-slate-100 dark:bg-slate-800 text-pink-600 dark:text-pink-400 font-bold"
+                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
                       }`}
                   >
                     <div className="flex items-center gap-2">
@@ -477,8 +579,8 @@ export default function Header() {
                   <DropdownMenuItem
                     onClick={() => setCurrency("GBP")}
                     className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium cursor-pointer transition-colors ${currency === "GBP"
-                        ? "bg-slate-100 dark:bg-slate-800 text-purple-600 dark:text-purple-400 font-bold"
-                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      ? "bg-slate-100 dark:bg-slate-800 text-purple-600 dark:text-purple-400 font-bold"
+                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
                       }`}
                   >
                     <div className="flex items-center gap-2">
@@ -491,8 +593,8 @@ export default function Header() {
                   <DropdownMenuItem
                     onClick={() => setCurrency("EUR")}
                     className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium cursor-pointer transition-colors ${currency === "EUR"
-                        ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 font-bold"
-                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 font-bold"
+                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"
                       }`}
                   >
                     <div className="flex items-center gap-2">
@@ -674,6 +776,47 @@ export default function Header() {
                         <Settings className="w-4 h-4 text-slate-500" />
                         <span>Cài Đặt & Cấu Hình</span>
                       </Link>
+
+                      {meProfile?.boundMachineId && !pendingMachineChange && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUserDropdownOpen(false);
+                            setMachineModalOpen(true);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-normal transition-colors cursor-pointer text-left"
+                        >
+                          <Monitor className="w-4 h-4 text-cyan-500" />
+                          <span>Yêu cầu đổi máy</span>
+                        </button>
+                      )}
+                      {meProfile?.boundMachineId && pendingMachineChange && (
+                        <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-amber-700 dark:text-amber-300 text-xs font-medium">
+                          <Monitor className="w-4 h-4" />
+                          <span>Đang chờ duyệt đổi máy</span>
+                        </div>
+                      )}
+
+                      {meProfile?.extensionAccessEnabled === false && !pendingExtensionAccess && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUserDropdownOpen(false);
+                            setExtensionModalOpen(true);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-normal transition-colors cursor-pointer text-left"
+                        >
+                          <KeyRound className="w-4 h-4 text-rose-500" />
+                          <span>Yêu cầu kích hoạt Extension</span>
+                        </button>
+                      )}
+                      {meProfile?.extensionAccessEnabled === false && pendingExtensionAccess && (
+                        <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-amber-700 dark:text-amber-300 text-xs font-medium">
+                          <KeyRound className="w-4 h-4" />
+                          <span>Đang chờ kích hoạt Extension</span>
+                        </div>
+                      )}
+
                       <Link
                         href="/logs"
                         onClick={() => setUserDropdownOpen(false)}
@@ -774,6 +917,20 @@ export default function Header() {
       <BugReportModal
         isOpen={isBugModalOpen}
         onClose={() => setIsBugModalOpen(false)}
+      />
+
+      <StaffRequestModals
+        machineModalOpen={machineModalOpen}
+        onMachineModalOpenChange={setMachineModalOpen}
+        extensionModalOpen={extensionModalOpen}
+        onExtensionModalOpenChange={setExtensionModalOpen}
+        boundMachineName={meProfile?.boundMachineName}
+        boundMachineId={meProfile?.boundMachineId}
+        boundOsUser={meProfile?.boundOsUser}
+        onMachineSuccess={() => toast.success("Đã gửi yêu cầu đổi máy. Chờ admin duyệt.")}
+        onExtensionSuccess={() =>
+          toast.success("Đã gửi yêu cầu kích hoạt Extension. Chờ admin duyệt.")
+        }
       />
     </>
   );

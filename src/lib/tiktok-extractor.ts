@@ -8,6 +8,7 @@ import {
   scoreLoggedInHandleFromArtifacts,
   scoreUsernameInArtifacts,
 } from "./tiktok-handle";
+import { sumStudioInsightPeriod } from "./daily-views-breakdown";
 
 export interface ExtractedTikTokData {
   username: string;
@@ -1215,36 +1216,38 @@ export async function fetchTikTokStudioFullData(
 
       const rawInsightMap = await page.evaluate(async () => {
         const out: Record<string, any> = {};
-        const ranges = [7, 28, 60, 365];
-        for (const days of ranges) {
+        // period + pad so trailing status:2 days don't shrink the Studio window
+        const ranges = [
+          { key: 7, days: 14, end_days: 1 },
+          { key: 28, days: 35, end_days: 1 },
+          { key: 60, days: 67, end_days: 1 },
+          { key: 365, days: 372, end_days: 1 },
+        ];
+        for (const r of ranges) {
           try {
             const typeRequests = [
-              { insigh_type: "vv_history", days: days, end_days: 0 },
-              { insigh_type: "pv_history", days: days, end_days: 0 },
-              { insigh_type: "like_history", days: days, end_days: 0 },
-              { insigh_type: "comment_history", days: days, end_days: 0 },
-              { insigh_type: "share_history", days: days, end_days: 0 },
+              { insigh_type: "vv_history", days: r.days, end_days: r.end_days },
+              { insigh_type: "pv_history", days: r.days, end_days: r.end_days },
+              { insigh_type: "like_history", days: r.days, end_days: r.end_days },
+              { insigh_type: "comment_history", days: r.days, end_days: r.end_days },
+              { insigh_type: "share_history", days: r.days, end_days: r.end_days },
             ];
-            const url = "/aweme/v2/data/insight/?tz_offset=25200&type_requests=" + encodeURIComponent(JSON.stringify(typeRequests));
+            const tzOffset = -(new Date().getTimezoneOffset()) * 60;
+            const url = "/aweme/v2/data/insight/?tz_offset=" + tzOffset + "&type_requests=" + encodeURIComponent(JSON.stringify(typeRequests));
             const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-            out[days] = await res.json();
+            out[r.key] = await res.json();
           } catch (e) {
-            out[days] = {};
+            out[r.key] = {};
           }
         }
         return out;
       }).catch(() => ({}));
 
-      const sumMetricHistory = (arr: any) => {
-        if (!arr || !Array.isArray(arr)) return 0;
-        let s = 0;
-        for (let i = 0; i < arr.length; i++) {
-          s += Number(arr[i] && arr[i].value ? arr[i].value : 0);
-        }
-        return s;
-      };
-
-      const getVal = (d: number, metric: string) => sumMetricHistory(((rawInsightMap as Record<string, any>)?.[String(d)] || {})[metric]);
+      const getVal = (d: number, metric: string) =>
+        sumStudioInsightPeriod(
+          ((rawInsightMap as Record<string, any>)?.[String(d)] || {})[metric],
+          d
+        );
 
       views7d = getVal(7, "vv_history");
       views28d = getVal(28, "vv_history");

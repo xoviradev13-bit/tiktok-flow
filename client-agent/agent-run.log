@@ -1,0 +1,88 @@
+[*] Machine fingerprint: 4bf166b86ce2…
+[*] Agent singleton: dang giu khoa localhost:39741
+
+========================================================
+   [TIKTOKFLOW] SECURE CLIENT AGENT (DEEP SWEEPER)      
+========================================================
+[+] Server URL    : http://localhost:3000
+[+] Nhan vien     : xoviraceo@gmail.com
+[+] Concurrency   : 1 luong ngam song song
+[+] Che do        : Headless Vo hinh (Bao mat 100%)
+--------------------------------------------------------
+[*] Thu muc Profiles (Read-Only): D:\Tiktok automation
+[*] Trinh duyet Chrome: C:\Users\datng\AppData\Roaming\GPMLoginGlobal\Browsers\ChromiumCore_v151\chrome.exe
+[*] GPMLogin API: Online · localhost:9495 (http://127.0.0.1:9495/api/v1)
+[*] GPM API danh sach: 8 profile.
+[*] Tim thay 11 folder tren o dia; dong bo 8 profile hop le (theo GPM API)
+
+[>] Dang dong bo danh sach profile len may chu...
+
+[*] Bat dau cao so lieu chuyen sau TikTok Studio (8 accounts)...
+
+[1/8] [SCAN] Dang quet Profile 997ff963...
+   [PROXY] Profile 997ff963: no proxy configured in GPM
+   [COOKIE-BRIDGE] Found 19 session cookies for 997ff963. Launching clean context...
+   [PAGINATION] in-page item_list: 1 (pages=1) → map=1
+   [PERF] Profile 997ff963-01a5-474f-9a9f-cff33fa1f189 (@nguyen.dat1479): total=26805ms (nav=1634ms, insights=1941ms, m10n=11529ms, videos=1)
+   [COOKIE-BRIDGE] Tier 2 extraction succeeded for @nguyen.dat1479 (1 videos)
+   [OK] @nguyen.dat1479: 0 followers | 86 views | Total: $0 (7d: $0, 28d: $0, 365d: $0) | Shop: $0 | Daily Points: 60 days | Post Rewards: 0 videos Active: [Khong co]
+[2/8] [SCAN] Dang quet @ousnowfan...
+   [PROXY] Profile 500a1071: no proxy configured in GPM
+   [COOKIE-BRIDGE] Found 20 session cookies for 500a1071. Launching clean context...
+   [PAGINATION] in-page item_list: 50 (pages=1, lookback_stop) → map=50
+   [STUDIO] Posts total=469 (list=50)
+   [PERF] Profile 500a1071-8dd2-43dd-9685-220721b0c4a4 (@ousnowfan): total=42266ms (nav=2424ms, insights=3186ms, m10n=11577ms, videos=50)
+   [COOKIE-BRIDGE] Tier 2 extraction succeeded for @ousnowfan (469 videos)
+   [OK] @ousnowfan: 10,300 followers | 2,537,874 views | Total: $1.53 (7d: $0, 28d: $0, 365d: $0) | Shop: $0 | Daily Points: 60 days | Post Rewards: 58 videos Active: [Video Gifts: $0, LIVE rewards: $0, Creator Rewards Program: $0, Work with Artists: $0, LIVE Incentive Program: $0]
+[3/8] [SCAN] Dang quet Profile 4b36c020...
+   [PROXY] Profile 4b36c020: no proxy configured in GPM
+   [COOKIE-BRIDGE] Found 34 session cookies for 4b36c020. Launching clean context...
+   [PAGINATION] in-page item_list: 3 (pages=1, lookback_stop) → map=3, studioTotal=3
+   [STUDIO] Posts total=3 (list=3)
+   [PERF] Profile 4b36c020-e4d8-4ad4-90a6-125eefef965f (@dat.nguyen6284): total=18916ms (nav=1340ms, insights=1587ms, m10n=11363ms, videos=3)
+   [COOKIE-BRIDGE] Tier 2 extraction succeeded for @dat.nguyen6284 (3 videos)
+   [OK] @dat.nguyen6284: 1 followers | 1,054 views | Total: $0 (7d: $0, 28d: $0, 365d: $0) | Shop: $0 | Daily Points: 60 days | Post Rewards: 0 videos Active: [Khong co]
+[4/8] [SCAN] Dang quet Profile 55e8115c...
+   [PROXY] Profile 55e8115c: no proxy configured in GPM
+   [COOKIE-BRIDGE] Found 19 session cookies for 55e8115c. Launching clean context...
+   [PAGINATION] in-page item_list: 50 (pages=1, lookback_stop) → map=50
+   [STUDIO] Posts total=435 (list=50)
+   [PERF] Profile 55e8115c-4e1a-410f-b103-7f7d9c156a39 (@taolaongnoimay8484): total=45793ms (nav=1500ms, insights=2877ms, m10n=18313ms, videos=50)
+   [COOKIE-BRIDGE] Tier 2 extraction succeeded for @taolaongnoimay8484 (435 videos)
+   [OK] @taolaongnoimay8484: 19,500 followers | 3,208,831 views | Total: $0 (7d: $0, 28d: $0, 365d: $0) | Shop: $0 | Daily Points: 60 days | Post Rewards: 152 videos Active: [LIVE rewards: $0, Creator Rewards Program: $0]
+[5/8] [SCAN] Dang quet Profile b57d9f1b...
+   [PROXY] Profile b57d9f1b: no proxy configured in GPM
+   [COOKIE-BRIDGE] Found 34 session cookies for b57d9f1b. Launching clean context...
+   [PAGINATION] in-page item_list: 21 (pages=1, lookback_stop) → map=21, studioTotal=22
+   [STUDIO] Posts total=22 (list=21)
+   [PERF] Profile b57d9f1b-4dae-4377-a870-99d5b8be8434 (@ceotelamonix): total=23572ms (nav=3087ms, insights=2045ms, m10n=11953ms, videos=21)
+   [COOKIE-BRIDGE] Tier 2 extraction succeeded for @ceotelamonix (22 videos)
+   [OK] @ceotelamonix: 6 followers | 1,326 views | Total: $0 (7d: $0, 28d: $0, 365d: $0) | Shop: $0 | Daily Points: 60 days | Post Rewards: 0 videos Active: [LIVE rewards: $0, Gaming Incentive Program: $0]
+[6/8] [SCAN] Dang quet Profile 30dabc91...
+   [PROXY] Profile 30dabc91: no proxy configured in GPM
+   [COOKIE-BRIDGE] Found 33 session cookies for 30dabc91. Launching clean context...
+   [PERF] Profile 30dabc91-9f51-49e9-9b6b-007d4c086b3b (@user008437433): total=21301ms (nav=1556ms, insights=1896ms, m10n=3498ms, videos=0)
+   [COOKIE-BRIDGE] Tier 2 extraction succeeded for @user008437433 (0 videos)
+   [OK] @user008437433: 0 followers | 0 views | Total: $0 (7d: $0, 28d: $0, 365d: $0) | Shop: $0 | Daily Points: 60 days | Post Rewards: 0 videos Active: [Khong co]
+[7/8] [SCAN] Dang quet Profile 5c7067f3...
+   [PROXY] Profile 5c7067f3: no proxy configured in GPM
+   [COOKIE-BRIDGE] Found 37 session cookies for 5c7067f3. Launching clean context...
+   [PERF] Profile 5c7067f3-df4a-44f6-af28-41cd7425a89c (@user7300481501918): total=19434ms (nav=1775ms, insights=1516ms, m10n=3172ms, videos=0)
+   [COOKIE-BRIDGE] Tier 2 extraction succeeded for @user7300481501918 (0 videos)
+   [OK] @user7300481501918: 2 followers | 0 views | Total: $0 (7d: $0, 28d: $0, 365d: $0) | Shop: $0 | Daily Points: 60 days | Post Rewards: 0 videos Active: [Khong co]
+[8/8] [SCAN] Dang quet Profile b255d876...
+   [PROXY] Profile b255d876: no proxy configured in GPM
+   [COOKIE-BRIDGE] Found 19 session cookies for b255d876. Launching clean context...
+   [PAGINATION] in-page item_list: 1 (pages=1) → map=1
+   [PERF] Profile b255d876-c886-450f-a4a8-3451206b9346 (@hong.minh3808): total=26883ms (nav=1549ms, insights=1898ms, m10n=11821ms, videos=1)
+   [COOKIE-BRIDGE] Tier 2 extraction succeeded for @hong.minh3808 (1 videos)
+   [OK] @hong.minh3808: 0 followers | 100 views | Total: $0 (7d: $0, 28d: $0, 365d: $0) | Shop: $0 | Daily Points: 60 days | Post Rewards: 0 videos Active: [Khong co]
+
+========================================================
+   [HOAN THANH] QUET SO LIEU TIKTOK STUDIO              
+========================================================
+[OK] Thanh cong: 0 accounts
+[!]  Bo qua / loi: 8 accounts
+[*]  Thoi gian hoan tat: 23:27:20
+--------------------------------------------------------
+

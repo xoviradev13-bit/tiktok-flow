@@ -1,10 +1,48 @@
 // TikTokFlow Companion - Content Script
 // Injected into TikTok & TikTok Studio pages to detect live login status & all 4 metric groups
 
+// ─── MAIN-world → ISOLATED-world bridge ─────────────────────────────────────
+// main_world_intercept.js (MAIN world) fires these events after capturing API
+// responses. We receive them here and store in chrome.storage.session so the
+// service worker can read fresh m10n / per-post data without re-fetching.
+(function bridgeApiCapture() {
+  const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+  window.addEventListener("tiktokflow:api_capture", (e) => {
+    const { type, data, ts } = e.detail || {};
+    if (!type || !data) return;
+    chrome.storage.session.get("tiktokflow_api_cache").then((result) => {
+      const cache = result.tiktokflow_api_cache || {};
+      // For per_post, accumulate pages; for everything else, replace.
+      if (type === "per_post") {
+        const existing = cache.per_post?.items ?? [];
+        const incoming = data?.data?.video_analytics_video_list ?? [];
+        // Merge by video_id to avoid duplicates
+        const merged = [...existing];
+        for (const item of incoming) {
+          if (!merged.some((x) => x.video_id === item.video_id)) merged.push(item);
+        }
+        cache.per_post = { items: merged, ts };
+      } else {
+        cache[type] = { data, ts };
+      }
+      return chrome.storage.session.set({ tiktokflow_api_cache: cache });
+    }).catch(() => {});
+  });
+})();
+// ────────────────────────────────────────────────────────────────────────────
+
 (function () {
   let lastReportedDataHash = "";
   let isScanning = false;
   let cachedHandle = null;
+  let lastSuccessfulReportAt = 0; // used by adaptive poll loop to reset backoff on activity
+
+
+  // FIX: identity cache — nickname/avatar never change, so stop refetching the
+  // full TikTok profile HTML on every scan.
+  const IDENTITY_CACHE_KEY = "ttfOwnIdentityCache";
+  const IDENTITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   // Read previously cached handle from storage on init
   try {
@@ -18,6 +56,56 @@
   } catch (e) { }
 
   // Helpers
+  // FIX: shared localized-number parser. Previously `parseMoney` used
+  // `.replace(",", ".")` which only replaced the FIRST comma — turning
+  // "$1,234.56" into "1.234" (off by a factor of a thousand).
+  function parseLocalizedNumber(raw) {
+    if (raw === null || raw === undefined) return 0;
+    if (typeof raw === "number") return isFinite(raw) ? raw : 0;
+    let s = String(raw).trim();
+    if (!s) return 0;
+
+    // Normalize Arabic decimal/thousands marks before stripping.
+    s = s.replace(/\u066B/g, ".").replace(/\u066C/g, ",");
+
+    // Keep only digits, dots, commas, and a leading minus.
+    const neg = /^-/.test(s);
+    s = s.replace(/[^0-9.,]/g, "");
+    if (!s) return 0;
+
+    const lastDot = s.lastIndexOf(".");
+    const lastComma = s.lastIndexOf(",");
+
+    let normalized;
+    if (lastDot === -1 && lastComma === -1) {
+      normalized = s;
+    } else if (lastDot > lastComma) {
+      // US style: dots are decimal, commas are thousands.
+      normalized = s.replace(/,/g, "");
+    } else if (lastComma > lastDot) {
+      // EU style: commas are decimal, dots are thousands.
+      normalized = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      // Only one type of separator.
+      const sepIdx = Math.max(lastDot, lastComma);
+      const sepChar = lastDot === sepIdx ? "." : ",";
+      const after = s.length - sepIdx - 1;
+      const digitCount = s.replace(/[^0-9]/g, "").length;
+      // "1,234" → thousands. "0,25" → decimal.
+      if (after === 3 && digitCount > 3) {
+        normalized = s.replace(/[.,]/g, "");
+      } else {
+        normalized = s
+          .replace(sepChar === "." ? /,/g : /\./g, "")
+          .replace(",", ".");
+      }
+    }
+
+    const n = parseFloat(normalized);
+    if (!isFinite(n)) return 0;
+    return neg ? -n : n;
+  }
+
   function parseNum(str) {
     if (!str) return 0;
     let s = String(str).trim();
@@ -71,7 +159,9 @@
     if (multiplier > 1) {
       const match = s.match(/([0-9]+(?:[.,][0-9]+)?)/);
       if (match) {
-        const val = parseFloat(match[1].replace(",", "."));
+        // FIX: use the localized parser for multiplier values too (handles
+        // "1,5M" → 1.5M correctly, not "1.5M" → 15).
+        const val = parseLocalizedNumber(match[1]);
         return Math.round(val * multiplier);
       }
     }
@@ -89,12 +179,12 @@
     const bengaliDigits = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
     for (let i = 0; i < 10; i++) {
       s = s.split(arabicDigits[i]).join(String(i))
-           .split(urduDigits[i]).join(String(i))
-           .split(bengaliDigits[i]).join(String(i));
+        .split(urduDigits[i]).join(String(i))
+        .split(bengaliDigits[i]).join(String(i));
     }
-    s = s.replace(/\u066B/g, ".");
-    const clean = s.replace(/[^0-9.,]/g, "").replace(",", ".");
-    return parseFloat(clean) || 0;
+    // FIX: use the shared localized parser (handles "1,234.56", "1.234,56",
+    // and "₫1.250.000" correctly).
+    return parseLocalizedNumber(s);
   }
 
   function detectCurrency(text) {
@@ -512,8 +602,32 @@
     }
   }
 
+  // FIX: cached hydrateOwnIdentity. Previously this fetched the entire TikTok
+  // profile page (~200KB HTML) on every scan — several times per minute on
+  // active tabs. Now cached by username with a 24h TTL.
   async function hydrateOwnIdentity(result) {
     if (!result.username || result.username === "unknown") return;
+
+    // Fast path: read the cache.
+    let cache = {};
+    try {
+      const stored = await chrome.storage.local.get([IDENTITY_CACHE_KEY]);
+      cache = stored[IDENTITY_CACHE_KEY] || {};
+    } catch { /* ignore */ }
+
+    const entry = cache[result.username];
+    if (
+      entry &&
+      typeof entry === "object" &&
+      entry.at &&
+      Date.now() - entry.at < IDENTITY_CACHE_TTL_MS
+    ) {
+      if (entry.nickname) result.nickname = entry.nickname;
+      if (entry.avatarUrl) result.avatarUrl = entry.avatarUrl;
+      return;
+    }
+
+    // Slow path: fetch the profile page.
     try {
       const profileRes = await fetch(`https://www.tiktok.com/@${result.username}`, {
         credentials: "include",
@@ -534,12 +648,26 @@
       if (userInfo.user.avatarLarger || userInfo.user.avatarThumb) {
         result.avatarUrl = userInfo.user.avatarLarger || userInfo.user.avatarThumb;
       }
+
+      // Persist to cache (single-entry map — replaces on each successful hydrate).
+      if (result.nickname || result.avatarUrl) {
+        try {
+          await chrome.storage.local.set({
+            [IDENTITY_CACHE_KEY]: {
+              [result.username]: {
+                nickname: result.nickname || "",
+                avatarUrl: result.avatarUrl || "",
+                at: Date.now(),
+              },
+            },
+          });
+        } catch { /* non-blocking */ }
+      }
     } catch (e) { /* non-blocking */ }
   }
 
   // 3. Debounced Detection & Reporting
   let debounceTimer = null;
-  let lastSuccessfulReportAt = 0;
   const FORCE_REREPORT_MS = 45_000;
 
   async function triggerDetection(opts = {}) {
@@ -633,8 +761,20 @@
   setTimeout(() => triggerDetection(), 2500);
   setTimeout(() => triggerDetection(), 6000);
 
-  // Periodic check for SPA navigation + retry failed reports
-  setInterval(() => triggerDetection(), 10000);
+  // FIX: adaptive polling. Previously a flat 10s interval ran on every TikTok
+  // tab forever, even when nothing changed — dozens of useless scans per minute
+  // on a machine with many open profiles. Now backs off to 60s when idle and
+  // resets to 10s on activity.
+  let idleBackoffMs = 10_000;
+  const MAX_BACKOFF_MS = 60_000;
+  setTimeout(function pollLoop() {
+    triggerDetection();
+    const recent = lastSuccessfulReportAt && Date.now() - lastSuccessfulReportAt < 60_000;
+    idleBackoffMs = recent
+      ? 10_000
+      : Math.min(MAX_BACKOFF_MS, Math.round(idleBackoffMs * 1.5));
+    setTimeout(pollLoop, idleBackoffMs);
+  }, 10_000);
 
   // Re-scan when tab becomes visible (common after opening another profile)
   document.addEventListener("visibilitychange", () => {

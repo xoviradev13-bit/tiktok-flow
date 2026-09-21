@@ -7,6 +7,14 @@ import {
   resolveExtensionBearerAuth,
 } from "@/lib/extension-auth";
 import { detectCountryFromText, toStandardCountryCode } from "@/lib/country-name";
+import { extensionOptionsResponse } from "@/lib/extension-cors";
+import { normalizeTikTokHandle } from "@/lib/tiktok-handle";
+import { looksLikeGpmProfileName } from "@/lib/gpm-profile-fields";
+
+/** Handle CORS preflight from chrome-extension:// origins */
+export function OPTIONS(req: Request) {
+  return extensionOptionsResponse(req);
+}
 
 export interface ClientProfilePayload {
   id: string;
@@ -451,35 +459,133 @@ export async function POST(req: Request) {
     const incomingJobId = (body as any).jobId;
 
     if (rawAction === "start_job" && incomingJobId) {
-      await prisma.syncQueue.update({
-        where: { id: incomingJobId },
+      const machineId = (body as any).machineId || null;
+      const machineName = (body as any).machineName || null;
+      // Race-safe claim: only PENDING → PROCESSING wins.
+      const claimed = await prisma.syncQueue.updateMany({
+        where: { id: incomingJobId, status: "PENDING" },
         data: {
           status: "PROCESSING",
           startedAt: new Date(),
-          machineId: (body as any).machineId || null,
-          machineName: (body as any).machineName || null,
+          machineId,
+          machineName,
         },
+      });
+      if (claimed.count === 0) {
+        const existing = await prisma.syncQueue.findUnique({
+          where: { id: incomingJobId },
+          select: { status: true, machineName: true },
+        });
+        const { syncFlowLog } = await import("@/lib/sync-flow-debug");
+        syncFlowLog("job_claimed", {
+          jobId: incomingJobId,
+          won: false,
+          existingStatus: existing?.status || null,
+          existingMachine: existing?.machineName || null,
+          attemptedMachine: machineName,
+        });
+        return NextResponse.json(
+          {
+            success: false,
+            reason: "already_claimed",
+            status: existing?.status || null,
+          },
+          { status: 409 }
+        );
+      }
+      const { syncFlowLog } = await import("@/lib/sync-flow-debug");
+      syncFlowLog("job_claimed", {
+        jobId: incomingJobId,
+        won: true,
+        machineId,
+        machineName,
+        userId: user.id,
       });
       return NextResponse.json({ success: true, message: "Đã cập nhật trạng thái: Đang xử lý (PROCESSING)" });
     }
 
     if (rawAction === "complete_job" && incomingJobId) {
+      const agentSummary = (body as any).resultSummary ?? null;
+      const successCount = (body as any).successCount ?? null;
+      const failCount = (body as any).failCount ?? 0;
+      const profilesCount = (body as any).profilesCount ?? null;
+
+      const job = await prisma.syncQueue.findUnique({
+        where: { id: incomingJobId },
+        select: {
+          id: true,
+          targetScope: true,
+          startedAt: true,
+          status: true,
+        },
+      });
+
+      const { syncFlowLog, verifySyncJobAnalytics, mergeSummaryWithDbVerify } =
+        await import("@/lib/sync-flow-debug");
+
+      syncFlowLog("job_complete_agent", {
+        jobId: incomingJobId,
+        userId: user.id,
+        successCount,
+        failCount,
+        profilesCount,
+        agentSummaryPreview:
+          typeof agentSummary === "string"
+            ? agentSummary.slice(0, 400)
+            : agentSummary,
+      });
+
+      let mergedSummary = typeof agentSummary === "string"
+        ? agentSummary
+        : agentSummary != null
+          ? JSON.stringify(agentSummary)
+          : null;
+
+      try {
+        const dbVerify = await verifySyncJobAnalytics({
+          jobId: incomingJobId,
+          targetScope: job?.targetScope || user.id,
+          startedAt: job?.startedAt || null,
+          agentSummaryRaw: agentSummary,
+          successCount,
+          failCount,
+          profilesCount,
+        });
+        mergedSummary = mergeSummaryWithDbVerify(agentSummary, dbVerify);
+      } catch (verifyErr: any) {
+        console.error("[SYNC-FLOW] db_verify failed:", verifyErr?.message || verifyErr);
+        syncFlowLog("db_verify", {
+          jobId: incomingJobId,
+          error: verifyErr?.message || String(verifyErr),
+        });
+      }
+
       await prisma.syncQueue.update({
         where: { id: incomingJobId },
         data: {
           status: "COMPLETED",
           completedAt: new Date(),
           errorMessage: null,
-          profilesCount: (body as any).profilesCount ?? null,
-          successCount: (body as any).successCount ?? null,
-          failCount: (body as any).failCount ?? 0,
-          resultSummary: (body as any).resultSummary ?? null,
+          profilesCount,
+          successCount,
+          failCount,
+          resultSummary: mergedSummary,
         },
       });
-      return NextResponse.json({ success: true, message: "Đã cập nhật trạng thái: Hoàn tất (COMPLETED)" });
+      return NextResponse.json({
+        success: true,
+        message: "Đã cập nhật trạng thái: Hoàn tất (COMPLETED)",
+        dbVerified: true,
+      });
     }
 
     if (rawAction === "fail_job" && incomingJobId) {
+      const { syncFlowLog } = await import("@/lib/sync-flow-debug");
+      syncFlowLog("job_fail_agent", {
+        jobId: incomingJobId,
+        userId: user.id,
+        errorMessage: (body as any).errorMessage || null,
+      });
       await prisma.syncQueue.update({
         where: { id: incomingJobId },
         data: {
@@ -510,9 +616,9 @@ export async function POST(req: Request) {
     await pMap(
       profiles,
       async (p) => {
-        const realHandle = p.tiktokHandle
-          ? String(p.tiktokHandle).replace(/^@/, "").trim().toLowerCase()
-          : null;
+        // Reject base64-ish disk-scrape false positives (e.g. c2ODQ2NTkxMjExMjA).
+        const realHandle = normalizeTikTokHandle(p.tiktokHandle);
+        const profileName = String(p.name || "").trim() || null;
 
         let existing = await prisma.tiktokAccount.findFirst({
           where: {
@@ -528,12 +634,33 @@ export async function POST(req: Request) {
           },
         });
 
+        // Fallback: extension created @handle with Profile name but no UUID yet
+        // (handle detection failed / returned garbage). Match by GPM display name.
+        if (!existing && profileName && looksLikeGpmProfileName(profileName)) {
+          existing = await prisma.tiktokAccount.findFirst({
+            where: {
+              gpmProfileId: null,
+              gpmProfileName: profileName,
+            },
+            include: {
+              assignedUser: {
+                select: { id: true, role: true, name: true, username: true },
+              },
+            },
+          });
+        }
+
         // Skip profiles with no TikTok account linked
         if (!realHandle && !existing) {
           return;
         }
 
         const extractedUsername = realHandle || existing?.username || `profile_${p.id.slice(0, 8)}`;
+
+        // Never create a brand-new row from an implausible / missing disk handle.
+        if (!existing && !realHandle) {
+          return;
+        }
 
         const resolvedGroupName = p.group_name || p.group_id;
         const detectedFromText = detectCountryFromText(p.name) || detectCountryFromText(resolvedGroupName);
@@ -550,6 +677,7 @@ export async function POST(req: Request) {
                 country: country || undefined,
                 groupName: resolvedGroupName || "GPM Fleet",
                 gpmProfileId: p.id,
+                gpmProfileName: profileName || undefined,
                 gpmPort: incomingPort || undefined,
                 status: "ACTIVE",
                 assignedUserId,
@@ -597,6 +725,7 @@ export async function POST(req: Request) {
         const updateData: {
           gpmProfileId: string;
           gpmPort?: number;
+          gpmProfileName?: string;
           groupName: string;
           country?: string;
           lastSyncedAt: Date;
@@ -604,6 +733,7 @@ export async function POST(req: Request) {
         } = {
           gpmProfileId: p.id,
           ...(incomingPort ? { gpmPort: incomingPort } : {}),
+          ...(profileName ? { gpmProfileName: profileName } : {}),
           groupName: resolvedGroupName || existing.groupName || "GPM Fleet",
           lastSyncedAt: new Date(),
         };

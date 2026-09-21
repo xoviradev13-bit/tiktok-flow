@@ -67,8 +67,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { trpc } from "@/lib/trpc";
 import { launchGpmProfile } from "@/lib/gpm-client-bridge";
+import {
+  getAccountRevenuePeriods,
+  resolveAllTimeRevenue,
+} from "@/lib/resolve-all-time-revenue";
+import { getAccountViewsPeriods } from "@/lib/daily-views-breakdown";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
@@ -235,6 +245,276 @@ const renderUserAvatar = (
     </span>
   );
 };
+
+function getPunishedVideos30d(acc: any): any[] {
+  if (Array.isArray(acc?.punishedVideos30d)) return acc.punishedVideos30d;
+  const rawPostRewards = Array.isArray(acc?.analytics?.postRewards)
+    ? acc.analytics.postRewards
+    : Array.isArray(acc?.analytics?.postRewards?.items)
+      ? acc.analytics.postRewards.items
+      : [];
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  return rawPostRewards.filter((v: any) => {
+    if (!v?.isPunished) return false;
+    const ts = v.publishTimeUnix
+      ? Number(v.publishTimeUnix) * 1000
+      : new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
+    return !isNaN(ts) ? now - ts <= THIRTY_DAYS_MS : false;
+  });
+}
+
+function getStrikeTheme(count: number) {
+  if (count === 1) {
+    return {
+      badge: "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
+      icon: "text-yellow-500",
+      headerGrad: "border-yellow-200 dark:border-yellow-900/40",
+      headerIcon: "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400",
+      headerText: "text-yellow-900 dark:text-yellow-200",
+      headerSub: "text-yellow-700 dark:text-yellow-400",
+      border: "border-yellow-200 dark:border-yellow-900/60",
+      label: "1 video bị phạt (30 ngày)",
+      levelTag: "Mức 1",
+      iconOnly: "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-600 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
+    };
+  }
+  if (count === 2) {
+    return {
+      badge: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
+      icon: "text-amber-500",
+      headerGrad: "border-amber-200 dark:border-amber-900/40",
+      headerIcon: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
+      headerText: "text-amber-900 dark:text-amber-200",
+      headerSub: "text-amber-700 dark:text-amber-400",
+      border: "border-amber-200 dark:border-amber-900/60",
+      label: "2 video bị phạt (30 ngày)",
+      levelTag: "Mức 2",
+      iconOnly: "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
+    };
+  }
+  if (count === 3) {
+    return {
+      badge: "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
+      icon: "text-orange-500",
+      headerGrad: "border-orange-200 dark:border-orange-900/40",
+      headerIcon: "bg-orange-500/20 text-orange-600 dark:text-orange-400",
+      headerText: "text-orange-900 dark:text-orange-200",
+      headerSub: "text-orange-700 dark:text-orange-400",
+      border: "border-orange-200 dark:border-orange-900/60",
+      label: "3 video bị phạt (30 ngày)",
+      levelTag: "Mức 3 - Nghiêm trọng",
+      iconOnly: "bg-orange-50 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
+    };
+  }
+  if (count === 4) {
+    return {
+      badge: "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
+      icon: "text-rose-500",
+      headerGrad: "border-rose-200 dark:border-rose-900/40",
+      headerIcon: "bg-rose-500/20 text-rose-600 dark:text-rose-400",
+      headerText: "text-rose-900 dark:text-rose-200",
+      headerSub: "text-rose-700 dark:text-rose-400",
+      border: "border-rose-200 dark:border-rose-900/60",
+      label: "4 video bị phạt (30 ngày)",
+      levelTag: "Mức 4 - Nguy cơ huỷ quỹ",
+      iconOnly: "bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
+    };
+  }
+  return {
+    badge: "bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-200 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60",
+    icon: "text-red-600 dark:text-red-400",
+    headerGrad: "border-red-300 dark:border-red-800",
+    headerIcon: "bg-red-600/20 text-red-600 dark:text-red-300",
+    headerText: "text-red-950 dark:text-red-100",
+    headerSub: "text-red-700 dark:text-red-300 font-bold",
+    border: "border-red-400 dark:border-red-800",
+    label: `${count} video bị phạt (30 ngày - Nguy cấp)`,
+    levelTag: "Mức 5 - Nguy cơ huỷ quỹ",
+    iconOnly: "bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60",
+  };
+}
+
+function ViewsPeriodTooltipContent({ account }: { account: any }) {
+  const p = getAccountViewsPeriods(account);
+  return (
+    <>
+      <div className="font-bold text-cyan-400 border-b border-slate-700 pb-1 flex items-center gap-1">
+        <Eye className="w-3 h-3" />
+        <span>Lượt Xem TikTok Studio</span>
+      </div>
+      <div className="flex justify-between gap-4 text-[11px]">
+        <span className="text-slate-400">7 ngày:</span>
+        <span className="font-semibold text-cyan-300">{p.views7d.toLocaleString()}</span>
+      </div>
+      <div className="flex justify-between gap-4 text-[11px]">
+        <span className="text-slate-400">28 ngày:</span>
+        <span className="font-semibold text-purple-300">{p.views28d.toLocaleString()}</span>
+      </div>
+      <div className="flex justify-between gap-4 text-[11px]">
+        <span className="text-slate-400">60 ngày:</span>
+        <span className="font-semibold text-indigo-300">{p.views60d.toLocaleString()}</span>
+      </div>
+      <div className="flex justify-between gap-4 text-[11px]">
+        <span className="text-slate-400">365 ngày:</span>
+        <span className="font-semibold text-amber-300">{p.views365d.toLocaleString()}</span>
+      </div>
+      <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
+        <span className="text-slate-300">Toàn bộ:</span>
+        <span className="text-cyan-300">{p.totalViews.toLocaleString()}</span>
+      </div>
+    </>
+  );
+}
+
+function StrikeWarningPopover({
+  account,
+  punishedVideos,
+  iconOnly = false,
+  compact = false,
+  showTooltip = false,
+}: {
+  account: any;
+  punishedVideos: any[];
+  iconOnly?: boolean;
+  compact?: boolean;
+  showTooltip?: boolean;
+}) {
+  if (!punishedVideos.length) return null;
+  const theme = getStrikeTheme(punishedVideos.length);
+  const trigger = (
+    <button
+      type="button"
+      className={
+        compact
+          ? `inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-bold border transition-colors cursor-pointer group ${theme.iconOnly}`
+          : iconOnly
+            ? `inline-flex items-center justify-center shrink-0 p-0.5 rounded-md transition-colors cursor-pointer group ${theme.icon} hover:opacity-80`
+            : `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all shadow-sm cursor-pointer group ${theme.badge}`
+      }
+      aria-label={theme.label}
+    >
+      <AlertTriangle
+        className={`${compact ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} shrink-0 group-hover:scale-110 transition-transform ${compact || iconOnly ? "" : theme.icon}`}
+      />
+      {compact && <span>{punishedVideos.length}</span>}
+      {!iconOnly && !compact && <span>{theme.label}</span>}
+    </button>
+  );
+
+  return (
+    <Popover>
+      {showTooltip ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs font-semibold max-w-xs">
+            {theme.label}
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      )}
+      <PopoverContent
+        align="start"
+        className={`w-[400px] p-0 rounded-2xl shadow-2xl border bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs ${theme.border}`}
+      >
+        <div className={`p-3.5 border-b flex items-start gap-2.5 bg-white dark:bg-slate-900 ${theme.headerGrad}`}>
+          <div className={`p-2 rounded-xl shrink-0 ${theme.headerIcon}`}>
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className={`font-bold text-sm ${theme.headerText}`}>
+                {punishedVideos.length} Video Bị Phạt (30 Ngày)
+              </h4>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                {theme.levelTag}
+              </span>
+            </div>
+            <p className={`text-[11px] mt-0.5 ${theme.headerSub}`}>
+              Tài khoản @{account.username} có video bị phạt vi phạm trong 30 ngày gần nhất
+            </p>
+          </div>
+        </div>
+
+        <div className="p-3.5 space-y-3">
+          <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+            {punishedVideos.map((v: any, vIdx: number) => {
+              const progName = v.programName || "Chương trình Creator Rewards";
+              const isShop = progName.includes("Shop");
+              const isSeries = progName.includes("Series");
+              const isGifts = progName.includes("Gifts") || progName.includes("Quà tặng");
+              const cover = v.coverUrl || v.cover || null;
+
+              return (
+                <div
+                  key={vIdx}
+                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex items-start gap-2.5 hover:border-amber-300 dark:hover:border-amber-800/80 transition-colors"
+                >
+                  <div className="w-11 h-14 rounded-lg bg-slate-200 dark:bg-slate-800 overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
+                    {cover ? (
+                      <img
+                        src={cover}
+                        alt={v.title || "Cover"}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400">
+                        <Video className="w-4 h-4" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-slate-900 dark:text-white line-clamp-2 leading-relaxed" title={v.title}>
+                      {v.title || `Video #${v.id}`}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${
+                          isShop
+                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                            : isSeries
+                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                              : isGifts
+                                ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                                : "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20"
+                        }`}
+                      >
+                        <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                        {progName}
+                      </span>
+                      <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+                        Bị huỷ điều kiện
+                      </span>
+                      {v.postDate && (
+                        <span className="text-[10px] text-slate-400">{v.postDate}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <span className="text-[11px] text-slate-400">
+              Phân tách theo từng chương trình kiếm tiền
+            </span>
+            <Link
+              href={`/accounts/${account.id}?tab=rewards`}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline"
+            >
+              <span>Xem tất cả video</span>
+              <ExternalLink className="w-3 h-3" />
+            </Link>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function AccountsPageContent() {
   const { formatAmount } = useCurrency();
@@ -735,7 +1015,7 @@ function AccountsPageContent() {
       const viewsNum = Number(acc.totalViews || 0);
       const matchMinViews = !minViews || viewsNum >= Number(minViews);
 
-      const revNum = Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0);
+      const revNum = resolveAllTimeRevenue(acc as any);
       const matchMinRev = !minRevenue || revNum >= Number(minRevenue);
 
       return (
@@ -763,8 +1043,8 @@ function AccountsPageContent() {
         aVal = a.alerts?.length || 0;
         bVal = b.alerts?.length || 0;
       } else if (sortConfig.key === "totalRevenue") {
-        aVal = Number(a.analytics?.totalRevenue ?? a.totalRevenue ?? 0);
-        bVal = Number(b.analytics?.totalRevenue ?? b.totalRevenue ?? 0);
+        aVal = resolveAllTimeRevenue(a as any);
+        bVal = resolveAllTimeRevenue(b as any);
       } else if (sortConfig.key === "totalViews" || sortConfig.key === "totalFollowers" || sortConfig.key === "totalVideos") {
         aVal = Number(aVal || 0);
         bVal = Number(bVal || 0);
@@ -1074,7 +1354,7 @@ function AccountsPageContent() {
         )}
 
         {/* Filter & Toolbar Area (Sticky only on desktop) */}
-        <div className="lg:sticky lg:top-[72px] z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
+        <div className="lg:sticky lg:top-[72px] z-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
           <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 w-full min-w-0">
             {/* Left Group: Search input + Fast Filters + Advanced Filter */}
             <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -1915,6 +2195,7 @@ function AccountsPageContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-2">
               {paginatedAccounts.map((acc: any) => {
                 const isSelected = selectedIds.has(acc.id);
+                const cardPunishedVideos = getPunishedVideos30d(acc);
                 return (
                   <div
                     key={acc.id}
@@ -2040,6 +2321,20 @@ function AccountsPageContent() {
                               <History className="w-3.5 h-3.5 text-slate-400" />
                               <span>Lịch sử hoạt động</span>
                             </DropdownMenuItem>
+                            {acc.gpmProfileId && (
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleStartGpm(acc.gpmProfileId, acc.gpmPort || gpmStatus?.port)
+                                }
+                                disabled={
+                                  startingGpmId === acc.gpmProfileId || startGpmMutation.isPending
+                                }
+                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                              >
+                                <Play className="w-3.5 h-3.5 text-cyan-500 fill-current" />
+                                <span>Mở Profile GPM</span>
+                              </DropdownMenuItem>
+                            )}
                             {isLeadOrAdmin && (
                               <>
                                 <DropdownMenuItem
@@ -2078,21 +2373,33 @@ function AccountsPageContent() {
                             @{acc.username ? acc.username.slice(0, 2).toUpperCase() : "TK"}
                           </Link>
                           <div className="min-w-0 flex-1">
-                            <Link
-                              href={`/accounts/${acc.id}`}
-                              className="font-bold text-sm text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 transition-colors truncate block"
-                            >
-                              @{acc.username}
-                            </Link>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Link
+                                href={`/accounts/${acc.id}`}
+                                className="font-bold text-sm text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 transition-colors truncate"
+                              >
+                                @{acc.username}
+                              </Link>
+                            </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 truncate max-w-[130px]">
                                 {acc.groupName || "Chưa phân nhóm"}
                               </span>
-                              {acc.alerts && acc.alerts.length > 0 && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 text-xs font-bold border border-amber-200 dark:border-amber-800/50">
-                                  <AlertTriangle className="w-2.5 h-2.5" />
-                                  {acc.alerts.length}
-                                </span>
+                              {cardPunishedVideos.length > 0 ? (
+                                <StrikeWarningPopover
+                                  account={acc}
+                                  punishedVideos={cardPunishedVideos}
+                                  compact
+                                  showTooltip
+                                />
+                              ) : (
+                                acc.alerts &&
+                                acc.alerts.length > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 text-xs font-bold border border-amber-200 dark:border-amber-800/50">
+                                    <AlertTriangle className="w-2.5 h-2.5" />
+                                    {acc.alerts.length}
+                                  </span>
+                                )
                               )}
                             </div>
                           </div>
@@ -2170,14 +2477,24 @@ function AccountsPageContent() {
 
                         {/* Performance Metrics Matrix */}
                         <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
-                          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
-                            <div className="text-xs text-slate-400 flex items-center gap-1">
-                              <Eye className="w-3 h-3" /> Lượt xem
-                            </div>
-                            <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 truncate">
-                              {Number(acc.totalViews || 0).toLocaleString()}
-                            </div>
-                          </div>
+                          <HoverCard openDelay={80} closeDelay={80}>
+                            <HoverCardTrigger asChild>
+                              <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 cursor-help">
+                                <div className="text-xs text-slate-400 flex items-center gap-1">
+                                  <Eye className="w-3 h-3" /> Lượt xem
+                                </div>
+                                <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 truncate border-b border-dotted border-slate-400/40 w-fit">
+                                  {Number(acc.totalViews || 0).toLocaleString()}
+                                </div>
+                              </div>
+                            </HoverCardTrigger>
+                            <HoverCardContent
+                              side="top"
+                              className="w-56 text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl"
+                            >
+                              <ViewsPeriodTooltipContent account={acc} />
+                            </HoverCardContent>
+                          </HoverCard>
                           <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
                             <div className="text-xs text-slate-400 flex items-center gap-1">
                               <Flame className="w-3 h-3 text-pink-500" /> Followers
@@ -2201,34 +2518,41 @@ function AccountsPageContent() {
                                   <DollarSign className="w-3 h-3" /> Doanh thu
                                 </div>
                                 <div className="font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 truncate">
-                                  ${Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0).toFixed(2)}
+                                  ${resolveAllTimeRevenue(acc as any).toFixed(2)}
                                 </div>
                               </div>
                             </TooltipTrigger>
                             <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
-                              <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1 flex items-center gap-1">
-                                <span>Doanh Thu TikTok Studio</span>
-                              </div>
-                              <div className="flex justify-between gap-4 text-[11px]">
-                                <span className="text-slate-400">7 ngày:</span>
-                                <span className="font-semibold text-cyan-300">{formatAmount((acc as any).analytics?.revenue7d ?? 0, (acc as any).country)}</span>
-                              </div>
-                              <div className="flex justify-between gap-4 text-[11px]">
-                                <span className="text-slate-400">28 ngày:</span>
-                                <span className="font-semibold text-purple-300">{formatAmount((acc as any).analytics?.revenue28d ?? 0, (acc as any).country)}</span>
-                              </div>
-                              <div className="flex justify-between gap-4 text-[11px]">
-                                <span className="text-slate-400">60 ngày:</span>
-                                <span className="font-semibold text-indigo-300">{formatAmount((acc as any).analytics?.revenue60d ?? 0, (acc as any).country)}</span>
-                              </div>
-                              <div className="flex justify-between gap-4 text-[11px]">
-                                <span className="text-slate-400">365 ngày:</span>
-                                <span className="font-semibold text-amber-300">{formatAmount((acc as any).analytics?.revenue365d ?? 0, (acc as any).country)}</span>
-                              </div>
-                              <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                <span className="text-slate-300">Toàn bộ:</span>
-                                <span className="text-emerald-400">{formatAmount((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0, (acc as any).country)}</span>
-                              </div>
+                              {(() => {
+                                const p = getAccountRevenuePeriods(acc as any);
+                                return (
+                                  <>
+                                    <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1 flex items-center gap-1">
+                                      <span>Doanh Thu TikTok Studio</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">7 ngày:</span>
+                                      <span className="font-semibold text-cyan-300">{formatAmount(p.revenue7d, (acc as any).country)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">28 ngày:</span>
+                                      <span className="font-semibold text-purple-300">{formatAmount(p.revenue28d, (acc as any).country)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">60 ngày:</span>
+                                      <span className="font-semibold text-indigo-300">{formatAmount(p.revenue60d, (acc as any).country)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">365 ngày:</span>
+                                      <span className="font-semibold text-amber-300">{formatAmount(p.revenue365d, (acc as any).country)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
+                                      <span className="text-slate-300">Toàn bộ:</span>
+                                      <span className="text-emerald-400">{formatAmount(p.totalRevenue, (acc as any).country)}</span>
+                                    </div>
+                                  </>
+                                );
+                              })()}
                             </TooltipContent>
                           </Tooltip>
                         </div>
@@ -2330,7 +2654,7 @@ function AccountsPageContent() {
                     <div className="mt-auto px-4 py-2.5 bg-slate-50/80 dark:bg-slate-950/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
                       <Link
                         href={`/accounts/${acc.id}`}
-                        className="text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+                        className="inline-flex items-center text-xs font-semibold text-slate-700 dark:text-slate-300 px-2 py-1 rounded-lg hover:bg-pink-50 dark:hover:bg-pink-950/40 hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
                       >
                         Chi tiết →
                       </Link>
@@ -2395,7 +2719,7 @@ function AccountsPageContent() {
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none">
                     <tr>
                       {/* Checkbox All (Frozen Left) */}
-                      <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800">
+                      <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50 dark:bg-slate-950 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800">
                         <Checkbox
                           checked={isAllPageSelected}
                           onCheckedChange={(val) => toggleSelectAll(!!val)}
@@ -2408,7 +2732,7 @@ function AccountsPageContent() {
                         <th
                           style={getColumnStyle("username")}
                           onClick={() => handleSort("username")}
-                          className="relative group/th px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]"
+                          className="relative group/th px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]"
                         >
                           <div className="flex items-center gap-1.5 truncate">
                             <span className="truncate">Tài khoản</span>
@@ -2572,7 +2896,7 @@ function AccountsPageContent() {
                       {visibleColumns.actions && (
                         <th
                           style={getColumnStyle("actions")}
-                          className="relative group/th px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]"
+                          className="relative group/th px-6 py-3.5 text-center whitespace-nowrap sticky right-0 z-20 bg-slate-50 dark:bg-slate-950 border-l border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]"
                         >
                           Thao tác
                           {renderResizeHandle("actions", "left")}
@@ -2867,7 +3191,19 @@ function AccountsPageContent() {
                             {/* Total Views */}
                             {visibleColumns.totalViews && (
                               <td style={getColumnStyle("totalViews")} className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
-                                <span>{Number(acc.totalViews || 0).toLocaleString()} views</span>
+                                <HoverCard openDelay={80} closeDelay={80}>
+                                  <HoverCardTrigger asChild>
+                                    <span className="cursor-help border-b border-dotted border-slate-400/50">
+                                      {Number(acc.totalViews || 0).toLocaleString()} views
+                                    </span>
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    side="top"
+                                    className="w-56 text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl"
+                                  >
+                                    <ViewsPeriodTooltipContent account={acc} />
+                                  </HoverCardContent>
+                                </HoverCard>
                               </td>
                             )}
 
@@ -2891,33 +3227,40 @@ function AccountsPageContent() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span className="cursor-help border-b border-dotted border-emerald-500/40">
-                                      {formatAmount((acc as any).analytics?.sumRevenue?.totalRevenue ?? (acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0, (acc as any).country)}
+                                      {formatAmount(resolveAllTimeRevenue(acc as any), (acc as any).country)}
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
-                                    <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1">
-                                      Doanh Thu TikTok Studio
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">7 ngày:</span>
-                                      <span className="font-semibold text-cyan-300">{formatAmount((acc as any).analytics?.sumRevenue?.revenue7d ?? (acc as any).analytics?.revenue7d ?? 0, (acc as any).country)}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">28 ngày:</span>
-                                      <span className="font-semibold text-purple-300">{formatAmount((acc as any).analytics?.sumRevenue?.revenue28d ?? (acc as any).analytics?.revenue28d ?? 0, (acc as any).country)}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">60 ngày:</span>
-                                      <span className="font-semibold text-indigo-300">${Number((acc as any).analytics?.revenue60d ?? 0).toFixed(2)}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">365 ngày:</span>
-                                      <span className="font-semibold text-amber-300">${Number((acc as any).analytics?.revenue365d ?? 0).toFixed(2)}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                      <span className="text-slate-300">Toàn bộ:</span>
-                                      <span className="text-emerald-400">${Number((acc as any).analytics?.totalRevenue ?? acc.totalRevenue ?? 0).toFixed(2)}</span>
-                                    </div>
+                                    {(() => {
+                                      const p = getAccountRevenuePeriods(acc as any);
+                                      return (
+                                        <>
+                                          <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1">
+                                            Doanh Thu TikTok Studio
+                                          </div>
+                                          <div className="flex justify-between gap-4 text-[11px]">
+                                            <span className="text-slate-400">7 ngày:</span>
+                                            <span className="font-semibold text-cyan-300">{formatAmount(p.revenue7d, (acc as any).country)}</span>
+                                          </div>
+                                          <div className="flex justify-between gap-4 text-[11px]">
+                                            <span className="text-slate-400">28 ngày:</span>
+                                            <span className="font-semibold text-purple-300">{formatAmount(p.revenue28d, (acc as any).country)}</span>
+                                          </div>
+                                          <div className="flex justify-between gap-4 text-[11px]">
+                                            <span className="text-slate-400">60 ngày:</span>
+                                            <span className="font-semibold text-indigo-300">{formatAmount(p.revenue60d, (acc as any).country)}</span>
+                                          </div>
+                                          <div className="flex justify-between gap-4 text-[11px]">
+                                            <span className="text-slate-400">365 ngày:</span>
+                                            <span className="font-semibold text-amber-300">{formatAmount(p.revenue365d, (acc as any).country)}</span>
+                                          </div>
+                                          <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
+                                            <span className="text-slate-300">Toàn bộ:</span>
+                                            <span className="text-emerald-400">{formatAmount(p.totalRevenue, (acc as any).country)}</span>
+                                          </div>
+                                        </>
+                                      );
+                                    })()}
                                   </TooltipContent>
                                 </Tooltip>
                               </td>
@@ -2927,92 +3270,7 @@ function AccountsPageContent() {
                             {visibleColumns.alertsCount && (
                               <td style={getColumnStyle("alertsCount")} className="px-4 py-3.5 whitespace-nowrap">
                                 {(() => {
-                                  const punishedVideos: any[] = Array.isArray((acc as any).punishedVideos30d)
-                                    ? (acc as any).punishedVideos30d
-                                    : (() => {
-                                        const rawPostRewards = Array.isArray((acc as any).analytics?.postRewards)
-                                          ? (acc as any).analytics.postRewards
-                                          : Array.isArray(((acc as any).analytics?.postRewards as any)?.items)
-                                          ? ((acc as any).analytics?.postRewards as any).items
-                                          : [];
-
-                                        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-                                        const now = Date.now();
-                                        return rawPostRewards.filter((v: any) => {
-                                          if (!v?.isPunished) return false;
-                                          const ts = v.publishTimeUnix
-                                            ? Number(v.publishTimeUnix) * 1000
-                                            : new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
-                                          return !isNaN(ts) ? now - ts <= THIRTY_DAYS_MS : false;
-                                        });
-                                      })();
-
-                                  const getStrikeTheme = (count: number) => {
-                                    if (count === 1) {
-                                      return {
-                                        badge: "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
-                                        icon: "text-yellow-500",
-                                        headerGrad: "from-yellow-500/15 via-yellow-500/10 to-transparent border-yellow-200 dark:border-yellow-900/40",
-                                        headerIcon: "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400",
-                                        headerText: "text-yellow-900 dark:text-yellow-200",
-                                        headerSub: "text-yellow-700 dark:text-yellow-400",
-                                        border: "border-yellow-200 dark:border-yellow-900/60",
-                                        label: "1 video bị phạt (30 ngày)",
-                                        levelTag: "Mức 1",
-                                      };
-                                    }
-                                    if (count === 2) {
-                                      return {
-                                        badge: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
-                                        icon: "text-amber-500",
-                                        headerGrad: "from-amber-500/15 via-amber-500/10 to-transparent border-amber-200 dark:border-amber-900/40",
-                                        headerIcon: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
-                                        headerText: "text-amber-900 dark:text-amber-200",
-                                        headerSub: "text-amber-700 dark:text-amber-400",
-                                        border: "border-amber-200 dark:border-amber-900/60",
-                                        label: "2 video bị phạt (30 ngày)",
-                                        levelTag: "Mức 2",
-                                      };
-                                    }
-                                    if (count === 3) {
-                                      return {
-                                        badge: "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
-                                        icon: "text-orange-500",
-                                        headerGrad: "from-orange-500/20 via-orange-500/10 to-transparent border-orange-200 dark:border-orange-900/40",
-                                        headerIcon: "bg-orange-500/20 text-orange-600 dark:text-orange-400",
-                                        headerText: "text-orange-900 dark:text-orange-200",
-                                        headerSub: "text-orange-700 dark:text-orange-400",
-                                        border: "border-orange-200 dark:border-orange-900/60",
-                                        label: "3 video bị phạt (30 ngày)",
-                                        levelTag: "Mức 3 - Nghiêm trọng",
-                                      };
-                                    }
-                                    if (count === 4) {
-                                      return {
-                                        badge: "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
-                                        icon: "text-rose-500",
-                                        headerGrad: "from-rose-500/20 via-rose-500/10 to-transparent border-rose-200 dark:border-rose-900/40",
-                                        headerIcon: "bg-rose-500/20 text-rose-600 dark:text-rose-400",
-                                        headerText: "text-rose-900 dark:text-rose-200",
-                                        headerSub: "text-rose-700 dark:text-rose-400",
-                                        border: "border-rose-200 dark:border-rose-900/60",
-                                        label: "4 video bị phạt (30 ngày)",
-                                        levelTag: "Mức 4 - Nguy cơ huỷ quỹ",
-                                      };
-                                    }
-                                    // 5 or > 5
-                                    return {
-                                      badge: "bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-200 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60 animate-pulse",
-                                      icon: "text-red-600 dark:text-red-400",
-                                      headerGrad: "from-red-600/25 via-red-600/15 to-transparent border-red-300 dark:border-red-800",
-                                      headerIcon: "bg-red-600/20 text-red-600 dark:text-red-300",
-                                      headerText: "text-red-950 dark:text-red-100",
-                                      headerSub: "text-red-700 dark:text-red-300 font-bold",
-                                      border: "border-red-400 dark:border-red-800",
-                                      label: `${count} video bị phạt (30 ngày - Nguy cấp)`,
-                                      levelTag: "Mức 5 - Nguy cơ huỷ quỹ",
-                                    };
-                                  };
+                                  const punishedVideos = getPunishedVideos30d(acc);
 
                                   const isBannedFromCreator =
                                     acc.status === "BANNED" ||
@@ -3043,7 +3301,7 @@ function AccountsPageContent() {
                                           align="start"
                                           className="w-96 p-0 rounded-2xl shadow-2xl border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs"
                                         >
-                                          <div className="p-3.5 bg-gradient-to-r from-rose-500/15 via-rose-500/10 to-transparent border-b border-rose-200 dark:border-rose-900/40 flex items-start gap-2.5">
+                                          <div className="p-3.5 border-b border-rose-200 dark:border-rose-900/40 flex items-start gap-2.5 bg-white dark:bg-slate-900">
                                             <div className="p-2 bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl shrink-0">
                                               <XCircle className="w-5 h-5" />
                                             </div>
@@ -3073,32 +3331,43 @@ function AccountsPageContent() {
                                                   </span>
                                                 </div>
                                                 <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                                                  {punishedVideos.map((v: any, vIdx: number) => (
-                                                    <div
-                                                      key={vIdx}
-                                                      className="p-2 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 flex items-start gap-2"
-                                                    >
-                                                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" />
-                                                      <div className="min-w-0 flex-1">
-                                                        <p className="text-xs font-medium text-slate-800 dark:text-slate-200 line-clamp-1" title={v.title}>
-                                                          {v.title || `Video #${v.id}`}
-                                                        </p>
-                                                        <div className="flex items-center gap-2 mt-1">
-                                                          <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.2 rounded border border-blue-500/20">
-                                                            {v.programName || "Creator Rewards"}
-                                                          </span>
-                                                          {v.postDate && (
-                                                            <span className="text-[10px] text-slate-400">
-                                                              {v.postDate}
-                                                            </span>
+                                                  {punishedVideos.map((v: any, vIdx: number) => {
+                                                    const cover = v.coverUrl || v.cover || null;
+                                                    return (
+                                                      <div
+                                                        key={vIdx}
+                                                        className="p-2 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 flex items-start gap-2"
+                                                      >
+                                                        <div className="w-10 h-12 rounded-lg bg-slate-200 dark:bg-slate-800 overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
+                                                          {cover ? (
+                                                            <img src={cover} alt={v.title || "Cover"} className="w-full h-full object-cover" />
+                                                          ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-slate-400">
+                                                              <Video className="w-3.5 h-3.5" />
+                                                            </div>
                                                           )}
-                                                          <span className="text-[10px] font-bold text-rose-500">
-                                                            Bị phạt
-                                                          </span>
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                          <p className="text-xs font-medium text-slate-800 dark:text-slate-200 line-clamp-1" title={v.title}>
+                                                            {v.title || `Video #${v.id}`}
+                                                          </p>
+                                                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                            <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.2 rounded border border-blue-500/20">
+                                                              {v.programName || "Creator Rewards"}
+                                                            </span>
+                                                            {v.postDate && (
+                                                              <span className="text-[10px] text-slate-400">
+                                                                {v.postDate}
+                                                              </span>
+                                                            )}
+                                                            <span className="text-[10px] font-bold text-rose-500">
+                                                              Bị phạt
+                                                            </span>
+                                                          </div>
                                                         </div>
                                                       </div>
-                                                    </div>
-                                                  ))}
+                                                    );
+                                                  })}
                                                 </div>
                                               </div>
                                             )}
@@ -3118,110 +3387,13 @@ function AccountsPageContent() {
                                     );
                                   }
 
-                                  // Case 2: Punished Videos Warning (Dynamic Color Theme based on 1, 2, 3, 4, 5+ strikes)
+                                  // Case 2: Punished Videos Warning
                                   if (punishedVideos.length > 0) {
-                                    const theme = getStrikeTheme(punishedVideos.length);
                                     return (
-                                      <Popover>
-                                        <PopoverTrigger asChild>
-                                          <button
-                                            type="button"
-                                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all shadow-sm cursor-pointer group ${theme.badge}`}
-                                          >
-                                            <AlertTriangle className={`w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform ${theme.icon}`} />
-                                            <span>{theme.label}</span>
-                                          </button>
-                                        </PopoverTrigger>
-                                        <PopoverContent
-                                          align="start"
-                                          className={`w-[400px] p-0 rounded-2xl shadow-2xl border bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs ${theme.border}`}
-                                        >
-                                          <div className={`p-3.5 bg-gradient-to-r border-b flex items-start gap-2.5 ${theme.headerGrad}`}>
-                                            <div className={`p-2 rounded-xl shrink-0 ${theme.headerIcon}`}>
-                                              <AlertTriangle className="w-5 h-5" />
-                                            </div>
-                                            <div>
-                                              <div className="flex items-center gap-2">
-                                                <h4 className={`font-bold text-sm ${theme.headerText}`}>
-                                                  {punishedVideos.length} Video Bị Phạt (30 Ngày)
-                                                </h4>
-                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/60 dark:bg-black/40">
-                                                  {theme.levelTag}
-                                                </span>
-                                              </div>
-                                              <p className={`text-[11px] mt-0.5 ${theme.headerSub}`}>
-                                                Tài khoản @{acc.username} có video bị phạt vi phạm trong 30 ngày gần nhất
-                                              </p>
-                                            </div>
-                                          </div>
-
-                                          <div className="p-3.5 space-y-3">
-                                            <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
-                                              {punishedVideos.map((v: any, vIdx: number) => {
-                                                const progName = v.programName || "Chương trình Creator Rewards";
-                                                const isShop = progName.includes("Shop");
-                                                const isSeries = progName.includes("Series");
-                                                const isGifts = progName.includes("Gifts") || progName.includes("Quà tặng");
-
-                                                return (
-                                                  <div
-                                                    key={vIdx}
-                                                    className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex items-start gap-2.5 hover:border-amber-300 dark:hover:border-amber-800/80 transition-colors"
-                                                  >
-                                                    <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 shrink-0 mt-0.5">
-                                                      <AlertTriangle className="w-3.5 h-3.5" />
-                                                    </div>
-                                                    <div className="min-w-0 flex-1">
-                                                      <p className="text-xs font-semibold text-slate-900 dark:text-white line-clamp-2 leading-relaxed" title={v.title}>
-                                                        {v.title || `Video #${v.id}`}
-                                                      </p>
-                                                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                                                        <span
-                                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${
-                                                            isShop
-                                                              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                                                              : isSeries
-                                                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                                                              : isGifts
-                                                              ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
-                                                              : "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20"
-                                                          }`}
-                                                        >
-                                                          <Sparkles className="w-2.5 h-2.5 shrink-0" />
-                                                          {progName}
-                                                        </span>
-
-                                                        <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
-                                                          Bị huỷ điều kiện
-                                                        </span>
-
-                                                        {v.postDate && (
-                                                          <span className="text-[10px] text-slate-400">
-                                                            {v.postDate}
-                                                          </span>
-                                                        )}
-                                                      </div>
-                                                    </div>
-                                                  </div>
-                                                );
-                                              })}
-                                            </div>
-
-                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                                              <span className="text-[11px] text-slate-400">
-                                                Phân tách theo từng chương trình kiếm tiền
-                                              </span>
-                                              <Link
-                                                href={`/accounts/${acc.id}?tab=rewards`}
-                                                className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline"
-                                              >
-                                                <span>Xem tất cả video</span>
-                                                <ExternalLink className="w-3 h-3" />
-                                              </Link>
-                                            </div>
-                                          </div>
-                                        </PopoverContent>
-                                      </Popover>
+                                      <StrikeWarningPopover
+                                        account={acc}
+                                        punishedVideos={punishedVideos}
+                                      />
                                     );
                                   }
 
@@ -3307,6 +3479,25 @@ function AccountsPageContent() {
                                         <span>Lịch sử hoạt động</span>
                                       </DropdownMenuItem>
 
+                                      {acc.gpmProfileId && (
+                                        <DropdownMenuItem
+                                          onClick={() =>
+                                            handleStartGpm(
+                                              acc.gpmProfileId,
+                                              acc.gpmPort || gpmStatus?.port
+                                            )
+                                          }
+                                          disabled={
+                                            startingGpmId === acc.gpmProfileId ||
+                                            startGpmMutation.isPending
+                                          }
+                                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                        >
+                                          <Play className="w-3.5 h-3.5 text-cyan-500 fill-current" />
+                                          <span>Mở Profile GPM</span>
+                                        </DropdownMenuItem>
+                                      )}
+
                                       {isLeadOrAdmin && (
                                         <>
                                           <DropdownMenuItem
@@ -3366,7 +3557,7 @@ function AccountsPageContent() {
 
       {/* Floating Bottom Bulk Action Bar */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 px-5 py-3 shadow-2xl shadow-slate-900/10 dark:shadow-black/60 backdrop-blur-md ring-1 ring-slate-100 dark:ring-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-200">
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-5 py-3 shadow-2xl shadow-slate-900/10 dark:shadow-black/60 ring-1 ring-slate-100 dark:ring-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-200">
           <span className="text-xs font-bold text-slate-900 dark:text-white whitespace-nowrap">
             Đã chọn {selectedIds.size} tài khoản
           </span>

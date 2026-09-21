@@ -431,9 +431,9 @@ export function verifyExtAccessToken(token: string): ExtAccessJwtPayload | null 
 export function rejectIfExtAccessTyp(decoded: unknown): boolean {
   return Boolean(
     decoded &&
-      typeof decoded === "object" &&
-      "typ" in decoded &&
-      (decoded as { typ?: string }).typ === EXT_ACCESS_TYP
+    typeof decoded === "object" &&
+    "typ" in decoded &&
+    (decoded as { typ?: string }).typ === EXT_ACCESS_TYP
   );
 }
 
@@ -576,7 +576,7 @@ export async function rotateRefreshToken(
   const ver = fresh?.extensionSessionVersion ?? user.extensionSessionVersion;
   const { accessToken, expiresIn } = signExtAccessToken(user.id, ver);
 
-  void purgeExpiredExtensionAuthData().catch(() => {});
+  void purgeExpiredExtensionAuthData().catch(() => { });
 
   return {
     ok: true,
@@ -589,25 +589,47 @@ export async function rotateRefreshToken(
 
 export type ResolvedExtensionAuth =
   | {
-      ok: true;
-      user: {
-        id: string;
-        name: string | null;
-        email: string | null;
-        username: string | null;
-        role: string;
-        isActive: boolean;
-        extensionAccessEnabled: boolean;
-        extensionToken: string | null;
-        extensionSessionVersion: number;
-      };
-      authMode: "jwt" | "legacy_personal_token";
-    }
+    ok: true;
+    user: {
+      id: string;
+      name: string | null;
+      email: string | null;
+      username: string | null;
+      role: string;
+      isActive: boolean;
+      extensionAccessEnabled: boolean;
+      extensionToken: string | null;
+      extensionSessionVersion: number;
+    };
+    authMode: "jwt" | "legacy_personal_token";
+  }
   | { ok: false; status: 401 | 403; error: string };
+
+const bearerAuthCache = new Map<
+  string,
+  { result: Extract<ResolvedExtensionAuth, { ok: true }>; expiresAt: number }
+>();
+const BEARER_AUTH_CACHE_TTL_MS = 30_000;
+const BEARER_AUTH_CACHE_MAX = 5_000;
+
+function cacheBearerAuthResult(
+  key: string,
+  result: Extract<ResolvedExtensionAuth, { ok: true }>
+) {
+  if (bearerAuthCache.size >= BEARER_AUTH_CACHE_MAX) {
+    const oldestKey = bearerAuthCache.keys().next().value;
+    if (oldestKey !== undefined) bearerAuthCache.delete(oldestKey);
+  }
+  bearerAuthCache.set(key, {
+    result,
+    expiresAt: Date.now() + BEARER_AUTH_CACHE_TTL_MS,
+  });
+}
 
 /**
  * Resolve Bearer as access JWT or (while allowed) legacy personalToken.
- * Used by report + client-sync. Does NOT accept personalToken for JWT path after sunset.
+ * Successful results are cached ~30s by token hash to avoid a DB checkout
+ * on every identity report during multi-browser storms.
  */
 export async function resolveExtensionBearerAuth(
   bearerOrToken: string,
@@ -618,6 +640,22 @@ export async function resolveExtensionBearerAuth(
     return { ok: false, status: 401, error: "Thiếu Authorization Bearer." };
   }
 
+  const cacheKey = crypto.createHash("sha256").update(token, "utf8").digest("hex");
+  const cached = bearerAuthCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result;
+  }
+  if (cached) bearerAuthCache.delete(cacheKey);
+
+  const result = await resolveExtensionBearerAuthUncached(token, route);
+  if (result.ok) cacheBearerAuthResult(cacheKey, result);
+  return result;
+}
+
+async function resolveExtensionBearerAuthUncached(
+  token: string,
+  route: string
+): Promise<ResolvedExtensionAuth> {
   // Prefer JWT if it looks like one / verifies
   if (token.split(".").length === 3 && !token.startsWith("ttf_sec_")) {
     let payload: ExtAccessJwtPayload | null = null;
@@ -990,12 +1028,12 @@ export type MachineAttestInput = {
 export type MachineBindResult =
   | { ok: true }
   | {
-      ok: false;
-      status: 403 | 429;
-      error: string;
-      reason?: string;
-      retryAfterSec?: number;
-    };
+    ok: false;
+    status: 403 | 429;
+    error: string;
+    reason?: string;
+    retryAfterSec?: number;
+  };
 
 export async function checkAndBindMachine(
   userId: string,
@@ -1282,5 +1320,22 @@ export function verifyResolveAttestSig(
 
 // Kick health check once on first import in production (non-blocking)
 if (typeof process !== "undefined" && isProduction()) {
-  void ensureExtensionAuthAlertingHealth().catch(() => {});
+  void ensureExtensionAuthAlertingHealth().catch(() => { });
+}
+
+/**
+ * Constant-time string comparison. Returns false on length mismatch (length
+ * leaks over the wire regardless — the attacker already knows the byte count
+ * of the response — but is not used to short-circuit the actual compare).
+ */
+export function timingSafeEqualStrings(a: string, b: string): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  if (bufA.length !== bufB.length) {
+    // Run a dummy compare so the timing does not reveal where the mismatch is.
+    crypto.timingSafeEqual(bufB, bufB);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
 }

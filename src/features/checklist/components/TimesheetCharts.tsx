@@ -419,7 +419,7 @@ export default function TimesheetCharts({
           {/* Metric Selector Filter */}
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-xs self-start sm:self-auto">
             {[
-              { key: "ALL" as const, label: "Toàn Bộ" },
+              { key: "ALL" as const, label: "Tất cả" },
               { key: "SCORES" as const, label: "Ngày Công" },
               { key: "RATE" as const, label: "Tỷ Lệ KPI (%)" },
               { key: "VIDEOS" as const, label: "Videos" },

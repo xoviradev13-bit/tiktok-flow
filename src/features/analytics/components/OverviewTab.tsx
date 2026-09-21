@@ -100,7 +100,7 @@ export default function OverviewTab({
       return (
         <div className="bg-slate-900/95 backdrop-blur-md border border-slate-800 p-3 rounded-xl shadow-2xl text-xs space-y-1 text-slate-100 min-w-[170px]">
           <p className="font-bold text-slate-300 pb-1 border-b border-slate-800">
-            Ngày: {data.date}
+            Ngày: {data.date && data.date.includes("-") ? data.date.split("-").reverse().join("/") : data.date}
           </p>
           <p className="flex justify-between items-center text-pink-400 font-semibold">
             <span>Doanh Thu:</span>
@@ -279,12 +279,14 @@ export default function OverviewTab({
                     outerRadius={70}
                     paddingAngle={3}
                   >
-                    {distributions.status.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={STATUS_COLORS[entry.status] || "#94a3b8"}
-                      />
-                    ))}
+                    {distributions.status
+                      .filter((s) => s.count > 0)
+                      .map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={STATUS_COLORS[entry.status] || "#94a3b8"}
+                        />
+                      ))}
                   </Pie>
                   <Tooltip
                     formatter={(val, name) => [`${val} tài khoản`, `${name}`]}
@@ -347,10 +349,13 @@ export default function OverviewTab({
                     outerRadius={70}
                     paddingAngle={3}
                   >
-                    {distributions.source.map((_, index) => (
+                    {(distributions.source.length > 0
+                      ? distributions.source
+                      : [{ source: "Chưa có", revenue: 1, percentage: 100 }]
+                    ).map((_, index) => (
                       <Cell
                         key={`src-cell-${index}`}
-                        fill={SOURCE_COLORS[index % SOURCE_COLORS.length]}
+                        fill={distributions.source.length > 0 ? SOURCE_COLORS[index % SOURCE_COLORS.length] : "#64748b"}
                       />
                     ))}
                   </Pie>
@@ -385,7 +390,7 @@ export default function OverviewTab({
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-900 dark:text-white">
-                        ${item.revenue.toLocaleString()}
+                        ${Number(item.revenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                       <span className="text-slate-400 w-9 text-right font-medium">
                         ({item.percentage}%)
@@ -442,7 +447,7 @@ export default function OverviewTab({
 
                   <div className="text-right shrink-0">
                     <div className="font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
-                      ${acc.periodRevenue.toLocaleString()}
+                      ${Number(acc.periodRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                     <div className="text-xs text-slate-400">
                       RPM: ${acc.rpm.toFixed(2)} | {acc.periodViews.toLocaleString()} views

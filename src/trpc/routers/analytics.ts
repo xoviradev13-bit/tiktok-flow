@@ -1,5 +1,7 @@
 import { router, protectedProcedure } from "@/trpc/init";
 import { z } from "zod";
+import { insightViewsContribution } from "@/lib/insights-ui";
+import { resolveAllTimeRevenue } from "@/lib/resolve-all-time-revenue";
 
 function parseDateOnly(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -131,17 +133,35 @@ export const analyticsRouter = router({
       let prevEnd: Date | undefined;
       let isAllTime = false;
 
+      // Studio daily history is capped at ~365d — legacy ALL behaves like 365D.
+      const effectivePeriod =
+        input.period === "ALL" ? ("365D" as const) : input.period;
+
       // Period range calculation
-      if (input.period === "CUSTOM" && input.startDate && input.endDate) {
+      if (effectivePeriod === "CUSTOM" && input.startDate && input.endDate) {
+        const MAX_LOOKBACK_DAYS = 365;
+        const todayUtc = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0)
+        );
+        const minStart = new Date(todayUtc);
+        minStart.setUTCDate(minStart.getUTCDate() - MAX_LOOKBACK_DAYS);
+
         currStart = parseDateOnly(input.startDate);
         currEnd = parseDateOnly(input.endDate);
+        if (currStart < minStart) currStart = new Date(minStart);
+        if (currEnd < minStart) currEnd = new Date(minStart);
+        if (currStart > todayUtc) currStart = new Date(todayUtc);
+        if (currEnd > todayUtc) currEnd = new Date(todayUtc);
+        if (currEnd < currStart) {
+          const tmp = currStart;
+          currStart = currEnd;
+          currEnd = tmp;
+        }
         currEnd.setUTCHours(23, 59, 59, 999);
 
         const duration = currEnd.getTime() - currStart.getTime();
         prevEnd = new Date(currStart.getTime() - 1);
         prevStart = new Date(prevEnd.getTime() - duration);
-      } else if (input.period === "ALL") {
-        isAllTime = true;
       } else {
         const daysMap: Record<string, number> = {
           "7D": 7,
@@ -152,7 +172,7 @@ export const analyticsRouter = router({
           "90D": 90,
           "365D": 365,
         };
-        const days = daysMap[input.period] || 30;
+        const days = daysMap[effectivePeriod] || 30;
         currStart = new Date(now);
         currStart.setDate(now.getDate() - days);
         currStart.setHours(0, 0, 0, 0);
@@ -358,6 +378,43 @@ export const analyticsRouter = router({
         }
       }
 
+      // Overlay Studio Insights daily views (365d vv_history) — fill gaps / view-only days.
+      for (const a of accounts) {
+        const viewsBd = ((a as any).analytics?.dailyViewsBreakdown as any[]) || [];
+        if (!Array.isArray(viewsBd) || viewsBd.length === 0) continue;
+        const byDate = new Map<string, number>();
+        for (const item of viewsBd) {
+          if (!item?.date) continue;
+          const dStr = String(item.date);
+          if (currStart && !isAllTime) {
+            const dObj = parseDateOnly(dStr);
+            if (dObj < currStart || dObj > currEnd) continue;
+          }
+          byDate.set(dStr, Number(item.views || 0) || 0);
+        }
+        for (const row of combinedDailyRevenues) {
+          if (row.accountId !== a.id) continue;
+          const dStr = formatDateKey(row.date);
+          if (byDate.has(dStr) && !(Number(row.views) > 0)) {
+            row.views = byDate.get(dStr)!;
+          }
+          byDate.delete(dStr);
+        }
+        for (const [dStr, views] of byDate) {
+          const key = `${a.id}_${dStr}`;
+          if (existingDailyKeys.has(key)) continue;
+          existingDailyKeys.add(key);
+          combinedDailyRevenues.push({
+            accountId: a.id,
+            date: parseDateOnly(dStr),
+            revenue: 0,
+            views,
+            sourceType: "INSIGHTS_VV",
+            account: { username: a.username, country: a.country },
+          });
+        }
+      }
+
       // ================= AGGREGATIONS & METRICS =================
       let currTotalRev = 0;
       let currTotalViews = 0;
@@ -371,25 +428,62 @@ export const analyticsRouter = router({
       let presetViews = 0;
       let hasPresetMetrics = false;
 
-      if (input.period === "7D") {
+      if (effectivePeriod === "7D") {
         presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue7d ?? (a as any).analytics?.revenue7d ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.views7d ?? (a as any).analytics?.views7d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => {
+          const v = insightViewsContribution(
+            (a as any).analytics,
+            0,
+            (sum) => Number(sum?.views7d ?? (a as any).analytics?.views7d ?? 0)
+          );
+          return s + (v ?? 0);
+        }, 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
-      } else if (input.period === "28D" || input.period === "30D") {
+      } else if (effectivePeriod === "28D" || effectivePeriod === "30D") {
         presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue28d ?? (a as any).analytics?.revenue28d ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.views28d ?? (a as any).analytics?.views28d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => {
+          const v = insightViewsContribution(
+            (a as any).analytics,
+            0,
+            (sum) => Number(sum?.views28d ?? (a as any).analytics?.views28d ?? 0)
+          );
+          return s + (v ?? 0);
+        }, 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
-      } else if (input.period === "60D") {
+      } else if (effectivePeriod === "60D") {
         presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue60d ?? (a as any).analytics?.revenue60d ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.views60d ?? (a as any).analytics?.views60d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => {
+          const v = insightViewsContribution(
+            (a as any).analytics,
+            0,
+            (sum) => Number(sum?.views60d ?? (a as any).analytics?.views60d ?? 0)
+          );
+          return s + (v ?? 0);
+        }, 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
-      } else if (input.period === "365D") {
+      } else if (effectivePeriod === "365D") {
         presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue365d ?? (a as any).analytics?.revenue365d ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.views365d ?? (a as any).analytics?.views365d ?? 0), 0);
+        presetViews = accounts.reduce((s, a) => {
+          const v = insightViewsContribution(
+            (a as any).analytics,
+            0,
+            (sum) => Number(sum?.views365d ?? (a as any).analytics?.views365d ?? 0)
+          );
+          return s + (v ?? 0);
+        }, 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
       } else if (isAllTime) {
-        presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.totalRevenue ?? (a as any).analytics?.totalRevenue ?? a.totalRevenue ?? 0), 0);
-        presetViews = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumViews?.totalViews ?? a.totalViews ?? 0), 0);
+        // Prefer API period windows / postRewards over orphaned lifetime totalRevenue
+        // (DOM "Total" scrape often diverges from reward_analytics).
+        presetRev = accounts.reduce((s, a) => s + resolveAllTimeRevenue(a as any), 0);
+        presetViews = accounts.reduce((s, a) => {
+          const v = insightViewsContribution(
+            (a as any).analytics,
+            Number(a.totalViews ?? 0),
+            (sum) => Number(sum?.totalViews ?? a.totalViews ?? 0)
+          );
+          return s + (v ?? 0);
+        }, 0);
         hasPresetMetrics = true;
       }
 
@@ -619,21 +713,46 @@ export const analyticsRouter = router({
         const existing = accountRevenueMap.get(a.id) || { revenue: 0, views: 0 };
         let directRev = 0;
         let directViews = 0;
-        if (input.period === "7D") {
+        if (effectivePeriod === "7D") {
           directRev = Number((a as any).analytics?.sumRevenue?.revenue7d ?? (a as any).analytics?.revenue7d ?? 0);
-          directViews = Number((a as any).analytics?.sumViews?.views7d ?? (a as any).analytics?.views7d ?? 0);
-        } else if (input.period === "28D" || input.period === "30D") {
+          directViews =
+            insightViewsContribution(
+              (a as any).analytics,
+              0,
+              (sum) => Number(sum?.views7d ?? (a as any).analytics?.views7d ?? 0)
+            ) ?? 0;
+        } else if (effectivePeriod === "28D" || effectivePeriod === "30D") {
           directRev = Number((a as any).analytics?.sumRevenue?.revenue28d ?? (a as any).analytics?.revenue28d ?? 0);
-          directViews = Number((a as any).analytics?.sumViews?.views28d ?? (a as any).analytics?.views28d ?? 0);
-        } else if (input.period === "60D") {
+          directViews =
+            insightViewsContribution(
+              (a as any).analytics,
+              0,
+              (sum) => Number(sum?.views28d ?? (a as any).analytics?.views28d ?? 0)
+            ) ?? 0;
+        } else if (effectivePeriod === "60D") {
           directRev = Number((a as any).analytics?.sumRevenue?.revenue60d ?? (a as any).analytics?.revenue60d ?? 0);
-          directViews = Number((a as any).analytics?.sumViews?.views60d ?? (a as any).analytics?.views60d ?? 0);
-        } else if (input.period === "365D") {
+          directViews =
+            insightViewsContribution(
+              (a as any).analytics,
+              0,
+              (sum) => Number(sum?.views60d ?? (a as any).analytics?.views60d ?? 0)
+            ) ?? 0;
+        } else if (effectivePeriod === "365D") {
           directRev = Number((a as any).analytics?.sumRevenue?.revenue365d ?? (a as any).analytics?.revenue365d ?? 0);
-          directViews = Number((a as any).analytics?.sumViews?.views365d ?? (a as any).analytics?.views365d ?? 0);
+          directViews =
+            insightViewsContribution(
+              (a as any).analytics,
+              0,
+              (sum) => Number(sum?.views365d ?? (a as any).analytics?.views365d ?? 0)
+            ) ?? 0;
         } else if (isAllTime) {
-          directRev = Number((a as any).analytics?.sumRevenue?.totalRevenue ?? (a as any).analytics?.totalRevenue ?? a.totalRevenue ?? 0);
-          directViews = Number((a as any).analytics?.sumViews?.totalViews ?? a.totalViews ?? 0);
+          directRev = resolveAllTimeRevenue(a as any);
+          directViews =
+            insightViewsContribution(
+              (a as any).analytics,
+              Number(a.totalViews ?? 0),
+              (sum) => Number(sum?.totalViews ?? a.totalViews ?? 0)
+            ) ?? 0;
         }
         if (directRev > existing.revenue) existing.revenue = directRev;
         if (directViews > existing.views) existing.views = directViews;
@@ -797,7 +916,7 @@ export const analyticsRouter = router({
       }
 
       return serializeBigInt({
-        period: input.period,
+        period: effectivePeriod,
         dateRange: {
           start: currStart ? formatDateKey(currStart) : null,
           end: currEnd ? formatDateKey(currEnd) : null,

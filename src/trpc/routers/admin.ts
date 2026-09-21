@@ -32,6 +32,7 @@ export const adminRouter = router({
         lastActiveAt: true,
         groupId: true,
         extensionToken: true,
+        extensionAccessEnabled: true,
         boundMachineId: true,
         boundMachineName: true,
         boundOsUser: true,
@@ -1330,4 +1331,120 @@ export const adminRouter = router({
       clearUserCache(reqRow.userId);
       return { success: true };
     }),
+
+  listPendingExtensionAccessRequests: adminProcedure.query(async ({ ctx }) => {
+    return ctx.prisma.extensionAccessRequest.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            name: true,
+            boundMachineId: true,
+            boundMachineName: true,
+            extensionAccessEnabled: true,
+            extensionRevokedAt: true,
+          },
+        },
+      },
+    });
+  }),
+
+  reviewExtensionAccessRequest: adminProcedure
+    .input(
+      z.object({
+        requestId: z.string(),
+        decision: z.enum(["APPROVED", "REJECTED"]),
+        note: z.string().max(500).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const reqRow = await ctx.prisma.extensionAccessRequest.findUnique({
+        where: { id: input.requestId },
+      });
+      if (!reqRow || reqRow.status !== "PENDING") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Yêu cầu không hợp lệ.",
+        });
+      }
+
+      if (input.decision === "REJECTED") {
+        await ctx.prisma.extensionAccessRequest.update({
+          where: { id: reqRow.id },
+          data: {
+            status: "REJECTED",
+            reviewedById: ctx.session.user.id,
+            reviewedAt: new Date(),
+            reviewNote: input.note ?? null,
+          },
+        });
+        return { success: true, token: null };
+      }
+
+      // APPROVED → re-enable access + issue new personal token
+      const newToken = generatePersonalToken();
+      await ctx.prisma.$transaction(async (tx) => {
+        await tx.extensionAccessRequest.update({
+          where: { id: reqRow.id },
+          data: {
+            status: "APPROVED",
+            reviewedById: ctx.session.user.id,
+            reviewedAt: new Date(),
+            reviewNote: input.note ?? null,
+          },
+        });
+        await tx.user.update({
+          where: { id: reqRow.userId },
+          data: {
+            extensionToken: persistPersonalTokenValue(newToken),
+            extensionAccessEnabled: true,
+            extensionRevokedAt: null,
+            extensionSessionVersion: { increment: 1 },
+          },
+        });
+        await tx.extensionRefreshToken.updateMany({
+          where: { userId: reqRow.userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        await tx.extensionPairingCode.deleteMany({
+          where: { userId: reqRow.userId, usedAt: null },
+        });
+      });
+
+      clearUserCache(reqRow.userId);
+      return { success: true, token: newToken };
+    }),
+
+  /** All machine + extension requests (any status) for Settings admin view. */
+  listAllAccessRequests: adminProcedure.query(async ({ ctx }) => {
+    const userSelect = {
+      id: true,
+      email: true,
+      username: true,
+      name: true,
+      avatar: true,
+      image: true,
+      boundMachineId: true,
+      boundMachineName: true,
+    } as const;
+
+    const [machineChangeRequests, extensionAccessRequests] = await Promise.all([
+      ctx.prisma.machineChangeRequest.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        include: { user: { select: userSelect } },
+      }),
+      ctx.prisma.extensionAccessRequest.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        include: { user: { select: userSelect } },
+      }),
+    ]);
+
+    return { machineChangeRequests, extensionAccessRequests };
+  }),
 });

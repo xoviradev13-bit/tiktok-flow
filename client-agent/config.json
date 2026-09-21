@@ -1,7 +1,13 @@
 {
   "serverUrl": "http://localhost:3000",
-  "memberEmail": "xoviraceo@gmail.com",
-  "personalToken": "ttf_sec_b129a0825d6a0f68e3b3713a178d749e",
-  "concurrency": "auto",
-  "headless": true
+  "memberEmail": "datnguyen9184@gmail.com",
+  "personalToken": "",
+  "agentAttestSecret": "dfaf048d55abd116776051000005937db3eb7520c87da68d1408473e7979ae1b",
+  "concurrency": 1,
+  "headless": true,
+  "m10nMaxConcurrentPrograms": 2,
+  "m10nPagePacingMs": 150,
+  "pairingCode": "ttf_pair_t38p0uJvdEGS2BFalP8PEg",
+  "tokenRevoked": false,
+  "tokenRevokedReason": ""
 }

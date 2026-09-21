@@ -39,12 +39,25 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  MoreHorizontal,
+  Pencil,
+  Key,
+  KeyRound,
+  Trash2,
+  MonitorX,
+  Monitor,
+  Inbox,
+  EyeOff,
+  Download,
+  Square,
+  History,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 import { UserDetailSkeleton } from "@/components/skeletons/PageSkeletons";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Tooltip,
   TooltipContent,
@@ -62,7 +75,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useConfirmDialog } from "@/components/ui/confirm-modal";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { DateRange } from "react-day-picker";
+import { format, subDays, addDays, differenceInCalendarDays } from "date-fns";
+import { getAccountRevenuePeriods } from "@/lib/resolve-all-time-revenue";
+import { getAccountViewsPeriods } from "@/lib/daily-views-breakdown";
+import { useCurrency } from "@/contexts/CurrencyContext";
+
+const MAX_CUSTOM_RANGE_DAYS = 365;
 
 const COUNTRY_MAP: Record<string, string> = {
   us: "US", "united states": "US", usa: "US", "u.s.": "US", "u.s.a.": "US", america: "US",
@@ -193,6 +229,7 @@ const ACCOUNT_SORT_OPTIONS: Array<{ key: AccountSortKey; label: string }> = [
 ];
 
 const USER_ACCOUNTS_COLUMN_RESIZE_CONFIG = {
+  select: { minWidth: 40, maxWidth: 56, defaultWidth: 44 },
   username: { minWidth: 160, maxWidth: 450, defaultWidth: 240 },
   isOnline: { minWidth: 80, maxWidth: 160, defaultWidth: 100 },
   country: { minWidth: 80, maxWidth: 180, defaultWidth: 110 },
@@ -211,17 +248,56 @@ function UserDetailPageContent() {
   const searchParams = useSearchParams();
   const userId = params?.id as string;
   const { data: session } = useSession();
+  const { confirm, confirmDialog } = useConfirmDialog();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // SaaS URL Query State Synchronization
   const { updateUrlParams } = useUrlParams();
 
-  const validTabs = ["accounts", "checklists", "profile"] as const;
+  const validTabs = ["accounts", "checklists", "requests", "profile"] as const;
   const paramTab = searchParams?.get("tab") as any;
   const initialTab = validTabs.includes(paramTab) ? paramTab : "accounts";
-  const [activeTab, setActiveTab] = useState<"accounts" | "checklists" | "profile">(initialTab);
+  const [activeTab, setActiveTab] = useState<"accounts" | "checklists" | "requests" | "profile">(initialTab);
 
-  const initialDays = Number(searchParams?.get("days")) || 28;
-  const [days, setDays] = useState(initialDays);
+  const initialFrom = searchParams?.get("from") || "";
+  const initialTo = searchParams?.get("to") || "";
+  const paramDays = searchParams?.get("days");
+  const initialIsCustom = Boolean(initialFrom && initialTo);
+  const rawInitialDays = initialIsCustom ? -1 : Number(paramDays ?? 28);
+  // Legacy days=0 (Toàn Bộ) → 365 (Studio data capped at 365 days)
+  const initialDays =
+    rawInitialDays === 0 || (!initialIsCustom && !Number.isFinite(rawInitialDays))
+      ? 365
+      : rawInitialDays;
+  const [days, setDays] = useState(initialDays); // -1 = custom
+  const [customStartDate, setCustomStartDate] = useState(initialFrom);
+  const [customEndDate, setCustomEndDate] = useState(initialTo);
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
+  const [rangeSelection, setRangeSelection] = useState<DateRange | undefined>(() => {
+    if (initialFrom && initialTo) {
+      return {
+        from: new Date(initialFrom + "T00:00:00"),
+        to: new Date(initialTo + "T00:00:00"),
+      };
+    }
+    return { from: subDays(new Date(), 27), to: new Date() };
+  });
+
+  const { formatAmount } = useCurrency();
+
+  const rangeLabelShort = useMemo(() => {
+    if (days === -1 && customStartDate && customEndDate) {
+      return `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")}–${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`;
+    }
+    return `${days}d`;
+  }, [days, customStartDate, customEndDate]);
+
+  const rangeLabelLong = useMemo(() => {
+    if (days === -1 && customStartDate && customEndDate) {
+      return `${format(new Date(customStartDate + "T00:00:00"), "dd/MM/yy")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM/yy")}`;
+    }
+    return `${days} ngày qua`;
+  }, [days, customStartDate, customEndDate]);
 
   const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
   const [accountSearch, setAccountSearch] = useState(initialSearch);
@@ -288,7 +364,9 @@ function UserDetailPageContent() {
     updateUrlParams(
       {
         tab: activeTab,
-        days: days,
+        days: days === -1 ? undefined : days,
+        from: days === -1 ? customStartDate : undefined,
+        to: days === -1 ? customEndDate : undefined,
         q: accountSearch,
         status: accountStatusFilter,
         country: accountCountryFilter,
@@ -297,6 +375,8 @@ function UserDetailPageContent() {
       },
       {
         days: 28,
+        from: "",
+        to: "",
         q: "",
         status: "ALL",
         country: "ALL",
@@ -307,12 +387,22 @@ function UserDetailPageContent() {
   }, [
     activeTab,
     days,
+    customStartDate,
+    customEndDate,
     accountSearch,
     accountStatusFilter,
     accountCountryFilter,
     sortConfig,
     updateUrlParams,
   ]);
+
+  useEffect(() => {
+    if (activeTab === "requests" && session?.user) {
+      const allowed =
+        (session.user as any).role === "ADMIN" || session.user.id === userId;
+      if (!allowed) setActiveTab("accounts");
+    }
+  }, [activeTab, session?.user, userId]);
 
   const utils = trpc.useUtils();
 
@@ -321,10 +411,45 @@ function UserDetailPageContent() {
     setTimeout(() => setToastMsg(null), 3500);
   };
 
+  const queryInput = useMemo(() => {
+    if (days === -1 && customStartDate && customEndDate) {
+      return { id: userId, startDate: customStartDate, endDate: customEndDate };
+    }
+    return { id: userId, days: days < 0 ? 28 : days };
+  }, [userId, days, customStartDate, customEndDate]);
+
   const { data: userDetail, isLoading: loading, error } = trpc.user.getById.useQuery(
-    { id: userId, days },
+    queryInput,
     { enabled: !!userId }
   );
+
+  const canViewUserRequests =
+    !!userId &&
+    ((session?.user as any)?.role === "ADMIN" || session?.user?.id === userId);
+
+  const { data: userRequests, isLoading: loadingRequests } =
+    trpc.user.listRequestsForUser.useQuery(
+      { userId },
+      { enabled: canViewUserRequests }
+    );
+
+  const deleteMachineRequestMutation = trpc.user.deleteMachineChangeRequest.useMutation({
+    onSuccess: () => {
+      showToast("Đã xóa yêu cầu đổi máy.", "success");
+      utils.user.listRequestsForUser.invalidate({ userId });
+      utils.admin.listPendingMachineChangeRequests.invalidate();
+    },
+    onError: (err) => showToast(err.message || "Lỗi xóa yêu cầu", "error"),
+  });
+
+  const deleteExtensionRequestMutation = trpc.user.deleteExtensionAccessRequest.useMutation({
+    onSuccess: () => {
+      showToast("Đã xóa yêu cầu kích hoạt Extension.", "success");
+      utils.user.listRequestsForUser.invalidate({ userId });
+      utils.admin.listPendingExtensionAccessRequests.invalidate();
+    },
+    onError: (err) => showToast(err.message || "Lỗi xóa yêu cầu", "error"),
+  });
 
   // GPM Launch mutation
   const startGpmMutation = trpc.gpm.startProfile.useMutation({
@@ -352,6 +477,56 @@ function UserDetailPageContent() {
     onError: (err) => showToast(err.message || "Lỗi đổi trạng thái", "error"),
   });
 
+  const deleteUserMutation = trpc.admin.deleteUser.useMutation({
+    onSuccess: () => {
+      showToast("Đã xóa nhân sự!", "success");
+      router.push("/users");
+    },
+    onError: (err) => showToast(err.message || "Lỗi xóa nhân sự", "error"),
+  });
+
+  const unlinkMachineMutation = trpc.admin.unlinkUserMachine.useMutation({
+    onSuccess: () => {
+      showToast("Đã hủy liên kết máy tính!", "success");
+      utils.user.getById.invalidate({ id: userId });
+      utils.admin.listUsers.invalidate();
+    },
+    onError: (err) => showToast(err.message || "Lỗi hủy liên kết máy", "error"),
+  });
+
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const [editRole, setEditRole] = useState<"ADMIN" | "LEAD" | "STAFF">("STAFF");
+  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  const [isTokenRevealed, setIsTokenRevealed] = useState(false);
+  const [copiedExtensionToken, setCopiedExtensionToken] = useState(false);
+
+  const {
+    data: tokenData,
+    isLoading: tokenLoading,
+    refetch: refetchToken,
+  } = trpc.admin.getExtensionToken.useQuery(
+    { userId },
+    { enabled: isTokenModalOpen && !!userId }
+  );
+
+  const regenerateTokenMutation = trpc.admin.regenerateExtensionToken.useMutation({
+    onSuccess: () => {
+      showToast("Đã cấp Token mới!", "success");
+      refetchToken();
+      setIsTokenRevealed(true);
+    },
+    onError: (err) => showToast(err.message || "Lỗi cấp lại Token", "error"),
+  });
+
+  const revokeTokenMutation = trpc.admin.revokeExtensionToken.useMutation({
+    onSuccess: () => {
+      showToast("Đã vô hiệu hóa Extension Token!", "success");
+      refetchToken();
+      setIsTokenRevealed(false);
+    },
+    onError: (err) => showToast(err.message || "Lỗi vô hiệu hóa Token", "error"),
+  });
+
   // Sync account mutation
   const syncMutation = trpc.accounts.syncAccount.useMutation({
     onSuccess: (data) => {
@@ -360,6 +535,32 @@ function UserDetailPageContent() {
     },
     onError: (err) => showToast(err.message || "Lỗi đồng bộ tài khoản", "error"),
   });
+
+  const stopSyncMutation = trpc.accounts.stopSyncAccount.useMutation({
+    onSuccess: () => showToast("Đã dừng đồng bộ!", "info"),
+    onError: (err) => showToast(err.message || "Lỗi dừng đồng bộ", "error"),
+  });
+
+  const bulkDeleteMutation = trpc.accounts.bulkDelete.useMutation({
+    onSuccess: () => {
+      showToast("Đã xóa các tài khoản đã chọn!", "success");
+      setSelectedIds(new Set());
+      utils.user.getById.invalidate({ id: userId });
+    },
+    onError: (err) => showToast(err.message || "Lỗi xóa hàng loạt", "error"),
+  });
+
+  const bulkUpdateStatusMutation = trpc.accounts.bulkUpdateStatus.useMutation({
+    onSuccess: () => {
+      showToast("Đã cập nhật trạng thái!", "success");
+      setSelectedIds(new Set());
+      utils.user.getById.invalidate({ id: userId });
+    },
+    onError: (err) => showToast(err.message || "Lỗi đổi trạng thái", "error"),
+  });
+
+  const [isBulkStatusOpen, setIsBulkStatusOpen] = useState(false);
+  const [bulkStatusVal, setBulkStatusVal] = useState("ACTIVE");
 
   // Country badge helper
   const getCountryBadge = (country?: string) => {
@@ -493,8 +694,8 @@ function UserDetailPageContent() {
       let bVal = b[sortConfig.key];
 
       if (sortConfig.key === "totalRevenue") {
-        aVal = Number(a.analytics?.totalRevenue ?? a.totalRevenue ?? 0);
-        bVal = Number(b.analytics?.totalRevenue ?? b.totalRevenue ?? 0);
+        aVal = Number(a.displayRevenue ?? a.analytics?.totalRevenue ?? a.totalRevenue ?? 0);
+        bVal = Number(b.displayRevenue ?? b.analytics?.totalRevenue ?? b.totalRevenue ?? 0);
       } else if (
         sortConfig.key === "totalViews" ||
         sortConfig.key === "totalFollowers" ||
@@ -530,6 +731,38 @@ function UserDetailPageContent() {
     sortConfig,
   ]);
 
+  const isAllPageSelected =
+    filteredAccounts.length > 0 &&
+    filteredAccounts.every((acc: any) => selectedIds.has(acc.id));
+
+  const toggleSelectAll = (checked: boolean) => {
+    const next = new Set(selectedIds);
+    if (checked) {
+      filteredAccounts.forEach((acc: any) => next.add(acc.id));
+    } else {
+      filteredAccounts.forEach((acc: any) => next.delete(acc.id));
+    }
+    setSelectedIds(next);
+  };
+
+  const toggleSelectRow = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const handleBulkSync = async () => {
+    const ids = Array.from(selectedIds);
+    for (const accountId of ids) {
+      try {
+        await syncMutation.mutateAsync({ accountId });
+      } catch {
+        // continue remaining
+      }
+    }
+  };
+
   if (loading) {
     return <UserDetailSkeleton />;
   }
@@ -556,6 +789,8 @@ function UserDetailPageContent() {
 
   const { user, stats, dailyChecklists } = userDetail;
   const isAdmin = (session?.user as any)?.role === "ADMIN";
+  const isLeadOrAdmin =
+    (session?.user as any)?.role === "ADMIN" || (session?.user as any)?.role === "LEAD";
 
   return (
     <div className="space-y-6 animate-fadeIn pb-16">
@@ -656,58 +891,132 @@ function UserDetailPageContent() {
               </TooltipContent>
             </Tooltip>
 
-            {/* Admin Role Change / Toggle Status */}
-            {isAdmin && session?.user?.id !== user.id && (
-              <>
-                <Select
-                  value={user.role}
-                  onValueChange={(val: any) => updateRoleMutation.mutate({ userId: user.id, role: val })}
-                >
-                  <SelectTrigger className="h-9 w-36 text-xs font-semibold rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 cursor-pointer">
-                    <SelectValue placeholder="Đổi vai trò" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    <SelectItem value="STAFF">Nhân Viên (Staff)</SelectItem>
-                    <SelectItem value="LEAD">Trưởng Nhóm (Lead)</SelectItem>
-                    <SelectItem value="ADMIN">Quản Trị Viên (Admin)</SelectItem>
-                  </SelectContent>
-                </Select>
-
+            {/* Admin actions — same as users card (without Xem chi tiết) */}
+            {isAdmin && (
+              <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button
-                      onClick={() => {
-                        const confirmMsg = user.isActive
-                          ? `Xác nhận CHẶN QUYỀN TRUY CẬP của nhân sự ${user.fullName || user.username}?\n\nNhân sự này sẽ bị ngắt phiên làm việc và không thể đăng nhập vào hệ thống!`
-                          : `Xác nhận MỞ LẠI QUYỀN TRUY CẬP cho nhân sự ${user.fullName || user.username}?`;
-                        if (confirm(confirmMsg)) {
-                          toggleStatusMutation.mutate({ userId: user.id, isActive: !user.isActive });
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="h-9 w-9 flex items-center justify-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shadow-xs"
+                        aria-label="Thao tác"
+                      >
+                        <MoreHorizontal className="w-4 h-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Tùy chọn thao tác</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-1"
+                >
+                  <DropdownMenuItem
+                    disabled={session?.user?.id === user.id}
+                    onClick={() => {
+                      setEditRole(user.role as "ADMIN" | "LEAD" | "STAFF");
+                      setIsRoleModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Đổi vai trò</span>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setIsTokenRevealed(false);
+                      setCopiedExtensionToken(false);
+                      setIsTokenModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
+                  >
+                    <Key className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Quản lý Extension Token</span>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    disabled={session?.user?.id === user.id}
+                    onClick={async () => {
+                      const ok = await confirm({
+                        title: user.isActive ? "Chặn quyền truy cập" : "Mở lại quyền truy cập",
+                        description: user.isActive
+                          ? `Xác nhận CHẶN QUYỀN TRUY CẬP của nhân sự ${user.fullName || user.username}? Nhân sự này sẽ bị ngắt phiên làm việc và không thể đăng nhập vào hệ thống!`
+                          : `Xác nhận MỞ LẠI QUYỀN TRUY CẬP cho nhân sự ${user.fullName || user.username}?`,
+                        confirmLabel: user.isActive ? "Xác nhận chặn" : "Xác nhận mở khóa",
+                        variant: user.isActive ? "danger" : "amber",
+                        icon: user.isActive ? "ban" : "check",
+                      });
+                      if (ok) {
+                        toggleStatusMutation.mutate({ userId: user.id, isActive: !user.isActive });
+                      }
+                    }}
+                    className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-normal ${
+                      session?.user?.id === user.id
+                        ? "opacity-50 cursor-not-allowed text-slate-400"
+                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    {user.isActive ? (
+                      <>
+                        <Ban className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Chặn quyền truy cập</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Mở chặn quyền truy cập</span>
+                      </>
+                    )}
+                  </DropdownMenuItem>
+
+                  {user.boundMachineId && (
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: "Hủy liên kết máy tính",
+                          description: `Hủy liên kết máy "${user.boundMachineName || user.boundMachineId}" cho user này?`,
+                          confirmLabel: "Xác nhận hủy liên kết",
+                          variant: "warning",
+                          icon: "unlink",
+                        });
+                        if (ok) {
+                          unlinkMachineMutation.mutate({
+                            userId: user.id,
+                            reason: "admin_unlink_ui",
+                          });
                         }
                       }}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border active:scale-95 whitespace-nowrap ${
-                        user.isActive
-                          ? "bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900"
-                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900"
-                      }`}
+                      className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-normal"
                     >
-                      {user.isActive ? (
-                        <>
-                          <Ban className="w-3.5 h-3.5 text-rose-500" />
-                          <span>Chặn quyền truy cập</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                          <span>Mở chặn quyền truy cập</span>
-                        </>
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs font-semibold">
-                    {user.isActive ? "Tạm ngừng quyền truy cập tài khoản này" : "Khôi phục quyền truy cập cho nhân sự"}
-                  </TooltipContent>
-                </Tooltip>
-              </>
+                      <MonitorX className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Hủy Liên Kết Máy Tính</span>
+                    </DropdownMenuItem>
+                  )}
+
+                  <DropdownMenuSeparator className="my-1 border-slate-100 dark:border-slate-800" />
+
+                  <DropdownMenuItem
+                    disabled={session?.user?.id === user.id}
+                    onClick={async () => {
+                      const ok = await confirm({
+                        title: "Xác nhận xóa nhân sự",
+                        description: `Xóa nhân sự ${user.fullName || user.username}? Các tài khoản TikTok đang phụ trách sẽ về trạng thái Chưa phân công.`,
+                        confirmLabel: "Xác nhận xóa",
+                        variant: "danger",
+                      });
+                      if (ok) {
+                        deleteUserMutation.mutate({ userId: user.id });
+                      }
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg cursor-pointer font-normal"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                    <span>Xóa nhân sự</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
         </div>
@@ -739,6 +1048,25 @@ function UserDetailPageContent() {
               <span>Lịch Sử Chấm Công ({dailyChecklists.length})</span>
             </button>
 
+            {canViewUserRequests && (
+              <button
+                onClick={() => setActiveTab("requests")}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === "requests"
+                    ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                }`}
+              >
+                <Inbox className="w-3.5 h-3.5 text-amber-500" />
+                <span>
+                  Yêu cầu (
+                  {(userRequests?.machineChangeRequests?.length || 0) +
+                    (userRequests?.extensionAccessRequests?.length || 0)}
+                  )
+                </span>
+              </button>
+            )}
+
             <button
               onClick={() => setActiveTab("profile")}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
@@ -753,13 +1081,13 @@ function UserDetailPageContent() {
           </div>
 
           {/* Time Range Filter Chips */}
+          {activeTab !== "requests" && (
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 self-start sm:self-auto overflow-x-auto">
             {[
               { value: 7, label: "7 Ngày" },
               { value: 28, label: "28 Ngày" },
               { value: 60, label: "60 Ngày" },
               { value: 365, label: "365 Ngày" },
-              { value: 0, label: "Toàn Bộ" },
             ].map((p) => (
               <button
                 key={p.value}
@@ -773,11 +1101,149 @@ function UserDetailPageContent() {
                 {p.label}
               </button>
             ))}
+
+            <Popover open={isRangePickerOpen} onOpenChange={setIsRangePickerOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                    days === -1
+                      ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>
+                    {days === -1 && customStartDate && customEndDate
+                      ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
+                      : "Tùy chọn"}
+                  </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="bottom"
+                sideOffset={6}
+                align="end"
+                avoidCollisions={false}
+                className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
+              >
+                <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                      Chọn thời gian
+                    </span>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Trong vòng {MAX_CUSTOM_RANGE_DAYS} ngày gần nhất
+                    </p>
+                  </div>
+                  {rangeSelection?.from && (
+                    <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
+                      {format(rangeSelection.from, "dd/MM/yy")} -{" "}
+                      {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
+                    </span>
+                  )}
+                </div>
+
+                <div className="w-full py-0.5">
+                  <CalendarPicker
+                    mode="range"
+                    selected={rangeSelection}
+                    onSelect={(range) => {
+                      if (!range?.from) {
+                        setRangeSelection(range);
+                        return;
+                      }
+                      const minDate = subDays(new Date(), MAX_CUSTOM_RANGE_DAYS);
+                      let from = range.from < minDate ? minDate : range.from;
+                      if (!range.to) {
+                        setRangeSelection({ from, to: undefined });
+                        return;
+                      }
+                      let to = range.to > new Date() ? new Date() : range.to;
+                      if (to < minDate) to = minDate;
+                      const span = Math.abs(differenceInCalendarDays(to, from));
+                      if (span > MAX_CUSTOM_RANGE_DAYS) {
+                        const fromFirst = from.getTime() <= to.getTime() ? from : to;
+                        setRangeSelection({
+                          from: fromFirst,
+                          to: addDays(fromFirst, MAX_CUSTOM_RANGE_DAYS),
+                        });
+                        return;
+                      }
+                      setRangeSelection(
+                        from.getTime() <= to.getTime() ? { from, to } : { from: to, to: from }
+                      );
+                    }}
+                    disabled={(date) => {
+                      const today = new Date();
+                      const minDate = subDays(today, MAX_CUSTOM_RANGE_DAYS);
+                      if (date > today || date < minDate) return true;
+                      if (!rangeSelection?.from || rangeSelection.to) return false;
+                      const from = rangeSelection.from;
+                      return (
+                        differenceInCalendarDays(date, from) > MAX_CUSTOM_RANGE_DAYS ||
+                        differenceInCalendarDays(from, date) > MAX_CUSTOM_RANGE_DAYS
+                      );
+                    }}
+                    numberOfMonths={1}
+                    className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                    classNames={{
+                      root: "w-full",
+                      months: "relative flex flex-col w-full",
+                      month: "w-full flex flex-col gap-1.5",
+                      weekdays: "flex w-full justify-between",
+                      week: "flex w-full mt-1 justify-between",
+                    }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsRangePickerOpen(false)}
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!rangeSelection?.from}
+                    onClick={() => {
+                      if (rangeSelection?.from) {
+                        let from = rangeSelection.from;
+                        let to = rangeSelection.to || from;
+                        if (to.getTime() < from.getTime()) {
+                          const tmp = from;
+                          from = to;
+                          to = tmp;
+                        }
+                        const minDate = subDays(new Date(), MAX_CUSTOM_RANGE_DAYS);
+                        if (from < minDate) from = minDate;
+                        if (to > new Date()) to = new Date();
+                        if (differenceInCalendarDays(to, from) > MAX_CUSTOM_RANGE_DAYS) {
+                          to = addDays(from, MAX_CUSTOM_RANGE_DAYS);
+                        }
+                        setCustomStartDate(format(from, "yyyy-MM-dd"));
+                        setCustomEndDate(format(to, "yyyy-MM-dd"));
+                        setRangeSelection({ from, to });
+                        setDays(-1);
+                      }
+                      setIsRangePickerOpen(false);
+                    }}
+                    className="px-4 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow-sm cursor-pointer transition-all disabled:opacity-50"
+                  >
+                    Áp dụng
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
+          )}
         </div>
       </div>
 
       {/* Top 6 KPI Cards Overview */}
+      {activeTab !== "requests" && (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
         {/* Total Assigned Accounts */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
@@ -796,8 +1262,8 @@ function UserDetailPageContent() {
         {/* Total Views across fleet */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Views (${days === 0 ? "Toàn bộ" : `${days}d`})`}>
-              Views ({days === 0 ? "Toàn bộ" : `${days}d`})
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Views (${rangeLabelShort})`}>
+              Views ({rangeLabelShort})
             </span>
             <Eye className="w-4 h-4 text-cyan-500 shrink-0" />
           </div>
@@ -805,7 +1271,7 @@ function UserDetailPageContent() {
             {Number(stats.totalViews).toLocaleString()}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-            <span className="truncate">{days === 0 ? "Toàn thời gian (Studio)" : `Dàn kênh ${days} ngày qua`}</span>
+            <span className="truncate">Dàn kênh {rangeLabelLong}</span>
           </div>
         </div>
 
@@ -826,8 +1292,8 @@ function UserDetailPageContent() {
         {/* Total Revenue */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Doanh Thu (${days === 0 ? "Toàn bộ" : `${days}d`})`}>
-              Doanh Thu ({days === 0 ? "Toàn bộ" : `${days}d`})
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Doanh Thu (${rangeLabelShort})`}>
+              Doanh Thu ({rangeLabelShort})
             </span>
             <DollarSign className="w-4 h-4 text-emerald-500 shrink-0" />
           </div>
@@ -835,15 +1301,15 @@ function UserDetailPageContent() {
             ${Number(stats.totalRevenue).toFixed(2)}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-            <span className="truncate">{days === 0 ? "Creator Rewards (Lũy kế)" : `Thu nhập ${days} ngày qua`}</span>
+            <span className="truncate">Thu nhập {rangeLabelLong}</span>
           </div>
         </div>
 
         {/* Workday Score */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Ngày Công (${days === 0 ? "Toàn bộ" : `${days}d`})`}>
-              Ngày Công ({days === 0 ? "Toàn bộ" : `${days}d`})
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Ngày Công (${rangeLabelShort})`}>
+              Ngày Công ({rangeLabelShort})
             </span>
             <Calendar className="w-4 h-4 text-amber-500 shrink-0" />
           </div>
@@ -858,8 +1324,8 @@ function UserDetailPageContent() {
         {/* Average Completion Rate */}
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`KPI TB (${days === 0 ? "Toàn bộ" : `${days}d`})`}>
-              KPI TB ({days === 0 ? "Toàn bộ" : `${days}d`})
+            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`KPI TB (${rangeLabelShort})`}>
+              KPI TB ({rangeLabelShort})
             </span>
             <TrendingUp className="w-4 h-4 text-indigo-500 shrink-0" />
           </div>
@@ -871,6 +1337,7 @@ function UserDetailPageContent() {
           </div>
         </div>
       </div>
+      )}
 
       {/* TAB 1: Assigned Accounts */}
       {activeTab === "accounts" && (
@@ -1146,10 +1613,17 @@ function UserDetailPageContent() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 normal-case">
                     <tr>
+                      <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs">
+                        <Checkbox
+                          checked={isAllPageSelected}
+                          onCheckedChange={(val) => toggleSelectAll(!!val)}
+                          aria-label="Chọn tất cả"
+                        />
+                      </th>
                       <th
                         style={getColumnStyle("username")}
                         onClick={() => handleAccountSort("username")}
-                        className="relative group/th py-3.5 px-4 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                        className="relative group/th py-3.5 px-4 sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
                       >
                         <div className="flex items-center gap-1.5 truncate">
                           <span className="truncate">Tài khoản TikTok & GPM</span>
@@ -1255,15 +1729,27 @@ function UserDetailPageContent() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {filteredAccounts.map((acc: any) => (
+                    {filteredAccounts.map((acc: any) => {
+                      const isSelected = selectedIds.has(acc.id);
+                      const rowBg = isSelected
+                        ? "bg-pink-50/40 dark:bg-pink-950/20"
+                        : "bg-white dark:bg-slate-900";
+                      return (
                       <tr
                         key={acc.id}
-                        className="group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                        className={`group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""}`}
                       >
+                        <td className={`py-3.5 px-4 sticky left-0 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 transition-colors`}>
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleSelectRow(acc.id)}
+                            aria-label={`Chọn @${acc.username}`}
+                          />
+                        </td>
                         {/* Username & GPM Profile - Sticky Left */}
                         <td
                           style={getColumnStyle("username")}
-                          className="py-3.5 px-4 sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] transition-colors"
+                          className={`py-3.5 px-4 sticky left-10 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] transition-colors`}
                         >
                           <div>
                             <Link
@@ -1303,7 +1789,46 @@ function UserDetailPageContent() {
 
                         {/* Views */}
                         <td style={getColumnStyle("totalViews")} className="py-3.5 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                          {Number(acc.totalViews || 0).toLocaleString()}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help border-b border-dotted border-slate-400/50">
+                                {Number(acc.totalViews || 0).toLocaleString()}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
+                              {(() => {
+                                const p = getAccountViewsPeriods(acc as any);
+                                return (
+                                  <>
+                                    <div className="font-bold text-cyan-400 border-b border-slate-700 pb-1 flex items-center gap-1">
+                                      <Eye className="w-3 h-3" />
+                                      <span>Lượt Xem TikTok Studio</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">7 ngày:</span>
+                                      <span className="font-semibold text-cyan-300">{p.views7d.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">28 ngày:</span>
+                                      <span className="font-semibold text-purple-300">{p.views28d.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">60 ngày:</span>
+                                      <span className="font-semibold text-indigo-300">{p.views60d.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">365 ngày:</span>
+                                      <span className="font-semibold text-amber-300">{p.views365d.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
+                                      <span className="text-slate-300">Toàn bộ:</span>
+                                      <span className="text-cyan-300">{p.totalViews.toLocaleString()}</span>
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                            </TooltipContent>
+                          </Tooltip>
                         </td>
 
                         {/* Followers */}
@@ -1318,7 +1843,58 @@ function UserDetailPageContent() {
 
                         {/* Revenue */}
                         <td style={getColumnStyle("totalRevenue")} className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                          ${Number(acc.totalRevenue || 0).toFixed(2)}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help border-b border-dotted border-emerald-500/40">
+                                {formatAmount(
+                                  Number(acc.displayRevenue ?? acc.totalRevenue ?? 0),
+                                  (acc as any).country
+                                )}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
+                              {(() => {
+                                const p = getAccountRevenuePeriods(acc as any);
+                                return (
+                                  <>
+                                    <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1">
+                                      Doanh Thu TikTok Studio
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">7 ngày:</span>
+                                      <span className="font-semibold text-cyan-300">
+                                        {formatAmount(p.revenue7d, (acc as any).country)}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">28 ngày:</span>
+                                      <span className="font-semibold text-purple-300">
+                                        {formatAmount(p.revenue28d, (acc as any).country)}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">60 ngày:</span>
+                                      <span className="font-semibold text-indigo-300">
+                                        {formatAmount(p.revenue60d, (acc as any).country)}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">365 ngày:</span>
+                                      <span className="font-semibold text-amber-300">
+                                        {formatAmount(p.revenue365d, (acc as any).country)}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
+                                      <span className="text-slate-300">Toàn bộ:</span>
+                                      <span className="text-emerald-400">
+                                        {formatAmount(p.totalRevenue, (acc as any).country)}
+                                      </span>
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                            </TooltipContent>
+                          </Tooltip>
                         </td>
 
                         {/* Last Synced */}
@@ -1336,61 +1912,102 @@ function UserDetailPageContent() {
                         {/* Action Buttons - Sticky Right */}
                         <td
                           style={getColumnStyle("actions")}
-                          className="py-3.5 px-4 text-center sticky right-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap transition-colors"
+                          className={`py-3.5 px-4 text-center sticky right-0 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap transition-colors`}
                         >
-                          <div className="flex items-center justify-center gap-1.5">
-                            {/* Sync Button */}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  onClick={() => syncMutation.mutate({ accountId: acc.id })}
-                                  disabled={syncMutation.isPending}
-                                  className="p-1.5 rounded-lg text-slate-500 hover:text-pink-600 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer"
-                                >
-                                  <RefreshCw className={`w-3.5 h-3.5 ${syncMutation.isPending ? "animate-spin text-pink-600" : ""}`} />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                Đồng bộ TikTok Studio
-                              </TooltipContent>
-                            </Tooltip>
-
-                            {/* Launch GPM */}
-                            {acc.gpmProfileId && (
+                          <div className="flex items-center justify-center">
+                            <DropdownMenu>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <button
+                                  <DropdownMenuTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                      aria-label="Thao tác"
+                                    >
+                                      <MoreHorizontal className="w-4 h-4" />
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">Tùy chọn thao tác</TooltipContent>
+                              </Tooltip>
+                              <DropdownMenuContent
+                                align="end"
+                                className="w-48 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl"
+                              >
+                                <DropdownMenuItem asChild>
+                                  <Link
+                                    href={`/accounts/${acc.id}`}
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Xem chi tiết</span>
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => syncMutation.mutate({ accountId: acc.id })}
+                                  disabled={syncMutation.isPending}
+                                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                >
+                                  <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin text-pink-500" : ""}`} />
+                                  <span>{syncMutation.isPending ? "Đang đồng bộ..." : "Đồng bộ số liệu"}</span>
+                                </DropdownMenuItem>
+                                {syncMutation.isPending && (
+                                  <DropdownMenuItem
+                                    onClick={() => stopSyncMutation.mutate({ accountId: acc.id })}
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                  >
+                                    <Square className="w-3.5 h-3.5 fill-current text-rose-500" />
+                                    <span>Dừng đồng bộ</span>
+                                  </DropdownMenuItem>
+                                )}
+                                {acc.gpmProfileId && (
+                                  <DropdownMenuItem
                                     onClick={() => startGpmMutation.mutate({ gpmProfileId: acc.gpmProfileId })}
                                     disabled={startGpmMutation.isPending}
-                                    className="p-1.5 rounded-lg text-slate-500 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 transition-colors cursor-pointer"
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                   >
-                                    <Play className="w-3.5 h-3.5 fill-current" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="text-xs">
-                                  Mở trình duyệt GPM
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-
-                            {/* View Account Detail */}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Link
-                                  href={`/accounts/${acc.id}`}
-                                  className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                >
-                                  <Eye className="w-3.5 h-3.5" />
-                                </Link>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                Xem chi tiết tài khoản
-                              </TooltipContent>
-                            </Tooltip>
+                                    <Play className="w-3.5 h-3.5 text-cyan-500 fill-current" />
+                                    <span>Mở Profile GPM</span>
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem asChild>
+                                  <Link
+                                    href={`/accounts/${acc.id}?tab=logs`}
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                  >
+                                    <History className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Lịch sử hoạt động</span>
+                                  </Link>
+                                </DropdownMenuItem>
+                                {isLeadOrAdmin && (
+                                  <>
+                                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                    <DropdownMenuItem
+                                      onClick={async () => {
+                                        const ok = await confirm({
+                                          title: "Xác nhận xóa tài khoản",
+                                          description: `Bạn có chắc chắn muốn xóa @${acc.username}?`,
+                                          confirmLabel: "Xác nhận xóa",
+                                          variant: "danger",
+                                        });
+                                        if (ok) {
+                                          bulkDeleteMutation.mutate({ ids: [acc.id] });
+                                        }
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                      <span>Xóa tài khoản</span>
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1538,6 +2155,237 @@ function UserDetailPageContent() {
         </div>
       )}
 
+      {/* TAB: Yêu cầu (machine change + extension access) */}
+      {activeTab === "requests" && canViewUserRequests && (
+        <div className="space-y-4">
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Inbox className="w-4 h-4 text-amber-500" />
+              Danh sách yêu cầu
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Đổi máy tính và kích hoạt Extension của {user.fullName}
+            </p>
+          </div>
+
+          {loadingRequests ? (
+            <DataTableSkeleton columns={3} rows={3} />
+          ) : (() => {
+            const machineItems = (userRequests?.machineChangeRequests || []).map((req: any) => ({
+              kind: "MACHINE_CHANGE" as const,
+              id: req.id,
+              createdAt: req.createdAt,
+              raw: req,
+            }));
+            const extensionItems = (userRequests?.extensionAccessRequests || []).map((req: any) => ({
+              kind: "EXTENSION_ACCESS" as const,
+              id: req.id,
+              createdAt: req.createdAt,
+              raw: req,
+            }));
+            const all = [...machineItems, ...extensionItems].sort(
+              (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+            );
+            const canDelete =
+              isAdmin || session?.user?.id === userId;
+
+            if (all.length === 0) {
+              return (
+                <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center space-y-3">
+                  <Inbox className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
+                  <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                    Không có yêu cầu nào
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Nhân sự này chưa gửi yêu cầu đổi máy hoặc kích hoạt Extension.
+                  </p>
+                </div>
+              );
+            }
+
+            const statusBadge = (status: string) => {
+              if (status === "APPROVED") {
+                return (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                    Đã duyệt
+                  </span>
+                );
+              }
+              if (status === "REJECTED") {
+                return (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                    Từ chối
+                  </span>
+                );
+              }
+              return (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50">
+                  Đang chờ
+                </span>
+              );
+            };
+
+            return (
+              <div className="space-y-2.5">
+                {all.map((item) => {
+                  if (item.kind === "MACHINE_CHANGE") {
+                    const req = item.raw;
+                    return (
+                      <div
+                        key={`m-${req.id}`}
+                        className="rounded-2xl border border-amber-200/80 dark:border-amber-900/40 bg-white dark:bg-slate-900/80 px-4 py-3.5 shadow-sm space-y-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                              <Monitor className="w-4.5 h-4.5" />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50">
+                                Đổi máy
+                              </span>
+                              {statusBadge(req.status)}
+                            </div>
+                          </div>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              disabled={deleteMachineRequestMutation.isPending}
+                              onClick={async () => {
+                                const ok = await confirm({
+                                  title: "Xóa yêu cầu đổi máy",
+                                  description: "Xóa yêu cầu này khỏi danh sách?",
+                                  confirmLabel: "Xóa yêu cầu",
+                                  variant: "danger",
+                                });
+                                if (ok) deleteMachineRequestMutation.mutate({ requestId: req.id });
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer shrink-0"
+                              aria-label="Xóa yêu cầu"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {user.avatar ? (
+                              <img
+                                src={user.avatar}
+                                alt={user.fullName}
+                                className="w-6 h-6 rounded-full object-cover shrink-0"
+                              />
+                            ) : (
+                              <span className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center shrink-0 uppercase select-none">
+                                {(user.fullName || "U").slice(0, 2)}
+                              </span>
+                            )}
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                {user.fullName}
+                              </div>
+                              {user.email && (
+                                <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                  {user.email}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                            {req.fromMachineName || req.fromMachineId}
+                            {req.fromOsUsername ? ` · ${req.fromOsUsername}` : ""}
+                          </div>
+                          <div className="text-xs text-slate-600 dark:text-slate-300">{req.reason}</div>
+                          {req.createdAt && (
+                            <div className="text-[10px] text-slate-400">
+                              {new Date(req.createdAt).toLocaleString("vi-VN")}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const req = item.raw;
+                  return (
+                    <div
+                      key={`e-${req.id}`}
+                      className="rounded-2xl border border-rose-200/80 dark:border-rose-900/40 bg-white dark:bg-slate-900/80 px-4 py-3.5 shadow-sm space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                            <KeyRound className="w-4.5 h-4.5" />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50">
+                              Kích hoạt Extension
+                            </span>
+                            {statusBadge(req.status)}
+                          </div>
+                        </div>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            disabled={deleteExtensionRequestMutation.isPending}
+                            onClick={async () => {
+                              const ok = await confirm({
+                                title: "Xóa yêu cầu kích hoạt",
+                                description: "Xóa yêu cầu này khỏi danh sách?",
+                                confirmLabel: "Xóa yêu cầu",
+                                variant: "danger",
+                              });
+                              if (ok) deleteExtensionRequestMutation.mutate({ requestId: req.id });
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer shrink-0"
+                            aria-label="Xóa yêu cầu"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {user.avatar ? (
+                            <img
+                              src={user.avatar}
+                              alt={user.fullName}
+                              className="w-6 h-6 rounded-full object-cover shrink-0"
+                            />
+                          ) : (
+                            <span className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center shrink-0 uppercase select-none">
+                              {(user.fullName || "U").slice(0, 2)}
+                            </span>
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                              {user.fullName}
+                            </div>
+                            {user.email && (
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                {user.email}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-600 dark:text-slate-300">
+                          {req.reason || "Cần Admin mở khóa & cấp lại Personal Token."}
+                        </div>
+                        {req.createdAt && (
+                          <div className="text-[10px] text-slate-400">
+                            {new Date(req.createdAt).toLocaleString("vi-VN")}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* TAB 3: Profile Details & System Roles */}
       {activeTab === "profile" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1604,6 +2452,261 @@ function UserDetailPageContent() {
           </div>
         </div>
       )}
+
+      {/* Floating Bottom Bulk Action Bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-5 py-3 shadow-2xl shadow-slate-900/10 dark:shadow-black/60 ring-1 ring-slate-100 dark:ring-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-200">
+          <span className="text-xs font-bold text-slate-900 dark:text-white whitespace-nowrap">
+            Đã chọn {selectedIds.size} tài khoản
+          </span>
+          <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block" />
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+          >
+            Bỏ chọn
+          </button>
+          <button
+            type="button"
+            onClick={handleBulkSync}
+            disabled={syncMutation.isPending}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+            <span>Đồng bộ</span>
+          </button>
+          {isLeadOrAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsBulkStatusOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
+            >
+              <span>Đổi trạng thái</span>
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Xóa hàng loạt",
+                  description: `Xóa ${selectedIds.size} tài khoản đã chọn? Thao tác không thể hoàn tác.`,
+                  confirmLabel: `Xác nhận xóa (${selectedIds.size})`,
+                  variant: "danger",
+                });
+                if (ok) {
+                  bulkDeleteMutation.mutate({ ids: Array.from(selectedIds) });
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Xóa đã chọn ({selectedIds.size})</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Bulk status dialog */}
+      <Dialog open={isBulkStatusOpen} onOpenChange={setIsBulkStatusOpen}>
+        <DialogContent className="sm:max-w-sm rounded-3xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">Đổi trạng thái hàng loạt</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-slate-500">Áp dụng cho {selectedIds.size} tài khoản đã chọn.</p>
+            <Select value={bulkStatusVal} onValueChange={setBulkStatusVal}>
+              <SelectTrigger className="w-full h-10 rounded-xl text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="ACTIVE" className="text-xs cursor-pointer">Hoạt động</SelectItem>
+                <SelectItem value="WARMING" className="text-xs cursor-pointer">Nuôi nick</SelectItem>
+                <SelectItem value="RESTRICTED" className="text-xs cursor-pointer">Hạn chế</SelectItem>
+                <SelectItem value="BANNED" className="text-xs cursor-pointer">Banned</SelectItem>
+                <SelectItem value="STOPPED" className="text-xs cursor-pointer">Ngừng</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setIsBulkStatusOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-slate-600 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              disabled={bulkUpdateStatusMutation.isPending}
+              onClick={() =>
+                bulkUpdateStatusMutation.mutate(
+                  { ids: Array.from(selectedIds), status: bulkStatusVal as any },
+                  { onSuccess: () => setIsBulkStatusOpen(false) }
+                )
+              }
+              className="px-4 py-2 text-xs font-bold bg-pink-600 text-white rounded-xl hover:bg-pink-500 disabled:opacity-50 cursor-pointer"
+            >
+              {bulkUpdateStatusMutation.isPending ? "Đang cập nhật..." : "Áp dụng"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {confirmDialog}
+
+      {/* Role change dialog */}
+      <Dialog open={isRoleModalOpen} onOpenChange={setIsRoleModalOpen}>
+        <DialogContent className="sm:max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
+              Đổi vai trò
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {userDetail?.user?.fullName || userDetail?.user?.username}
+            </p>
+            <Select value={editRole} onValueChange={(v: any) => setEditRole(v)}>
+              <SelectTrigger className="w-full h-9 text-xs rounded-xl cursor-pointer">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="STAFF" className="text-xs cursor-pointer">Nhân Viên (Staff)</SelectItem>
+                <SelectItem value="LEAD" className="text-xs cursor-pointer">Trưởng Nhóm (Lead)</SelectItem>
+                <SelectItem value="ADMIN" className="text-xs cursor-pointer">Quản Trị Viên (Admin)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter className="gap-2">
+            <button
+              type="button"
+              onClick={() => setIsRoleModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              disabled={updateRoleMutation.isPending}
+              onClick={() => {
+                updateRoleMutation.mutate(
+                  { userId, role: editRole },
+                  { onSuccess: () => setIsRoleModalOpen(false) }
+                );
+              }}
+              className="px-4 py-2 text-xs font-bold rounded-xl bg-pink-600 hover:bg-pink-500 text-white cursor-pointer disabled:opacity-50"
+            >
+              {updateRoleMutation.isPending ? "Đang lưu..." : "Lưu"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Extension token modal */}
+      <Dialog open={isTokenModalOpen} onOpenChange={setIsTokenModalOpen}>
+        <DialogContent className="sm:max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Key className="w-4 h-4 text-amber-500" />
+              Quản Lý Extension Token
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {userDetail?.user?.fullName || userDetail?.user?.username} ({userDetail?.user?.email})
+            </p>
+            <div className="relative flex items-center">
+              <input
+                type={isTokenRevealed ? "text" : "password"}
+                readOnly
+                value={tokenLoading ? "Đang tải..." : tokenData?.token || ""}
+                placeholder={tokenData?.accessEnabled === false ? "Quyền đã bị khóa" : "Chưa có token"}
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-mono pr-20"
+              />
+              <div className="absolute right-2 flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={!tokenData?.token}
+                  onClick={() => setIsTokenRevealed(!isTokenRevealed)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer disabled:opacity-40"
+                >
+                  {isTokenRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  disabled={!tokenData?.token}
+                  onClick={() => {
+                    if (tokenData?.token) {
+                      navigator.clipboard.writeText(tokenData.token);
+                      setCopiedExtensionToken(true);
+                      setTimeout(() => setCopiedExtensionToken(false), 2000);
+                    }
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer disabled:opacity-40"
+                >
+                  {copiedExtensionToken ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <FileText className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 pt-1">
+              <button
+                type="button"
+                disabled={regenerateTokenMutation.isPending}
+                onClick={async () => {
+                  const unlocking = tokenData?.accessEnabled === false;
+                  const ok = await confirm({
+                    title: unlocking ? "Mở khóa & cấp Token" : "Cấp lại Token mới",
+                    description: unlocking
+                      ? "Mở lại quyền và cấp Token mới?"
+                      : "Thu hồi và tạo Token mới?",
+                    confirmLabel: unlocking ? "Mở khóa & Cấp Token" : "Cấp lại Token",
+                    variant: "amber",
+                  });
+                  if (ok) regenerateTokenMutation.mutate({ userId });
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 cursor-pointer disabled:opacity-60"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${regenerateTokenMutation.isPending ? "animate-spin" : ""}`} />
+                {tokenData?.accessEnabled === false ? "Mở khóa & Cấp Token" : "Cấp lại Token mới"}
+              </button>
+              {tokenData?.accessEnabled !== false && (
+                <button
+                  type="button"
+                  disabled={revokeTokenMutation.isPending}
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: "Vô hiệu hóa Extension",
+                      description: "Vô hiệu hóa hoàn toàn quyền Extension? Nhân sự sẽ không thể tự tạo lại token.",
+                      confirmLabel: "Vô hiệu hóa",
+                      variant: "danger",
+                      icon: "ban",
+                    });
+                    if (ok) revokeTokenMutation.mutate({ userId });
+                  }}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 cursor-pointer disabled:opacity-60"
+                >
+                  <Ban className="w-3.5 h-3.5" />
+                  Vô hiệu hóa
+                </button>
+              )}
+              <a
+                href={tokenData?.accessEnabled === false ? "#" : `/api/extension/download?userId=${userId}`}
+                download={tokenData?.accessEnabled !== false}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold ${
+                  tokenData?.accessEnabled === false
+                    ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                    : "text-white bg-gradient-to-r from-pink-600 to-rose-600 cursor-pointer"
+                }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Tải Extension hộ
+              </a>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

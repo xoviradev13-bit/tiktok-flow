@@ -10,6 +10,11 @@ import {
   writeMachineBindingLog,
 } from "@/lib/extension-auth";
 import { isAccountOnline } from "@/lib/account-status";
+import {
+  resolveAllTimeRevenue,
+  resolvePeriodRevenue,
+} from "@/lib/resolve-all-time-revenue";
+import { insightViewsContribution } from "@/lib/insights-ui";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -255,6 +260,8 @@ export const userRouter = router({
       z.object({
         id: z.string(),
         days: z.number().optional().default(0),
+        startDate: z.string().optional(), // yyyy-MM-dd custom range
+        endDate: z.string().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -268,7 +275,53 @@ export const userRouter = router({
         });
       }
 
-      const days = input.days;
+      const hasCustomRange = Boolean(input.startDate && input.endDate);
+      // Legacy days=0 (Toàn Bộ) → 365 (Studio daily data capped at 365 days)
+      const days = hasCustomRange ? 0 : input.days && input.days > 0 ? input.days : 365;
+
+      let rangeStart: Date | null = null;
+      let rangeEnd: Date | null = null;
+      let rangeStartStr = "";
+      let rangeEndStr = "";
+      if (hasCustomRange) {
+        rangeStart = new Date(input.startDate! + "T00:00:00.000Z");
+        rangeEnd = new Date(input.endDate! + "T00:00:00.000Z");
+        if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Khoảng ngày không hợp lệ",
+          });
+        }
+        if (rangeStart > rangeEnd) {
+          const tmp = rangeStart;
+          rangeStart = rangeEnd;
+          rangeEnd = tmp;
+        }
+        // Cap at 365 calendar-day span (same rule as the date picker UI)
+        const dayMs = 24 * 60 * 60 * 1000;
+        const spanDays = Math.round(
+          (rangeEnd.getTime() - rangeStart.getTime()) / dayMs
+        );
+        if (spanDays > 365) {
+          rangeEnd = new Date(rangeStart.getTime() + 365 * dayMs);
+        }
+        rangeStartStr = rangeStart.toISOString().split("T")[0];
+        rangeEndStr = rangeEnd.toISOString().split("T")[0];
+        // Inclusive end-of-day for checklist / DailyRevenue filters
+        rangeEnd = new Date(rangeEndStr + "T23:59:59.999Z");
+      }
+
+      const checklistTake = hasCustomRange
+        ? Math.min(
+            Math.ceil(
+              (rangeEnd!.getTime() - rangeStart!.getTime()) / (24 * 60 * 60 * 1000)
+            ) + 10,
+            400
+          )
+        : days > 0
+          ? days + 5
+          : 100;
+
       const user = await ctx.prisma.user.findUnique({
         where: { id: input.id },
         include: {
@@ -276,11 +329,21 @@ export const userRouter = router({
             orderBy: { createdAt: "desc" },
             include: {
               alerts: { where: { status: "OPEN" } },
+              analytics: {
+                select: {
+                  sumRevenue: true,
+                  sumViews: true,
+                  postRewards: true,
+                  rawSnapshot: true,
+                  dailyRevenueBreakdown: true,
+                  dailyViewsBreakdown: true,
+                },
+              },
             },
           },
           dailyChecklists: {
             orderBy: { date: "desc" },
-            take: days > 0 ? days + 5 : 100,
+            take: checklistTake,
             include: {
               items: {
                 include: { account: true },
@@ -309,7 +372,12 @@ export const userRouter = router({
 
       // Filter checklists by selected time window
       let filteredChecklists = user.dailyChecklists;
-      if (days > 0) {
+      if (hasCustomRange && rangeStart && rangeEnd) {
+        filteredChecklists = user.dailyChecklists.filter((c) => {
+          const d = new Date(c.date);
+          return d >= rangeStart! && d <= rangeEnd!;
+        });
+      } else if (days > 0) {
         const pastDate = new Date();
         pastDate.setDate(pastDate.getDate() - days);
         filteredChecklists = user.dailyChecklists.filter(
@@ -333,36 +401,114 @@ export const userRouter = router({
           : 0;
 
       // Calculate revenue & views for the window
-      let totalViews = user.tiktokAccounts.reduce(
-        (sum, a) => sum + Number(a.totalViews || 0),
-        0
-      );
-      let totalRevenue = user.tiktokAccounts.reduce(
-        (sum, a) => sum + Number(a.totalRevenue || 0),
-        0
-      );
+      let totalViews = 0;
+      let totalRevenue = 0;
+      const accountDisplayRevenue = new Map<string, number>();
 
-      if (days > 0) {
+      if (!hasCustomRange && days <= 0) {
+        for (const a of user.tiktokAccounts) {
+          const rev = resolveAllTimeRevenue(a as any);
+          accountDisplayRevenue.set(a.id, rev);
+          totalRevenue += rev;
+          const v = insightViewsContribution(
+            a.analytics as any,
+            Number(a.totalViews ?? 0),
+            (sv) => Number(sv?.totalViews ?? a.totalViews ?? 0)
+          );
+          totalViews += v ?? 0;
+        }
+      } else {
         const accountIds = user.tiktokAccounts.map((a) => a.id);
-        const pastDate = new Date();
-        pastDate.setDate(pastDate.getDate() - days);
+        let pastDate: Date;
+        let pastStr: string;
+        let endStr: string | null = null;
 
-        const periodRevenues = await ctx.prisma.dailyRevenue.findMany({
-          where: {
-            accountId: { in: accountIds },
-            date: { gte: pastDate },
-          },
-        });
+        if (hasCustomRange && rangeStart && rangeEnd) {
+          pastDate = new Date(rangeStart);
+          pastDate.setUTCHours(0, 0, 0, 0);
+          pastStr = rangeStartStr;
+          endStr = rangeEndStr;
+        } else {
+          pastDate = new Date();
+          pastDate.setUTCHours(0, 0, 0, 0);
+          pastDate.setUTCDate(pastDate.getUTCDate() - days);
+          pastStr = pastDate.toISOString().split("T")[0];
+        }
 
-        if (periodRevenues.length > 0) {
-          totalRevenue = periodRevenues.reduce(
-            (sum, r) => sum + Number(r.revenue || 0),
-            0
+        const periodRevenues =
+          accountIds.length > 0
+            ? await ctx.prisma.dailyRevenue.findMany({
+                where: {
+                  accountId: { in: accountIds },
+                  date: hasCustomRange && rangeEnd
+                    ? { gte: pastDate, lte: rangeEnd }
+                    : { gte: pastDate },
+                },
+                select: { accountId: true, date: true, revenue: true, views: true },
+              })
+            : [];
+
+        const dailyByAccount = new Map<
+          string,
+          { revenue: number; views: number; keys: Set<string> }
+        >();
+        for (const id of accountIds) {
+          dailyByAccount.set(id, { revenue: 0, views: 0, keys: new Set() });
+        }
+        for (const r of periodRevenues) {
+          const entry = dailyByAccount.get(r.accountId);
+          if (!entry) continue;
+          const dStr = r.date.toISOString().split("T")[0];
+          entry.keys.add(dStr);
+          entry.revenue += Number(r.revenue || 0);
+          entry.views += Number(r.views || 0);
+        }
+
+        for (const a of user.tiktokAccounts) {
+          const entry = dailyByAccount.get(a.id) || {
+            revenue: 0,
+            views: 0,
+            keys: new Set<string>(),
+          };
+          const breakdown =
+            (a.analytics?.dailyRevenueBreakdown as any[]) ||
+            ((a.analytics as any)?.dailyBreakdown as any[]) ||
+            [];
+          if (Array.isArray(breakdown)) {
+            for (const item of breakdown) {
+              if (!item?.date) continue;
+              const dStr = String(item.date);
+              if (dStr < pastStr) continue;
+              if (endStr && dStr > endStr) continue;
+              if (entry.keys.has(dStr)) continue;
+              entry.keys.add(dStr);
+              entry.revenue += Number(item.revenue || 0);
+              entry.views += Number(item.views || 0);
+            }
+          }
+
+          // Custom range: use merged daily only (no Studio presets).
+          // Preset windows: merge daily + Studio sumRevenue buckets.
+          const accountRev = hasCustomRange
+            ? entry.revenue
+            : resolvePeriodRevenue(a as any, days, entry.revenue);
+          accountDisplayRevenue.set(a.id, accountRev);
+          totalRevenue += accountRev;
+
+          const sv = (a.analytics?.sumViews ?? {}) as Record<string, unknown>;
+          let presetViews = 0;
+          if (!hasCustomRange) {
+            if (days === 7) presetViews = Number(sv.views7d ?? 0) || 0;
+            else if (days === 28 || days === 30) presetViews = Number(sv.views28d ?? 0) || 0;
+            else if (days === 60) presetViews = Number(sv.views60d ?? 0) || 0;
+            else if (days === 365) presetViews = Number(sv.views365d ?? 0) || 0;
+          }
+          const contrib = insightViewsContribution(
+            a.analytics as any,
+            entry.views,
+            () => Math.max(entry.views, presetViews)
           );
-          totalViews = periodRevenues.reduce(
-            (sum, r) => sum + Number(r.views || 0),
-            0
-          );
+          totalViews += contrib ?? Math.max(entry.views, presetViews);
         }
       }
 
@@ -386,9 +532,18 @@ export const userRouter = router({
           isVerified: user.isVerified,
           createdAt: user.createdAt,
           lastActiveAt: user.lastActiveAt,
+          boundMachineId: user.boundMachineId,
+          boundMachineName: user.boundMachineName,
         },
         stats: {
-          days,
+          days: hasCustomRange
+            ? Math.ceil(
+                (rangeEnd!.getTime() - rangeStart!.getTime()) / (24 * 60 * 60 * 1000)
+              ) + 1
+            : days,
+          startDate: hasCustomRange ? rangeStartStr : null,
+          endDate: hasCustomRange ? rangeEndStr : null,
+          isCustomRange: hasCustomRange,
           totalAssigned,
           activeAccounts,
           warmingAccounts,
@@ -403,6 +558,11 @@ export const userRouter = router({
         tiktokAccounts: (user.tiktokAccounts || []).map((acc) => ({
           ...acc,
           isOnline: isAccountOnline(acc),
+          displayRevenue:
+            Math.round(
+              (accountDisplayRevenue.get(acc.id) ??
+                resolveAllTimeRevenue(acc as any)) * 100
+            ) / 100,
         })),
         dailyChecklists: filteredChecklists,
       });
@@ -435,6 +595,35 @@ export const userRouter = router({
           message: "Đã có yêu cầu đang chờ duyệt.",
         });
       }
+
+      const COOLDOWN_MS = 15 * 60 * 1000;
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const recent = await ctx.prisma.machineChangeRequest.findFirst({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+      });
+      if (recent && Date.now() - new Date(recent.createdAt).getTime() < COOLDOWN_MS) {
+        const mins = Math.ceil(
+          (COOLDOWN_MS - (Date.now() - new Date(recent.createdAt).getTime())) / 60000
+        );
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Vui lòng chờ ${mins} phút trước khi gửi yêu cầu đổi máy mới (chống spam).`,
+        });
+      }
+      const dayCount = await ctx.prisma.machineChangeRequest.count({
+        where: {
+          userId: user.id,
+          createdAt: { gte: new Date(Date.now() - DAY_MS) },
+        },
+      });
+      if (dayCount >= 5) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: "Bạn đã gửi quá nhiều yêu cầu đổi máy trong 24 giờ. Thử lại sau.",
+        });
+      }
+
       const row = await ctx.prisma.machineChangeRequest.create({
         data: {
           userId: user.id,
@@ -463,4 +652,168 @@ export const userRouter = router({
       orderBy: { createdAt: "desc" },
     });
   }),
+
+  requestExtensionAccess: protectedProcedure
+    .input(z.object({ reason: z.string().min(5).max(500) }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: {
+          id: true,
+          extensionAccessEnabled: true,
+          deletedAt: true,
+          isActive: true,
+        },
+      });
+      if (!user || user.deletedAt || !user.isActive) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Tài khoản không hợp lệ.",
+        });
+      }
+      if (user.extensionAccessEnabled !== false) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Quyền Extension đang hoạt động — không cần gửi yêu cầu.",
+        });
+      }
+      const pending = await ctx.prisma.extensionAccessRequest.findFirst({
+        where: { userId: user.id, status: "PENDING" },
+      });
+      if (pending) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Đã có yêu cầu kích hoạt Extension đang chờ duyệt.",
+        });
+      }
+
+      const COOLDOWN_MS = 15 * 60 * 1000;
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const recent = await ctx.prisma.extensionAccessRequest.findFirst({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+      });
+      if (recent && Date.now() - new Date(recent.createdAt).getTime() < COOLDOWN_MS) {
+        const mins = Math.ceil(
+          (COOLDOWN_MS - (Date.now() - new Date(recent.createdAt).getTime())) / 60000
+        );
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Vui lòng chờ ${mins} phút trước khi gửi yêu cầu kích hoạt mới (chống spam).`,
+        });
+      }
+      const dayCount = await ctx.prisma.extensionAccessRequest.count({
+        where: {
+          userId: user.id,
+          createdAt: { gte: new Date(Date.now() - DAY_MS) },
+        },
+      });
+      if (dayCount >= 5) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: "Bạn đã gửi quá nhiều yêu cầu kích hoạt trong 24 giờ. Thử lại sau.",
+        });
+      }
+
+      return ctx.prisma.extensionAccessRequest.create({
+        data: {
+          userId: user.id,
+          reason: input.reason,
+          status: "PENDING",
+        },
+      });
+    }),
+
+  /** List current user's own requests (for Settings). */
+  listMyRequests: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+    const [machineChangeRequests, extensionAccessRequests] = await Promise.all([
+      ctx.prisma.machineChangeRequest.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+      ctx.prisma.extensionAccessRequest.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    ]);
+    return { machineChangeRequests, extensionAccessRequests };
+  }),
+
+  myExtensionAccessRequest: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.prisma.extensionAccessRequest.findFirst({
+      where: { userId: ctx.session.user.id, status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+    });
+  }),
+
+  /** List machine + extension requests for a user (self or admin). */
+  listRequestsForUser: protectedProcedure
+    .input(z.object({ userId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const isAdmin = ctx.session.user.role === "ADMIN";
+      if (!isAdmin && ctx.session.user.id !== input.userId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ xem được yêu cầu của chính mình.",
+        });
+      }
+
+      const [machineChangeRequests, extensionAccessRequests] = await Promise.all([
+        ctx.prisma.machineChangeRequest.findMany({
+          where: { userId: input.userId },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+        ctx.prisma.extensionAccessRequest.findMany({
+          where: { userId: input.userId },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+      ]);
+
+      return { machineChangeRequests, extensionAccessRequests };
+    }),
+
+  deleteMachineChangeRequest: protectedProcedure
+    .input(z.object({ requestId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const row = await ctx.prisma.machineChangeRequest.findUnique({
+        where: { id: input.requestId },
+      });
+      if (!row) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Không tìm thấy yêu cầu." });
+      }
+      const isAdmin = ctx.session.user.role === "ADMIN";
+      if (!isAdmin && row.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ xóa được yêu cầu của chính mình.",
+        });
+      }
+      await ctx.prisma.machineChangeRequest.delete({ where: { id: row.id } });
+      return { success: true };
+    }),
+
+  deleteExtensionAccessRequest: protectedProcedure
+    .input(z.object({ requestId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const row = await ctx.prisma.extensionAccessRequest.findUnique({
+        where: { id: input.requestId },
+      });
+      if (!row) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Không tìm thấy yêu cầu." });
+      }
+      const isAdmin = ctx.session.user.role === "ADMIN";
+      if (!isAdmin && row.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ xóa được yêu cầu của chính mình.",
+        });
+      }
+      await ctx.prisma.extensionAccessRequest.delete({ where: { id: row.id } });
+      return { success: true };
+    }),
 });

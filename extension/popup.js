@@ -32,16 +32,36 @@ document.addEventListener("DOMContentLoaded", async () => {
   const authBannerText = document.getElementById("authBannerText");
   const identityCard = document.querySelector(".identity-card");
 
-  // Promisified helper for chrome.runtime.sendMessage
-  function sendMsg(type, payload = {}) {
+  // FIX: sendMsg now has a timeout. A suspended or hung background SW could
+  // otherwise leave the popup waiting forever on every .then() chain.
+  function sendMsg(type, payload = {}, timeoutMs = 8000) {
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type, ...payload }, (res) => {
-        if (chrome.runtime.lastError) {
-          resolve(null);
-        } else {
-          resolve(res);
-        }
-      });
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        console.warn(`[TikTokFlow Popup] sendMsg(${type}) timed out after ${timeoutMs}ms`);
+        resolve(null);
+      }, timeoutMs);
+
+      try {
+        chrome.runtime.sendMessage({ type, ...payload }, (res) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (chrome.runtime.lastError) {
+            resolve(null);
+          } else {
+            resolve(res);
+          }
+        });
+      } catch (err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        console.warn(`[TikTokFlow Popup] sendMsg(${type}) threw:`, err?.message || err);
+        resolve(null);
+      }
     });
   }
 
@@ -59,9 +79,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   function renderAccountIdentity(acc) {
     if (!acc) return;
-    userHandle.textContent = acc.username ? `@${acc.username}` : "@chua_phat_hien";
-    userNickname.textContent = acc.nickname || (acc.isLoggedIn ? "Đã xác minh phiên" : "Chưa đăng nhập");
-    if (acc.avatarUrl) userAvatar.src = acc.avatarUrl;
+    if (userHandle) userHandle.textContent = acc.username ? `@${acc.username}` : "@chua_phat_hien";
+    if (userNickname) userNickname.textContent = acc.nickname || (acc.isLoggedIn ? "Đã xác minh phiên" : "Chưa đăng nhập");
+    if (acc.avatarUrl && userAvatar) userAvatar.src = acc.avatarUrl;
+    if (!statusPill || !statusPillText) return;
     if (acc.isLoggedIn) {
       statusPill.className = "status-pill status-active";
       statusPillText.textContent = "Đã đăng nhập";
@@ -145,28 +166,36 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // 1. Single upfront batched storage read (all keys across the whole popup)
-  const state = await chrome.storage.local.get([
-    "serverUrl",
-    "personalToken",
-    "memberName",
-    "userEmail",
-    "latestAccount",
-    "lastFleetSyncTime",
-    "gpmProfileCount",
-    "tokenRevoked",
-    "tokenRevokedReason",
-    "tokenRevokedAt",
-    "authRequired",
-    "fleetSyncStatus",
-    "fleetSyncMessage",
-    "serverScheduleSummary",
-    "serverIntervalMinutes",
-    "serverAutoEnabled",
-    "agentOnline",
-    "gpmApiPort",
-    "gpmApiOnline",
-    "gpmApiBase",
-  ]);
+  // FIX: guard against a corrupt storage profile returning a rejected promise.
+  // Previously a rejection aborted the whole handler and left a blank popup.
+  let state;
+  try {
+    state = await chrome.storage.local.get([
+      "serverUrl",
+      "personalToken",
+      "memberName",
+      "userEmail",
+      "latestAccount",
+      "lastFleetSyncTime",
+      "gpmProfileCount",
+      "tokenRevoked",
+      "tokenRevokedReason",
+      "tokenRevokedAt",
+      "authRequired",
+      "fleetSyncStatus",
+      "fleetSyncMessage",
+      "serverScheduleSummary",
+      "serverIntervalMinutes",
+      "serverAutoEnabled",
+      "agentOnline",
+      "gpmApiPort",
+      "gpmApiOnline",
+      "gpmApiBase",
+    ]);
+  } catch (err) {
+    console.warn("[TikTokFlow Popup] Initial storage read failed:", err?.message || err);
+    state = {};
+  }
 
   // Clear stuck banner from the old email-mismatch 403 if applicable
   const staleReason = String(state.tokenRevokedReason || "");
@@ -234,8 +263,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // 3. Immediate synchronous paint from batched storage cache (no spinner lag / no flicker)
-  memberNameText.textContent = state.memberName || state.userEmail || "Nhân sự hệ thống";
-  serverUrlText.textContent = state.serverUrl || "http://localhost:3000";
+  // FIX: guard every direct textContent write — a UI refactor that removes any
+  // of these elements should not abort the popup.
+  if (memberNameText) memberNameText.textContent = state.memberName || state.userEmail || "Nhân sự hệ thống";
+  if (serverUrlText) serverUrlText.textContent = state.serverUrl || "http://localhost:3000";
 
   if (state.personalToken && personalTokenInput) {
     personalTokenInput.value = state.personalToken;
@@ -255,11 +286,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   setSyncBar(fleetSyncBar, fleetSyncText, state.fleetSyncStatus, state.fleetSyncMessage);
 
-  if (state.gpmProfileCount) {
+  if (state.gpmProfileCount && gpmProfileCount) {
     gpmProfileCount.textContent = `${state.gpmProfileCount} profiles`;
   }
 
-  if (state.lastFleetSyncTime) {
+  if (state.lastFleetSyncTime && lastSyncText) {
     const d = new Date(state.lastFleetSyncTime);
     lastSyncText.textContent = `Đồng bộ lần cuối: ${d.toLocaleTimeString("vi-VN")}`;
   }
@@ -379,7 +410,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       },
     });
 
-    if (result.user?.name) {
+    if (result.user?.name && memberNameText) {
       memberNameText.textContent = result.user.name;
     }
     setReauthUi(false);
@@ -448,16 +479,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // 7. Trigger Manual Sync Action
-  syncNowBtn.addEventListener("click", () => {
+  // FIX: optional chaining — a UI refactor that renames/removes the button
+  // should not throw and abort the whole handler.
+  syncNowBtn?.addEventListener("click", () => {
     syncNowBtn.disabled = true;
     syncNowBtn.classList.add("spinning");
-    syncBtnText.textContent = "Đang quét GPM...";
+    if (syncBtnText) syncBtnText.textContent = "Đang quét GPM...";
     setSyncBar(fleetSyncBar, fleetSyncText, "syncing", "Đang quét GPMLogin…");
 
-    sendMsg("TRIGGER_MANUAL_SYNC").then((response) => {
+    // FIX: manual sync can legitimately take longer than the default 8s
+    // (full GPM fleet fetch on a slow machine). Give it 30s.
+    sendMsg("TRIGGER_MANUAL_SYNC", {}, 30000).then((response) => {
       syncNowBtn.disabled = false;
       syncNowBtn.classList.remove("spinning");
-      syncBtnText.textContent = "Đồng bộ GPM ngay";
+      if (syncBtnText) syncBtnText.textContent = "Đồng bộ GPM ngay";
 
       if (!response) {
         setSyncBar(fleetSyncBar, fleetSyncText, "error", "Lỗi kết nối background");
@@ -466,9 +501,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       if (response.success) {
-        gpmProfileCount.textContent = `${response.count} profiles`;
+        if (gpmProfileCount) gpmProfileCount.textContent = `${response.count} profiles`;
         const now = new Date();
-        lastSyncText.textContent = `Đồng bộ lần cuối: ${now.toLocaleTimeString("vi-VN")}`;
+        if (lastSyncText) lastSyncText.textContent = `Đồng bộ lần cuối: ${now.toLocaleTimeString("vi-VN")}`;
         setSyncBar(fleetSyncBar, fleetSyncText, "ok", `Đã đồng bộ ${response.count} profiles lên server.`);
         sendMsg("PROBE_GPM").then((res) => applyGpmStatus(!!res?.online, res?.port));
       } else if (response.authRequired) {

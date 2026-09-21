@@ -40,7 +40,9 @@ function AnalyticsPageContent() {
   const initialTab = validTabs.includes(paramTab) ? paramTab : "OVERVIEW";
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
 
-  const initialPeriod = (searchParams?.get("period") || "28D") as PeriodType;
+  const rawPeriod = (searchParams?.get("period") || "28D") as PeriodType;
+  // Legacy ALL → 365D (TikTok Studio daily data is capped at 365 days)
+  const initialPeriod: PeriodType = rawPeriod === "ALL" ? "365D" : rawPeriod;
   const [period, setPeriod] = useState<PeriodType>(initialPeriod);
 
   const initialFrom = searchParams?.get("from") || undefined;
@@ -182,7 +184,7 @@ function AnalyticsPageContent() {
             <BarChart3 className="w-6 h-6 text-pink-500 shrink-0" />
             <span className="truncate">Trung Tâm Phân Tích & Báo Cáo</span>
             <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-xs font-extrabold uppercase bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shrink-0">
-              Enterprise Hub
+              Tổng Hợp
             </span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">

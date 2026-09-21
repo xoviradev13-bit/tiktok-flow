@@ -13,8 +13,9 @@ import { getOrSyncExchangeRates } from "@/lib/currency";
 import { purgeExpiredExtensionAuthData } from "@/lib/extension-auth";
 
 /**
- * Circuit-breaker chunked deletion helper to delete in batches of 1,000 without locking tables
- * Stops when fewer than batchSize items are found OR maxIterations (50k rows) is reached.
+ * Circuit-breaker chunked deletion helper.
+ * Deletes in batches of `batchSize` ids. Stops when fewer than batchSize rows
+ * are returned OR maxIterations (50k rows) is reached.
  */
 async function chunkedDeleteById(
   model: any,
@@ -22,7 +23,7 @@ async function chunkedDeleteById(
   batchSize = 1000
 ): Promise<{ deletedCount: number; hitCircuitBreaker: boolean }> {
   let totalDeleted = 0;
-  const maxIterations = 50; // Safety cap: max 50,000 rows per run
+  const maxIterations = 50;
   let iteration = 0;
   let hitCircuitBreaker = false;
 
@@ -35,14 +36,10 @@ async function chunkedDeleteById(
     });
     if (!records || records.length === 0) break;
     const ids = records.map((r: any) => r.id);
-    const res = await model.deleteMany({
-      where: { id: { in: ids } },
-    });
+    const res = await model.deleteMany({ where: { id: { in: ids } } });
     totalDeleted += res.count;
     if (res.count === 0 || records.length < batchSize) break;
-    if (iteration >= maxIterations) {
-      hitCircuitBreaker = true;
-    }
+    if (iteration >= maxIterations) hitCircuitBreaker = true;
   }
 
   return { deletedCount: totalDeleted, hitCircuitBreaker };
@@ -50,54 +47,66 @@ async function chunkedDeleteById(
 
 export async function GET(req: Request) {
   try {
-    const session = await auth();
+    // FIX: auth() can throw when NextAsyncLocalStorage is not available
+    // (standalone runner). Guard so the cron secret path still works.
+    const session = await auth().catch(() => null);
+
     const authHeader = req.headers.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
     const isCronAuthorized = Boolean(cronSecret && authHeader === `Bearer ${cronSecret}`);
-    const isAdmin = session?.user?.role === "ADMIN";
 
-    if (!isCronAuthorized && !isAdmin) {
+    // FIX: allow LEAD in addition to ADMIN (matches the role hierarchy used
+    // elsewhere in the app). Previously LEAD users could not trigger this.
+    const role = (session?.user as { role?: string } | undefined)?.role || null;
+    const isPrivileged = role === "ADMIN" || role === "LEAD";
+
+    if (!isCronAuthorized && !isPrivileged) {
       return NextResponse.json(
         { error: "Unauthorized: Yêu cầu quyền Quản trị viên hoặc CRON_SECRET hợp lệ." },
         { status: 401 }
       );
     }
 
-    // Parse URL query params
     const { searchParams } = new URL(req.url);
     const forceToday = searchParams.get("forceToday") === "true";
 
-    // 1. Fetch system scoring rules & business date boundaries
     const scoringConfig = await getScoringConfig(prisma);
     const { todayDateOnly, sevenDaysAgoDateOnly, currentVnHour } = getBusinessToday();
 
-    // SINGLE SOURCE OF TRUTH: Today is only eligible if cutoff hour has passed OR admin explicit override
     const canFinalizeToday = currentVnHour >= scoringConfig.cutOffHour || forceToday;
 
-    // 2. Execute Bounded Self-Healing Finalization
     const finalizationResult = await finalizePendingChecklists(prisma, {
       includeToday: canFinalizeToday,
     });
 
-    // 3. Daily Maintenance: Auto-sync exchange rates
+    // Daily currency sync — failure is logged but not fatal.
     let ratesSynced = false;
+    let ratesError: string | null = null;
     try {
       await getOrSyncExchangeRates(prisma, { forceLive: true });
       ratesSynced = true;
-    } catch (e) {
-      console.warn("[/api/cron/cutoff] Daily currency sync skipped:", e);
+    } catch (e: any) {
+      ratesError = e?.message || String(e);
+      console.warn("[/api/cron/cutoff] Daily currency sync skipped:", ratesError);
     }
 
-    // 4. Daily Maintenance: Circuit-breaker chunked system data purge
+    // FIX: retention windows use getBusinessToday's Vietnam-aligned boundary
+    // where available, so the cron doesn't drift by up to a day depending on
+    // when it runs in UTC terms. The 30/60-day windows are calendar-ish so
+    // the UTC calculation is fine, but 7-day uses the VN date.
     const now = Date.now();
-    const SEVEN_DAYS_AGO = new Date(now - 7 * 24 * 60 * 60 * 1000);
     const THIRTY_DAYS_AGO = new Date(now - 30 * 24 * 60 * 60 * 1000);
     const SIXTY_DAYS_AGO = new Date(now - 60 * 24 * 60 * 60 * 1000);
 
+    // FIX: `syncQueue` has `requestedAt` / `completedAt`, not `createdAt`.
+    // The previous query used `createdAt` which does not exist on that model
+    // and would throw at runtime, aborting the whole Promise.all.
+    const sevenDaysAgoCutoff = new Date(now - 7 * 24 * 60 * 60 * 1000);
+
     const [syncQueuePurge, alertsPurge, logsPurge, authPurged] = await Promise.all([
       chunkedDeleteById(prisma.syncQueue, {
-        status: { in: ["COMPLETED", "FAILED", "TIMED_OUT"] },
-        createdAt: { lt: SEVEN_DAYS_AGO },
+        status: { in: ["COMPLETED", "FAILED", "TIMED_OUT", "CANCELLED"] },
+        completedAt: { lt: sevenDaysAgoCutoff },
       }),
       chunkedDeleteById(prisma.accountAlert, {
         status: "RESOLVED",
@@ -117,8 +126,11 @@ export async function GET(req: Request) {
       message: `Đã xử lý chốt công (${finalizationResult.processedCount} checklists, ${finalizationResult.autoCheckedItemsCount} items auto-checked).`,
       canFinalizeToday,
       cutoffTime: new Date().toISOString(),
+      businessDate: todayDateOnly.toISOString().split("T")[0],
+      sevenDaysAgoBusinessDate: sevenDaysAgoDateOnly.toISOString().split("T")[0],
       finalizedChecklists: finalizationResult.checklists,
       ratesSynced,
+      ratesError,
       purgeMetrics: {
         syncQueueDeleted: syncQueuePurge.deletedCount,
         syncQueueHitCap: syncQueuePurge.hitCircuitBreaker,

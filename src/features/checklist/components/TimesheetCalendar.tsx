@@ -13,6 +13,8 @@ import {
   isToday,
   addMonths,
   subMonths,
+  subDays,
+  startOfDay,
 } from "date-fns";
 import { vi } from "date-fns/locale";
 import {
@@ -229,6 +231,11 @@ export default function TimesheetCalendar({
                       <span className="text-xs font-bold text-slate-900 dark:text-white">
                         Chuyển nhanh ngày & tháng
                       </span>
+                      {quickMode === "custom" && (
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Trong vòng 365 ngày gần nhất
+                        </p>
+                      )}
                     </div>
 
                     {/* 3 Option Pills */}
@@ -298,6 +305,11 @@ export default function TimesheetCalendar({
                               if (onNavigateDate) onNavigateDate(format(d, "yyyy-MM-dd"));
                               setIsQuickDateOpen(false);
                             }
+                          }}
+                          disabled={(date) => {
+                            const d = startOfDay(date);
+                            const today = startOfDay(new Date());
+                            return d > today || d < subDays(today, 365);
                           }}
                         />
                       </div>

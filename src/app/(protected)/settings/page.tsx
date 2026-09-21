@@ -46,6 +46,8 @@ import {
   Globe,
   DollarSign,
   TrendingUp,
+  Inbox,
+  KeyRound,
 } from "lucide-react";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc";
@@ -63,7 +65,24 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { DateRange } from "react-day-picker";
+import { format } from "date-fns";
+import { useConfirmDialog } from "@/components/ui/confirm-modal";
 import BugReportsAdminSection from "@/features/settings/BugReportsAdminSection";
+import { StaffRequestModals } from "@/components/access-requests/StaffRequestModals";
 
 export const ALL_SUPPORTED_LANGUAGES = [
   { code: "en", label: "English" },
@@ -77,8 +96,47 @@ export const ALL_SUPPORTED_LANGUAGES = [
   { code: "vi", label: "Tiếng Việt" },
 ];
 
+const renderRequestUserAvatar = (
+  u?: {
+    name?: string | null;
+    username?: string | null;
+    email?: string | null;
+    avatar?: string | null;
+    image?: string | null;
+    label?: string | null;
+  } | null,
+  size = "w-5 h-5 text-[9px]"
+) => {
+  if (!u) return null;
+  const displayName = u.name || u.username || u.email || u.label || "U";
+  const src = u.avatar || u.image;
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={displayName}
+        className={`${size} rounded-full object-cover shrink-0`}
+      />
+    );
+  }
+  return (
+    <span
+      className={`${size} rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white font-bold flex items-center justify-center shrink-0 uppercase select-none`}
+    >
+      {displayName.slice(0, 2)}
+    </span>
+  );
+};
+
 type ModalTarget = "GPM_FLEET" | "TIKTOK_SWEEPER" | null;
-type SettingsTab = "profile" | "security" | "appearance" | "integrations" | "admin_system" | "admin_bugs";
+type SettingsTab =
+  | "profile"
+  | "security"
+  | "appearance"
+  | "integrations"
+  | "requests"
+  | "admin_system"
+  | "admin_bugs";
 
 // Preset trendy avatars for quick selection
 const PRESET_AVATARS = [
@@ -108,11 +166,20 @@ function SettingsPageContent() {
     if (tab === "cron" || tab === "schedule" || tab === "admin_system") return "admin_system";
     if (tab === "security") return "security";
     if (tab === "integrations" || tab === "token") return "integrations";
+    if (tab === "requests" || tab === "yeu_cau" || tab === "yeucau") return "requests";
     if (tab === "appearance" || tab === "theme" || tab === "tuychon" || tab === "preferences" || tab === "preference" || tab === "currency") return "appearance";
     return "profile";
   };
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(getInitialTab);
+  const { confirm, confirmDialog } = useConfirmDialog();
+  const [requestTypeFilter, setRequestTypeFilter] = useState<"ALL" | "MACHINE_CHANGE" | "EXTENSION_ACCESS">("ALL");
+  const [requestStatusFilter, setRequestStatusFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("ALL");
+  const [requestUserFilter, setRequestUserFilter] = useState<string>("ALL");
+  const [requestDateFrom, setRequestDateFrom] = useState("");
+  const [requestDateTo, setRequestDateTo] = useState("");
+  const [isRequestRangeOpen, setIsRequestRangeOpen] = useState(false);
+  const [requestRangeSelection, setRequestRangeSelection] = useState<DateRange | undefined>();
 
   // Query self profile
   const { data: userProfile, refetch: refetchProfile, isLoading: loadingProfile } =
@@ -227,20 +294,167 @@ function SettingsPageContent() {
   const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
-  const [machineChangeReason, setMachineChangeReason] = useState("");
+  const [machineModalOpen, setMachineModalOpen] = useState(false);
+  const [extensionModalOpen, setExtensionModalOpen] = useState(false);
 
   const { data: pendingMachineChange, refetch: refetchMachineChange } =
     trpc.user.myMachineChangeRequest.useQuery(undefined, {
-      enabled: activeTab === "integrations",
+      enabled: activeTab === "integrations" || activeTab === "requests",
     });
-  const requestMachineChangeMutation = trpc.user.requestMachineChange.useMutation({
+  const { data: pendingExtensionAccess, refetch: refetchExtensionAccess } =
+    trpc.user.myExtensionAccessRequest.useQuery();
+
+  const utils = trpc.useUtils();
+  const { data: myRequests, isLoading: loadingMyRequests } =
+    trpc.user.listMyRequests.useQuery(undefined, {
+      enabled: !isAdmin,
+      staleTime: 30_000,
+    });
+
+  const { data: allRequests, isLoading: loadingAllRequests } =
+    trpc.admin.listAllAccessRequests.useQuery(undefined, {
+      enabled: isAdmin,
+      staleTime: 30_000,
+    });
+
+  const requestsSource = isAdmin ? allRequests : myRequests;
+  const loadingRequests = isAdmin ? loadingAllRequests : loadingMyRequests;
+
+  const deleteMachineRequestMutation = trpc.user.deleteMachineChangeRequest.useMutation({
     onSuccess: () => {
-      setMachineChangeReason("");
-      refetchMachineChange();
-      toast.success("Đã gửi yêu cầu đổi máy. Chờ admin duyệt.");
+      utils.user.listMyRequests.invalidate();
+      utils.user.myMachineChangeRequest.invalidate();
+      utils.admin.listAllAccessRequests.invalidate();
+      utils.admin.listPendingMachineChangeRequests.invalidate();
+      toast.success("Đã xóa yêu cầu đổi máy.");
     },
-    onError: (err: any) => toast.error(err?.message || "Không gửi được yêu cầu"),
+    onError: (err) => toast.error(err.message || "Lỗi xóa yêu cầu"),
   });
+
+  const deleteExtensionRequestMutation = trpc.user.deleteExtensionAccessRequest.useMutation({
+    onSuccess: () => {
+      utils.user.listMyRequests.invalidate();
+      utils.user.myExtensionAccessRequest.invalidate();
+      utils.admin.listAllAccessRequests.invalidate();
+      utils.admin.listPendingExtensionAccessRequests.invalidate();
+      toast.success("Đã xóa yêu cầu kích hoạt Extension.");
+    },
+    onError: (err) => toast.error(err.message || "Lỗi xóa yêu cầu"),
+  });
+
+  const reviewMachineChangeMutation = trpc.admin.reviewMachineChangeRequest.useMutation({
+    onSuccess: () => {
+      utils.admin.listAllAccessRequests.invalidate();
+      utils.admin.listPendingMachineChangeRequests.invalidate();
+      toast.success("Đã cập nhật yêu cầu đổi máy.");
+    },
+    onError: (err) => toast.error(err.message || "Lỗi duyệt yêu cầu"),
+  });
+
+  const reviewExtensionAccessMutation = trpc.admin.reviewExtensionAccessRequest.useMutation({
+    onSuccess: () => {
+      utils.admin.listAllAccessRequests.invalidate();
+      utils.admin.listPendingExtensionAccessRequests.invalidate();
+      utils.admin.listUsers.invalidate();
+      toast.success("Đã cập nhật yêu cầu kích hoạt Extension.");
+    },
+    onError: (err) => toast.error(err.message || "Lỗi duyệt yêu cầu"),
+  });
+
+  const filteredMyRequests = useMemo(() => {
+    const machineItems = (requestsSource?.machineChangeRequests || []).map((req: any) => ({
+      kind: "MACHINE_CHANGE" as const,
+      id: req.id,
+      status: req.status as string,
+      reason: req.reason as string,
+      createdAt: req.createdAt as string | Date,
+      user: req.user as
+        | { id?: string; name?: string | null; username?: string | null; email?: string | null }
+        | undefined,
+      userId: req.userId as string | undefined,
+      raw: req,
+    }));
+    const extensionItems = (requestsSource?.extensionAccessRequests || []).map((req: any) => ({
+      kind: "EXTENSION_ACCESS" as const,
+      id: req.id,
+      status: req.status as string,
+      reason: req.reason as string,
+      createdAt: req.createdAt as string | Date,
+      user: req.user as
+        | { id?: string; name?: string | null; username?: string | null; email?: string | null }
+        | undefined,
+      userId: req.userId as string | undefined,
+      raw: req,
+    }));
+    let all = [...machineItems, ...extensionItems].sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    if (requestTypeFilter !== "ALL") {
+      all = all.filter((r) => r.kind === requestTypeFilter);
+    }
+    if (requestStatusFilter !== "ALL") {
+      all = all.filter((r) => r.status === requestStatusFilter);
+    }
+    if (isAdmin && requestUserFilter !== "ALL") {
+      all = all.filter((r) => (r.userId || r.user?.id) === requestUserFilter);
+    }
+    if (requestDateFrom) {
+      const fromTs = new Date(requestDateFrom + "T00:00:00").getTime();
+      all = all.filter((r) => new Date(r.createdAt).getTime() >= fromTs);
+    }
+    if (requestDateTo) {
+      const toTs = new Date(requestDateTo + "T23:59:59").getTime();
+      all = all.filter((r) => new Date(r.createdAt).getTime() <= toTs);
+    }
+    return all;
+  }, [
+    requestsSource,
+    requestTypeFilter,
+    requestStatusFilter,
+    requestUserFilter,
+    requestDateFrom,
+    requestDateTo,
+    isAdmin,
+  ]);
+
+  const requestPersonnelOptions = useMemo(() => {
+    if (!isAdmin) return [];
+    const map = new Map<
+      string,
+      {
+        id: string;
+        label: string;
+        name?: string | null;
+        username?: string | null;
+        email?: string | null;
+        avatar?: string | null;
+        image?: string | null;
+      }
+    >();
+    const add = (req: any) => {
+      const id = req.userId || req.user?.id;
+      if (!id) return;
+      const label = req.user?.name || req.user?.username || req.user?.email || id;
+      map.set(id, {
+        id,
+        label,
+        name: req.user?.name,
+        username: req.user?.username,
+        email: req.user?.email,
+        avatar: req.user?.avatar,
+        image: req.user?.image,
+      });
+    };
+    (requestsSource?.machineChangeRequests || []).forEach(add);
+    (requestsSource?.extensionAccessRequests || []).forEach(add);
+    return Array.from(map.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "vi")
+    );
+  }, [requestsSource, isAdmin]);
+
+  const myPendingCount =
+    (requestsSource?.machineChangeRequests || []).filter((r: any) => r.status === "PENDING").length +
+    (requestsSource?.extensionAccessRequests || []).filter((r: any) => r.status === "PENDING").length;
 
   // Sync profile data into local states
   useEffect(() => {
@@ -369,7 +583,6 @@ function SettingsPageContent() {
   const [gpmSaveStatus, setGpmSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
-  const utils = trpc.useUtils();
   const { data: configData } = trpc.settings.getAll.useQuery(undefined, { enabled: isAdmin });
   const setConfigMutation = trpc.settings.set.useMutation();
 
@@ -587,6 +800,28 @@ function SettingsPageContent() {
         >
           <Key className="w-4 h-4" />
           <span>Personal Token</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("requests")}
+          className={`shrink-0 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === "requests"
+            ? "bg-white dark:bg-slate-800 text-pink-600 dark:text-pink-400 shadow-xs border border-slate-200/80 dark:border-slate-700/80"
+            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            }`}
+        >
+          <Inbox className="w-4 h-4" />
+          <span>Yêu cầu</span>
+          {myPendingCount > 0 && (
+            <span
+              className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
+                activeTab === "requests"
+                  ? "bg-amber-500 text-white"
+                  : "bg-amber-500 text-white animate-pulse"
+              }`}
+            >
+              {myPendingCount}
+            </span>
+          )}
         </button>
 
         {isAdmin && (
@@ -1602,14 +1837,32 @@ function SettingsPageContent() {
         <div className="space-y-6 animate-fadeIn">
           {/* Bound machine + change request */}
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs space-y-4">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Monitor className="w-5 h-5 text-cyan-500" />
-                Máy tính đã liên kết
-              </h2>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                Extension và Client Agent chỉ hoạt động trên thiết bị đã được liên kết. Khi đổi thiết bị, cần được Admin phê duyệt.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Monitor className="w-5 h-5 text-cyan-500" />
+                  Máy tính đã liên kết
+                </h2>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                  Extension và Client Agent chỉ hoạt động trên thiết bị đã được liên kết. Khi đổi thiết bị, cần được Admin phê duyệt.
+                </p>
+              </div>
+              {userProfile?.boundMachineId && (
+                pendingMachineChange ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 whitespace-nowrap shrink-0">
+                    Đang chờ duyệt đổi máy
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setMachineModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm cursor-pointer shrink-0"
+                  >
+                    <Monitor className="w-3.5 h-3.5" />
+                    Yêu cầu đổi máy
+                  </button>
+                )
+              )}
             </div>
 
             <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 px-4 py-3 text-sm">
@@ -1635,49 +1888,13 @@ function SettingsPageContent() {
               )}
             </div>
 
-            {userProfile?.boundMachineId && (
-              <div className="space-y-3">
-                {pendingMachineChange ? (
-                  <div className="rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
-                    Đang chờ duyệt đổi máy
-                    {pendingMachineChange.reason
-                      ? `: “${pendingMachineChange.reason}”`
-                      : "."}{" "}
-                    Admin sẽ hủy liên kết cũ sau khi duyệt.
-                  </div>
-                ) : (
-                  <>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
-                      Lý do yêu cầu đổi máy
-                    </label>
-                    <textarea
-                      value={machineChangeReason}
-                      onChange={(e) => setMachineChangeReason(e.target.value)}
-                      rows={3}
-                      maxLength={500}
-                      placeholder="Ví dụ: Đổi laptop công ty / máy cũ hỏng..."
-                      className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
-                    />
-                    <button
-                      type="button"
-                      disabled={
-                        machineChangeReason.trim().length < 5 ||
-                        requestMachineChangeMutation.isPending
-                      }
-                      onClick={() =>
-                        requestMachineChangeMutation.mutate({
-                          reason: machineChangeReason.trim(),
-                        })
-                      }
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 cursor-pointer"
-                    >
-                      {requestMachineChangeMutation.isPending && (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      )}
-                      Gửi yêu cầu đổi máy
-                    </button>
-                  </>
-                )}
+            {pendingMachineChange && (
+              <div className="rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+                Đang chờ duyệt đổi máy
+                {pendingMachineChange.reason
+                  ? `: “${pendingMachineChange.reason}”`
+                  : "."}{" "}
+                Admin sẽ hủy liên kết cũ sau khi duyệt.
               </div>
             )}
           </div>
@@ -1715,9 +1932,11 @@ function SettingsPageContent() {
                   type="button"
                   onClick={() => {
                     if (userProfile?.extensionAccessEnabled === false) {
-                      toast.error(
-                        "Token đã bị Quản trị viên thu hồi. Liên hệ Admin/Lead để mở khóa & cấp Token mới trên trang Users."
-                      );
+                      if (pendingExtensionAccess) {
+                        toast.info("Đã có yêu cầu kích hoạt đang chờ Admin duyệt.");
+                        return;
+                      }
+                      setExtensionModalOpen(true);
                       return;
                     }
                     setShowRegenConfirm(true);
@@ -1727,7 +1946,9 @@ function SettingsPageContent() {
                   <RefreshCw className="w-3.5 h-3.5 shrink-0" />
                   <span>
                     {userProfile?.extensionAccessEnabled === false
-                      ? "Cần Admin mở khóa"
+                      ? pendingExtensionAccess
+                        ? "Đã gửi yêu cầu"
+                        : "Yêu cầu kích hoạt Extension"
                       : "Cấp Lại Token Mới"}
                   </span>
                 </button>
@@ -1735,12 +1956,29 @@ function SettingsPageContent() {
             </div>
 
             {userProfile?.extensionAccessEnabled === false && (
-              <div className="mb-4 p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-sm text-rose-700 dark:text-rose-300 leading-relaxed">
-                <strong className="font-bold">Yêu cầu xác thực lại:</strong> Token Extension/Client Agent của bạn đã bị vô hiệu hóa
-                {userProfile?.extensionRevokedAt
-                  ? ` (lúc ${new Date(userProfile.extensionRevokedAt).toLocaleString("vi-VN")})`
-                  : ""}
-                . Extension sẽ hiện banner đỏ và Client Agent sẽ dừng đồng bộ cho đến khi bạn cấp token mới, rồi dán vào popup Extension hoặc chạy <code className="font-mono text-xs bg-rose-100 dark:bg-rose-950/50 px-1 rounded">setup-agent.bat</code> (phím 3).
+              <div className="mb-4 p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-sm text-rose-700 dark:text-rose-300 leading-relaxed space-y-2">
+                <p>
+                  <strong className="font-bold">Yêu cầu xác thực lại:</strong> Token Extension/Client Agent của bạn đã bị vô hiệu hóa
+                  {userProfile?.extensionRevokedAt
+                    ? ` (lúc ${new Date(userProfile.extensionRevokedAt).toLocaleString("vi-VN")})`
+                    : ""}
+                  . Extension sẽ hiện banner đỏ và Client Agent sẽ dừng đồng bộ cho đến khi Admin mở khóa &amp; cấp token mới.
+                </p>
+                {pendingExtensionAccess ? (
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                    Đã gửi yêu cầu kích hoạt — đang chờ Admin duyệt
+                    {pendingExtensionAccess.reason ? `: “${pendingExtensionAccess.reason}”` : "."}
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setExtensionModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    Gửi yêu cầu kích hoạt Extension
+                  </button>
+                )}
               </div>
             )}
 
@@ -1993,6 +2231,416 @@ function SettingsPageContent() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB: YÊU CẦU (own machine + extension requests)           */}
+      {/* ========================================================= */}
+      {activeTab === "requests" && (
+        <div className="space-y-4 animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Inbox className="w-5 h-5 text-amber-500" />
+                {isAdmin ? "Yêu cầu nhân sự" : "Yêu cầu của bạn"}
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                {isAdmin
+                  ? "Xem và xử lý toàn bộ yêu cầu đổi máy / kích hoạt Extension từ nhân sự."
+                  : "Theo dõi trạng thái yêu cầu đổi máy và kích hoạt Extension."}
+              </p>
+            </div>
+
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3"} gap-2.5`}>
+              <Select
+                value={requestTypeFilter}
+                onValueChange={(v) => setRequestTypeFilter(v as typeof requestTypeFilter)}
+              >
+                <SelectTrigger className="h-9 rounded-xl text-xs cursor-pointer bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800">
+                  <SelectValue placeholder="Loại yêu cầu" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="ALL" className="text-xs cursor-pointer">Tất cả loại</SelectItem>
+                  <SelectItem value="MACHINE_CHANGE" className="text-xs cursor-pointer">Đổi máy</SelectItem>
+                  <SelectItem value="EXTENSION_ACCESS" className="text-xs cursor-pointer">Kích hoạt Extension</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={requestStatusFilter}
+                onValueChange={(v) => setRequestStatusFilter(v as typeof requestStatusFilter)}
+              >
+                <SelectTrigger className="h-9 rounded-xl text-xs cursor-pointer bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800">
+                  <SelectValue placeholder="Trạng thái" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="ALL" className="text-xs cursor-pointer">Tất cả trạng thái</SelectItem>
+                  <SelectItem value="PENDING" className="text-xs cursor-pointer">Đang chờ</SelectItem>
+                  <SelectItem value="APPROVED" className="text-xs cursor-pointer">Đã duyệt</SelectItem>
+                  <SelectItem value="REJECTED" className="text-xs cursor-pointer">Từ chối</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {isAdmin && (
+                <Select
+                  value={requestUserFilter}
+                  onValueChange={setRequestUserFilter}
+                >
+                  <SelectTrigger className="h-9 rounded-xl text-xs cursor-pointer bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800">
+                    <SelectValue placeholder="Nhân sự">
+                      {requestUserFilter === "ALL" ? (
+                        <span>Tất cả nhân sự</span>
+                      ) : (
+                        (() => {
+                          const selected = requestPersonnelOptions.find(
+                            (u) => u.id === requestUserFilter
+                          );
+                          if (!selected) return <span>Nhân sự</span>;
+                          return (
+                            <span className="flex items-center gap-2 min-w-0">
+                              {renderRequestUserAvatar(selected, "w-4 h-4 text-[8px]")}
+                              <span className="truncate">{selected.label}</span>
+                            </span>
+                          );
+                        })()
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl max-h-64">
+                    <SelectItem value="ALL" className="text-xs cursor-pointer">
+                      Tất cả nhân sự
+                    </SelectItem>
+                    {requestPersonnelOptions.map((u) => (
+                      <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                        <div className="flex items-center gap-2">
+                          {renderRequestUserAvatar(u, "w-4 h-4 text-[8px]")}
+                          <span>{u.label}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              <Popover open={isRequestRangeOpen} onOpenChange={setIsRequestRangeOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="h-9 w-full inline-flex items-center justify-between gap-2 rounded-xl text-xs px-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-900"
+                  >
+                    <span className="inline-flex items-center gap-1.5 truncate">
+                      <Calendar className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                      {requestDateFrom && requestDateTo
+                        ? `${format(new Date(requestDateFrom + "T00:00:00"), "dd/MM/yy")} – ${format(new Date(requestDateTo + "T00:00:00"), "dd/MM/yy")}`
+                        : "Thời gian"}
+                    </span>
+                    {(requestDateFrom || requestDateTo) && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRequestRangeSelection(undefined);
+                          setRequestDateFrom("");
+                          setRequestDateTo("");
+                        }}
+                        className="text-slate-400 hover:text-rose-500"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  align="end"
+                  sideOffset={6}
+                  className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
+                >
+                  <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Chọn thời gian
+                    </span>
+                    {requestRangeSelection?.from && (
+                      <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap">
+                        {format(requestRangeSelection.from, "dd/MM/yy")} –{" "}
+                        {requestRangeSelection.to
+                          ? format(requestRangeSelection.to, "dd/MM/yy")
+                          : "..."}
+                      </span>
+                    )}
+                  </div>
+                  <CalendarPicker
+                    mode="range"
+                    selected={requestRangeSelection}
+                    onSelect={setRequestRangeSelection}
+                    numberOfMonths={1}
+                    className="w-full p-0"
+                  />
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRequestRangeSelection(undefined);
+                        setRequestDateFrom("");
+                        setRequestDateTo("");
+                        setIsRequestRangeOpen(false);
+                      }}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      Xóa
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!requestRangeSelection?.from}
+                      onClick={() => {
+                        if (!requestRangeSelection?.from) return;
+                        let from = requestRangeSelection.from;
+                        let to = requestRangeSelection.to || from;
+                        if (to.getTime() < from.getTime()) {
+                          const tmp = from;
+                          from = to;
+                          to = tmp;
+                        }
+                        setRequestDateFrom(format(from, "yyyy-MM-dd"));
+                        setRequestDateTo(format(to, "yyyy-MM-dd"));
+                        setRequestRangeSelection({ from, to });
+                        setIsRequestRangeOpen(false);
+                      }}
+                      className="px-4 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg cursor-pointer disabled:opacity-50"
+                    >
+                      Áp dụng
+                    </button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+
+          {loadingRequests ? (
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-10 text-center text-xs text-slate-400">
+              Đang tải yêu cầu...
+            </div>
+          ) : filteredMyRequests.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center space-y-3">
+              <Inbox className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                Không có yêu cầu nào
+              </h3>
+              <p className="text-xs text-slate-400">
+                {isAdmin
+                  ? "Chưa có yêu cầu nào từ nhân sự, hoặc không khớp bộ lọc hiện tại."
+                  : "Bạn chưa gửi yêu cầu nào, hoặc không khớp bộ lọc hiện tại."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {filteredMyRequests.map((item) => {
+                const isMachine = item.kind === "MACHINE_CHANGE";
+                const status = item.status;
+                const displayUser =
+                  item.user ||
+                  (userProfile
+                    ? {
+                        name: userProfile.name,
+                        username: userProfile.username,
+                        email: userProfile.email,
+                        avatar: userProfile.avatar,
+                        image: userProfile.image,
+                      }
+                    : null);
+                const requesterName =
+                  displayUser?.name ||
+                  displayUser?.username ||
+                  displayUser?.email ||
+                  null;
+                const statusBadge =
+                  status === "APPROVED" ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                      Đã duyệt
+                    </span>
+                  ) : status === "REJECTED" ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      Từ chối
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50">
+                      Đang chờ
+                    </span>
+                  );
+
+                return (
+                  <div
+                    key={`${item.kind}-${item.id}`}
+                    className={`rounded-2xl border px-4 py-3.5 shadow-sm bg-white dark:bg-slate-900/80 space-y-2.5 ${
+                      isMachine
+                        ? "border-amber-200/80 dark:border-amber-900/40"
+                        : "border-rose-200/80 dark:border-rose-900/40"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                            isMachine
+                              ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400"
+                              : "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
+                          }`}
+                        >
+                          {isMachine ? (
+                            <Monitor className="w-4.5 h-4.5" />
+                          ) : (
+                            <KeyRound className="w-4.5 h-4.5" />
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${
+                              isMachine
+                                ? "bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/50"
+                                : "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/50"
+                            }`}
+                          >
+                            {isMachine ? "Đổi máy" : "Kích hoạt Extension"}
+                          </span>
+                          {statusBadge}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {isAdmin && status === "PENDING" && (
+                          <>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    reviewMachineChangeMutation.isPending ||
+                                    reviewExtensionAccessMutation.isPending
+                                  }
+                                  onClick={() => {
+                                    if (isMachine) {
+                                      reviewMachineChangeMutation.mutate({
+                                        requestId: item.id,
+                                        decision: "APPROVED",
+                                      });
+                                    } else {
+                                      reviewExtensionAccessMutation.mutate({
+                                        requestId: item.id,
+                                        decision: "APPROVED",
+                                      });
+                                    }
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"
+                                >
+                                  {isMachine ? "Duyệt" : "Duyệt & Cấp Token"}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">
+                                {isMachine
+                                  ? "Duyệt yêu cầu đổi máy"
+                                  : "Duyệt & cấp Personal Token"}
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    reviewMachineChangeMutation.isPending ||
+                                    reviewExtensionAccessMutation.isPending
+                                  }
+                                  onClick={() => {
+                                    if (isMachine) {
+                                      reviewMachineChangeMutation.mutate({
+                                        requestId: item.id,
+                                        decision: "REJECTED",
+                                      });
+                                    } else {
+                                      reviewExtensionAccessMutation.mutate({
+                                        requestId: item.id,
+                                        decision: "REJECTED",
+                                      });
+                                    }
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold hover:bg-slate-300 dark:hover:bg-slate-700 disabled:opacity-50 cursor-pointer"
+                                >
+                                  Từ chối
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs">
+                                {isMachine
+                                  ? "Từ chối yêu cầu đổi máy"
+                                  : "Từ chối yêu cầu kích hoạt"}
+                              </TooltipContent>
+                            </Tooltip>
+                          </>
+                        )}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              disabled={
+                                deleteMachineRequestMutation.isPending ||
+                                deleteExtensionRequestMutation.isPending
+                              }
+                              onClick={async () => {
+                                const ok = await confirm({
+                                  title: isMachine
+                                    ? "Xóa yêu cầu đổi máy"
+                                    : "Xóa yêu cầu kích hoạt",
+                                  description: isAdmin
+                                    ? "Xóa yêu cầu này khỏi hệ thống?"
+                                    : "Xóa yêu cầu này khỏi danh sách của bạn?",
+                                  confirmLabel: "Xóa yêu cầu",
+                                  variant: "danger",
+                                });
+                                if (!ok) return;
+                                if (isMachine) {
+                                  deleteMachineRequestMutation.mutate({ requestId: item.id });
+                                } else {
+                                  deleteExtensionRequestMutation.mutate({ requestId: item.id });
+                                }
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                              aria-label="Xóa yêu cầu"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs">
+                            Xóa yêu cầu
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      {requesterName && (
+                        <div className="flex items-center gap-2 min-w-0">
+                          {renderRequestUserAvatar(displayUser, "w-6 h-6 text-[9px]")}
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                              {requesterName}
+                            </div>
+                            {displayUser?.email && (
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                {displayUser.email}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      <div className="text-xs text-slate-600 dark:text-slate-300">{item.reason}</div>
+                      <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {new Date(item.createdAt).toLocaleString("vi-VN")}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -2256,6 +2904,27 @@ function SettingsPageContent() {
           </div>
         </div>
       )}
+
+      <StaffRequestModals
+        machineModalOpen={machineModalOpen}
+        onMachineModalOpenChange={setMachineModalOpen}
+        extensionModalOpen={extensionModalOpen}
+        onExtensionModalOpenChange={setExtensionModalOpen}
+        boundMachineName={userProfile?.boundMachineName}
+        boundMachineId={userProfile?.boundMachineId}
+        boundOsUser={userProfile?.boundOsUser}
+        onMachineSuccess={() => {
+          refetchMachineChange();
+          utils.user.listMyRequests.invalidate();
+          toast.success("Đã gửi yêu cầu đổi máy. Chờ admin duyệt.");
+        }}
+        onExtensionSuccess={() => {
+          refetchExtensionAccess();
+          utils.user.listMyRequests.invalidate();
+          toast.success("Đã gửi yêu cầu kích hoạt Extension. Chờ admin duyệt.");
+        }}
+      />
+      {confirmDialog}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { calculateWorkdayScore, getScoringConfig } from "@/lib/scoring-engine";
 import { isAccountOnline, getOnlineCutoffDate } from "@/lib/account-status";
+import { resolveAllTimeRevenue } from "@/lib/resolve-all-time-revenue";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -102,6 +103,9 @@ export const accountsRouter = router({
             analytics: {
               select: {
                 postRewards: true,
+                sumRevenue: true,
+                sumViews: true,
+                rawSnapshot: true,
               },
             },
           },
@@ -144,7 +148,7 @@ export const accountsRouter = router({
       const warmingCount = statusMap["WARMING"] || 0;
 
       const totalFleetRevenue = accounts.reduce(
-        (sum, acc) => sum + Number(acc.totalRevenue || 0),
+        (sum, acc) => sum + resolveAllTimeRevenue(acc as any),
         0
       );
 
@@ -219,7 +223,7 @@ export const accountsRouter = router({
           },
           dailyRevenues: {
             orderBy: { date: "desc" },
-            take: 60,
+            take: 400,
           },
           analytics: true,
         },

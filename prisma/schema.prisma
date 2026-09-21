@@ -120,6 +120,7 @@ model User {
   extensionAuthEvents      ExtensionAuthEvent[]
   machineBindingLogs       MachineBindingLog[]
   machineChangeRequests    MachineChangeRequest[]
+  extensionAccessRequests  ExtensionAccessRequest[]
   syncQueues               SyncQueue[]              @relation("UserSyncQueues")
 
   createdAt              DateTime                 @default(now())
@@ -298,6 +299,7 @@ model AccountAnalytics {
   sumProfileViews       Json?         // { profileViews7d, profileViews28d, profileViews60d, profileViews365d }
   revenueBreakdown      Json?         // { totalRevenue, tiktokShop, activePrograms }
   dailyRevenueBreakdown Json?         // Array of { date: string, revenue: number }
+  dailyViewsBreakdown   Json?         // Array of { date: string, views: number } — Studio Insights vv_history 365d
   insightsHistory       Json?         // { vv_history, pv_history, like_history, comment_history, share_history }
   postRewards           Json?         // Array of { title, views, reward, coverUrl, postDate, programName, duration }
   rawSnapshot           Json?         // { videosList, topVideos, viewsBreakdown, videosBreakdown }
@@ -540,6 +542,23 @@ model MachineChangeRequest {
   @@index([userId, status])
   @@index([status, createdAt])
   @@map("machine_change_requests")
+}
+
+model ExtensionAccessRequest {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  reason       String
+  status       String    // PENDING | APPROVED | REJECTED
+  reviewedById String?   @map("reviewed_by_id")
+  reviewedAt   DateTime? @map("reviewed_at")
+  reviewNote   String?   @map("review_note")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@map("extension_access_requests")
 }
 
 // 22. Asynchronous Sync Job Queue

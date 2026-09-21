@@ -24,7 +24,30 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DateRange } from "react-day-picker";
-import { format, subDays } from "date-fns";
+import { format, startOfDay, subDays } from "date-fns";
+
+/** Earliest selectable day for custom range (inclusive): today − 365 days. */
+const MAX_LOOKBACK_DAYS = 365;
+
+const getToday = () => startOfDay(new Date());
+const getMinSelectableDate = () => subDays(getToday(), MAX_LOOKBACK_DAYS);
+
+const clampDateToLookback = (date: Date) => {
+  const today = getToday();
+  const min = getMinSelectableDate();
+  const d = startOfDay(date);
+  if (d < min) return min;
+  if (d > today) return today;
+  return d;
+};
+
+const clampRangeToLookback = (range: DateRange | undefined): DateRange | undefined => {
+  if (!range?.from) return range;
+  const from = clampDateToLookback(range.from);
+  if (!range.to) return { from, to: undefined };
+  const to = clampDateToLookback(range.to);
+  return from.getTime() <= to.getTime() ? { from, to } : { from: to, to: from };
+};
 
 const COUNTRY_OPTIONS = [
   // Tier 1 / Common markets
@@ -150,18 +173,7 @@ export default function AnalyticsFilterToolbar({
     { key: "28D", label: "28 Ngày" },
     { key: "60D", label: "60 Ngày" },
     { key: "365D", label: "365 Ngày" },
-    { key: "ALL", label: "Toàn Bộ" },
   ];
-
-  const handleApplyCustomRange = (range: DateRange | undefined) => {
-    setDateRange(range);
-    if (range?.from && range?.to) {
-      setStartDate(format(range.from, "yyyy-MM-dd"));
-      setEndDate(format(range.to, "yyyy-MM-dd"));
-      setPeriod("CUSTOM");
-      setIsCalendarOpen(false);
-    }
-  };
 
   const hasActiveFilters = Boolean(
     operatorId || groupId || country || status || period === "CUSTOM"
@@ -232,9 +244,14 @@ export default function AnalyticsFilterToolbar({
               className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
             >
               <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                  Chọn khoảng ngày thống kê
-                </span>
+                <div className="min-w-0">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                    Chọn khoảng ngày thống kê
+                  </span>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Trong vòng {MAX_LOOKBACK_DAYS} ngày gần nhất
+                  </p>
+                </div>
                 {dateRange?.from && (
                   <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
                     {format(dateRange.from, "dd/MM/yy")} - {dateRange.to ? format(dateRange.to, "dd/MM/yy") : "..."}
@@ -246,7 +263,11 @@ export default function AnalyticsFilterToolbar({
                 <Calendar
                   mode="range"
                   selected={dateRange}
-                  onSelect={setDateRange}
+                  onSelect={(range) => setDateRange(clampRangeToLookback(range))}
+                  disabled={(date) => {
+                    const d = startOfDay(date);
+                    return d > getToday() || d < getMinSelectableDate();
+                  }}
                   numberOfMonths={1}
                   className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
                   classNames={{
@@ -271,9 +292,11 @@ export default function AnalyticsFilterToolbar({
                   type="button"
                   disabled={!dateRange?.from}
                   onClick={() => {
-                    if (dateRange?.from) {
-                      const s = format(dateRange.from, "yyyy-MM-dd");
-                      const e = dateRange.to ? format(dateRange.to, "yyyy-MM-dd") : s;
+                    const clamped = clampRangeToLookback(dateRange);
+                    if (clamped?.from) {
+                      const s = format(clamped.from, "yyyy-MM-dd");
+                      const e = clamped.to ? format(clamped.to, "yyyy-MM-dd") : s;
+                      setDateRange(clamped.to ? clamped : { from: clamped.from, to: clamped.from });
                       setStartDate(s);
                       setEndDate(e);
                       setPeriod("CUSTOM");

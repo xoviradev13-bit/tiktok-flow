@@ -44,7 +44,7 @@ export default function SecurityPage() {
     {
       icon: Key,
       title: "Cơ Chế Khóa Token Định Danh Phân Lập",
-      desc: "Gói tải về chỉ chứa mã pairing dùng một lần (~10 phút). Extension/Client Agent đổi mã đó lấy phiên JWT ngắn hạn (15 phút) kèm refresh có xoay vòng và phát hiện tái sử dụng. Personal Token riêng từng nhân sự chỉ dùng để khôi phục khi regenerate/revoke — không lưu mật khẩu tài khoản TikTok trên máy chủ.",
+      desc: "Gói tải về chỉ chứa mã pairing dùng một lần (~24 giờ). Extension/Client Agent đổi mã đó lấy phiên JWT ngắn hạn (15 phút) kèm refresh có xoay vòng và phát hiện tái sử dụng. Personal Token riêng từng nhân sự chỉ dùng để khôi phục khi regenerate/revoke — không lưu mật khẩu tài khoản TikTok trên máy chủ.",
       tags: ["One-time Pairing", "Short-lived JWT", "Refresh Rotation", "Per-user Revoke"],
     },
     {

@@ -26,6 +26,8 @@ import {
   HelpCircle,
   Ban,
   Bot,
+  Monitor,
+  KeyRound,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
@@ -35,18 +37,34 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ImageLightbox, ZoomableImage } from "@/app/docs/_components/ImageLightbox";
+import { useConfirmDialog } from "@/components/ui/confirm-modal";
+import { StaffRequestModals } from "@/components/access-requests/StaffRequestModals";
+import { toast } from "sonner";
 
 export default function ExtensionDetailPage() {
   const params = useParams();
   const idOrSlug = params?.id as string;
   const [zoomImage, setZoomImage] = useState<{ src: string; alt?: string } | null>(null);
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   const [isTokenRevealed, setIsTokenRevealed] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [machineModalOpen, setMachineModalOpen] = useState(false);
+  const [extensionModalOpen, setExtensionModalOpen] = useState(false);
 
   const utils = trpc.useUtils();
+
+  const { data: meProfile } = trpc.user.me.useQuery(undefined, { staleTime: 60_000 });
+  const { data: pendingMachineChange, refetch: refetchMachineChange } =
+    trpc.user.myMachineChangeRequest.useQuery(undefined, {
+      enabled: !!meProfile?.boundMachineId,
+    });
+  const { data: pendingExtensionAccess, refetch: refetchExtensionAccess } =
+    trpc.user.myExtensionAccessRequest.useQuery(undefined, {
+      enabled: meProfile?.extensionAccessEnabled === false,
+    });
 
   const {
     data: ext,
@@ -108,7 +126,7 @@ export default function ExtensionDetailPage() {
   return (
     <div className="w-full space-y-6 pb-28 animate-fadeIn">
       {/* Breadcrumb Navigation */}
-      <div className="flex items-center justify-between text-xs">
+      <div className="flex items-center justify-between text-xs gap-3 flex-wrap">
         <Link
           href="/extensions"
           className="flex items-center gap-1.5 font-bold text-slate-500 hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
@@ -116,6 +134,30 @@ export default function ExtensionDetailPage() {
           <ChevronLeft className="w-4 h-4" />
           <span>Tất cả Tiện Ích & Công Cụ (Extensions & Agents)</span>
         </Link>
+        <div className="flex items-center gap-2">
+          {meProfile?.boundMachineId && (
+            <button
+              type="button"
+              disabled={!!pendingMachineChange}
+              onClick={() => setMachineModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+            >
+              <Monitor className="w-3.5 h-3.5 text-amber-500" />
+              {pendingMachineChange ? "Đã gửi yêu cầu đổi máy" : "Yêu cầu đổi máy"}
+            </button>
+          )}
+          {meProfile?.extensionAccessEnabled === false && (
+            <button
+              type="button"
+              disabled={!!pendingExtensionAccess}
+              onClick={() => setExtensionModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950/60 disabled:opacity-50 cursor-pointer"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              {pendingExtensionAccess ? "Đã gửi yêu cầu kích hoạt" : "Yêu cầu kích hoạt Extension"}
+            </button>
+          )}
+        </div>
       </div>
 
       {actionMsg && (
@@ -142,14 +184,14 @@ export default function ExtensionDetailPage() {
             </div>
 
             <div className="space-y-1.5 min-w-0">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-none">
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-none self-center">
                   {ext.name}
                 </h1>
-                <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 leading-none">
+                <span className="inline-flex h-6 items-center justify-center px-2.5 rounded-lg text-xs font-mono font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 leading-none shrink-0 self-center">
                   v{ext.version}
                 </span>
-                <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 leading-none">
+                <span className="inline-flex h-6 items-center justify-center px-2.5 rounded-lg text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 leading-none shrink-0 self-center">
                   {ext.category}
                 </span>
               </div>
@@ -194,8 +236,8 @@ export default function ExtensionDetailPage() {
                 <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 space-y-1.5 text-center">
                   <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                     {isClientAgent
-                      ? "Gói ZIP tự động gán tài khoản khi chạy lần đầu (mã có hạn ~10 phút)."
-                      : "Gói ZIP tự động gán tài khoản khi mở lần đầu (mã có hạn ~10 phút)."}
+                      ? "Gói ZIP tự động gán tài khoản khi chạy lần đầu (mã có hạn ~24 giờ)."
+                      : "Gói ZIP tự động gán tài khoản khi mở lần đầu (mã có hạn ~24 giờ)."}
                   </p>
                   <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1">
                     <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
@@ -324,12 +366,15 @@ export default function ExtensionDetailPage() {
           <button
             type="button"
             disabled={isAccessRevoked || regenerateTokenMutation.isPending}
-            onClick={() => {
-              if (
-                confirm(
-                  "Xác nhận tạo Token mới?\n\nExtension và Client Agent đang chạy sẽ cần cập nhật Token mới để tiếp tục hoạt động!"
-                )
-              ) {
+            onClick={async () => {
+              const ok = await confirm({
+                title: "Tạo Token mới",
+                description:
+                  "Xác nhận tạo Token mới? Extension và Client Agent đang chạy sẽ cần cập nhật Token mới để tiếp tục hoạt động!",
+                confirmLabel: "Xác nhận tạo mới",
+                variant: "amber",
+              });
+              if (ok) {
                 regenerateTokenMutation.mutate();
               }
             }}
@@ -490,7 +535,7 @@ export default function ExtensionDetailPage() {
                     Tải Về Trực Tiếp Gói .ZIP
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Bấm nút tải phía trên để lưu file <code className="bg-pink-50 dark:bg-pink-950/50 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded text-xs font-mono font-bold border border-pink-200 dark:border-pink-800">extension.zip</code> về máy. Zip có mã pairing (~10 phút). Bạn <strong>KHÔNG CẦN</strong> giải nén.
+                    Bấm nút tải phía trên để lưu file <code className="bg-pink-50 dark:bg-pink-950/50 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded text-xs font-mono font-bold border border-pink-200 dark:border-pink-800">extension.zip</code> về máy. Zip có mã pairing (~24 giờ). Bạn <strong>KHÔNG CẦN</strong> giải nén.
                   </p>
                 </div>
               </div>
@@ -669,6 +714,25 @@ export default function ExtensionDetailPage() {
         src={zoomImage?.src || null}
         alt={zoomImage?.alt}
         onClose={() => setZoomImage(null)}
+      />
+      {confirmDialog}
+
+      <StaffRequestModals
+        machineModalOpen={machineModalOpen}
+        onMachineModalOpenChange={setMachineModalOpen}
+        extensionModalOpen={extensionModalOpen}
+        onExtensionModalOpenChange={setExtensionModalOpen}
+        boundMachineName={meProfile?.boundMachineName}
+        boundMachineId={meProfile?.boundMachineId}
+        boundOsUser={meProfile?.boundOsUser}
+        onMachineSuccess={() => {
+          refetchMachineChange();
+          toast.success("Đã gửi yêu cầu đổi máy. Chờ admin duyệt.");
+        }}
+        onExtensionSuccess={() => {
+          refetchExtensionAccess();
+          toast.success("Đã gửi yêu cầu kích hoạt Extension. Chờ admin duyệt.");
+        }}
       />
     </div>
   );

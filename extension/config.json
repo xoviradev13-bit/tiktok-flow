@@ -2,5 +2,6 @@
   "serverUrl": "http://localhost:3000",
   "personalToken": "",
   "memberName": "Default Staff",
-  "userEmail": ""
+  "userEmail": "",
+  "autoOpenStudioTab": true
 }

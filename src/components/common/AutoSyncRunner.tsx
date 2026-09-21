@@ -56,16 +56,67 @@ const CATCHUP_DELAY_SECONDS = parseInt(
 const CATCHUP_DELAY_MS =
   (!isNaN(CATCHUP_DELAY_SECONDS) && CATCHUP_DELAY_SECONDS >= 0 ? CATCHUP_DELAY_SECONDS : 10) * 1000;
 
+// FIX: cross-tab coordination constants.
+// LOCK_TTL_MS is the mutex window — one tab at a time per schedule.
+// The lock is released on failure so another tick can retry.
+const SCHEDULE_LOCK_TTL_MS = 60 * 1000;
+
+function safeLocalStorageGet(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try { return window.localStorage.getItem(key); } catch { return null; }
+}
+
+function safeLocalStorageSet(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.setItem(key, value); } catch { }
+}
+
+function safeLocalStorageRemove(key: string): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.removeItem(key); } catch { }
+}
+
+function scheduleDayKey(configKey: string, itemId: string, dateStr: string): string {
+  return `ttf_sched_day_${configKey}_${itemId}_${dateStr}`;
+}
+
+function scheduleLockKey(configKey: string, itemId: string): string {
+  return `ttf_sched_lock_${configKey}_${itemId}`;
+}
+
+/**
+ * FIX: atomic-enough cross-tab mutex using localStorage.
+ * Returns true if this tab acquired the lock, false if another tab holds it.
+ * A stale lock (older than TTL) is treated as free so a crashed tab cannot
+ * permanently suppress future fires.
+ */
+function tryAcquireScheduleLock(key: string): boolean {
+  const now = Date.now();
+  const raw = safeLocalStorageGet(key);
+  if (raw) {
+    const ts = Number(raw);
+    if (Number.isFinite(ts) && now - ts < SCHEDULE_LOCK_TTL_MS) return false;
+  }
+  safeLocalStorageSet(key, String(now));
+  return true;
+}
+
 export default function AutoSyncRunner() {
   const { data: configData } = trpc.settings.getAll.useQuery();
   const setConfigMutation = trpc.settings.set.useMutation();
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null);
   const startupTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // FIX: prevent overlapping ticks when a fire takes longer than the interval.
+  const tickInFlightRef = useRef(false);
+
+  // FIX: one AbortController per configKey, so a new tick can cancel the previous
+  // in-flight request instead of stacking fetches.
+  const inFlightAbortsRef = useRef<Map<string, AbortController>>(new Map());
+
   useEffect(() => {
     if (!configData) return;
 
-    // Helper to evaluate and trigger a single schedule configuration
     const checkAndExecuteForSchedule = async (
       rawSchedule: SyncScheduleConfig | undefined,
       configKey: string,
@@ -102,14 +153,22 @@ export default function AutoSyncRunner() {
       if (scheduleList.length === 0) return;
 
       const now = new Date();
-      let triggered = false;
+      let triggeredItem: SyncScheduleItem | null = null;
       let isCatchup = false;
+      let triggeredDateStr = "";
 
       for (const item of scheduleList) {
         const tzInfo = getTimeInZone(now, item.timezone || "GMT+07:00, Asia/Bangkok");
 
         if (item.startDate && tzInfo.dateStr < item.startDate) continue;
         if (item.ends === "ON_DATE" && item.endDate && tzInfo.dateStr > item.endDate) continue;
+
+        // FIX: per-browser per-day marker. Independent of the DB lastRunAt.
+        // Once this browser has fired this schedule for this date, it will not
+        // fire it again — regardless of what the DB row says.
+        const itemId = item.id || "default";
+        const dayKey = scheduleDayKey(configKey, itemId, tzInfo.dateStr);
+        if (safeLocalStorageGet(dayKey) === "1") continue;
 
         let shouldRun = false;
         const lastRun = item.lastRunAt ? new Date(item.lastRunAt) : null;
@@ -135,21 +194,17 @@ export default function AutoSyncRunner() {
             shouldRun = true;
           }
 
-          // Auto Catch-Up: If missed today or never run
+          // Auto Catch-Up: If missed today or never run.
+          // The sessionStorage marker from the original code is replaced by
+          // the localStorage day marker above, which persists across tabs and
+          // across reloads within the same browser.
           if (!alreadyRanToday && !shouldRun) {
             if (!lastRun) {
               shouldRun = true;
               isCatchup = true;
             } else if (lastRunTz && lastRunTz.dateStr < tzInfo.dateStr) {
-              const sessionKey = `ttf_catchup_${configKey}_${tzInfo.dateStr}_${item.id}`;
-              const alreadyCaughtUp = typeof window !== "undefined" && window.sessionStorage.getItem(sessionKey);
-              if (!alreadyCaughtUp) {
-                shouldRun = true;
-                isCatchup = true;
-                if (typeof window !== "undefined") {
-                  window.sessionStorage.setItem(sessionKey, "true");
-                }
-              }
+              shouldRun = true;
+              isCatchup = true;
             }
           }
         } else {
@@ -167,54 +222,101 @@ export default function AutoSyncRunner() {
         }
 
         if (shouldRun) {
-          item.lastRunAt = now.toISOString();
-          triggered = true;
+          triggeredItem = item;
+          triggeredDateStr = tzInfo.dateStr;
           break;
         }
       }
 
-      if (triggered) {
-        try {
-          console.log(`[AutoSyncRunner] Triggering ${description} (${isCatchup ? "CATCH-UP" : "SCHEDULED"})...`);
-          const res = await fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ isAutoSchedule: true, isCatchup }),
-          });
-          const json = await res.json();
-          if (json.success) {
-            window.dispatchEvent(new Event("refreshData"));
-          }
+      if (!triggeredItem) return;
 
-          // Update config in DB
-          await setConfigMutation.mutateAsync({
-            key: configKey,
-            value: {
-              ...rawSchedule,
-              schedules: Array.isArray(rawSchedule.schedules)
-                ? rawSchedule.schedules.map((s) => {
-                    const updated = scheduleList.find((item) => item.id === s.id);
-                    return updated ? { ...s, lastRunAt: updated.lastRunAt } : s;
-                  })
-                : scheduleList,
-              lastRunAt: now.toISOString(),
-            },
-            description,
-          });
-        } catch (err) {
-          console.warn(`[AutoSyncRunner] Failed executing ${description}:`, err);
+      const itemId = triggeredItem.id || "default";
+      const lockKey = scheduleLockKey(configKey, itemId);
+
+      // FIX: cross-tab mutex. Another tab of this browser already firing this
+      // schedule → skip. This is what prevents N tabs from issuing N POSTs.
+      if (!tryAcquireScheduleLock(lockKey)) {
+        console.log(`[AutoSyncRunner] Another tab is already firing ${description} — skipping`);
+        return;
+      }
+
+      // FIX: abort any prior in-flight request for this config, then start fresh.
+      const prevAbort = inFlightAbortsRef.current.get(configKey);
+      if (prevAbort) prevAbort.abort();
+      const abort = new AbortController();
+      inFlightAbortsRef.current.set(configKey, abort);
+
+      try {
+        console.log(`[AutoSyncRunner] Triggering ${description} (${isCatchup ? "CATCH-UP" : "SCHEDULED"})...`);
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isAutoSchedule: true, isCatchup }),
+          signal: abort.signal,
+        });
+
+        // FIX: check HTTP status before trusting the response body.
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const json = await res.json().catch(() => ({}));
+        if (json && json.success === false) {
+          throw new Error(json.error || "Server rejected sync trigger");
+        }
+
+        // FIX: mark this browser as having fired this schedule for this date.
+        // Set only after a successful response so a failed fire remains retryable.
+        const dayKey = scheduleDayKey(configKey, itemId, triggeredDateStr);
+        safeLocalStorageSet(dayKey, "1");
+
+        // Update the server's lastRunAt so the UI and other clients converge.
+        await setConfigMutation.mutateAsync({
+          key: configKey,
+          value: {
+            ...rawSchedule,
+            schedules: Array.isArray(rawSchedule.schedules)
+              ? rawSchedule.schedules.map((s) =>
+                s.id === triggeredItem!.id
+                  ? { ...s, lastRunAt: now.toISOString() }
+                  : s
+              )
+              : [{ ...triggeredItem, lastRunAt: now.toISOString() }],
+            lastRunAt: now.toISOString(),
+          },
+          description,
+        });
+
+        window.dispatchEvent(new Event("refreshData"));
+      } catch (err: any) {
+        if (err?.name === "AbortError") {
+          // Superseded by a newer tick or unmount — nothing to do.
+          return;
+        }
+        console.warn(`[AutoSyncRunner] Failed executing ${description}:`, err?.message || err);
+        // FIX: release the lock so the next tick can retry. The day marker is
+        // NOT set, so the client will fire again on the next 30s tick.
+        safeLocalStorageRemove(lockKey);
+      } finally {
+        if (inFlightAbortsRef.current.get(configKey) === abort) {
+          inFlightAbortsRef.current.delete(configKey);
         }
       }
     };
 
     const checkAndExecuteSync = async () => {
-      // 1. GPM Fleet Inventory Schedule (fallback to sync_schedule)
-      const rawGpm = (configData["gpm_sync_schedule"] || configData["sync_schedule"]) as SyncScheduleConfig | undefined;
-      await checkAndExecuteForSchedule(rawGpm, "gpm_sync_schedule", "/api/gpm/sync", "Lịch kiểm kê Profile GPM (Fleet Inventory)");
+      // FIX: no overlapping ticks. A slow fire (network delay, big fleet) must
+      // not let the 30s interval spawn a second concurrent pass.
+      if (tickInFlightRef.current) return;
+      tickInFlightRef.current = true;
+      try {
+        const rawGpm = (configData["gpm_sync_schedule"] || configData["sync_schedule"]) as SyncScheduleConfig | undefined;
+        await checkAndExecuteForSchedule(rawGpm, "gpm_sync_schedule", "/api/gpm/sync", "Lịch kiểm kê Profile GPM (Fleet Inventory)");
 
-      // 2. TikTok Studio Deep Sweeper Schedule
-      const rawSweeper = configData["tiktok_sweeper_schedule"] as SyncScheduleConfig | undefined;
-      await checkAndExecuteForSchedule(rawSweeper, "tiktok_sweeper_schedule", "/api/gpm/sweeper", "Lịch quét vét TikTok Studio ngầm (Deep Sweeper)");
+        const rawSweeper = configData["tiktok_sweeper_schedule"] as SyncScheduleConfig | undefined;
+        await checkAndExecuteForSchedule(rawSweeper, "tiktok_sweeper_schedule", "/api/gpm/sweeper", "Lịch quét vét TikTok Studio ngầm (Deep Sweeper)");
+      } finally {
+        tickInFlightRef.current = false;
+      }
     };
 
     startupTimerRef.current = setTimeout(() => {
@@ -225,8 +327,12 @@ export default function AutoSyncRunner() {
     return () => {
       if (startupTimerRef.current) clearTimeout(startupTimerRef.current);
       if (syncTimerRef.current) clearInterval(syncTimerRef.current);
+      // FIX: abort any in-flight fetches on unmount so navigation does not
+      // leave orphan requests or trigger setState on an unmounted tree.
+      for (const abort of inFlightAbortsRef.current.values()) abort.abort();
+      inFlightAbortsRef.current.clear();
     };
-  }, [configData]);
+  }, [configData, setConfigMutation]);
 
   return null;
 }

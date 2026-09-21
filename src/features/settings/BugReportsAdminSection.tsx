@@ -42,9 +42,11 @@ import {
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { BugReportItem } from "@/trpc/routers/support";
+import { useConfirmDialog } from "@/components/ui/confirm-modal";
 
 export default function BugReportsAdminSection() {
   const utils = trpc.useUtils();
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   // 1. Email Alert Configuration States
   const { data: alertEmailsData, isLoading: loadingEmails } =
@@ -192,8 +194,14 @@ export default function BugReportsAdminSection() {
     },
   });
 
-  const handleDeleteReport = (reportId: string) => {
-    if (window.confirm("Bạn có chắc chắn muốn xóa báo cáo sự cố này không? Thao tác này không thể hoàn tác.")) {
+  const handleDeleteReport = async (reportId: string) => {
+    const ok = await confirm({
+      title: "Xóa báo cáo sự cố",
+      description: "Bạn có chắc chắn muốn xóa báo cáo sự cố này không? Thao tác này không thể hoàn tác.",
+      confirmLabel: "Xác nhận xóa",
+      variant: "danger",
+    });
+    if (ok) {
       deleteMutation.mutate({ id: reportId });
     }
   };
@@ -892,6 +900,8 @@ export default function BugReportsAdminSection() {
           </div>
         </div>
       )}
+
+      {confirmDialog}
     </div>
   );
 }

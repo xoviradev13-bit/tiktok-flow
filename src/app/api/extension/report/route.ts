@@ -8,6 +8,89 @@ import {
 } from "@/lib/extension-auth";
 import { toStandardCountryCode } from "@/lib/country-name";
 import { splitGpmNameFields } from "@/lib/gpm-profile-fields";
+import { extensionOptionsResponse } from "@/lib/extension-cors";
+import { acquireReportSlot, reportGateStats } from "@/lib/report-gate";
+import { syncFlowLog } from "@/lib/sync-flow-debug";
+
+const PERIOD_KEY_RE = /(7d|28d|60d|365d)$/;
+const INSIGHT_SUM_KEYS = [
+  "sumViews",
+  "sumLikes",
+  "sumComments",
+  "sumShares",
+  "sumProfileViews",
+] as const;
+
+function periodValues(obj: unknown): number[] | null {
+  if (!obj || typeof obj !== "object") return null;
+  const vals = Object.entries(obj as Record<string, unknown>)
+    .filter(([k]) => PERIOD_KEY_RE.test(k))
+    .map(([, v]) => v);
+  if (!vals.length || !vals.every((v) => typeof v === "number" && Number.isFinite(v))) {
+    return null;
+  }
+  return vals as number[];
+}
+
+/** null if ANY of the five sums is missing/null/non-finite (partial-null => "empty"). */
+function collectInsightPeriods(
+  row: Record<string, any> | null | undefined
+): number[] | null {
+  if (!row) return null;
+  const all: number[] = [];
+  for (const k of INSIGHT_SUM_KEYS) {
+    const v = periodValues(row[k]);
+    if (!v) return null;
+    all.push(...v);
+  }
+  return all;
+}
+
+/** Depends ONLY on stored data + markers, never on latest attempt status. */
+function isPresentInsights(
+  row: Record<string, any> | null | undefined,
+  snap: Record<string, any>
+): boolean {
+  const vals = collectInsightPeriods(row);
+  if (!vals) return false;
+  return snap?.insightsConfirmed === true || vals.some((v) => v !== 0);
+}
+
+function isPresentRewards(list: unknown, snap: Record<string, any>): boolean {
+  if (!Array.isArray(list) || list.length === 0) return false;
+  return (
+    snap?.rewardsConfirmed === true ||
+    list.some((v: any) => Number(v?.reward ?? v?.rewards ?? 0) !== 0)
+  );
+}
+
+function mergePostRewards(existing: unknown, incoming: any[]): any[] {
+  const map = new Map<string, any>();
+  for (const item of Array.isArray(existing) ? existing : []) {
+    map.set(String(item.id || item.videoId || item.title), item);
+  }
+  for (const item of incoming) {
+    map.set(String(item.id || item.videoId || item.title), item);
+  }
+  const parseTimeMs = (v: any) => {
+    if (v.publishTimeUnix) return Number(v.publishTimeUnix) * 1000;
+    const t = new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
+    return !isNaN(t) ? t : 0;
+  };
+  const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  return Array.from(map.values())
+    .filter((v) => {
+      const ts = parseTimeMs(v);
+      return ts <= 0 || nowMs - ts <= SIXTY_DAYS_MS;
+    })
+    .sort((a, b) => parseTimeMs(b) - parseTimeMs(a));
+}
+
+/** Handle CORS preflight from chrome-extension:// origins */
+export function OPTIONS(req: Request) {
+  return extensionOptionsResponse(req);
+}
 
 export interface VideoItemMetric {
   id?: string;
@@ -23,10 +106,25 @@ export interface VideoItemMetric {
 
 export interface TopVideoItem {
   rank?: number;
-  title: string;
+  videoId?: string | null;
+  title: string | null;
+  coverUrl?: string | null;
+  postedOn?: string | null;
   viewsInRange: number;
+  newViewersInRange?: number;
+  likesInRange?: number;
   allViews?: number;
-  postedOn?: string;
+  allLikes?: number;
+}
+
+export interface TopVideos365d {
+  /** Top videos by views in 365d */
+  mostViews: TopVideoItem[];
+  /** Top videos by unique new viewers in 365d */
+  mostNewViewers: TopVideoItem[];
+  /** Top videos by likes in 365d */
+  mostLikes: TopVideoItem[];
+  fetchedAt?: string;
 }
 
 export interface ExtensionReportPayload {
@@ -56,13 +154,8 @@ export interface ExtensionReportPayload {
   // Per-video Metrics (views, likes, comments for each video)
   videosList?: VideoItemMetric[];
 
-  // Most views video in 7, 28, 60, 365 days
-  topVideos?: {
-    past7d?: TopVideoItem[];
-    past28d?: TopVideoItem[];
-    past60d?: TopVideoItem[];
-    past365d?: TopVideoItem[];
-  };
+  // 365d top videos with 3 ranking categories from TikTok Studio analytics/content
+  topVideos365d?: TopVideos365d | null;
 
   // Structured JSON summaries & breakdowns
   sumRevenue?: {
@@ -110,6 +203,8 @@ export interface ExtensionReportPayload {
     activePrograms?: any[];
   } | null;
   dailyRevenueBreakdown?: Array<{ date: string; revenue: number }> | null;
+  /** Studio Insights vv_history 365d dated points — only when Insights claim is ok. */
+  dailyViewsBreakdown?: Array<{ date: string; views: number }> | null;
   insightsHistory?: Record<string, any> | null;
   postRewards?: Array<{
     title: string;
@@ -122,17 +217,64 @@ export interface ExtensionReportPayload {
     duration?: string;
     rpm?: number | string;
   }> | null;
+  // FIX: the agent flags truncated postRewards (429 or page-cap hit).
+  // When true, the server must NOT overwrite stored postRewards / totalRevenue
+  // with this partial payload — a later complete sweep will merge.
+  postRewardsPartial?: boolean;
   creatorRewardsMissing?: boolean;
   bannedReason?: string;
   metadata?: Record<string, any> | null;
+  /**
+   * Set to true by the agent when the TikTok Studio insights API returned no data
+   * (vv_history undefined) — meaning the session was expired/unauthorized.
+   * When true, route.ts skips updating sumViews/sumComments/sumShares/sumProfileViews
+   * to avoid overwriting valid historical data with meaningless zeros.
+   * An account that genuinely has 0 views will still have vv_history defined (empty array),
+   * so insightsUnavailable will be false and zeros will be written correctly.
+   */
+  insightsUnavailable?: boolean;
+  /** Agent protocol version — >=1 enables no_data / rewardsNoProgram / old-agent guards. */
+  flagsVersion?: number;
+  insightsNoData?: boolean;
+  insightsFailReason?:
+    | "session"
+    | "captcha"
+    | "timeout"
+    | "empty_response"
+    | "unknown";
+  rewardsFailReason?:
+    | "session"
+    | "captcha"
+    | "timeout"
+    | "rate_limited"
+    | "incomplete_list"
+    | "unknown";
+  rewardsNoProgram?: boolean;
 }
 
+// FIX: reject oversized bodies before they hit req.json().
+const MAX_REPORT_BODY_BYTES = 4 * 1024 * 1024; // 4 MB
+
 export async function POST(req: Request) {
+  let release: (() => void) | null = null;
+  let reportT0 = Date.now();
+  let reportReqId: string | null = null;
+  let reportUsername: string | null = null;
   try {
+    // FIX: guard against oversized payloads (JSON parse of a 100 MB body pins memory).
+    const contentLength = Number(req.headers.get("content-length") || 0);
+    if (Number.isFinite(contentLength) && contentLength > MAX_REPORT_BODY_BYTES) {
+      return NextResponse.json(
+        { success: false, error: "Payload quá lớn." },
+        { status: 413 }
+      );
+    }
+
     const ip = getClientIp(req) || "unknown";
-    const authHeaderEarly = req.headers.get("authorization");
-    const isBearer = authHeaderEarly?.startsWith("Bearer ");
-    const ipLimit = checkRateLimit(`report:ip:${ip}`, isBearer ? 2400 : 180);
+    // FIX: do not raise the pre-auth IP limit just because a Bearer header exists —
+    // a forged header must not unlock the higher bucket. The elevated rate is applied
+    // after resolveExtensionBearerAuth succeeds (below).
+    const ipLimit = checkRateLimit(`report:ip:${ip}`, 180);
     if (!ipLimit.ok) {
       return NextResponse.json(
         { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
@@ -164,7 +306,7 @@ export async function POST(req: Request) {
       source,
       metricsSource,
       videosList,
-      topVideos,
+      topVideos365d,
       sumRevenue,
       sumViews,
       sumLikes,
@@ -175,6 +317,46 @@ export async function POST(req: Request) {
       dailyRevenueBreakdown,
       insightsHistory,
     } = body;
+    const dailyViewsBreakdown = Array.isArray(body.dailyViewsBreakdown)
+      ? body.dailyViewsBreakdown
+      : undefined;
+
+    // insightsClaim: ok | no_data | unavailable — never fabricate Insight sums.
+    // Old agents (no flagsVersion) that post all-zero + videos > 0 are treated as unavailable.
+    const isNewAgent = Number(body.flagsVersion) >= 1;
+    const payloadPeriods = collectInsightPeriods({
+      sumViews,
+      sumLikes,
+      sumComments,
+      sumShares,
+      sumProfileViews,
+    } as any);
+    const payloadVideoSignal = Math.max(
+      Number(totalVideos ?? 0),
+      Number(videoCount ?? 0),
+      Array.isArray(videosList) ? videosList.length : 0
+    );
+
+    type InsightsClaim = "ok" | "no_data" | "unavailable";
+    let insightsClaim: InsightsClaim;
+    if (body.insightsUnavailable === true) insightsClaim = "unavailable";
+    else if (isNewAgent && body.insightsNoData === true) insightsClaim = "no_data";
+    else if (!payloadPeriods) insightsClaim = "unavailable";
+    else if (
+      !isNewAgent &&
+      payloadPeriods.every((v) => v === 0) &&
+      payloadVideoSignal > 0
+    )
+      insightsClaim = "unavailable";
+    else insightsClaim = "ok";
+
+    const insightsWritable = insightsClaim === "ok";
+    const insightsUnavailable = insightsClaim === "unavailable";
+
+    // FIX: postRewardsPartial=true means the agent's per-post sweep was truncated
+    // (HTTP 429 or page-cap). The payload's postRewards / totalRevenue are incomplete
+    // and must NOT overwrite stored values. A future complete sweep will merge.
+    const postRewardsPartial = body.postRewardsPartial === true;
 
     // Extension = identity/GPM/assignment only. Agent writes metrics.
     const isIdentityOnly =
@@ -229,14 +411,102 @@ export async function POST(req: Request) {
     const memberUser = authResult.user;
 
     const isAgentSource = body.source === "agent" || body.metricsSource === "agent";
+    const reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    reportT0 = Date.now();
+    reportReqId = reqId;
+    reportUsername = cleanUsername;
+
+    syncFlowLog("report_begin", {
+      reqId,
+      username: cleanUsername,
+      source: body.source || null,
+      metricsSource: body.metricsSource || null,
+      isAgentSource,
+      isIdentityOnly,
+      applyMetrics,
+      gpmProfileId: typeof gpmProfileId === "string" ? gpmProfileId.slice(0, 8) : null,
+      postRewardsLen: Array.isArray(body.postRewards) ? body.postRewards.length : null,
+      videosListLen: Array.isArray(videosList) ? videosList.length : null,
+      hasDailyViews: Array.isArray(dailyViewsBreakdown),
+      hasInsightsHistory: !!(insightsHistory && typeof insightsHistory === "object"),
+      bodyBytes: contentLength || null,
+      gate: reportGateStats(),
+    });
+
+    // FIX: elevated per-user rate applies only AFTER auth succeeded.
     const userLimitMax = isAgentSource ? 1200 : 120;
     const userLimit = checkRateLimit(`report:user:${memberUser.id}`, userLimitMax);
     if (!userLimit.ok) {
+      syncFlowLog("report_end", {
+        reqId,
+        username: cleanUsername,
+        outcome: "rate_limited",
+        elapsedMs: Date.now() - reportT0,
+      });
       return NextResponse.json(
         { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
         { status: 429, headers: { "Retry-After": String(userLimit.retryAfterSec) } }
       );
     }
+
+    // Per-account limit for identity-only reports (agent traffic unaffected).
+    // Keyed by user+username so a 100-profile startup is not starved by a global user cap.
+    if (isIdentityOnly) {
+      const acctLimit = checkRateLimit(
+        `report:acct:${memberUser.id}:${cleanUsername}`,
+        10
+      );
+      if (!acctLimit.ok) {
+        syncFlowLog("report_end", {
+          reqId,
+          username: cleanUsername,
+          outcome: "acct_rate_limited",
+          elapsedMs: Date.now() - reportT0,
+        });
+        return NextResponse.json(
+          { success: false, error: "Quá nhiều yêu cầu cho tài khoản này." },
+          {
+            status: 429,
+            headers: { "Retry-After": String(acctLimit.retryAfterSec) },
+          }
+        );
+      }
+    }
+
+    // Agent metrics reports can hold the DB longer (large insightsHistory) — wait more.
+    const gateWaitMs = isAgentSource && applyMetrics ? 60_000 : 8_000;
+    const gateBefore = reportGateStats();
+    const gateWaitT0 = Date.now();
+    release = await acquireReportSlot(gateWaitMs);
+    if (!release) {
+      syncFlowLog("report_gate", {
+        reqId,
+        username: cleanUsername,
+        outcome: "timeout",
+        waitMs: Date.now() - gateWaitT0,
+        maxWaitMs: gateWaitMs,
+        before: gateBefore,
+        after: reportGateStats(),
+      });
+      syncFlowLog("report_end", {
+        reqId,
+        username: cleanUsername,
+        outcome: "gate_busy",
+        elapsedMs: Date.now() - reportT0,
+      });
+      return NextResponse.json(
+        { success: false, error: "Máy chủ đang bận." },
+        { status: 503, headers: { "Retry-After": "10" } }
+      );
+    }
+    syncFlowLog("report_gate", {
+      reqId,
+      username: cleanUsername,
+      outcome: "acquired",
+      waitMs: Date.now() - gateWaitT0,
+      before: gateBefore,
+      after: reportGateStats(),
+    });
 
     const actorName =
       memberUser.name || memberUser.email || memberUser.username || "Companion Extension";
@@ -297,6 +567,7 @@ export async function POST(req: Request) {
         assignedUser: { select: { id: true, name: true, email: true, username: true } },
       },
     });
+    const priorTotalVideos = Number(account?.totalVideos ?? 0);
 
     // Ensure profileName and groupName are properly separated and not cross-stored
     const nameFields = splitGpmNameFields({
@@ -309,54 +580,78 @@ export async function POST(req: Request) {
     const targetStatus = isLoggedIn ? "ACTIVE" : "WARMING";
     const previousStatus = account?.status || null;
 
+    let created = false;
     if (!account) {
-      // Create new account
+      // Create new account — concurrent identity reports can both miss findFirst;
+      // recover on unique violation (P2002) and fall through to the update path.
       const assignedUserId = memberUser?.id || null;
-      account = await prisma.tiktokAccount.create({
-        data: {
-          username: cleanUsername,
-          gpmProfileId: resolvedGpmProfileId || null,
-          gpmProfileName: nameFields.gpmProfileName || null,
-          groupName: nameFields.groupName || null,
-          status: body.creatorRewardsMissing ? "BANNED" : targetStatus,
-          bannedReason: body.creatorRewardsMissing ? (body.bannedReason || "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)") : null,
-          metadata: body.metadata || (body.creatorRewardsMissing ? { creatorRewardsStatus: "BANNED" } : undefined),
-          isOnline: isLoggedIn === true,
-          country: toStandardCountryCode(country) || undefined,
-          assignedUserId,
-          isAssignmentLocked: false,
-          totalFollowers: applyMetrics && typeof followersCount === "number" ? followersCount : 0,
-          totalVideos: applyMetrics ? (totalVideos ?? videoCount ?? 0) : 0,
-          totalViews: applyMetrics && totalViews !== undefined && totalViews !== null ? BigInt(totalViews) : BigInt(0),
-          totalRevenue:
-            applyMetrics && totalRevenue !== undefined && totalRevenue !== null
-              ? totalRevenue
-              : 0,
-          lastSyncedAt: new Date(),
-        },
-        include: {
-          assignedUser: { select: { id: true, name: true, email: true, username: true } },
-        },
-      });
+      try {
+        account = await prisma.tiktokAccount.create({
+          data: {
+            username: cleanUsername,
+            gpmProfileId: resolvedGpmProfileId || null,
+            gpmProfileName: nameFields.gpmProfileName || null,
+            groupName: nameFields.groupName || null,
+            status: body.creatorRewardsMissing ? "BANNED" : targetStatus,
+            bannedReason: body.creatorRewardsMissing ? (body.bannedReason || "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)") : null,
+            metadata: body.metadata || (body.creatorRewardsMissing ? { creatorRewardsStatus: "BANNED" } : undefined),
+            isOnline: isLoggedIn === true,
+            country: toStandardCountryCode(country) || undefined,
+            assignedUserId,
+            isAssignmentLocked: false,
+            totalFollowers: applyMetrics && typeof followersCount === "number" ? followersCount : 0,
+            totalVideos: applyMetrics ? (totalVideos ?? videoCount ?? 0) : 0,
+            totalViews:
+              applyMetrics &&
+              insightsWritable &&
+              totalViews !== undefined &&
+              totalViews !== null
+                ? BigInt(totalViews)
+                : BigInt(0),
+            totalRevenue:
+              // FIX: never seed a fresh row with a partial revenue figure.
+              applyMetrics && !postRewardsPartial && totalRevenue !== undefined && totalRevenue !== null
+                ? totalRevenue
+                : 0,
+            lastSyncedAt: new Date(),
+          },
+          include: {
+            assignedUser: { select: { id: true, name: true, email: true, username: true } },
+          },
+        });
+        created = true;
 
-      await prisma.accountLog.create({
-        data: {
-          accountId: account.id,
-          newStatus: targetStatus,
-          logType: "STATUS_CHANGE",
-          message: isIdentityOnly
-            ? `Tài khoản TikTok @${cleanUsername} được phát hiện qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${resolvedGpmProfileId
-              ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
-              : ""
-            } Số liệu sẽ do Client Agent cập nhật.`
-            : `Tài khoản TikTok @${cleanUsername} được phát hiện trực tiếp qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${resolvedGpmProfileId
-              ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
-              : ""
-            }`,
-          actorName,
-        },
-      });
-    } else {
+        await prisma.accountLog.create({
+          data: {
+            accountId: account.id,
+            newStatus: targetStatus,
+            logType: "STATUS_CHANGE",
+            message: isIdentityOnly
+              ? `Tài khoản TikTok @${cleanUsername} được phát hiện qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${resolvedGpmProfileId
+                ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
+                : ""
+              } Số liệu sẽ do Client Agent cập nhật.`
+              : `Tài khoản TikTok @${cleanUsername} được phát hiện trực tiếp qua Extension (${actorName}). Trạng thái: ${isLoggedIn ? "Đã đăng nhập" : "Chưa đăng nhập"}.${resolvedGpmProfileId
+                ? ` Gắn GPM Profile ${resolvedGpmProfileId} (${gpmMatchedVia}).`
+                : ""
+              }`,
+            actorName,
+          },
+        });
+      } catch (e: any) {
+        if (e?.code !== "P2002") throw e;
+        account = await prisma.tiktokAccount.findFirst({
+          where: { username: cleanUsername },
+          include: {
+            assignedUser: {
+              select: { id: true, name: true, email: true, username: true },
+            },
+          },
+        });
+        if (!account) throw e;
+      }
+    }
+    if (!created) {
       const updateData: any = {
         lastSyncedAt: new Date(),
       };
@@ -372,8 +667,14 @@ export async function POST(req: Request) {
         } else if (typeof videoCount === "number") {
           updateData.totalVideos = videoCount;
         }
-        if (totalViews !== undefined && totalViews !== null) updateData.totalViews = BigInt(totalViews);
-        if (totalRevenue !== undefined && totalRevenue !== null) updateData.totalRevenue = totalRevenue;
+        // Only write totalViews when Insights are authoritative (claim === ok).
+        if (insightsWritable && totalViews !== undefined && totalViews !== null) {
+          updateData.totalViews = BigInt(totalViews);
+        }
+        // FIX: totalRevenue derives from a partial postRewards sweep; skip the write.
+        if (!postRewardsPartial && totalRevenue !== undefined && totalRevenue !== null) {
+          updateData.totalRevenue = totalRevenue;
+        }
       }
       if (country) updateData.country = toStandardCountryCode(country);
       if (resolvedGpmProfileId) {
@@ -574,6 +875,14 @@ export async function POST(req: Request) {
           assignedUser: { select: { id: true, name: true, email: true, username: true } },
         },
       });
+      syncFlowLog("report_account_updated", {
+        reqId,
+        username: cleanUsername,
+        accountId: account.id,
+        applyMetrics,
+        totalVideos: account.totalVideos,
+        lastSyncedAt: account.lastSyncedAt,
+      });
 
       if (linkedGpmNow) {
         await prisma.accountLog.create({
@@ -594,7 +903,7 @@ export async function POST(req: Request) {
       try {
         const now = new Date();
         const todayOnly = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-        
+
         // Helper to extract Vietnam Date string (YYYY-MM-DD)
         const parseVnDate = (v: any) => {
           let d: Date | null = null;
@@ -649,177 +958,269 @@ export async function POST(req: Request) {
 
     // 5. Persist comprehensive analytics snapshot (Agent metrics only — never zero out from Extension)
     let analyticsSnapshot: Record<string, unknown> | null = null;
-    let resolvedPostRewards: any[] | undefined = Array.isArray(body.postRewards) ? body.postRewards : undefined;
+    let resolvedPostRewards: any[] | undefined = Array.isArray(body.postRewards)
+      ? body.postRewards
+      : undefined;
+    type InsightsStatus = "written" | "skipped_stale" | "skipped_empty" | "no_data";
+    type RewardsStatus =
+      | "written"
+      | "skipped_stale"
+      | "skipped_empty"
+      | "partial"
+      | "no_program";
+    let insightsStatus: InsightsStatus | null = null;
+    let rewardsStatus: RewardsStatus | null = null;
+
     if (applyMetrics) {
       // Clean rawSnapshot: keep newest 20 videos for lightweight preview
       analyticsSnapshot = {
         username: cleanUsername,
         updatedAt: new Date().toISOString(),
         videosList: Array.isArray(videosList) ? videosList.slice(0, 20) : [],
-        topVideos: topVideos || {},
+        topVideos365d: topVideos365d || null,
+        postRewardsPartial: postRewardsPartial || undefined,
+        insightsUnavailable: insightsUnavailable || undefined,
       };
 
-      const effectiveTotalRevenue =
-        typeof totalRevenue === "number"
-          ? totalRevenue
-          : typeof sumRevenue?.totalRevenue === "number"
-            ? sumRevenue.totalRevenue
-            : 0;
+      // Revenue is always-safe when the payload actually includes it — never invent zeros.
+      const resolvedSumRevenue =
+        sumRevenue &&
+        typeof sumRevenue === "object" &&
+        periodValues(sumRevenue) != null
+          ? sumRevenue
+          : undefined;
 
-      const resolvedSumRevenue = sumRevenue || {
-        revenue7d: 0,
-        revenue28d: 0,
-        revenue60d: 0,
-        revenue365d: 0,
-        totalRevenue: effectiveTotalRevenue || 0,
-      };
+      const resolvedRevenueBreakdown =
+        revenueBreakdown != null ? revenueBreakdown : undefined;
+      const resolvedDailyRevenueBreakdown =
+        dailyRevenueBreakdown != null ? dailyRevenueBreakdown : undefined;
 
-      const resolvedSumViews = sumViews || {
-        views7d: 0,
-        views28d: 0,
-        views60d: 0,
-        views365d: totalViews || 0,
-        totalViews: totalViews || 0,
-      };
-
-      const resolvedSumLikes = sumLikes || {
-        likes7d: 0,
-        likes28d: totalLikes || 0,
-        likes60d: 0,
-        likes365d: 0,
-        totalLikes: totalLikes || 0,
-      };
-
-      const resolvedSumComments = sumComments || {
-        comments7d: 0,
-        comments28d: 0,
-        comments60d: 0,
-        comments365d: 0,
-      };
-
-      const resolvedSumShares = sumShares || {
-        shares7d: 0,
-        shares28d: 0,
-        shares60d: 0,
-        shares365d: 0,
-      };
-
-      const resolvedSumProfileViews = sumProfileViews || {
-        profileViews7d: 0,
-        profileViews28d: 0,
-        profileViews60d: 0,
-        profileViews365d: 0,
-      };
-
-      const resolvedRevenueBreakdown = revenueBreakdown || null;
-      const resolvedDailyRevenueBreakdown = dailyRevenueBreakdown || null;
-
-      // Smart Retention & Capping (150-video rule) for postRewards
-      if (Array.isArray(body.postRewards)) {
-        try {
-          const existingAnalytics = await prisma.accountAnalytics.findUnique({
-            where: { accountId: account.id },
-            select: { postRewards: true },
-          });
-          const existingList = Array.isArray(existingAnalytics?.postRewards)
-            ? (existingAnalytics.postRewards as any[])
-            : [];
-          
-          const map = new Map<string, any>();
-          for (const item of existingList) {
-            const key = String((item as any).id || (item as any).videoId || (item as any).title);
-            map.set(key, item);
-          }
-          for (const item of body.postRewards) {
-            const key = String((item as any).id || (item as any).videoId || (item as any).title);
-            map.set(key, item);
-          }
-
-          const allMerged = Array.from(map.values());
-          const nowMs = Date.now();
-          const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
-
-          const parseTimeMs = (v: any) => {
-            if (v.publishTimeUnix) return Number(v.publishTimeUnix) * 1000;
-            const parsed = new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
-            return !isNaN(parsed) ? parsed : 0;
-          };
-
-          const parseRewardAmount = (v: any) => {
-            const val = v.reward ?? v.rewardAmount ?? v.rewards ?? 0;
-            if (typeof val === "number") return val;
-            const parsed = parseFloat(String(val).replace(/[^0-9.-]/g, ""));
-            return !isNaN(parsed) ? parsed : 0;
-          };
-
-          const recentVideos = allMerged.filter((v) => {
-            const ts = parseTimeMs(v);
-            return ts > 0 && nowMs - ts <= SIXTY_DAYS_MS;
-          });
-
-          const olderVideos = allMerged.filter((v) => {
-            const ts = parseTimeMs(v);
-            return ts <= 0 || nowMs - ts > SIXTY_DAYS_MS;
-          });
-
-          // Sort older videos descending by revenue, then by timestamp
-          olderVideos.sort((a, b) => {
-            const revDiff = parseRewardAmount(b) - parseRewardAmount(a);
-            if (Math.abs(revDiff) > 0.0001) return revDiff;
-            return parseTimeMs(b) - parseTimeMs(a);
-          });
-
-          // Cap total to 150 items max
-          const MAX_POST_REWARDS_CAP = 150;
-          const allowedOlderCount = Math.max(0, MAX_POST_REWARDS_CAP - recentVideos.length);
-          const retainedOlderVideos = olderVideos.slice(0, allowedOlderCount);
-
-          const finalPostRewards = [...recentVideos, ...retainedOlderVideos];
-          // Sort final list newest first for clean UI rendering
-          finalPostRewards.sort((a, b) => parseTimeMs(b) - parseTimeMs(a));
-
-          resolvedPostRewards = finalPostRewards;
-        } catch (postRewardsErr) {
-          console.warn("[ExtensionReport] Error during postRewards smart capping:", postRewardsErr);
-        }
-      }
-
-      // 5a. Upsert into AccountAnalytics (Single Source of Truth)
+      // 5a. Upsert AccountAnalytics with family gates (Insights / Rewards)
+      const analyticsT0 = Date.now();
       try {
-        await prisma.accountAnalytics.upsert({
-          where: { accountId: account.id },
-          create: {
-            accountId: account.id,
-            currency: currency || "$",
-            sumRevenue: resolvedSumRevenue as any,
-            sumViews: resolvedSumViews as any,
-            sumLikes: resolvedSumLikes as any,
-            sumComments: resolvedSumComments as any,
-            sumShares: resolvedSumShares as any,
-            sumProfileViews: resolvedSumProfileViews as any,
-            revenueBreakdown: resolvedRevenueBreakdown as any,
-            dailyRevenueBreakdown: resolvedDailyRevenueBreakdown as any,
-            insightsHistory: insightsHistory || (body as any).insightsHistory || null,
-            postRewards: (resolvedPostRewards as any) || undefined,
-            rawSnapshot: analyticsSnapshot as any,
+        syncFlowLog("report_analytics_begin", {
+          reqId,
+          username: cleanUsername,
+          accountId: account.id,
+          insightsClaim,
+          postRewardsPartial,
+          postRewardsLen: Array.isArray(body.postRewards) ? body.postRewards.length : null,
+          hasDailyViews: Array.isArray(dailyViewsBreakdown),
+          hasInsightsHistory: !!(insightsHistory && typeof insightsHistory === "object"),
+        });
+        await prisma.$transaction(
+          async (tx) => {
+            // 1) ensure row exists (null sums), single-key upsert => INSERT ... ON CONFLICT
+            await tx.accountAnalytics.upsert({
+              where: { accountId: account.id },
+              create: { accountId: account.id, currency: currency || "$" },
+              update: {},
+            });
+            // 2) lock that one row (@@map => account_analytics)
+            await tx.$queryRaw`
+              SELECT "id" FROM "account_analytics"
+              WHERE "accountId" = ${account.id}
+              FOR UPDATE
+            `;
+
+            const existing = await tx.accountAnalytics.findUnique({
+              where: { accountId: account.id },
+              select: {
+                sumViews: true,
+                sumLikes: true,
+                sumComments: true,
+                sumShares: true,
+                sumProfileViews: true,
+                postRewards: true,
+                rawSnapshot: true,
+              },
+            });
+            const snap = ((existing?.rawSnapshot as any) ?? {}) as Record<
+              string,
+              any
+            >;
+            const nowIso = new Date().toISOString();
+            const markers: Record<string, unknown> = {
+              insightsLastAttemptAt: nowIso,
+              rewardsLastAttemptAt: nowIso,
+            };
+            const insightData: Record<string, unknown> = {};
+
+            // ---------- Insights gate ----------
+            const presentI = isPresentInsights(existing as any, snap);
+            let claim: InsightsClaim = insightsClaim;
+            // Don't trust no_data if DB knew of videos and has no confirmed sums
+            if (claim === "no_data" && !presentI && priorTotalVideos > 0) {
+              claim = "unavailable";
+            }
+
+            if (claim === "ok") {
+              insightData.sumViews = sumViews as any;
+              insightData.sumLikes = sumLikes as any;
+              insightData.sumComments = sumComments as any;
+              insightData.sumShares = sumShares as any;
+              insightData.sumProfileViews = sumProfileViews as any;
+              if (Array.isArray(dailyViewsBreakdown)) {
+                insightData.dailyViewsBreakdown = dailyViewsBreakdown as any;
+              }
+              insightsStatus = "written";
+              Object.assign(markers, {
+                insightsStatus,
+                insightsNeedsRepair: false,
+                insightsConfirmed: true,
+                insightsLastConfirmedAt: nowIso,
+                insightsNumbersRefreshedAt: nowIso,
+                insightsFailReason: null,
+              });
+            } else if (claim === "no_data") {
+              // markers only; NEVER touch existing non-null sums
+              insightsStatus = "no_data";
+              Object.assign(markers, {
+                insightsStatus,
+                insightsNeedsRepair: false,
+                insightsConfirmed: true,
+                insightsLastConfirmedAt: nowIso,
+                insightsFailReason: null,
+              });
+            } else {
+              insightsStatus = presentI ? "skipped_stale" : "skipped_empty";
+              Object.assign(markers, {
+                insightsStatus,
+                insightsNeedsRepair: insightsStatus === "skipped_empty",
+                insightsFailReason: body.insightsFailReason ?? "unknown",
+              });
+            }
+
+            // ---------- Rewards gate ----------
+            const presentR = isPresentRewards(existing?.postRewards, snap);
+            let postRewardsWrite: any = undefined;
+            if (isNewAgent && body.rewardsNoProgram === true && !postRewardsPartial) {
+              rewardsStatus = "no_program";
+              Object.assign(markers, {
+                rewardsStatus,
+                rewardsConfirmed: true,
+                rewardsLastConfirmedAt: nowIso,
+                rewardsFailReason: null,
+              });
+            } else if (postRewardsPartial) {
+              rewardsStatus = presentR ? "partial" : "skipped_empty";
+              Object.assign(markers, {
+                rewardsStatus,
+                rewardsFailReason: body.rewardsFailReason ?? "incomplete_list",
+              });
+            } else if (Array.isArray(body.postRewards)) {
+              // Complete list (incl. genuine empty) — merge + confirm.
+              postRewardsWrite = mergePostRewards(
+                existing?.postRewards,
+                body.postRewards
+              );
+              rewardsStatus = "written";
+              Object.assign(markers, {
+                rewardsStatus,
+                rewardsConfirmed: true,
+                rewardsLastConfirmedAt: nowIso,
+                rewardsFailReason: null,
+              });
+            } else {
+              // Missing postRewards entirely — never invent or false-confirm.
+              rewardsStatus = presentR ? "skipped_stale" : "skipped_empty";
+              Object.assign(markers, {
+                rewardsStatus,
+                rewardsFailReason: body.rewardsFailReason ?? "unknown",
+              });
+            }
+
+            const nextSnapshot = {
+              ...snap,
+              ...(analyticsSnapshot ?? {}),
+              ...markers,
+              // Always keep a copy in rawSnapshot so UI/repair can recover even if
+              // the dedicated column write is rejected by a stale PrismaClient.
+              ...(Array.isArray(dailyViewsBreakdown)
+                ? { dailyViewsBreakdown }
+                : {}),
+            };
+            resolvedPostRewards = postRewardsWrite ?? resolvedPostRewards;
+
+            const scrub = (data: Record<string, unknown>) => {
+              const out: Record<string, unknown> = {};
+              for (const [k, v] of Object.entries(data)) {
+                if (v !== undefined) out[k] = v;
+              }
+              return out;
+            };
+
+            const buildAnalyticsData = (omitDailyViews = false) => {
+              const insights = { ...(insightData as Record<string, unknown>) };
+              if (omitDailyViews) delete insights.dailyViewsBreakdown;
+              return scrub({
+                currency: currency || "$",
+                ...(resolvedSumRevenue !== undefined
+                  ? { sumRevenue: resolvedSumRevenue as any }
+                  : {}),
+                ...insights,
+                ...(resolvedRevenueBreakdown !== undefined
+                  ? { revenueBreakdown: resolvedRevenueBreakdown as any }
+                  : {}),
+                ...(resolvedDailyRevenueBreakdown !== undefined
+                  ? {
+                      dailyRevenueBreakdown:
+                        resolvedDailyRevenueBreakdown as any,
+                    }
+                  : {}),
+                insightsHistory: insightsHistory || undefined,
+                postRewards: postRewardsWrite,
+                rawSnapshot: nextSnapshot as any,
+              });
+            };
+
+            try {
+              await tx.accountAnalytics.update({
+                where: { accountId: account.id },
+                data: buildAnalyticsData(false) as any,
+              });
+            } catch (updErr: any) {
+              const msg = String(updErr?.message || updErr);
+              if (!msg.includes("Unknown argument `dailyViewsBreakdown`")) {
+                throw updErr;
+              }
+              // Stale PrismaClient (pre-generate) — retry without the column;
+              // value remains in rawSnapshot for recovery.
+              await tx.accountAnalytics.update({
+                where: { accountId: account.id },
+                data: buildAnalyticsData(true) as any,
+              });
+            }
           },
-          update: {
-            currency: currency || "$",
-            sumRevenue: resolvedSumRevenue as any,
-            sumViews: resolvedSumViews as any,
-            sumLikes: resolvedSumLikes as any,
-            sumComments: resolvedSumComments as any,
-            sumShares: resolvedSumShares as any,
-            sumProfileViews: resolvedSumProfileViews as any,
-            revenueBreakdown: resolvedRevenueBreakdown as any,
-            dailyRevenueBreakdown: resolvedDailyRevenueBreakdown as any,
-            insightsHistory: insightsHistory || (body as any).insightsHistory || undefined,
-            postRewards: (resolvedPostRewards as any) || undefined,
-            rawSnapshot: analyticsSnapshot as any,
-          },
+          // Large insightsHistory / postRewards payloads + pool pressure from
+          // /api/gpm/sync can exceed the old 3s maxWait / 8s timeout and leave
+          // TiktokAccount updated with no AccountAnalytics row.
+          { timeout: 30_000, maxWait: 15_000 }
+        );
+        syncFlowLog("report_analytics_ok", {
+          reqId,
+          username: cleanUsername,
+          accountId: account.id,
+          elapsedMs: Date.now() - analyticsT0,
+          insightsStatus,
+          rewardsStatus,
         });
       } catch (anErr: any) {
-        console.warn("[ExtensionReport] Failed to upsert AccountAnalytics:", anErr.message);
+        console.error(
+          "[ExtensionReport] AccountAnalytics txn failed:",
+          cleanUsername,
+          anErr?.code || "",
+          anErr.message
+        );
+        syncFlowLog("report_analytics_fail", {
+          reqId,
+          username: cleanUsername,
+          accountId: account.id,
+          code: anErr?.code || null,
+          message: anErr?.message || String(anErr),
+          elapsedMs: Date.now() - analyticsT0,
+        });
+        throw anErr;
       }
     }
 
@@ -859,7 +1260,11 @@ export async function POST(req: Request) {
     }
 
     // Handle alerts for punished / disqualified videos (within nearest 30 days)
-    const listToExamine = Array.isArray(resolvedPostRewards) ? resolvedPostRewards : body.postRewards;
+    // FIX: only run when the postRewards payload is authoritative. A partial sweep
+    // (429 or page cap) may miss punished videos and falsely resolve a strike alert.
+    const listToExamine = postRewardsPartial
+      ? undefined
+      : (Array.isArray(resolvedPostRewards) ? resolvedPostRewards : body.postRewards);
     if (Array.isArray(listToExamine)) {
       const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
       const now = Date.now();
@@ -963,6 +1368,18 @@ export async function POST(req: Request) {
       });
     }
 
+    syncFlowLog("report_end", {
+      reqId,
+      username: cleanUsername,
+      accountId: account.id,
+      outcome: "ok",
+      applyMetrics,
+      insightsStatus,
+      rewardsStatus,
+      elapsedMs: Date.now() - reportT0,
+      hasAnalyticsSnapshot: !!analyticsSnapshot,
+    });
+
     return NextResponse.json({
       success: true,
       account: {
@@ -979,13 +1396,53 @@ export async function POST(req: Request) {
         lastSyncedAt: account.lastSyncedAt,
       },
       analytics: analyticsSnapshot,
+      // FIX: echo family flags so the agent can classify incomplete vs ok.
+      flags: {
+        flagsVersion: 1,
+        insightsStatus,
+        rewardsStatus,
+        insightsSkipped:
+          insightsStatus === "skipped_stale" ||
+          insightsStatus === "skipped_empty" ||
+          undefined,
+        insightsNeedsRepair:
+          insightsStatus === "skipped_empty" || undefined,
+        rewardsIncomplete:
+          rewardsStatus === "skipped_empty" || undefined,
+        insightsFailReason:
+          insightsStatus === "skipped_stale" ||
+          insightsStatus === "skipped_empty"
+            ? (body.insightsFailReason ?? "unknown")
+            : undefined,
+        rewardsFailReason:
+          rewardsStatus === "partial" ||
+          rewardsStatus === "skipped_empty" ||
+          rewardsStatus === "skipped_stale"
+            ? (body.rewardsFailReason ??
+              (rewardsStatus === "partial" ? "incomplete_list" : "unknown"))
+            : undefined,
+        postRewardsPartial,
+        insightsUnavailable,
+      },
     });
   } catch (error: any) {
     console.error("[ExtensionReport] Error handling extension report:", error);
+    try {
+      syncFlowLog("report_end", {
+        reqId: reportReqId,
+        username: reportUsername,
+        outcome: "error",
+        message: error?.message || String(error),
+        code: error?.code || null,
+        elapsedMs: Date.now() - reportT0,
+      });
+    } catch { /* ignore */ }
     return NextResponse.json(
       { success: false, error: error.message || "Internal server error" },
       { status: 500 }
     );
+  } finally {
+    release?.();
   }
 }
 

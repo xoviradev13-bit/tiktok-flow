@@ -14,6 +14,17 @@ import {
   issueSessionBundle,
   rotateRefreshToken,
 } from "@/lib/extension-auth";
+import { extensionOptionsResponse } from "@/lib/extension-cors";
+
+export function OPTIONS(req: Request) { return extensionOptionsResponse(req); }
+
+
+// FIX: bound the incoming body before req.json() parses it.
+const MAX_SESSION_BODY_BYTES = 64 * 1024; // 64 KB is generous for this payload
+
+// FIX: cap the bearer / refresh token length before any hashing or DB lookup.
+// Real tokens are ~40 chars; the cap only affects malicious payloads.
+const MAX_TOKEN_LEN = 200;
 
 export async function POST(req: Request) {
   const ip = getClientIp(req) || "unknown";
@@ -24,6 +35,15 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
       { status: 429, headers: { "Retry-After": String(ipLimit.retryAfterSec) } }
+    );
+  }
+
+  // FIX: reject oversized bodies before parsing.
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > MAX_SESSION_BODY_BYTES) {
+    return NextResponse.json(
+      { success: false, error: "Payload quá lớn." },
+      { status: 413 }
     );
   }
 
@@ -53,10 +73,25 @@ export async function POST(req: Request) {
     );
   }
 
-  const refreshToken =
+  const refreshTokenRaw =
     typeof body.refreshToken === "string" ? body.refreshToken.trim() : "";
 
+  // FIX: length cap on refresh token.
+  const refreshToken = refreshTokenRaw.length > MAX_TOKEN_LEN ? "" : refreshTokenRaw;
+
   if (refreshToken) {
+    // FIX: refresh-path rate limiting.
+    //
+    // The previous code checked `session:user:${userId}` AFTER rotateRefreshToken
+    // had already consumed the old token in the DB. If that check failed, the
+    // server returned 429 without giving the client the new refresh token —
+    // the client's stored token was now dead, and every subsequent refresh
+    // would fail. That is a session-breaking bug.
+    //
+    // The per-IP limit at the top (180/min) is the real protection here. Any
+    // per-user limit would need to be enforced *before* rotation, which would
+    // require a "peek" helper on the lib side. Until that exists, do not gate
+    // the refresh path on a post-rotation check.
     const result = await rotateRefreshToken(refreshToken, { ip, userAgent });
     if (!result.ok) {
       return NextResponse.json(
@@ -69,17 +104,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const userLimit = checkRateLimit(`session:user:${result.userId}`, 40);
-    if (!userLimit.ok) {
-      return NextResponse.json(
-        { success: false, error: "Quá nhiều yêu cầu. Thử lại sau." },
-        {
-          status: 429,
-          headers: { "Retry-After": String(userLimit.retryAfterSec) },
-        }
-      );
-    }
-
     return NextResponse.json({
       success: true,
       accessToken: result.accessToken,
@@ -89,9 +113,13 @@ export async function POST(req: Request) {
   }
 
   const authHeader = req.headers.get("authorization");
-  const bearer = authHeader?.startsWith("Bearer ")
+  const bearerRaw = authHeader?.startsWith("Bearer ")
     ? authHeader.slice(7).trim()
     : "";
+
+  // FIX: length cap on bearer as well.
+  const bearer = bearerRaw.length > MAX_TOKEN_LEN ? "" : bearerRaw;
+
   if (!bearer.startsWith("ttf_sec_")) {
     return NextResponse.json(
       {

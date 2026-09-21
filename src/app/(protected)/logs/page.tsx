@@ -42,12 +42,14 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
+import { useConfirmDialog } from "@/components/ui/confirm-modal";
 
 function LogsPageContent() {
   const { data: session } = useSession();
   const rawRole = (session?.user as any)?.role || (session?.user as any)?.userType || "STAFF";
   const userRole = String(rawRole).toUpperCase();
   const isAdminOrLead = userRole === "ADMIN" || userRole === "LEAD";
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   // SaaS URL Query State Synchronization
   const { searchParams, updateUrlParams } = useUrlParams();
@@ -768,9 +770,15 @@ function LogsPageContent() {
                               <button
                                 type="button"
                                 disabled={deleteBugMutation.isPending}
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (window.confirm("Bạn có chắc chắn muốn xóa báo cáo sự cố này?")) {
+                                  const ok = await confirm({
+                                    title: "Xóa báo cáo sự cố",
+                                    description: "Bạn có chắc chắn muốn xóa báo cáo sự cố này?",
+                                    confirmLabel: "Xác nhận xóa",
+                                    variant: "danger",
+                                  });
+                                  if (ok) {
                                     deleteBugMutation.mutate({ id: report.id });
                                   }
                                 }}
@@ -1044,8 +1052,14 @@ function LogsPageContent() {
                       <button
                         type="button"
                         disabled={deleteBugMutation.isPending}
-                        onClick={() => {
-                          if (window.confirm("Bạn có chắc chắn muốn xóa báo cáo sự cố này?")) {
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: "Xóa báo cáo sự cố",
+                            description: "Bạn có chắc chắn muốn xóa báo cáo sự cố này?",
+                            confirmLabel: "Xác nhận xóa",
+                            variant: "danger",
+                          });
+                          if (ok) {
                             deleteBugMutation.mutate({ id: selectedBugReport.id });
                           }
                         }}
@@ -1124,6 +1138,7 @@ function LogsPageContent() {
           refetchBugs();
         }}
       />
+      {confirmDialog}
     </div>
   );
 }

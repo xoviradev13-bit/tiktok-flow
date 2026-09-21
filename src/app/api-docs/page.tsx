@@ -82,7 +82,7 @@ print(requests.get("https://your-domain.com/api/extension/challenge").json())`,
     method: "POST",
     path: "/api/extension/pair",
     title: "Kích hoạt gói vừa tải",
-    desc: "Khi bạn tải Extension hoặc Client Agent, trong file cấu hình có một mã kích hoạt dùng một lần (khoảng 10 phút). Extension/Agent tự gọi API này lần đầu để liên kết với tài khoản — bạn không cần dán mã thủ công nếu còn hạn. Extension cần Client Agent đang chạy trên cùng máy khi kích hoạt lần đầu.",
+    desc: "Khi bạn tải Extension hoặc Client Agent, trong file cấu hình có một mã kích hoạt dùng một lần (khoảng 24 giờ). Extension/Agent tự gọi API này lần đầu để liên kết với tài khoản — bạn không cần dán mã thủ công nếu còn hạn. Extension cần Client Agent đang chạy trên cùng máy khi kích hoạt lần đầu.",
     auth: "Mã kích hoạt",
     headers: [
       { name: "Content-Type", type: "string", required: true, desc: "application/json" },
@@ -560,7 +560,7 @@ export default function ApiDocsPage() {
                   <span>Cách Extension / Agent kết nối</span>
                 </div>
                 <ol className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed list-decimal pl-4 space-y-1.5">
-                  <li>Tải file ZIP từ Kho Tiện Ích — trong gói có mã liên kết dùng một lần (khoảng 10 phút).</li>
+                  <li>Tải file ZIP từ Kho Tiện Ích — trong gói có mã liên kết dùng một lần (khoảng 24 giờ).</li>
                   <li>Chạy Client Agent trước (<code className="font-mono text-xs">setup-agent.bat</code> phím 1), rồi nạp Extension vào GPMLogin.</li>
                   <li>Lần đầu kích hoạt: tự gắn với tài khoản của bạn (Agent phải đang chạy trên máy).</li>
                   <li>Extension nhận biết tài khoản đang đăng nhập; Client Agent gửi số liệu TikTok về hệ thống.</li>

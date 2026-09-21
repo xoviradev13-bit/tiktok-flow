@@ -3,9 +3,62 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { API_AUTH_PREFIX, AUTH_ROUTES, PROTECTED_ROUTES, PUBLIC_ROUTES } from "./constants/routes.config";
 
+// ── Extension / Agent CORS ────────────────────────────────────────────────────
+// These API routes are called by Chrome extensions (chrome-extension://<id>)
+// and the local client agent. Auth is enforced via Bearer token so it is safe
+// to reflect any chrome-extension://, 127.0.0.1, or localhost origin.
+const EXTENSION_API_PREFIXES = [
+  "/api/extension/",
+  "/api/gpm/",
+  "/api/client-agent/",
+];
+
+const CORS_ALLOWED_METHODS = "GET, POST, OPTIONS";
+const CORS_ALLOWED_HEADERS = "Content-Type, Authorization";
+const CORS_MAX_AGE = "86400";
+
+function isExtensionApiPath(pathname: string) {
+  return EXTENSION_API_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+function buildCorsHeaders(origin: string | null): Record<string, string> {
+  const allowOrigin =
+    origin &&
+    (origin.startsWith("chrome-extension://") ||
+      origin.startsWith("http://127.0.0.1") ||
+      origin.startsWith("http://localhost"))
+      ? origin
+      : "null";
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Methods": CORS_ALLOWED_METHODS,
+    "Access-Control-Allow-Headers": CORS_ALLOWED_HEADERS,
+    "Access-Control-Max-Age": CORS_MAX_AGE,
+  };
+}
+
 export async function proxy(request: NextRequest) {
   const url = request.nextUrl;
   const pathname = url.pathname;
+
+  // ── CORS for Extension / Agent API routes ────────────────────────────────
+  if (isExtensionApiPath(pathname)) {
+    const origin = request.headers.get("origin");
+    const corsHeaders = buildCorsHeaders(origin);
+
+    // Handle OPTIONS preflight immediately — no auth needed for preflight
+    if (request.method === "OPTIONS") {
+      return new NextResponse(null, { status: 204, headers: corsHeaders });
+    }
+
+    // For actual requests, pass through to the route handler but stamp CORS
+    // headers on the response so the browser accepts it
+    const response = NextResponse.next();
+    for (const [k, v] of Object.entries(corsHeaders)) {
+      response.headers.set(k, v);
+    }
+    return response;
+  }
 
   // Skip proxy for static files and Sentry monitoring tunnel
   const isStatic = pathname.startsWith("/_next") || /\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/.test(pathname);

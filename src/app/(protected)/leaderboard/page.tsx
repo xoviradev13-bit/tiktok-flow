@@ -134,10 +134,10 @@ function LeaderboardPageContent() {
                 {top2.accountsCount} accounts | {top2.totalWorkdays} ngày công
               </div>
               <div className="mt-4 text-2xl font-black text-amber-600 dark:text-amber-300">
-                ${top2.periodRevenue.toLocaleString()}
+                ${Number(top2.periodRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                RPM: <span className="text-emerald-600 dark:text-emerald-400 font-bold">${top2.avgRpm}</span>
+                RPM: <span className="text-emerald-600 dark:text-emerald-400 font-bold">${Number(top2.avgRpm).toFixed(2)}</span>
               </div>
             </div>
           )}
@@ -158,10 +158,10 @@ function LeaderboardPageContent() {
                 {top1.accountsCount} accounts | {top1.totalWorkdays} ngày công
               </div>
               <div className="mt-4 text-3xl font-black text-amber-600 dark:text-yellow-400">
-                ${top1.periodRevenue.toLocaleString()}
+                ${Number(top1.periodRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                RPM: <span className="text-emerald-600 dark:text-emerald-400 font-bold">${top1.avgRpm}</span> • Doanh thu/acc: <span className="text-amber-600 dark:text-amber-300 font-bold">${top1.revPerAccount}</span>
+                RPM: <span className="text-emerald-600 dark:text-emerald-400 font-bold">${Number(top1.avgRpm).toFixed(2)}</span> • Doanh thu/acc: <span className="text-amber-600 dark:text-amber-300 font-bold">${Number(top1.revPerAccount).toFixed(2)}</span>
               </div>
             </div>
           )}
@@ -179,10 +179,10 @@ function LeaderboardPageContent() {
                 {top3.accountsCount} accounts | {top3.totalWorkdays} ngày công
               </div>
               <div className="mt-4 text-2xl font-black text-amber-600 dark:text-amber-300">
-                ${top3.periodRevenue.toLocaleString()}
+                ${Number(top3.periodRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                RPM: <span className="text-emerald-600 dark:text-emerald-400 font-bold">${top3.avgRpm}</span>
+                RPM: <span className="text-emerald-600 dark:text-emerald-400 font-bold">${Number(top3.avgRpm).toFixed(2)}</span>
               </div>
             </div>
           )}
@@ -301,15 +301,15 @@ function LeaderboardPageContent() {
                         </td>
 
                         <td className="px-4 py-3.5 whitespace-nowrap font-bold text-emerald-600 dark:text-emerald-400">
-                          ${user.avgRpm}
+                          ${Number(user.avgRpm).toFixed(2)}
                         </td>
 
                         <td className="px-4 py-3.5 whitespace-nowrap font-semibold text-slate-700 dark:text-slate-300">
-                          ${user.revPerAccount}
+                          ${Number(user.revPerAccount).toFixed(2)}
                         </td>
 
                         <td className="px-5 py-3.5 whitespace-nowrap text-right font-black text-amber-600 dark:text-amber-300 text-sm">
-                          ${user.periodRevenue.toLocaleString()}
+                          ${Number(user.periodRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                       </tr>
                     ))

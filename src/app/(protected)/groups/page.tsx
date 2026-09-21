@@ -1290,7 +1290,7 @@ function GroupsManagementContent() {
                 <div className="mt-auto px-4 py-2.5 bg-slate-50/80 dark:bg-slate-950/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                   <Link
                     href={`/accounts?search=${encodeURIComponent(group.name)}`}
-                    className="text-xs font-semibold text-pink-600 dark:text-pink-400 hover:underline flex items-center gap-1"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-pink-600 dark:text-pink-400 px-2 py-1 rounded-lg hover:bg-pink-50 dark:hover:bg-pink-950/40 hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
                   >
                     <span>Xem dàn tài khoản</span>
                     <ArrowRight className="w-3 h-3" />

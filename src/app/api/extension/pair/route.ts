@@ -4,8 +4,6 @@
  * Do NOT log request/response bodies — they carry personalToken + session secrets.
  */
 import { NextResponse } from "next/server";
-import { appendFileSync } from "fs";
-import { join } from "path";
 import {
   checkAndBindMachine,
   checkRateLimit,
@@ -19,31 +17,34 @@ import {
   resolvePublicAppUrl,
 } from "@/lib/extension-auth";
 import { prisma } from "@/lib/prisma";
+import { extensionOptionsResponse } from "@/lib/extension-cors";
 
-// #region agent log
-function dbgPair(message: string, data: Record<string, unknown>, hypothesisId = "A") {
-  try {
-    appendFileSync(
-      join(process.cwd(), "debug-1d815d.log"),
-      `${JSON.stringify({
-        sessionId: "1d815d",
-        runId: "multi-pre",
-        hypothesisId,
-        location: "api/extension/pair/route.ts",
-        message,
-        data,
-        timestamp: Date.now(),
-      })}\n`
-    );
-  } catch {
-    /* ignore */
-  }
-}
-// #endregion
+export function OPTIONS(req: Request) { return extensionOptionsResponse(req); }
 
+
+// FIX: bound the pairing code length before hashing. Previously a megabyte
+// string would be SHA-256'd on every call — cheap per byte, but a cheap DoS
+// amplifier when issued in bulk.
+const MAX_PAIRING_CODE_LEN = 100;
+
+// FIX: classify DB connectivity errors with a narrow regex. The previous
+// version matched /timeout/ and /Connection/ anywhere in the message, so a
+// legitimate 500 (e.g. "Timeout while hashing password" or
+// "Failed to establish a connection with the model") would be misreported as
+// a 503 to the agent, hiding the real error.
 function isDbConnectivityError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  if (
+    code === "P1001" || // Can't reach database server
+    code === "P1002" || // Database server timed out
+    code === "P1008" || // Operations timed out
+    code === "P1017" || // Server has closed the connection
+    code === "P2024"    // Timed out fetching a new connection from pool
+  ) {
+    return true;
+  }
   const msg = String((err as Error)?.message || err || "");
-  return /timeout|terminat|ECONNRESET|ECONNREFUSED|Can't reach database|Connection/i.test(
+  return /Can't reach database server|Connection refused|ECONNRESET|ECONNREFUSED|ETIMEDOUT/i.test(
     msg
   );
 }
@@ -87,7 +88,12 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!pairingCode || !pairingCode.startsWith("ttf_pair_")) {
+  if (
+    !pairingCode ||
+    !pairingCode.startsWith("ttf_pair_") ||
+    // FIX: reject absurdly long inputs before hashing.
+    pairingCode.length > MAX_PAIRING_CODE_LEN
+  ) {
     const failedIp = checkRateLimit(`pair:failip:${ip}`, 30);
     if (!failedIp.ok) {
       return NextResponse.json(
@@ -146,17 +152,11 @@ export async function POST(req: Request) {
       // personalToken when the code was previously redeemed successfully.
       if (row?.usedAt) {
         redeemMode = "rebootstrap";
-        // #region agent log
-        dbgPair("rebootstrap path", { claimed: claimed.count, hasUsedAt: true, codePrefix: pairingCode.slice(0, 12) }, "A");
-        // #endregion
       } else {
         checkRateLimit(`pair:failip:${ip}`, 30);
         console.info(
           JSON.stringify({ event: "pair_redeem", outcome: "expired_or_used", ip })
         );
-        // #region agent log
-        dbgPair("reject no usedAt", { claimed: claimed.count, hasRow: !!row, codePrefix: pairingCode.slice(0, 12) }, "A");
-        // #endregion
         return NextResponse.json(
           { success: false, error: "Mã pairing không hợp lệ hoặc đã hết hạn." },
           { status: 401 }
@@ -193,9 +193,6 @@ export async function POST(req: Request) {
       { ip, rlPrefix: "pair" }
     );
     if (!machineCheck.ok) {
-      // #region agent log
-      dbgPair("machineCheck failed", { redeemMode, status: machineCheck.status, reason: machineCheck.reason || null, error: machineCheck.error || null }, "A");
-      // #endregion
       const headers =
         machineCheck.status === 429
           ? { "Retry-After": String(machineCheck.retryAfterSec ?? 60) }
@@ -214,26 +211,59 @@ export async function POST(req: Request) {
     if (!personalToken) {
       // Rebootstrap requires an existing token; first redeem may mint one.
       if (redeemMode === "rebootstrap") {
-        // #region agent log
-        dbgPair("rebootstrap no token", { userId: row.user.id }, "A");
-        // #endregion
         return NextResponse.json(
           { success: false, error: "Mã pairing không hợp lệ hoặc đã hết hạn." },
           { status: 401 }
         );
       }
-      personalToken = generatePersonalToken();
-      await prisma.user.update({
-        where: { id: row.user.id },
+
+      // FIX: race-safe token minting. Two concurrent first-time redemptions
+      // for the same user (e.g. two zips downloaded for the same account) would
+      // previously both generate a token, both write, and one client would end
+      // up holding a dead token. Now the write is conditional on the column
+      // still being null; the loser re-reads and uses the winner's value.
+      const candidate = generatePersonalToken();
+      const writeResult = await prisma.user.updateMany({
+        where: {
+          id: row.user.id,
+          extensionToken: null,
+        },
         data: {
-          extensionToken: persistPersonalTokenValue(personalToken),
+          extensionToken: persistPersonalTokenValue(candidate),
           extensionAccessEnabled: true,
         },
       });
+
+      if (writeResult.count === 1) {
+        personalToken = candidate;
+      } else {
+        // Lost the race; re-read and use whatever the winner wrote.
+        const fresh = await prisma.user.findUnique({
+          where: { id: row.user.id },
+          select: { extensionToken: true },
+        });
+        personalToken = revealPersonalToken(fresh?.extensionToken ?? null);
+        if (!personalToken) {
+          // Extremely unlikely: column is neither null nor readable.
+          // Treat as a hard failure rather than returning a token that is not
+          // in the DB.
+          console.error(
+            `[extension/pair] Lost token race but could not reveal winner's token for user ${row.user.id}`
+          );
+          return NextResponse.json(
+            { success: false, error: "Lỗi máy chủ khi kích hoạt pairing." },
+            { status: 500 }
+          );
+        }
+      }
     } else if (
       row.user.extensionToken &&
       !row.user.extensionToken.startsWith("e1.")
     ) {
+      // FIX: migrate legacy plaintext format. Same race-safety concern is
+      // mitigated by the `startsWith("e1.")` guard — only one caller can
+      // observe the legacy format and trigger the migration. Concurrent
+      // callers see e1.* on their second read and skip.
       await prisma.user.update({
         where: { id: row.user.id },
         data: { extensionToken: persistPersonalTokenValue(personalToken) },
@@ -256,9 +286,6 @@ export async function POST(req: Request) {
         ip,
       })
     );
-    // #region agent log
-    dbgPair("pair ok", { redeemMode, userId: row.user.id, codePrefix: pairingCode!.slice(0, 12) }, "A");
-    // #endregion
 
     return NextResponse.json({
       success: true,

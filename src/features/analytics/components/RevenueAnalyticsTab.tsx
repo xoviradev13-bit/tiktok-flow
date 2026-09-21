@@ -43,6 +43,15 @@ interface RevenueAnalyticsTabProps {
   }>;
 }
 
+const STATUS_STYLES: Record<string, string> = {
+  ACTIVE: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10",
+  WARMING: "text-cyan-600 dark:text-cyan-400 bg-cyan-500/10",
+  RESTRICTED: "text-amber-600 dark:text-amber-400 bg-amber-500/10",
+  BANNED: "text-rose-600 dark:text-rose-400 bg-rose-500/10",
+  STOPPED: "text-slate-600 dark:text-slate-400 bg-slate-500/10",
+  CUSTOM: "text-purple-600 dark:text-purple-400 bg-purple-500/10",
+};
+
 export default function RevenueAnalyticsTab({
   timeSeries,
   countryDistribution,
@@ -175,7 +184,7 @@ export default function RevenueAnalyticsTab({
               <div className="flex items-baseline justify-between">
                 <span className="text-xs text-slate-500 dark:text-slate-400">Doanh thu:</span>
                 <span className="text-sm font-black text-pink-600 dark:text-pink-400">
-                  ${item.revenue.toLocaleString()}
+                  ${Number(item.revenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="flex items-baseline justify-between text-xs">
@@ -251,7 +260,7 @@ export default function RevenueAnalyticsTab({
                       </span>
                     </td>
                     <td className="py-3">
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                      <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${STATUS_STYLES[acc.status] || "text-slate-600 dark:text-slate-400 bg-slate-500/10"}`}>
                         {acc.status}
                       </span>
                     </td>
@@ -265,7 +274,7 @@ export default function RevenueAnalyticsTab({
                       ${acc.rpm.toFixed(2)}
                     </td>
                     <td className="py-3 text-right font-black text-pink-600 dark:text-pink-400 text-sm">
-                      ${acc.periodRevenue.toLocaleString()}
+                      ${Number(acc.periodRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                   </tr>
                 ))
