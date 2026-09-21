@@ -14,6 +14,7 @@ import {
 import { useSession } from "next-auth/react";
 import { APP_ROUTES } from "@/constants/routes.config";
 import { ImageLightbox, ZoomableImage } from "./ImageLightbox";
+import { downloadPackage } from "@/lib/download-package";
 
 interface QuickstartSectionProps {
   onNavigateSection: (sectionId: "extension" | "client_agent") => void;
@@ -98,14 +99,14 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
                 File cài đặt là tài nguyên nội bộ, được cấp riêng cho từng nhân sự và chỉ sử dụng theo cấu hình được phân công.
               </p>
               {session ? (
-                <a
-                  href="/api/extension/download"
-                  download
+                <button
+                  type="button"
+                  onClick={() => downloadPackage("/api/extension/download", "TikTokFlow-Extension.zip")}
                   className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/25 transition-all cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   <span>Tải Extension (.zip)</span>
-                </a>
+                </button>
               ) : (
                 <Link
                   href={APP_ROUTES.SIGNIN}
@@ -152,14 +153,14 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
                 File cài đặt là tài nguyên nội bộ, được cấp riêng cho từng nhân sự và chỉ sử dụng theo cấu hình được phân công.              
               </p>
               {session ? (
-                <a
-                  href="/api/client-agent/download"
-                  download
+                <button
+                  type="button"
+                  onClick={() => downloadPackage("/api/client-agent/download", "TikTokFlow-ClientAgent.zip")}
                   className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md shadow-cyan-600/25 transition-all cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   <span>Tải Client Agent (.zip)</span>
-                </a>
+                </button>
               ) : (
                 <Link
                   href={APP_ROUTES.SIGNIN}

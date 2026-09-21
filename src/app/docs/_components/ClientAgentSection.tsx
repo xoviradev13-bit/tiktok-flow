@@ -15,6 +15,7 @@ import {
 import { useSession } from "next-auth/react";
 import { APP_ROUTES } from "@/constants/routes.config";
 import { ImageLightbox, ZoomableImage } from "./ImageLightbox";
+import { downloadPackage } from "@/lib/download-package";
 
 export function ClientAgentSection() {
   const { data: session } = useSession();
@@ -49,14 +50,14 @@ export function ClientAgentSection() {
         </div>
 
         {session ? (
-          <a
-            href="/api/client-agent/download"
-            download
+          <button
+            type="button"
+            onClick={() => downloadPackage("/api/client-agent/download", "TikTokFlow-ClientAgent.zip")}
             className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-sm font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-600/20 shrink-0 transition-all cursor-pointer"
           >
             <Download className="w-4 h-4" />
             <span>Tải Client Agent (.zip)</span>
-          </a>
+          </button>
         ) : (
           <Link
             href={APP_ROUTES.SIGNIN}

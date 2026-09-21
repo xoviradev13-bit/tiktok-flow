@@ -85,6 +85,7 @@ import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 import { useConfirmDialog } from "@/components/ui/confirm-modal";
+import { downloadPackage } from "@/lib/download-package";
 
 const USERS_COLUMN_RESIZE_CONFIG = {
   fullName: { minWidth: 160, maxWidth: 450, defaultWidth: 220 },
@@ -4015,15 +4016,19 @@ function UsersManagementContent() {
                 </button>
               )}
 
-              <a
-                href={tokenData?.accessEnabled === false ? "#" : `/api/extension/download?userId=${selectedUserForToken.id}`}
-                download={tokenData?.accessEnabled !== false}
-                onClick={(e) => {
+              <button
+                type="button"
+                onClick={() => {
                   if (tokenData?.accessEnabled === false) {
-                    e.preventDefault();
                     alert("Quyền Extension của nhân sự này đang bị vô hiệu hóa. Hãy bấm 'Mở khóa & Cấp Token' trước.");
+                    return;
                   }
+                  downloadPackage(
+                    `/api/extension/download?userId=${selectedUserForToken.id}`,
+                    `TikTokFlow-Extension-${selectedUserForToken.username || selectedUserForToken.id}.zip`
+                  );
                 }}
+                disabled={tokenData?.accessEnabled === false}
                 className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${tokenData?.accessEnabled === false
                   ? "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
                   : "text-white bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-md shadow-pink-600/20 cursor-pointer active:scale-95"
@@ -4031,7 +4036,7 @@ function UsersManagementContent() {
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Tải Extension hộ</span>
-              </a>
+              </button>
             </div>
           </div>
         </div>

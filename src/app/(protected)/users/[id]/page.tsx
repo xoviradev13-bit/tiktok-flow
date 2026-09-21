@@ -91,6 +91,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useConfirmDialog } from "@/components/ui/confirm-modal";
+import { downloadPackage } from "@/lib/download-package";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { format, subDays, addDays, differenceInCalendarDays } from "date-fns";
@@ -2691,18 +2692,25 @@ function UserDetailPageContent() {
                   Vô hiệu hóa
                 </button>
               )}
-              <a
-                href={tokenData?.accessEnabled === false ? "#" : `/api/extension/download?userId=${userId}`}
-                download={tokenData?.accessEnabled !== false}
-                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold ${
+              <button
+                type="button"
+                onClick={() => {
+                  if (tokenData?.accessEnabled === false) return;
+                  downloadPackage(
+                    `/api/extension/download?userId=${userId}`,
+                    `TikTokFlow-Extension-${userId}.zip`
+                  );
+                }}
+                disabled={tokenData?.accessEnabled === false}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
                   tokenData?.accessEnabled === false
                     ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                    : "text-white bg-gradient-to-r from-pink-600 to-rose-600 cursor-pointer"
+                    : "text-white bg-gradient-to-r from-pink-600 to-rose-600 cursor-pointer active:scale-95"
                 }`}
               >
                 <Download className="w-3.5 h-3.5" />
                 Tải Extension hộ
-              </a>
+              </button>
             </div>
           </div>
         </DialogContent>
