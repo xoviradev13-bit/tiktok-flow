@@ -5,5 +5,11 @@
       "path": "/api/cron/cutoff",
       "schedule": "0 15 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "src/app/api/client-agent/download/route.ts": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  }
 }

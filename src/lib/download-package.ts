@@ -56,14 +56,16 @@ export async function downloadPackage(
     toast.success("Tải về thành công!", { id: toastId, duration: 3000 });
     return true;
   } catch (error: any) {
-    console.error("[downloadPackage] Error:", error);
-    const msg = error?.message === "Failed to fetch"
-      ? "Lỗi mạng hoặc server không phản hồi (Failed to fetch). Kiểm tra lại kết nối hoặc log Vercel."
-      : (error?.message || "Không thể kết nối tới máy chủ.");
-    toast.error(msg, {
-      id: toastId,
-      duration: 6000,
-    });
-    return false;
+    console.error("[downloadPackage] Fetch error, attempting direct download fallback:", error);
+    // If fetch failed (e.g. CORS, payload size limit, or service worker interception),
+    // fallback to direct browser download stream so the browser's native download manager handles it.
+    toast.info("Đang chuyển sang tải trực tiếp qua trình duyệt...", { id: toastId, duration: 3000 });
+    const directLink = document.createElement("a");
+    directLink.href = url;
+    directLink.setAttribute("download", fallbackFilename);
+    document.body.appendChild(directLink);
+    directLink.click();
+    document.body.removeChild(directLink);
+    return true;
   }
 }
