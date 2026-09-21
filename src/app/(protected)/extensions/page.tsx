@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/tooltip";
 import { StaffRequestModals } from "@/components/access-requests/StaffRequestModals";
 import { toast } from "sonner";
+import { downloadPackage } from "@/lib/download-package";
 
 const CATEGORIES = [
   { id: "ALL", label: "Tất cả" },
@@ -381,13 +382,22 @@ function ExtensionsListPageContent() {
 
                   <Tooltip delayDuration={150}>
                     <TooltipTrigger asChild>
-                      <a
-                        href={
-                          ext.slug === "tiktokflow-client-agent" || ext.folderPath === "client-agent"
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const isClientAgent =
+                            ext.slug === "tiktokflow-client-agent" ||
+                            ext.folderPath === "client-agent";
+                          const url = isClientAgent
                             ? "/api/client-agent/download"
-                            : "/api/extension/download"
-                        }
-                        download
+                            : "/api/extension/download";
+                          downloadPackage(
+                            url,
+                            isClientAgent
+                              ? "TikTokFlow-ClientAgent.zip"
+                              : "TikTokFlow-Extension.zip"
+                          );
+                        }}
                         aria-label="Tải bản cài đặt"
                         className={`p-2.5 rounded-xl ${
                           ext.slug === "tiktokflow-client-agent"
@@ -396,7 +406,7 @@ function ExtensionsListPageContent() {
                         } text-white shadow-md active:scale-95 transition-all cursor-pointer shrink-0`}
                       >
                         <Download className="w-4 h-4" />
-                      </a>
+                      </button>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="text-xs font-semibold max-w-xs text-center">
                       {ext.slug === "tiktokflow-client-agent"

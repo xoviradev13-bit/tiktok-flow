@@ -40,6 +40,7 @@ import { ImageLightbox, ZoomableImage } from "@/app/docs/_components/ImageLightb
 import { useConfirmDialog } from "@/components/ui/confirm-modal";
 import { StaffRequestModals } from "@/components/access-requests/StaffRequestModals";
 import { toast } from "sonner";
+import { downloadPackage } from "@/lib/download-package";
 
 export default function ExtensionDetailPage() {
   const params = useParams();
@@ -220,9 +221,19 @@ export default function ExtensionDetailPage() {
               </div>
             ) : (
               <>
-                <a
-                  href={isClientAgent ? "/api/client-agent/download" : "/api/extension/download"}
-                  download
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = isClientAgent
+                      ? "/api/client-agent/download"
+                      : "/api/extension/download";
+                    downloadPackage(
+                      url,
+                      isClientAgent
+                        ? "TikTokFlow-ClientAgent.zip"
+                        : "TikTokFlow-Extension.zip"
+                    );
+                  }}
                   className={`flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl text-xs sm:text-sm font-bold ${
                     isClientAgent
                       ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-indigo-600/25"
@@ -231,7 +242,7 @@ export default function ExtensionDetailPage() {
                 >
                   <Download className="w-4 h-4 shrink-0" />
                   <span>{isClientAgent ? "Tải Client Agent (.zip cá nhân)" : "Tải Extension (ZIP cá nhân)"}</span>
-                </a>
+                </button>
 
                 <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 space-y-1.5 text-center">
                   <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">

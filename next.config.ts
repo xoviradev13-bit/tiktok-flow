@@ -11,7 +11,9 @@ const nextConfig: NextConfig = {
   // available on Vercel at runtime (process.cwd()/extension).
   outputFileTracingIncludes: {
     "/api/extension/download": ["./extension/**/*"],
+    "/api/client-agent/download": ["./client-agent-base.zip"],
   },
+
   async redirects() {
     return [
       {
