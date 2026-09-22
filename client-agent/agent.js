@@ -5957,11 +5957,17 @@ async function runDaemon() {
   }
   const initialHandled = await checkAndRunSchedule(activeSchedule);
 
-  // Only run the startup sweep if a scheduled job did NOT already run.
+  // Run the startup sweep in the background so the poll loop starts immediately.
+  // isSweepingActive is held for the duration so the poll loop cannot launch a
+  // second concurrent sweep while the startup sweep is still running.
   if (!initialHandled) {
-    console.log("[*] [Khoi Dong Cung Windows] Tien hanh quet ban dau...");
-    try { await performFullSweep(); }
-    catch (err) { console.warn("[!] Quet ban dau gap loi:", err.message); }
+    console.log("[*] [Khoi Dong Cung Windows] Tien hanh quet ban dau (background)...");
+    isSweepingActive = true;
+    (async () => {
+      try { await performFullSweep(); }
+      catch (err) { console.warn("[!] Quet ban dau gap loi:", err.message); }
+      finally { isSweepingActive = false; }
+    })();
   }
 
   // Non-overlapping poll loop.

@@ -492,12 +492,12 @@ function StrikeWarningPopover({
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${isShop
-                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                            : isSeries
-                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                              : isGifts
-                                ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
-                                : "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20"
+                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                          : isSeries
+                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                            : isGifts
+                              ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                              : "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20"
                           }`}
                       >
                         <Sparkles className="w-2.5 h-2.5 shrink-0" />
@@ -1352,8 +1352,8 @@ function AccountsPageContent() {
                         setSelectedIds(new Set());
                       }}
                       className={`h-10 flex items-center gap-2 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${viewTrash
-                          ? "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 font-extrabold"
-                          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        ? "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 font-extrabold"
+                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                         }`}
                     >
                       <Trash2 className={`w-4 h-4 ${viewTrash ? "text-white" : "text-rose-500"}`} />
@@ -1571,8 +1571,8 @@ function AccountsPageContent() {
                   >
                     <SelectTrigger
                       className={`w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${statusFilter !== "ALL"
-                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                          : ""
+                        ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                        : ""
                         }`}
                     >
                       <SelectValue placeholder="Trạng thái" />
@@ -1621,8 +1621,8 @@ function AccountsPageContent() {
                   >
                     <SelectTrigger
                       className={`w-40 sm:w-44 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${assignedFilter !== "ALL"
-                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                          : ""
+                        ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                        : ""
                         }`}
                     >
                       <SelectValue placeholder="Nhân sự" />
@@ -1737,8 +1737,8 @@ function AccountsPageContent() {
                       >
                         <SelectTrigger
                           className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${onlineFilter !== "ALL"
-                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                              : ""
+                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                            : ""
                             }`}
                         >
                           <SelectValue placeholder="Tất cả kết nối" />
@@ -1797,8 +1797,8 @@ function AccountsPageContent() {
                       >
                         <SelectTrigger
                           className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${countryFilter !== "ALL"
-                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                              : ""
+                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                            : ""
                             }`}
                         >
                           <SelectValue placeholder="Tất cả quốc gia" />
@@ -1850,8 +1850,8 @@ function AccountsPageContent() {
                       >
                         <SelectTrigger
                           className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${warningFilter !== "ALL"
-                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                              : ""
+                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                            : ""
                             }`}
                         >
                           <SelectValue placeholder="Tất cả" />
@@ -1900,8 +1900,8 @@ function AccountsPageContent() {
                       >
                         <SelectTrigger
                           className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${gpmFilter !== "ALL"
-                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                              : ""
+                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                            : ""
                             }`}
                         >
                           <SelectValue placeholder="Tất cả" />
@@ -1982,8 +1982,8 @@ function AccountsPageContent() {
                       <button
                         type="button"
                         className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${sortConfig.key
-                            ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
-                            : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
+                          ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
+                          : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
                           }`}
                       >
                         <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-pink-600 dark:text-pink-400" : "text-slate-500"}`} />
@@ -2011,8 +2011,8 @@ function AccountsPageContent() {
                         key={item.key}
                         onClick={() => handleSort(item.key)}
                         className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${isSelected
-                            ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
-                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
+                          ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
+                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
                           }`}
                       >
                         <span>{item.label}</span>
