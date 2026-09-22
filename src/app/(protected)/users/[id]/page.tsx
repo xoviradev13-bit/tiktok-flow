@@ -51,6 +51,8 @@ import {
   Download,
   Square,
   History,
+  Sparkles,
+  Copy,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
@@ -229,12 +231,215 @@ const ACCOUNT_SORT_OPTIONS: Array<{ key: AccountSortKey; label: string }> = [
   { key: "lastSyncedAt", label: "Đồng bộ lần cuối" },
 ];
 
+// ─── Alert helpers (mirrors accounts/page.tsx) ───────────────────────────────
+function getPunishedVideos30d(acc: any): any[] {
+  if (Array.isArray(acc?.punishedVideos30d)) return acc.punishedVideos30d;
+  const rawPostRewards = Array.isArray(acc?.analytics?.postRewards)
+    ? acc.analytics.postRewards
+    : Array.isArray(acc?.analytics?.postRewards?.items)
+      ? acc.analytics.postRewards.items
+      : [];
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  return rawPostRewards.filter((v: any) => {
+    if (!v?.isPunished) return false;
+    const ts = v.publishTimeUnix
+      ? Number(v.publishTimeUnix) * 1000
+      : new Date(v.publishDate || v.postDate || v.postTime || "").getTime();
+    return !isNaN(ts) ? now - ts <= THIRTY_DAYS_MS : false;
+  });
+}
+
+function getStrikeTheme(count: number) {
+  if (count === 1) {
+    return {
+      badge:
+        "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
+      icon: "text-yellow-500",
+      headerGrad: "border-yellow-200 dark:border-yellow-900/40",
+      headerIcon: "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400",
+      headerText: "text-yellow-900 dark:text-yellow-200",
+      headerSub: "text-yellow-700 dark:text-yellow-400",
+      border: "border-yellow-200 dark:border-yellow-900/60",
+      label: "1 video bị phạt (30 ngày)",
+      levelTag: "Mức 1",
+      iconOnly:
+        "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-600 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
+    };
+  }
+
+  if (count === 2) {
+    return {
+      badge:
+        "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
+      icon: "text-amber-500",
+      headerGrad: "border-amber-200 dark:border-amber-900/40",
+      headerIcon: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
+      headerText: "text-amber-900 dark:text-amber-200",
+      headerSub: "text-amber-700 dark:text-amber-400",
+      border: "border-amber-200 dark:border-amber-900/60",
+      label: "2 video bị phạt (30 ngày)",
+      levelTag: "Mức 2",
+      iconOnly:
+        "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
+    };
+  }
+
+  if (count === 3) {
+    return {
+      badge:
+        "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
+      icon: "text-orange-500",
+      headerGrad: "border-orange-200 dark:border-orange-900/40",
+      headerIcon: "bg-orange-500/20 text-orange-600 dark:text-orange-400",
+      headerText: "text-orange-900 dark:text-orange-200",
+      headerSub: "text-orange-700 dark:text-orange-400",
+      border: "border-orange-200 dark:border-orange-900/60",
+      label: "3 video bị phạt (30 ngày)",
+      levelTag: "Mức 3 - Cần lưu ý",
+      iconOnly:
+        "bg-orange-50 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
+    };
+  }
+
+  if (count === 4) {
+    return {
+      badge:
+        "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
+      icon: "text-rose-500",
+      headerGrad: "border-rose-200 dark:border-rose-900/40",
+      headerIcon: "bg-rose-500/20 text-rose-600 dark:text-rose-400",
+      headerText: "text-rose-900 dark:text-rose-200",
+      headerSub: "text-rose-700 dark:text-rose-400",
+      border: "border-rose-200 dark:border-rose-900/60",
+      label: "4 video bị phạt (30 ngày)",
+      levelTag: "Mức 4 - Cảnh báo cao",
+      iconOnly:
+        "bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
+    };
+  }
+
+  return {
+    badge:
+      "bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-200 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60",
+    icon: "text-red-600 dark:text-red-400",
+    headerGrad: "border-red-300 dark:border-red-800",
+    headerIcon: "bg-red-600/20 text-red-600 dark:text-red-300",
+    headerText: "text-red-950 dark:text-red-100",
+    headerSub: "text-red-700 dark:text-red-300 font-bold",
+    border: "border-red-400 dark:border-red-800",
+    label: `${count} video bị phạt (30 ngày)`,
+    levelTag: "Mức 5 - Cảnh báo nghiêm trọng",
+    iconOnly:
+      "bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60",
+  };
+}
+
+function StrikeWarningPopover({ account, punishedVideos }: { account: any; punishedVideos: any[] }) {
+  if (!punishedVideos.length) return null;
+  const theme = getStrikeTheme(punishedVideos.length);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all shadow-sm cursor-pointer group ${theme.badge}`}
+          aria-label={theme.label}
+        >
+          <AlertTriangle className={`w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform ${theme.icon}`} />
+          <span>{theme.label}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={`w-[400px] p-0 rounded-2xl shadow-2xl border bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs ${theme.border}`}
+      >
+        <div className={`p-3.5 border-b flex items-start gap-2.5 bg-white dark:bg-slate-900 ${theme.headerGrad}`}>
+          <div className={`p-2 rounded-xl shrink-0 ${theme.headerIcon}`}>
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className={`font-bold text-sm ${theme.headerText}`}>
+                {punishedVideos.length} Video Bị Phạt (30 Ngày)
+              </h4>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                {theme.levelTag}
+              </span>
+            </div>
+            <p className={`text-[11px] mt-0.5 ${theme.headerSub}`}>
+              Tài khoản @{account.username} có video bị phạt vi phạm trong 30 ngày gần nhất
+            </p>
+          </div>
+        </div>
+        <div className="p-3.5 space-y-3">
+          <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+            {punishedVideos.map((v: any, vIdx: number) => {
+              const progName = v.programName || "Chương trình Creator Rewards";
+              const isShop = progName.includes("Shop");
+              const isSeries = progName.includes("Series");
+              const isGifts = progName.includes("Gifts") || progName.includes("Quà tặng");
+              const cover = v.coverUrl || v.cover || null;
+              return (
+                <div key={vIdx} className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex items-start gap-2.5">
+                  <div className="w-11 h-14 rounded-lg bg-slate-200 dark:bg-slate-800 overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
+                    {cover ? (
+                      <img src={cover} alt={v.title || "Cover"} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400">
+                        <Video className="w-4 h-4" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-slate-900 dark:text-white line-clamp-2 leading-relaxed" title={v.title}>
+                      {v.title || `Video #${v.id}`}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${
+                        isShop ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                          : isSeries ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                          : isGifts ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                          : "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20"
+                      }`}>
+                        <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                        {progName}
+                      </span>
+                      <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+                        Bị huỷ điều kiện
+                      </span>
+                      {v.postDate && <span className="text-[10px] text-slate-400">{v.postDate}</span>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <span className="text-[11px] text-slate-400">Phân tách theo từng chương trình kiếm tiền</span>
+            <Link
+              href={`/accounts/${account.id}?tab=rewards`}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline"
+            >
+              <span>Xem tất cả video</span>
+              <ExternalLink className="w-3 h-3" />
+            </Link>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 const USER_ACCOUNTS_COLUMN_RESIZE_CONFIG = {
   select: { minWidth: 40, maxWidth: 56, defaultWidth: 44 },
   username: { minWidth: 160, maxWidth: 450, defaultWidth: 240 },
   isOnline: { minWidth: 80, maxWidth: 160, defaultWidth: 100 },
   country: { minWidth: 80, maxWidth: 180, defaultWidth: 110 },
   status: { minWidth: 100, maxWidth: 200, defaultWidth: 130 },
+  gpmProfileId: { minWidth: 110, maxWidth: 260, defaultWidth: 150 },
+  gpmGroup: { minWidth: 100, maxWidth: 240, defaultWidth: 130 },
+  alerts: { minWidth: 80, maxWidth: 160, defaultWidth: 100 },
   totalViews: { minWidth: 90, maxWidth: 220, defaultWidth: 120 },
   totalFollowers: { minWidth: 90, maxWidth: 220, defaultWidth: 120 },
   totalVideos: { minWidth: 80, maxWidth: 180, defaultWidth: 100 },
@@ -251,6 +456,7 @@ function UserDetailPageContent() {
   const { data: session } = useSession();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [copiedGpmId, setCopiedGpmId] = useState<string | null>(null);
 
   // SaaS URL Query State Synchronization
   const { updateUrlParams } = useUrlParams();
@@ -1627,7 +1833,7 @@ function UserDetailPageContent() {
                         className="relative group/th py-3.5 px-4 sticky left-10 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
                       >
                         <div className="flex items-center gap-1.5 truncate">
-                          <span className="truncate">Tài khoản TikTok & GPM</span>
+                          <span className="truncate">Tài khoản</span>
                           {renderAccountSortIndicator("username")}
                         </div>
                         {renderResizeHandle("username")}
@@ -1664,6 +1870,33 @@ function UserDetailPageContent() {
                           {renderAccountSortIndicator("status")}
                         </div>
                         {renderResizeHandle("status")}
+                      </th>
+                      <th
+                        style={getColumnStyle("gpmProfileId")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Profile GPM</span>
+                        </div>
+                        {renderResizeHandle("gpmProfileId")}
+                      </th>
+                      <th
+                        style={getColumnStyle("gpmGroup")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">Nhóm GPM</span>
+                        </div>
+                        {renderResizeHandle("gpmGroup")}
+                      </th>
+                      <th
+                        style={getColumnStyle("alerts")}
+                        className="relative group/th py-3.5 px-4 text-center whitespace-nowrap"
+                      >
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span>Cảnh Báo</span>
+                        </div>
+                        {renderResizeHandle("alerts")}
                       </th>
                       <th
                         style={getColumnStyle("totalViews")}
@@ -1747,7 +1980,7 @@ function UserDetailPageContent() {
                             aria-label={`Chọn @${acc.username}`}
                           />
                         </td>
-                        {/* Username & GPM Profile - Sticky Left */}
+                        {/* Account name - Sticky Left */}
                         <td
                           style={getColumnStyle("username")}
                           className={`py-3.5 px-4 sticky left-10 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] transition-colors`}
@@ -1760,16 +1993,11 @@ function UserDetailPageContent() {
                               <span>@{acc.username}</span>
                               <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                             </Link>
-                            <div className="text-xs text-slate-400 font-mono flex items-center gap-1 mt-0.5">
-                              {acc.gpmProfileId ? (
-                                <span className="text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/60 px-1 py-0.2 rounded border border-cyan-200 dark:border-cyan-800/40">
-                                  {acc.gpmProfileId.slice(0, 8)}...
-                                </span>
-                              ) : (
-                                <span className="text-slate-400">Chưa gắn GPM</span>
-                              )}
-                              {acc.groupName && <span>• {acc.groupName}</span>}
-                            </div>
+                            {acc.bannedReason && (
+                              <div className="text-[10px] text-rose-500 dark:text-rose-400 truncate mt-0.5 max-w-[180px]" title={acc.bannedReason}>
+                                ⚠ {acc.bannedReason}
+                              </div>
+                            )}
                           </div>
                         </td>
 
@@ -1786,6 +2014,198 @@ function UserDetailPageContent() {
                         {/* Status */}
                         <td style={getColumnStyle("status")} className="py-3.5 px-4 whitespace-nowrap">
                           {getStatusBadge(acc.status)}
+                        </td>
+
+                        {/* GPM Profile ID */}
+                        <td style={getColumnStyle("gpmProfileId")} className="py-3.5 px-4 whitespace-nowrap">
+                          {acc.gpmProfileId ? (
+                            <div className="inline-flex items-center gap-1.5 h-7.5 bg-cyan-50/80 dark:bg-cyan-950/50 border border-cyan-200/60 dark:border-cyan-800/40 rounded-xl px-2.5 shadow-2xs">
+                              <span
+                                className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 max-w-[130px] truncate"
+                                title={acc.gpmProfileId}
+                              >
+                                {acc.gpmProfileId}
+                              </span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => startGpmMutation.mutate({ gpmProfileId: acc.gpmProfileId })}
+                                    disabled={startGpmMutation.isPending}
+                                    className="p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                    aria-label="Mở GPM"
+                                  >
+                                    <Play className={`w-3 h-3 ${startGpmMutation.isPending ? "animate-pulse text-pink-500" : ""}`} />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">Mở profile GPMLogin</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(acc.gpmProfileId);
+                                      setCopiedGpmId(acc.id);
+                                      setTimeout(() => setCopiedGpmId((prev) => (prev === acc.id ? null : prev)), 2000);
+                                    }}
+                                    className="p-1 -mr-1 text-cyan-600/70 hover:text-cyan-700 dark:text-cyan-400/70 dark:hover:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                    aria-label="Sao chép GPM Profile ID"
+                                  >
+                                    {copiedGpmId === acc.id ? (
+                                      <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs font-medium">
+                                  {copiedGpmId === acc.id ? "Đã sao chép!" : "Sao chép GPM Profile ID"}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center h-7.5 px-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 text-slate-400 text-xs italic bg-slate-50/50 dark:bg-slate-900/50">-- Chưa gán --</span>
+                          )}
+                        </td>
+
+                        {/* GPM Group */}
+                        <td style={getColumnStyle("gpmGroup")} className="py-3.5 px-4 whitespace-nowrap">
+                          <span className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
+                            {acc.groupName || "--"}
+                          </span>
+                        </td>
+
+                        {/* Alerts */}
+                        <td style={getColumnStyle("alerts")} className="py-3.5 px-4 whitespace-nowrap">
+                          {(() => {
+                            const punishedVideos = getPunishedVideos30d(acc);
+                            const isBannedFromCreator =
+                              acc.status === "BANNED" ||
+                              Boolean(acc.bannedReason) ||
+                              ((acc.metadata as any)?.creatorRewardsMissing === true) ||
+                              ((acc.metadata as any)?.creatorRewardsStatus === "BANNED") ||
+                              acc.alerts?.some((al: any) => al.alertType === "PROGRAM_DISQUALIFIED");
+
+                            // Case 1: Banned / Removed from Creator Program
+                            if (isBannedFromCreator) {
+                              return (
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800/80 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all shadow-sm cursor-pointer group"
+                                    >
+                                      <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                      <span>Bị loại khỏi Creator Rewards</span>
+                                      {punishedVideos.length > 0 && (
+                                        <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[10px] rounded-full font-bold">
+                                          +{punishedVideos.length}
+                                        </span>
+                                      )}
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="start" className="w-96 p-0 rounded-2xl shadow-2xl border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs">
+                                    <div className="p-3.5 border-b border-rose-200 dark:border-rose-900/40 flex items-start gap-2.5 bg-white dark:bg-slate-900">
+                                      <div className="p-2 bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl shrink-0">
+                                        <XCircle className="w-5 h-5" />
+                                      </div>
+                                      <div>
+                                        <h4 className="font-bold text-rose-900 dark:text-rose-200 text-sm">Bị loại khỏi Creator Rewards</h4>
+                                        <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
+                                          Tài khoản @{acc.username} đã bị tắt tính năng kiếm tiền TikTok Beta
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="p-3.5 space-y-3">
+                                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">Lý do ghi nhận:</span>
+                                        <span className="text-xs text-rose-600 dark:text-rose-300 font-medium">
+                                          {acc.bannedReason || "Không tìm thấy chương trình Creator Rewards trên TikTok Studio"}
+                                        </span>
+                                      </div>
+                                      {punishedVideos.length > 0 && (
+                                        <div>
+                                          <div className="flex items-center justify-between mb-1.5">
+                                            <span className="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                                              Video bị phạt / vi phạm trong 30 ngày ({punishedVideos.length}):
+                                            </span>
+                                          </div>
+                                          <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                                            {punishedVideos.map((v: any, vIdx: number) => (
+                                              <div key={vIdx} className="p-2 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 flex items-start gap-2">
+                                                <div className="w-10 h-12 rounded-lg bg-slate-200 dark:bg-slate-800 overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
+                                                  {v.coverUrl || v.cover ? (
+                                                    <img src={v.coverUrl || v.cover} alt={v.title || "Cover"} className="w-full h-full object-cover" />
+                                                  ) : (
+                                                    <div className="w-full h-full flex items-center justify-center text-slate-400">
+                                                      <Video className="w-3.5 h-3.5" />
+                                                    </div>
+                                                  )}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                  <p className="text-xs font-medium text-slate-800 dark:text-slate-200 line-clamp-1" title={v.title}>
+                                                    {v.title || `Video #${v.id}`}
+                                                  </p>
+                                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                    <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.2 rounded border border-blue-500/20">
+                                                      {v.programName || "Creator Rewards"}
+                                                    </span>
+                                                    {v.postDate && <span className="text-[10px] text-slate-400">{v.postDate}</span>}
+                                                    <span className="text-[10px] font-bold text-rose-500">Bị phạt</span>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                                        <Link href={`/accounts/${acc.id}?tab=rewards`} className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline">
+                                          <span>Xem chi tiết tài khoản</span>
+                                          <ExternalLink className="w-3 h-3" />
+                                        </Link>
+                                      </div>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              );
+                            }
+
+                            // Case 2: Punished Videos (Strike Warning)
+                            if (punishedVideos.length > 0) {
+                              return <StrikeWarningPopover account={acc} punishedVideos={punishedVideos} />;
+                            }
+
+                            // Case 3: Other alerts
+                            if (acc.alerts && acc.alerts.length > 0) {
+                              return (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 cursor-pointer">
+                                      <AlertTriangle className="w-3 h-3" />
+                                      <span>{acc.alerts.length} cảnh báo</span>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs text-xs space-y-1">
+                                    {acc.alerts.map((al: any, idx: number) => (
+                                      <div key={idx} className="text-slate-200">
+                                        • {al.description || al.message || al.alertType}
+                                      </div>
+                                    ))}
+                                  </TooltipContent>
+                                </Tooltip>
+                              );
+                            }
+
+                            // Case 4: Clean & Safe
+                            return (
+                              <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                                <Shield className="w-3.5 h-3.5 text-emerald-500" />
+                                <span className="text-emerald-600 dark:text-emerald-400 font-medium">An toàn</span>
+                              </span>
+                            );
+                          })()}
                         </td>
 
                         {/* Views */}
@@ -1980,7 +2400,7 @@ function UserDetailPageContent() {
                                     <span>Lịch sử hoạt động</span>
                                   </Link>
                                 </DropdownMenuItem>
-                                {isLeadOrAdmin && (
+                                {isAdmin && (
                                   <>
                                     <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                                     <DropdownMenuItem

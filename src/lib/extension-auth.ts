@@ -11,7 +11,7 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import * as Sentry from "@sentry/nextjs";
-import { prisma } from "@/lib/prisma";
+import { prisma, type SoftDeletePrismaClient } from "@/lib/db";
 import { clearUserCache } from "@/lib/auth";
 import type { Prisma, PrismaClient, User } from "@/generated/prisma/client";
 
@@ -27,7 +27,16 @@ export const PAIRING_CODE_TTL_MS = 24 * 60 * 60 * 1000; // 24h first-redeem wind
 export const REFRESH_PII_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 export const AUTH_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
-type DbClient = PrismaClient | Prisma.TransactionClient;
+type SoftDeleteTx = Parameters<
+  Parameters<SoftDeletePrismaClient["$transaction"]>[0]
+>[0];
+
+/** Accepts base client, soft-delete extended client, or either's interactive transaction. */
+type DbClient =
+  | PrismaClient
+  | Prisma.TransactionClient
+  | SoftDeletePrismaClient
+  | SoftDeleteTx;
 
 let alertingHealthChecked = false;
 
@@ -310,7 +319,7 @@ export async function notifyExtensionAuthIncident(
 export async function revokeExtensionCredentials(
   userId: string,
   reason = "admin_revoke",
-  tx?: Prisma.TransactionClient
+  tx?: Prisma.TransactionClient | SoftDeleteTx
 ): Promise<void> {
   const db = tx || prisma;
   const now = new Date();

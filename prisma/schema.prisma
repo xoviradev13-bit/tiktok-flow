@@ -100,6 +100,7 @@ model User {
   accounts          Account[]
   sessions          Session[]
   tiktokAccounts    TiktokAccount[]
+  deletedAccounts   TiktokAccount[]         @relation("AccountDeletedBy")
   dailyChecklists        DailyChecklist[]
   sentInvitations        Invitation[]             @relation("SentInvitations")
   extensionToken           String?                  @unique @map("extension_token")
@@ -167,6 +168,11 @@ model TiktokAccount {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 
+  // Soft delete fields
+  deletedAt          DateTime?            @map("deleted_at")
+  deletedById        String?              @map("deleted_by_id")
+  deletedBy          User?                @relation("AccountDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
   @@index([status])
   @@index([isOnline])
   @@index([assignedUserId])
@@ -179,6 +185,11 @@ model TiktokAccount {
   @@index([assignedUserId, status])
   @@index([totalRevenue(sort: Desc)])
   @@index([totalViews(sort: Desc)])
+  @@index([deletedAt])
+  @@index([deletedAt, status])
+  @@index([deletedAt, assignedUserId])
+  @@index([deletedAt, isOnline, lastSyncedAt])
+  @@index([deletedAt, country])
   @@map("tiktok_accounts")
 }
 
@@ -582,9 +593,27 @@ model SyncQueue {
 
   requestedBy     User?     @relation("UserSyncQueues", fields: [requestedById], references: [id], onDelete: SetNull)
 
+  @@index([status])
   @@index([status, requestedAt])
   @@index([requestedById])
   @@map("sync_queues")
 }
 
+// 23. System-level Audit Log (survives hard delete of related accounts)
+model SystemAuditLog {
+  id            String   @id @default(cuid())
+  action        String   // SOFT_DELETE, HARD_DELETE, BULK_SOFT_DELETE, BULK_HARD_DELETE, RESTORE, BULK_RESTORE
+  entityType    String   @default("TiktokAccount") @map("entity_type")
+  entityId      String   @map("entity_id")
+  entityLabel   String?  @map("entity_label")   // e.g. @username at time of action
+  actorId       String?  @map("actor_id")
+  actorName     String?  @map("actor_name")
+  reason        String?  @db.Text
+  snapshot      Json?    // Full account snapshot before purge
+  createdAt     DateTime @default(now()) @map("created_at")
 
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("system_audit_logs")
+}

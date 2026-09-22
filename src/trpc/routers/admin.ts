@@ -577,7 +577,7 @@ export const adminRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const res = await ctx.prisma.tiktokAccount.updateMany({
-        where: { id: { in: input.accountIds } },
+        where: { id: { in: input.accountIds }, deletedAt: null },
         data: { assignedUserId: input.targetUserId },
       });
 

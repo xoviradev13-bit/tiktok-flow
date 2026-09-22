@@ -266,9 +266,11 @@ export async function finalizePendingChecklists(
     });
 
     const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
-    const eligibleItems = shouldExcludeBanned
-      ? allItems.filter((i: any) => i.account?.status !== "BANNED")
-      : allItems;
+    const eligibleItems = allItems.filter((i: any) => {
+      if (!i.account || i.account.deletedAt) return false;
+      if (shouldExcludeBanned && i.account.status === "BANNED") return false;
+      return true;
+    });
 
     const totalAssigned = eligibleItems.length;
     const completedCount = eligibleItems.filter((i: any) => i.isCompleted || (i.isPosted && i.isSynced)).length;

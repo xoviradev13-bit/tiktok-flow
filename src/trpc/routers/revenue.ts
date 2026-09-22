@@ -395,12 +395,13 @@ export const revenueRouter = router({
         });
       }
 
-      const accounts = await ctx.prisma.tiktokAccount.findMany({
+      const accounts = await ctx.prismaRaw.tiktokAccount.findMany({
         where: {
           OR: usernames.map((u) => ({
             username: { equals: u, mode: "insensitive" as const },
           })),
           ...(isStaff ? { assignedUserId: ctx.session.user.id } : {}),
+          deletedAt: null,
         },
         select: { id: true, username: true, assignedUserId: true },
       });
@@ -512,10 +513,17 @@ export const revenueRouter = router({
         sourceType: z.string().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
+        includeArchived: z.boolean().optional().default(false),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
+      const includeArchived = Boolean(input?.includeArchived);
+      const dbClient = includeArchived ? ctx.prismaRaw : ctx.prisma;
+
       const whereAccount: any = {};
+      if (!includeArchived) {
+        whereAccount.deletedAt = null;
+      }
       if (ctx.session.user.role === "STAFF") {
         whereAccount.assignedUserId = ctx.session.user.id;
       }
@@ -543,7 +551,7 @@ export const revenueRouter = router({
       }
 
       const [records, accountsWithAnalytics] = await Promise.all([
-        ctx.prisma.dailyRevenue.findMany({
+        dbClient.dailyRevenue.findMany({
           where,
           include: {
             account: {
@@ -551,6 +559,7 @@ export const revenueRouter = router({
                 id: true,
                 username: true,
                 country: true,
+                deletedAt: true,
                 assignedUser: {
                   select: {
                     id: true,
@@ -564,12 +573,13 @@ export const revenueRouter = router({
           },
           orderBy: { date: "desc" },
         }),
-        ctx.prisma.tiktokAccount.findMany({
+        dbClient.tiktokAccount.findMany({
           where: whereAccount,
           select: {
             id: true,
             username: true,
             country: true,
+            deletedAt: true,
             assignedUser: {
               select: {
                 id: true,
@@ -600,6 +610,7 @@ export const revenueRouter = router({
         id: acc.id,
         username: acc.username,
         country: acc.country,
+        deletedAt: acc.deletedAt,
         assignedUser: acc.assignedUser,
       });
 

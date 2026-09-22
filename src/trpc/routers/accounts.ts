@@ -1,9 +1,25 @@
+// NOTE: `delete` / `bulkDelete` perform SOFT deletes (moved to Trash).
+//       Use `hardDelete` / `bulkHardDelete` for permanent removal.
+// RACE-SAFETY RULE: All mutating procedures verify state inside the
+// transaction via updateMany/deleteMany + count check. Never trust a
+// pre-transaction read alone.
+// RECONCILIATION RULE: Post-commit reconciliation is wrapped in try/catch
+// via `reconcileAfterCommit` — never let a checklist error 500 the caller.
+
 import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { calculateWorkdayScore, getScoringConfig } from "@/lib/scoring-engine";
 import { isAccountOnline, getOnlineCutoffDate } from "@/lib/account-status";
 import { resolveAllTimeRevenue } from "@/lib/resolve-all-time-revenue";
+import { Prisma } from "@/generated/prisma/client";
+import {
+  AccountPurgeSnapshot,
+  AccountRestoreDiff,
+  ListStats,
+} from "@/lib/audit-types";
+import { cancelInFlightSyncJobs } from "@/lib/sync-scope";
+import { reconcileAfterCommit } from "@/lib/checklist-reconcile";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -14,24 +30,37 @@ function serializeBigInt<T>(obj: T): T {
 }
 
 export const accountsRouter = router({
-  // 1. List accounts with filters & overall fleet statistics
+  // 1. List accounts with filters & overall fleet statistics / Trash mode
   list: protectedProcedure
     .input(
-      z.object({
-        search: z.string().optional(),
-        status: z.enum(["ALL", "ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"]).optional(),
-        onlineStatus: z.enum(["ALL", "ONLINE", "OFFLINE"]).optional(),
-        country: z.string().optional(),
-        assignedUserId: z.string().optional(),
-      }).optional()
+      z
+        .object({
+          search: z.string().optional(),
+          status: z
+            .enum(["ALL", "ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"])
+            .optional(),
+          onlineStatus: z.enum(["ALL", "ONLINE", "OFFLINE"]).optional(),
+          country: z.string().optional(),
+          assignedUserId: z.string().optional(),
+          viewTrash: z.boolean().optional().default(false),
+        })
+        .optional()
     )
     .query(async ({ ctx, input }) => {
-      const where: any = {};
+      const isAdmin = ctx.session.user.role === "ADMIN";
+      const viewTrash = Boolean(input?.viewTrash && isAdmin);
 
-      // If user is STAFF (not LEAD or ADMIN), strictly show assigned accounts only
+      // Fleet mode uses the extended client so the soft-delete extension is the
+      // one source of truth for "what counts as active" — not a hand-copied
+      // filter that can drift from the extension's own logic.
+      const client = viewTrash ? ctx.prismaRaw : ctx.prisma;
+
+      const where: any = viewTrash ? { deletedAt: { not: null } } : {};
+
+      // STAFF scoping
       if (ctx.session.user.role === "STAFF") {
         where.assignedUserId = ctx.session.user.id;
-      } else if (input?.assignedUserId && input.assignedUserId !== "ALL") {
+      } else if (!viewTrash && input?.assignedUserId && input.assignedUserId !== "ALL") {
         where.assignedUserId = input.assignedUserId;
       }
 
@@ -43,47 +72,50 @@ export const accountsRouter = router({
         ];
       }
 
-      if (input?.status && input.status !== "ALL") {
-        where.status = input.status;
-      }
-
-      const onlineCutoff = getOnlineCutoffDate();
-
-      if (input?.onlineStatus && input.onlineStatus !== "ALL") {
-        if (input.onlineStatus === "ONLINE") {
-          where.isOnline = true;
-          where.lastSyncedAt = { gte: onlineCutoff };
-        } else {
-          where.OR = [
-            { isOnline: false },
-            { lastSyncedAt: null },
-            { lastSyncedAt: { lt: onlineCutoff } },
-          ];
-        }
-      }
-
+      // In Trash mode: only search and country are honored.
       if (input?.country && input.country !== "ALL") {
         where.country = input.country;
       }
 
-      // Base condition for online count (fleet-wide or filtered by other fields, not constrained by onlineStatus filter itself)
-      const baseCountWhere = { ...where };
-      if (input?.onlineStatus && input.onlineStatus !== "ALL") {
-        delete baseCountWhere.isOnline;
-        delete baseCountWhere.lastSyncedAt;
-        if (input?.search) {
-          const s = input.search.trim();
-          baseCountWhere.OR = [
-            { username: { contains: s, mode: "insensitive" } },
-            { groupName: { contains: s, mode: "insensitive" } },
-          ];
-        } else {
-          delete baseCountWhere.OR;
+      const onlineCutoff = getOnlineCutoffDate();
+      let baseCountWhere = { ...where };
+
+      if (!viewTrash) {
+        if (input?.status && input.status !== "ALL") {
+          where.status = input.status;
+        }
+
+        if (input?.onlineStatus && input.onlineStatus !== "ALL") {
+          if (input.onlineStatus === "ONLINE") {
+            where.isOnline = true;
+            where.lastSyncedAt = { gte: onlineCutoff };
+          } else {
+            where.OR = [
+              { isOnline: false },
+              { lastSyncedAt: null },
+              { lastSyncedAt: { lt: onlineCutoff } },
+            ];
+          }
+        }
+
+        baseCountWhere = { ...where };
+        if (input?.onlineStatus && input.onlineStatus !== "ALL") {
+          delete baseCountWhere.isOnline;
+          delete baseCountWhere.lastSyncedAt;
+          if (input?.search) {
+            const s = input.search.trim();
+            baseCountWhere.OR = [
+              { username: { contains: s, mode: "insensitive" } },
+              { groupName: { contains: s, mode: "insensitive" } },
+            ];
+          } else {
+            delete baseCountWhere.OR;
+          }
         }
       }
 
-      const [accounts, statusGroups, onlineCount] = await Promise.all([
-        ctx.prisma.tiktokAccount.findMany({
+      const [accounts, trashCount, statusGroups, onlineCount] = await Promise.all([
+        client.tiktokAccount.findMany({
           where,
           include: {
             assignedUser: {
@@ -91,6 +123,7 @@ export const accountsRouter = router({
                 id: true,
                 username: true,
                 name: true,
+                fullName: true,
                 firstName: true,
                 lastName: true,
                 role: true,
@@ -111,56 +144,84 @@ export const accountsRouter = router({
           },
           orderBy: { updatedAt: "desc" },
         }),
-        ctx.prisma.tiktokAccount.groupBy({
-          by: ["status"],
-          where,
-          _count: { id: true },
-        }),
-        ctx.prisma.tiktokAccount.count({
-          where: {
-            ...baseCountWhere,
-            isOnline: true,
-            lastSyncedAt: { gte: onlineCutoff },
-          },
-        }),
+        isAdmin
+          ? ctx.prismaRaw.tiktokAccount.count({ where: { deletedAt: { not: null } } })
+          : Promise.resolve(null),
+        !viewTrash
+          ? ctx.prisma.tiktokAccount.groupBy({
+            by: ["status"],
+            where,
+            _count: { id: true },
+          })
+          : Promise.resolve([]),
+        !viewTrash
+          ? ctx.prisma.tiktokAccount.count({
+            where: {
+              ...baseCountWhere,
+              isOnline: true,
+              lastSyncedAt: { gte: onlineCutoff },
+            },
+          })
+          : Promise.resolve(0),
       ]);
 
-      // Lazily heal stale online records in the DB
-      ctx.prisma.tiktokAccount
-        .updateMany({
-          where: {
-            isOnline: true,
-            OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: onlineCutoff } }],
-          },
-          data: { isOnline: false },
-        })
-        .catch(() => {});
+      // Lazily heal stale online records in the DB when in fleet mode
+      if (!viewTrash) {
+        ctx.prisma.tiktokAccount
+          .updateMany({
+            where: {
+              isOnline: true,
+              OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: onlineCutoff } }],
+              deletedAt: null,
+            },
+            data: { isOnline: false },
+          })
+          .catch(() => { });
+      }
 
-      const statusMap = statusGroups.reduce<Record<string, number>>((acc, curr) => {
+      // Join the latest SystemAuditLog entry per row in Trash mode so UI shows deleter name
+      const deleterByAccountId: Record<string, string> = {};
+      if (viewTrash && accounts.length > 0) {
+        const logs = await ctx.prismaRaw.systemAuditLog.findMany({
+          where: {
+            entityId: { in: accounts.map((i: any) => i.id) },
+            action: { in: ["SOFT_DELETE", "BULK_SOFT_DELETE"] },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { entityId: true, actorName: true, createdAt: true },
+        });
+        for (const log of logs) {
+          if (!deleterByAccountId[log.entityId]) {
+            deleterByAccountId[log.entityId] = log.actorName ?? "Hệ thống";
+          }
+        }
+      }
+
+      const statusMap: Record<string, number> = statusGroups.reduce((acc: Record<string, number>, curr: { status: string; _count: { id: number } }) => {
         acc[curr.status] = curr._count.id;
         return acc;
-      }, {});
+      }, {} as Record<string, number>);
 
-      const totalCount = statusGroups.reduce((sum, curr) => sum + curr._count.id, 0);
+      const totalCount = statusGroups.reduce((sum: number, curr: { _count: { id: number } }) => sum + curr._count.id, 0);
       const activeCount = statusMap["ACTIVE"] || 0;
       const restrictedCount = statusMap["RESTRICTED"] || 0;
       const bannedCount = statusMap["BANNED"] || 0;
       const warmingCount = statusMap["WARMING"] || 0;
 
       const totalFleetRevenue = accounts.reduce(
-        (sum, acc) => sum + resolveAllTimeRevenue(acc as any),
+        (sum: number, acc: any) => sum + resolveAllTimeRevenue(acc),
         0
       );
 
       const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
       const now = Date.now();
 
-      const items = accounts.map((acc) => {
+      const items = accounts.map((acc: any) => {
         const rawPostRewards = Array.isArray((acc as any).analytics?.postRewards)
           ? (acc as any).analytics.postRewards
           : Array.isArray(((acc as any).analytics?.postRewards as any)?.items)
-          ? ((acc as any).analytics?.postRewards as any).items
-          : [];
+            ? ((acc as any).analytics?.postRewards as any).items
+            : [];
 
         const punishedVideos30d = rawPostRewards.filter((v: any) => {
           if (!v?.isPunished) return false;
@@ -179,12 +240,14 @@ export const accountsRouter = router({
           punishedVideos30d,
           punishedVideosCount30d: strikeCount,
           strikeLevel,
+          deletedByName: viewTrash ? deleterByAccountId[acc.id] ?? null : undefined,
         };
       });
 
-      return {
-        items: serializeBigInt(items),
-        stats: {
+      const stats: ListStats = viewTrash
+        ? { mode: "trash", trashCount: trashCount ?? 0 }
+        : {
+          mode: "fleet",
           total: totalCount,
           active: activeCount,
           restricted: restrictedCount,
@@ -192,16 +255,32 @@ export const accountsRouter = router({
           warming: warmingCount,
           online: onlineCount,
           totalRevenue: Math.round(totalFleetRevenue * 100) / 100,
-        },
+          trashCount,
+        };
+
+      return {
+        items: serializeBigInt(items),
+        stats,
       };
     }),
 
-  // 2. Get single account by ID
+  // 2. Get single account by ID (supports includeDeleted for Admin)
   getById: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(
+      z.object({
+        id: z.string(),
+        includeDeleted: z.boolean().optional().default(false),
+      })
+    )
     .query(async ({ ctx, input }) => {
-      const account = await ctx.prisma.tiktokAccount.findUnique({
-        where: { id: input.id },
+      const isAdmin = ctx.session.user.role === "ADMIN";
+
+      if (input.includeDeleted && !isAdmin) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only Admin can view trashed accounts." });
+      }
+
+      const account = await ctx.prismaRaw.tiktokAccount.findFirst({
+        where: input.includeDeleted ? { id: input.id } : { id: input.id, deletedAt: null },
         include: {
           assignedUser: {
             select: {
@@ -249,8 +328,8 @@ export const accountsRouter = router({
       const rawPostRewards = Array.isArray((account as any).analytics?.postRewards)
         ? (account as any).analytics.postRewards
         : Array.isArray(((account as any).analytics?.postRewards as any)?.items)
-        ? ((account as any).analytics?.postRewards as any).items
-        : [];
+          ? ((account as any).analytics?.postRewards as any).items
+          : [];
 
       const punishedVideos30d = rawPostRewards.filter((v: any) => {
         if (!v?.isPunished) return false;
@@ -272,25 +351,100 @@ export const accountsRouter = router({
       });
     }),
 
-  // 3. Create TikTok Account (LEAD / ADMIN)
+  // 2.1 Check username existence for create modal (LEAD / ADMIN)
+  checkUsername: leadProcedure
+    .input(z.object({ username: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const clean = input.username.replace(/^@/, "").trim();
+      const existing = await ctx.prismaRaw.tiktokAccount.findUnique({
+        where: { username: clean },
+        select: { id: true, deletedAt: true },
+      });
+      return {
+        exists: !!existing,
+        canAutoRestore: !!existing && existing.deletedAt !== null,
+      };
+    }),
+
+  // 3. Create TikTok Account (LEAD / ADMIN) — Trash-aware & race-safe
   create: leadProcedure
     .input(
       z.object({
         username: z.string().min(1),
-        country: z.string().default("US"),
+        // No defaults here — defaults applied only in the normal create branch.
+        country: z.string().optional(),
         gpmProfileId: z.string().optional().nullable(),
         gpmPort: z.number().optional().nullable(),
         groupName: z.string().optional().nullable(),
-        status: z.enum(["ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"]).default("ACTIVE"),
+        status: z.enum(["ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"]).optional(),
         assignedUserId: z.string().optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const cleanUsername = input.username.replace(/^@/, "").trim();
+      const actorName = ctx.session.user.name || ctx.session.user.email || "User";
 
-      const existing = await ctx.prisma.tiktokAccount.findUnique({
+      const existing = await ctx.prismaRaw.tiktokAccount.findUnique({
         where: { username: cleanUsername },
       });
+
+      if (existing && existing.deletedAt !== null) {
+        const before = {
+          status: existing.status,
+          country: existing.country,
+          groupName: existing.groupName,
+          assignedUserId: existing.assignedUserId,
+          gpmProfileId: existing.gpmProfileId,
+          deletedAt: existing.deletedAt.toISOString(),
+        };
+
+        const restored = await ctx.prisma.$transaction(async (tx: any) => {
+          const res = await tx.tiktokAccount.updateMany({
+            where: { id: existing.id, deletedAt: { not: null } },
+            data: {
+              deletedAt: null,
+              deletedById: null,
+              ...(input.country !== undefined && { country: input.country }),
+              ...(input.gpmProfileId !== undefined && { gpmProfileId: input.gpmProfileId }),
+              ...(input.gpmPort !== undefined && { gpmPort: input.gpmPort }),
+              ...(input.groupName !== undefined && { groupName: input.groupName }),
+              ...(input.status !== undefined && { status: input.status }),
+              ...(input.assignedUserId !== undefined && { assignedUserId: input.assignedUserId }),
+            },
+          });
+          if (res.count === 0) throw new TRPCError({ code: "CONFLICT", message: "Account state changed" });
+
+          await tx.systemAuditLog.create({
+            data: {
+              actorId: ctx.session.user.id,
+              actorName,
+              action: "RESTORE",
+              entityType: "TiktokAccount",
+              entityId: existing.id,
+              entityLabel: existing.username,
+              snapshot: {
+                restoredFromTrash: true,
+                actorRole: ctx.session.user.role,
+                previousState: before,
+                newState: input,
+              } satisfies AccountRestoreDiff,
+            },
+          });
+
+          return tx.tiktokAccount.findFirst({
+            where: { id: existing.id },
+            include: { assignedUser: true },
+          });
+        });
+
+        if (!restored) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        if (restored.assignedUserId) {
+          await reconcileAfterCommit(ctx.prismaRaw as any, restored.assignedUserId, "create-restore");
+        }
+
+        return serializeBigInt(restored);
+      }
 
       if (existing) {
         throw new TRPCError({
@@ -299,38 +453,51 @@ export const accountsRouter = router({
         });
       }
 
-      const account = await ctx.prisma.tiktokAccount.create({
-        data: {
-          username: cleanUsername,
-          country: input.country,
-          gpmProfileId: input.gpmProfileId,
-          gpmPort: input.gpmPort,
-          groupName: input.groupName,
-          status: input.status,
-          assignedUserId: input.assignedUserId || null,
-          lastSyncedAt: new Date(),
-        },
-        include: {
-          assignedUser: true,
-        },
-      });
+      // Normal create path: apply defaults HERE
+      try {
+        const created = await ctx.prisma.tiktokAccount.create({
+          data: {
+            username: cleanUsername,
+            country: input.country ?? "US",
+            gpmProfileId: input.gpmProfileId ?? null,
+            gpmPort: input.gpmPort ?? null,
+            groupName: input.groupName ?? null,
+            status: input.status ?? "ACTIVE",
+            assignedUserId: input.assignedUserId ?? null,
+            lastSyncedAt: new Date(),
+          },
+          include: {
+            assignedUser: true,
+          },
+        });
 
-      // Audit Log
-      await ctx.prisma.accountLog.create({
-        data: {
-          accountId: account.id,
-          oldStatus: null,
-          newStatus: account.status,
-          logType: "STATUS_CHANGE",
-          message: `Account created and assigned to ${account.assignedUser?.name || account.assignedUser?.username || "Unassigned"}`,
-          actorName: ctx.session.user.name || ctx.session.user.email || "Lead",
-        },
-      });
+        await ctx.prisma.accountLog.create({
+          data: {
+            accountId: created.id,
+            oldStatus: null,
+            newStatus: created.status,
+            logType: "STATUS_CHANGE",
+            message: `Account created and assigned to ${created.assignedUser?.name || created.assignedUser?.username || "Unassigned"}`,
+            actorName,
+          },
+        });
 
-      return serializeBigInt(account);
+        if (created.assignedUserId) {
+          await reconcileAfterCommit(ctx.prismaRaw as any, created.assignedUserId, "create");
+        }
+
+        return serializeBigInt(created);
+      } catch (err) {
+        // Two concurrent creates for a brand-new username can both pass the
+        // `existing === null` check above and race on the unique constraint.
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+          throw new TRPCError({ code: "CONFLICT", message: "An account with this username already exists." });
+        }
+        throw err;
+      }
     }),
 
-  // 4. Update TikTok Account (LEAD / ADMIN, or assigned user updating note/group)
+  // 4. Update TikTok Account (race-safe, STAFF-scoped)
   update: protectedProcedure
     .input(
       z.object({
@@ -345,7 +512,7 @@ export const accountsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const current = await ctx.prisma.tiktokAccount.findUnique({
+      const current = await ctx.prisma.tiktokAccount.findFirst({
         where: { id: input.id },
       });
 
@@ -363,8 +530,10 @@ export const accountsRouter = router({
         });
       }
 
+      const isStaff = ctx.session.user.role === "STAFF";
+
       const isReassigning = input.assignedUserId !== undefined && input.assignedUserId !== current.assignedUserId;
-      if (isReassigning && current.isAssignmentLocked && ctx.session.user.role === "STAFF") {
+      if (isReassigning && current.isAssignmentLocked && isStaff) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Tài khoản này đã bị khóa phân công. Chỉ Quản trị viên mới có quyền chuyển giao.",
@@ -372,7 +541,7 @@ export const accountsRouter = router({
       }
 
       const statusChanged = input.status && input.status !== current.status;
-      if (statusChanged && ctx.session.user.role === "STAFF") {
+      if (statusChanged && isStaff) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi trạng thái tài khoản.",
@@ -380,7 +549,7 @@ export const accountsRouter = router({
       }
 
       const countryChanged = input.country !== undefined && input.country !== current.country;
-      if (countryChanged && ctx.session.user.role === "STAFF") {
+      if (countryChanged && isStaff) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi quốc gia của tài khoản.",
@@ -388,35 +557,41 @@ export const accountsRouter = router({
       }
 
       const groupChanged = input.groupName !== undefined && input.groupName !== current.groupName;
-      if (groupChanged && ctx.session.user.role === "STAFF") {
+      if (groupChanged && isStaff) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi nhóm GPM của tài khoản.",
         });
       }
 
-      const updated = await ctx.prisma.tiktokAccount.update({
-        where: { id: input.id },
+      const res = await ctx.prisma.tiktokAccount.updateMany({
+        where: { id: input.id, deletedAt: null },
         data: {
-          country: ctx.session.user.role !== "STAFF" ? input.country : undefined,
-          gpmProfileId: ctx.session.user.role !== "STAFF" ? input.gpmProfileId : undefined,
-          gpmPort: ctx.session.user.role !== "STAFF" && input.gpmPort !== undefined ? input.gpmPort : undefined,
-          groupName: ctx.session.user.role !== "STAFF" ? input.groupName : undefined,
-          status: ctx.session.user.role !== "STAFF" ? input.status : undefined,
-          assignedUserId: ctx.session.user.role !== "STAFF" ? input.assignedUserId : undefined,
-          isAssignmentLocked: ctx.session.user.role !== "STAFF" && input.isAssignmentLocked !== undefined ? input.isAssignmentLocked : undefined,
+          country: !isStaff ? input.country : undefined,
+          gpmProfileId: !isStaff ? input.gpmProfileId : undefined,
+          gpmPort: !isStaff && input.gpmPort !== undefined ? input.gpmPort : undefined,
+          groupName: !isStaff ? input.groupName : undefined,
+          status: !isStaff ? input.status : undefined,
+          assignedUserId: !isStaff ? input.assignedUserId : undefined,
+          isAssignmentLocked: !isStaff && input.isAssignmentLocked !== undefined ? input.isAssignmentLocked : undefined,
         },
-        include: {
-          assignedUser: true,
-        },
+      });
+
+      if (res.count === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
+      }
+
+      const updated = await ctx.prisma.tiktokAccount.findFirst({
+        where: { id: input.id },
+        include: { assignedUser: true },
       });
 
       if (isReassigning) {
         const oldUser = current.assignedUserId
-          ? await ctx.prisma.user.findUnique({ where: { id: current.assignedUserId }, select: { name: true, username: true } })
+          ? await ctx.prismaRaw.user.findUnique({ where: { id: current.assignedUserId }, select: { name: true, username: true } })
           : null;
         const newUser = input.assignedUserId
-          ? await ctx.prisma.user.findUnique({ where: { id: input.assignedUserId }, select: { name: true, username: true } })
+          ? await ctx.prismaRaw.user.findUnique({ where: { id: input.assignedUserId }, select: { name: true, username: true } })
           : null;
 
         await ctx.prisma.accountLog.create({
@@ -429,6 +604,13 @@ export const accountsRouter = router({
             actorName: ctx.session.user.name || ctx.session.user.email || "Admin",
           },
         });
+
+        if (current.assignedUserId) {
+          await reconcileAfterCommit(ctx.prismaRaw as any, current.assignedUserId, "update-unassign");
+        }
+        if (input.assignedUserId) {
+          await reconcileAfterCommit(ctx.prismaRaw as any, input.assignedUserId, "update-assign");
+        }
       }
 
       if (statusChanged) {
@@ -442,12 +624,460 @@ export const accountsRouter = router({
             actorName: ctx.session.user.name || ctx.session.user.email || "Operator",
           },
         });
+
+        if (updated?.assignedUserId) {
+          await reconcileAfterCommit(ctx.prismaRaw as any, updated.assignedUserId, "update-status");
+        }
       }
 
       return serializeBigInt(updated);
     }),
 
-  // 12. Toggle Lock Assignment (LEAD / ADMIN)
+  // 5. Delete TikTok Account (ADMIN) — SOFT DELETE
+  delete: adminProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const account = await ctx.prisma.tiktokAccount.findFirst({
+        where: { id: input.id, deletedAt: null },
+      });
+      if (!account) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+
+      await ctx.prisma.$transaction(async (tx: any) => {
+        const res = await tx.tiktokAccount.updateMany({
+          where: { id: account.id, deletedAt: null },
+          data: { deletedAt: new Date(), deletedById: ctx.session.user.id, isOnline: false },
+        });
+        if (res.count === 0) throw new TRPCError({ code: "CONFLICT", message: "Account state changed" });
+
+        // JS-side scope matching — fixes substring bug
+        await cancelInFlightSyncJobs(tx, [
+          {
+            username: account.username,
+            gpmProfileId: account.gpmProfileId,
+          },
+        ]);
+
+        await tx.accountLog.create({
+          data: {
+            accountId: account.id,
+            logType: "DELETED",
+            newStatus: account.status,
+            message: `[CHUYỂN VÀO THÙNG RÁC] Tài khoản @${account.username} đã được chuyển vào thùng rác bởi ${actorName}.`,
+            actorName,
+          },
+        });
+
+        await tx.systemAuditLog.create({
+          data: {
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "SOFT_DELETE",
+            entityType: "TiktokAccount",
+            entityId: account.id,
+            entityLabel: account.username,
+            snapshot: { status: account.status, assignedUserId: account.assignedUserId },
+          },
+        });
+      });
+
+      if (account.assignedUserId) {
+        await reconcileAfterCommit(ctx.prismaRaw as any, account.assignedUserId, "delete");
+      }
+
+      return { success: true };
+    }),
+
+  // 6. Bulk Delete Accounts (ADMIN) — SOFT DELETE
+  bulkDelete: adminProcedure
+    .input(z.object({ ids: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+
+      const targets: Array<{ id: string; username: string; status: string; gpmProfileId: string | null; assignedUserId: string | null }> = await ctx.prismaRaw.tiktokAccount.findMany({
+        where: { id: { in: input.ids }, deletedAt: null },
+        select: { id: true, username: true, status: true, gpmProfileId: true, assignedUserId: true },
+      });
+      if (targets.length === 0) return { count: 0 };
+
+      const now = new Date();
+
+      await ctx.prisma.$transaction(async (tx: any) => {
+        const res = await tx.tiktokAccount.updateMany({
+          where: { id: { in: targets.map((t) => t.id) }, deletedAt: null },
+          data: { deletedAt: now, deletedById: ctx.session.user.id, isOnline: false },
+        });
+        if (res.count !== targets.length) {
+          throw new TRPCError({ code: "CONFLICT", message: "One or more accounts changed state. Retry." });
+        }
+
+        await cancelInFlightSyncJobs(
+          tx,
+          targets.map((t) => ({
+            username: t.username,
+            gpmProfileId: t.gpmProfileId,
+          }))
+        );
+
+        await tx.accountLog.createMany({
+          data: targets.map((t) => ({
+            accountId: t.id,
+            logType: "DELETED",
+            newStatus: t.status,
+            message: `[CHUYỂN VÀO THÙNG RÁC] Tài khoản @${t.username} đã được chuyển vào thùng rác bởi ${actorName}.`,
+            actorName,
+          })),
+        });
+
+        await tx.systemAuditLog.createMany({
+          data: targets.map((t) => ({
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "BULK_SOFT_DELETE",
+            entityType: "TiktokAccount",
+            entityId: t.id,
+            entityLabel: t.username,
+            snapshot: { status: t.status, assignedUserId: t.assignedUserId },
+          })),
+        });
+      });
+
+      const affectedUsers = Array.from(
+        new Set(targets.map((t: { assignedUserId: string | null }) => t.assignedUserId).filter((u: string | null): u is string => !!u))
+      );
+      for (const userId of affectedUsers) {
+        await reconcileAfterCommit(ctx.prismaRaw as any, userId, "bulkDelete");
+      }
+
+      return { count: targets.length };
+    }),
+
+  // 7. Restore Single Account from Trash (ADMIN)
+  restore: adminProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        assignedUserId: z.string().nullable().optional(),
+        resetAssignmentLock: z.boolean().optional().default(false),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const account = await ctx.prismaRaw.tiktokAccount.findFirst({
+        where: { id: input.id, deletedAt: { not: null } },
+      });
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Not in Trash" });
+
+      let resolvedAssignee =
+        input.assignedUserId !== undefined ? input.assignedUserId : account.assignedUserId;
+
+      if (resolvedAssignee) {
+        const user = await ctx.prismaRaw.user.findFirst({
+          where: { id: resolvedAssignee, isActive: true, deletedAt: null },
+          select: { id: true },
+        });
+        if (!user) resolvedAssignee = null;
+      }
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+
+      await ctx.prisma.$transaction(async (tx: any) => {
+        const res = await tx.tiktokAccount.updateMany({
+          where: { id: account.id, deletedAt: { not: null } },
+          data: {
+            deletedAt: null,
+            deletedById: null,
+            assignedUserId: resolvedAssignee,
+            isAssignmentLocked: input.resetAssignmentLock ? false : account.isAssignmentLocked,
+          },
+        });
+        if (res.count === 0) throw new TRPCError({ code: "CONFLICT", message: "Account state changed" });
+
+        await tx.accountLog.create({
+          data: {
+            accountId: account.id,
+            logType: "RESTORED",
+            newStatus: account.status,
+            message: `[KHÔI PHỤC TÀI KHOẢN] Tài khoản @${account.username} đã được khôi phục từ thùng rác bởi ${actorName}.`,
+            actorName,
+          },
+        });
+
+        await tx.systemAuditLog.create({
+          data: {
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "RESTORE",
+            entityType: "TiktokAccount",
+            entityId: account.id,
+            entityLabel: account.username,
+            snapshot: {
+              restoredFromTrash: true,
+              actorRole: ctx.session.user.role,
+              previousState: {
+                status: account.status,
+                country: account.country,
+                groupName: account.groupName,
+                assignedUserId: account.assignedUserId,
+                gpmProfileId: account.gpmProfileId,
+                deletedAt: account.deletedAt?.toISOString() ?? null,
+              },
+              newState: { assignedUserId: resolvedAssignee },
+            } satisfies AccountRestoreDiff,
+          },
+        });
+      });
+
+      if (resolvedAssignee) {
+        await reconcileAfterCommit(ctx.prismaRaw as any, resolvedAssignee, "restore");
+      }
+
+      return { success: true };
+    }),
+
+  // 8. Bulk Restore Accounts from Trash (ADMIN)
+  bulkRestore: adminProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()),
+        resetAssignmentLock: z.boolean().optional().default(false),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const targets = await ctx.prismaRaw.tiktokAccount.findMany({
+        where: { id: { in: input.ids }, deletedAt: { not: null } },
+        select: { id: true, username: true, status: true, assignedUserId: true, isAssignmentLocked: true },
+      });
+      if (targets.length === 0) return { restoredCount: 0 };
+
+      const candidateIds = Array.from(
+        new Set(targets.map((t) => t.assignedUserId).filter((u): u is string => !!u))
+      );
+      const validUsers = candidateIds.length
+        ? await ctx.prismaRaw.user.findMany({
+          where: { id: { in: candidateIds }, isActive: true, deletedAt: null },
+          select: { id: true },
+        })
+        : [];
+      const validSet = new Set(validUsers.map((u) => u.id));
+
+      const resolved = targets.map((t) => ({
+        ...t,
+        resolvedAssignee:
+          t.assignedUserId && validSet.has(t.assignedUserId) ? t.assignedUserId : null,
+      }));
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+
+      await ctx.prisma.$transaction(async (tx: any) => {
+        for (const t of resolved) {
+          const res = await tx.tiktokAccount.updateMany({
+            where: { id: t.id, deletedAt: { not: null } },
+            data: {
+              deletedAt: null,
+              deletedById: null,
+              assignedUserId: t.resolvedAssignee,
+              isAssignmentLocked: input.resetAssignmentLock ? false : t.isAssignmentLocked,
+            },
+          });
+          if (res.count === 0) {
+            throw new TRPCError({ code: "CONFLICT", message: `Account ${t.id} state changed` });
+          }
+        }
+
+        await tx.accountLog.createMany({
+          data: resolved.map((t) => ({
+            accountId: t.id,
+            logType: "RESTORED",
+            newStatus: t.status,
+            message: `[KHÔI PHỤC TÀI KHOẢN] Tài khoản @${t.username} đã được khôi phục từ thùng rác bởi ${actorName}.`,
+            actorName,
+          })),
+        });
+
+        await tx.systemAuditLog.createMany({
+          data: resolved.map((t) => ({
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "BULK_RESTORE",
+            entityType: "TiktokAccount",
+            entityId: t.id,
+            entityLabel: t.username,
+            snapshot: {
+              restoredFromTrash: true,
+              actorRole: ctx.session.user.role,
+              previousState: { assignedUserId: t.assignedUserId },
+              newState: { assignedUserId: t.resolvedAssignee },
+            },
+          })),
+        });
+      });
+
+      const affectedUsers = Array.from(
+        new Set(resolved.map((t) => t.resolvedAssignee).filter((u): u is string => !!u))
+      );
+      for (const userId of affectedUsers) {
+        await reconcileAfterCommit(ctx.prismaRaw as any, userId, "bulkRestore");
+      }
+
+      return { restoredCount: resolved.length };
+    }),
+
+  // 9. Hard Delete Account (ADMIN) — Permanent removal with snapshot
+  hardDelete: adminProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        forcePurgeHistoricalData: z.boolean().default(false),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const account = await ctx.prismaRaw.tiktokAccount.findFirst({
+        where: { id: input.id, deletedAt: { not: null } },
+        include: {
+          analytics: true,
+          _count: { select: { dailyRevenues: true, checklistItems: true } },
+        },
+      });
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Not in Trash" });
+
+      // ACCEPTED RISK: hasHistory is read pre-transaction; a row inserted in the
+      // gap before deleteMany commits won't be reflected in the snapshot below.
+      const hasHistory =
+        account._count.dailyRevenues > 0 ||
+        account._count.checklistItems > 0 ||
+        (account.analytics &&
+          (Number((account.analytics as any)?.sumRevenue?.totalRevenue ?? 0) > 0 ||
+            (Array.isArray((account.analytics as any)?.postRewards) &&
+              (account.analytics as any).postRewards.length > 0)));
+
+      if (hasHistory && !input.forcePurgeHistoricalData) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Tài khoản có dữ liệu doanh thu/KPI lịch sử. Gửi forcePurgeHistoricalData: true để xóa vĩnh viễn.",
+        });
+      }
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+      const snapshot = {
+        username: account.username,
+        country: account.country,
+        status: account.status,
+        assignedUserId: account.assignedUserId,
+        totalRevenue: resolveAllTimeRevenue(account as any),
+        totalVideos: account.totalVideos ?? 0,
+        totalFollowers: account.totalFollowers ?? 0,
+        lastSyncedAt: account.lastSyncedAt?.toISOString() ?? null,
+        dailyRevenueCount: account._count.dailyRevenues,
+        checklistItemCount: account._count.checklistItems,
+        hasMeaningfulAnalytics: !!account.analytics,
+      } satisfies AccountPurgeSnapshot;
+
+      await ctx.prismaRaw.$transaction(async (tx: any) => {
+        await tx.systemAuditLog.create({
+          data: {
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "HARD_DELETE",
+            entityType: "TiktokAccount",
+            entityId: account.id,
+            entityLabel: account.username,
+            snapshot: snapshot,
+          },
+        });
+        const res = await tx.tiktokAccount.deleteMany({
+          where: { id: account.id, deletedAt: { not: null } },
+        });
+        if (res.count === 0) throw new TRPCError({ code: "CONFLICT", message: "Account state changed" });
+      });
+
+      return { success: true };
+    }),
+
+  // 10. Bulk Hard Delete Accounts (ADMIN) — Partial purge with blocked report
+  bulkHardDelete: adminProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()),
+        forcePurgeHistoricalData: z.boolean().default(false),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const targets = await ctx.prismaRaw.tiktokAccount.findMany({
+        where: { id: { in: input.ids }, deletedAt: { not: null } },
+        include: {
+          analytics: true,
+          _count: { select: { dailyRevenues: true, checklistItems: true } },
+        },
+      });
+
+      const purgeable: typeof targets = [];
+      const blocked: Array<{ id: string; username: string }> = [];
+
+      for (const t of targets) {
+        const hasHistory =
+          t._count.dailyRevenues > 0 ||
+          t._count.checklistItems > 0 ||
+          (t.analytics &&
+            (Number((t.analytics as any)?.sumRevenue?.totalRevenue ?? 0) > 0 ||
+              (Array.isArray((t.analytics as any)?.postRewards) &&
+                (t.analytics as any).postRewards.length > 0)));
+
+        if (hasHistory && !input.forcePurgeHistoricalData) {
+          blocked.push({ id: t.id, username: t.username });
+        } else {
+          purgeable.push(t);
+        }
+      }
+
+      if (purgeable.length === 0) {
+        return { purgedCount: 0, blockedCount: blocked.length, blockedAccounts: blocked };
+      }
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+
+      await ctx.prismaRaw.$transaction(async (tx: any) => {
+        await tx.systemAuditLog.createMany({
+          data: purgeable.map((t) => ({
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "BULK_HARD_DELETE",
+            entityType: "TiktokAccount",
+            entityId: t.id,
+            entityLabel: t.username,
+            snapshot: {
+              username: t.username,
+              country: t.country,
+              status: t.status,
+              assignedUserId: t.assignedUserId,
+              totalRevenue: resolveAllTimeRevenue(t as any),
+              totalVideos: t.totalVideos ?? 0,
+              totalFollowers: t.totalFollowers ?? 0,
+              lastSyncedAt: t.lastSyncedAt?.toISOString() ?? null,
+              dailyRevenueCount: t._count.dailyRevenues,
+              checklistItemCount: t._count.checklistItems,
+              hasMeaningfulAnalytics: !!t.analytics,
+            } satisfies AccountPurgeSnapshot,
+          })),
+        });
+
+        const res = await tx.tiktokAccount.deleteMany({
+          where: { id: { in: purgeable.map((t) => t.id) }, deletedAt: { not: null } },
+        });
+        if (res.count !== purgeable.length) {
+          throw new TRPCError({ code: "CONFLICT", message: "One or more accounts changed state. Retry." });
+        }
+      });
+
+      return {
+        purgedCount: purgeable.length,
+        blockedCount: blocked.length,
+        blockedAccounts: blocked,
+      };
+    }),
+
+  // 11. Toggle Lock Assignment (LEAD / ADMIN)
   toggleLockAssignment: leadProcedure
     .input(
       z.object({
@@ -456,15 +1086,20 @@ export const accountsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const updated = await ctx.prisma.tiktokAccount.update({
-        where: { id: input.id },
+      const res = await ctx.prisma.tiktokAccount.updateMany({
+        where: { id: input.id, deletedAt: null },
         data: { isAssignmentLocked: input.isLocked },
+      });
+      if (res.count === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
+
+      const updated = await ctx.prisma.tiktokAccount.findFirst({
+        where: { id: input.id },
       });
 
       await ctx.prisma.accountLog.create({
         data: {
           accountId: input.id,
-          newStatus: updated.status,
+          newStatus: updated?.status ?? "ACTIVE",
           logType: "STATUS_CHANGE",
           message: input.isLocked
             ? `[KHÓA PHÂN CÔNG] Quản trị viên ${ctx.session.user.name || "Admin"} đã khóa phân công tài khoản này.`
@@ -473,20 +1108,10 @@ export const accountsRouter = router({
         },
       });
 
-      return { success: true, isAssignmentLocked: updated.isAssignmentLocked };
+      return { success: true, isAssignmentLocked: updated?.isAssignmentLocked ?? input.isLocked };
     }),
 
-  // 5. Delete TikTok Account (ADMIN)
-  delete: adminProcedure
-    .input(z.object({ id: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      await ctx.prisma.tiktokAccount.delete({
-        where: { id: input.id },
-      });
-      return { success: true };
-    }),
-
-  // 6. Get Account Logs
+  // 12. Get Account Logs
   getLogs: protectedProcedure
     .input(z.object({ accountId: z.string(), limit: z.number().default(50) }))
     .query(async ({ ctx, input }) => {
@@ -498,12 +1123,12 @@ export const accountsRouter = router({
       return logs;
     }),
 
-  // 8. Sync Account with Live TikTok Studio Scraper (Targeted Single Profile)
+  // 13. Sync Account with Live TikTok Studio Scraper (Targeted Single Profile)
   syncAccount: protectedProcedure
     .input(z.object({ accountId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const account = await ctx.prisma.tiktokAccount.findUnique({
-        where: { id: input.accountId },
+      const account = await ctx.prisma.tiktokAccount.findFirst({
+        where: { id: input.accountId, deletedAt: null },
       });
 
       if (!account) {
@@ -543,59 +1168,13 @@ export const accountsRouter = router({
         },
       });
 
-      // Auto-update today's checklist item for this account if one exists
-      try {
-        const now = new Date();
-        const todayOnly = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-        
-        const openChecklistItem = await ctx.prisma.dailyChecklistItem.findFirst({
-          where: {
-            accountId: account.id,
-            checklist: { date: todayOnly },
-          },
-          include: { checklist: true },
-        });
-
-        if (openChecklistItem) {
-          const isSynced = true;
-          const isPosted = openChecklistItem.isPosted;
-          const isCompleted = isPosted && isSynced;
-
-          await ctx.prisma.dailyChecklistItem.update({
-            where: { id: openChecklistItem.id },
-            data: { isSynced, isCompleted },
-          });
-
-          // Recalculate score for that checklist (excluding BANNED if configured, keeping RESTRICTED)
-          const allItems = await ctx.prisma.dailyChecklistItem.findMany({
-            where: { checklistId: openChecklistItem.checklistId },
-            include: { account: true },
-          });
-          const scoringConfig = await getScoringConfig(ctx.prisma);
-          const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
-          const eligibleItems = shouldExcludeBanned
-            ? allItems.filter((i) => i.account?.status !== "BANNED")
-            : allItems;
-          const totalAssigned = eligibleItems.length;
-          const completedCount = eligibleItems.filter((i) => i.isCompleted || i.isPosted).length;
-          const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
-
-          await ctx.prisma.dailyChecklist.update({
-            where: { id: openChecklistItem.checklistId },
-            data: { totalAssigned, completedCount, completionRate, workdayScore },
-          });
-        }
-      } catch (checkErr) {
-        console.warn("[syncAccount] Could not auto-update checklist item:", checkErr);
-      }
-
       return {
         account: serializeBigInt(updated),
         queued: true,
       };
     }),
 
-  // 8.0 Stop Sync for a specific account or user's active jobs
+  // 14. Stop Sync for a specific account or user's active jobs
   stopSyncAccount: protectedProcedure
     .input(z.object({ accountId: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -605,7 +1184,7 @@ export const accountsRouter = router({
       };
 
       if (input.accountId) {
-        const account = await ctx.prisma.tiktokAccount.findUnique({
+        const account = await ctx.prismaRaw.tiktokAccount.findUnique({
           where: { id: input.accountId },
           select: { gpmProfileId: true, username: true, assignedUserId: true },
         });
@@ -624,13 +1203,11 @@ export const accountsRouter = router({
             whereClause.OR = accountMatches;
           }
 
-          // Permissions: If not lead/admin and not the assigned user, caller can only cancel if they requested it
           if (!isLeadOrAdmin && account.assignedUserId !== ctx.session.user.id) {
             whereClause.requestedById = ctx.session.user.id;
           }
         }
       } else {
-        // Without specific accountId, strictly stop ONLY jobs belonging to the current user
         whereClause.OR = [
           { requestedById: ctx.session.user.id },
           { targetScope: `USER:${ctx.session.user.id}` },
@@ -652,21 +1229,26 @@ export const accountsRouter = router({
       return { success: true, count: updated.count };
     }),
 
-  // 8.1 Resolve Alert
+  // 15. Resolve Alert
   resolveAlert: protectedProcedure
     .input(z.object({ alertId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const alert = await ctx.prisma.accountAlert.update({
+      const alert = await ctx.prisma.accountAlert.findFirst({
+        where: { id: input.alertId, account: { deletedAt: null } },
+      });
+      if (!alert) throw new TRPCError({ code: "FORBIDDEN", message: "Account is in Trash." });
+
+      const updated = await ctx.prisma.accountAlert.update({
         where: { id: input.alertId },
         data: {
           status: "RESOLVED",
           resolvedAt: new Date(),
         },
       });
-      return alert;
+      return updated;
     }),
 
-  // 8.2 Add Manual Audit Log / Note
+  // 16. Add Manual Audit Log / Note
   addLog: protectedProcedure
     .input(
       z.object({
@@ -676,6 +1258,19 @@ export const accountsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const isAdmin = ctx.session.user.role === "ADMIN";
+      const account = await ctx.prismaRaw.tiktokAccount.findUnique({
+        where: { id: input.accountId },
+        select: { id: true, deletedAt: true },
+      });
+      if (!account) throw new TRPCError({ code: "NOT_FOUND" });
+      if (account.deletedAt && !isAdmin) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only Admin can log notes on trashed accounts.",
+        });
+      }
+
       const log = await ctx.prisma.accountLog.create({
         data: {
           accountId: input.accountId,
@@ -688,17 +1283,7 @@ export const accountsRouter = router({
       return log;
     }),
 
-  // 9. Bulk Delete Accounts (ADMIN)
-  bulkDelete: adminProcedure
-    .input(z.object({ ids: z.array(z.string()) }))
-    .mutation(async ({ ctx, input }) => {
-      const res = await ctx.prisma.tiktokAccount.deleteMany({
-        where: { id: { in: input.ids } },
-      });
-      return { count: res.count };
-    }),
-
-  // 10. Bulk Update Status (LEAD / ADMIN)
+  // 17. Bulk Update Status (LEAD / ADMIN)
   bulkUpdateStatus: leadProcedure
     .input(
       z.object({
@@ -708,13 +1293,13 @@ export const accountsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const res = await ctx.prisma.tiktokAccount.updateMany({
-        where: { id: { in: input.ids } },
+        where: { id: { in: input.ids }, deletedAt: null },
         data: { status: input.status },
       });
       return { count: res.count };
     }),
 
-  // 11. Bulk Assign Staff (LEAD / ADMIN)
+  // 18. Bulk Assign Staff (LEAD / ADMIN)
   bulkAssign: leadProcedure
     .input(
       z.object({
@@ -724,9 +1309,15 @@ export const accountsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const res = await ctx.prisma.tiktokAccount.updateMany({
-        where: { id: { in: input.ids } },
+        where: { id: { in: input.ids }, deletedAt: null },
         data: { assignedUserId: input.assignedUserId },
       });
+
+      // Reconcile checklist for target assignee if present
+      if (input.assignedUserId) {
+        await reconcileAfterCommit(ctx.prismaRaw as any, input.assignedUserId, "bulkAssign");
+      }
+
       return { count: res.count };
     }),
 });

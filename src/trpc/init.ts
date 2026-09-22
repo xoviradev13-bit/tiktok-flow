@@ -1,13 +1,14 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaRaw } from "@/lib/prisma";
 
 export const createContext = async () => {
   const session = await auth();
   return {
     session,
     prisma,
+    prismaRaw,
   };
 };
 

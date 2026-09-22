@@ -2,6 +2,7 @@ import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trp
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { calculateWorkdayScore, getCutoffTimeInfo, getScoringConfig, DEFAULT_SCORING_CONFIG, ScoringRuleConfig, getBusinessToday, finalizePendingChecklists } from "@/lib/scoring-engine";
+import { reconcileTodayChecklistForUser } from "@/lib/checklist-reconcile";
 
 let lastCatchupCheckTime = 0;
 const CATCHUP_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes in-memory cooldown per server instance
@@ -96,6 +97,7 @@ export const checklistRouter = router({
           where: {
             assignedUserId: targetUserId,
             status: { in: allowedStatuses as any },
+            deletedAt: null,
           },
         });
 
@@ -137,6 +139,39 @@ export const checklistRouter = router({
           },
         });
       } else {
+        if (!checklist.isLocked) {
+          await reconcileTodayChecklistForUser(ctx.prisma, targetUserId);
+          const reloaded = await ctx.prisma.dailyChecklist.findUnique({
+            where: {
+              userId_date: {
+                userId: targetUserId,
+                date: today,
+              },
+            },
+            include: {
+              items: {
+                include: {
+                  account: {
+                    select: {
+                      id: true,
+                      username: true,
+                      country: true,
+                      gpmProfileId: true,
+                      status: true,
+                      totalViews: true,
+                      totalRevenue: true,
+                      totalVideos: true,
+                      lastSyncedAt: true,
+                    },
+                  },
+                },
+                orderBy: { updatedAt: "asc" },
+              },
+            },
+          });
+          if (reloaded) checklist = reloaded;
+        }
+
         // Exclude accounts that became BANNED within the day if configured, otherwise count them in totalAssigned
         const eligibleItems = shouldExcludeBanned
           ? checklist.items.filter((i: any) => i.account?.status !== "BANNED")
@@ -215,7 +250,7 @@ export const checklistRouter = router({
 
         const activeUsers = await ctx.prisma.user.findMany({
           where: { isActive: true, role: { in: ["STAFF", "LEAD", "ADMIN"] }, deletedAt: null },
-          include: { tiktokAccounts: { where: { status: { in: allowedStatuses as any } } } },
+          include: { tiktokAccounts: { where: { status: { in: allowedStatuses as any }, deletedAt: null } } },
         });
 
         const usersWithAccounts = activeUsers.filter((u) => u.tiktokAccounts.length > 0);

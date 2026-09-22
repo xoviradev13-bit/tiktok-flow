@@ -301,7 +301,7 @@ export const gpmRouter = router({
         .map((pd) => pd.realHandle)
         .filter((h): h is string => Boolean(h));
 
-      const existingAccounts = await ctx.prisma.tiktokAccount.findMany({
+      const existingAccounts = await ctx.prismaRaw.tiktokAccount.findMany({
         where: {
           OR: [
             { gpmProfileId: { in: allProfileIds } },
@@ -327,6 +327,11 @@ export const gpmRouter = router({
           existingByGpmId.get(p.id) ||
           (realHandle ? existingByUsername.get(realHandle.toLowerCase()) : undefined);
 
+        // Skip soft-deleted accounts
+        if (existing?.deletedAt) {
+          continue;
+        }
+
         // Strictly ignore profiles that have never opened / logged into TikTok
         if (!realHandle && !existing) {
           continue;
@@ -342,6 +347,14 @@ export const gpmRouter = router({
 
         // 1. ATTEMPT INSERT IF NEW
         if (!existing) {
+          const inTrash = await ctx.prismaRaw.tiktokAccount.findUnique({
+            where: { username: extractedUsername },
+            select: { id: true, deletedAt: true },
+          });
+          if (inTrash?.deletedAt) {
+            continue;
+          }
+
           try {
             let assignedUserId: string | null = null;
             if (input?.autoAssignUserId) {
@@ -382,7 +395,7 @@ export const gpmRouter = router({
             continue;
           } catch (err: any) {
             if (err?.code === "P2002") {
-              existing = await ctx.prisma.tiktokAccount.findUnique({
+              existing = await ctx.prismaRaw.tiktokAccount.findUnique({
                 where: { username: extractedUsername },
                 include: {
                   assignedUser: {
@@ -391,15 +404,23 @@ export const gpmRouter = router({
                 },
               });
               if (!existing) throw err;
+              if (existing.deletedAt) {
+                continue;
+              }
             } else {
               throw err;
             }
           }
         }
 
+        if (existing.deletedAt) {
+          continue;
+        }
+
         // 2. ATOMIC CLAIM OR STATS UPDATE
         const claimWhereCondition: any = {
           id: existing.id,
+          deletedAt: null,
           ...(currentUserRole === "STAFF"
             ? { assignedUserId: null } // Staff can ONLY claim unassigned accounts
             : {} // Admin/Lead can claim or override
@@ -453,15 +474,18 @@ export const gpmRouter = router({
           updated.push({ id: existing.id, ...updateData });
         } else {
           // Claim blocked: Account is owned by another staff member.
+          // Still never touch Trash — race-safe updateMany with deletedAt: null.
           const statsUpdate: any = { lastSyncedAt: new Date() };
           if (realHandle && existing.username !== realHandle) {
             statsUpdate.username = realHandle;
           }
-          const up = await ctx.prisma.tiktokAccount.update({
-            where: { id: existing.id },
+          const up = await ctx.prisma.tiktokAccount.updateMany({
+            where: { id: existing.id, deletedAt: null },
             data: statsUpdate,
           });
-          updated.push(up);
+          if (up.count === 1) {
+            updated.push({ id: existing.id, ...statsUpdate });
+          }
         }
       }
 

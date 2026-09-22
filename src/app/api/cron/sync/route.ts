@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaRaw } from "@/lib/prisma";
 import { gpmClient } from "@/lib/gpm-api";
 import { auth } from "@/lib/auth";
 import { detectCountryFromText } from "@/lib/country-name";
@@ -162,11 +162,15 @@ export async function GET(req: Request) {
           extractedUsername = `profile_${String(p.id).slice(0, 8)}`;
         }
 
-        const existing = await prisma.tiktokAccount.findFirst({
+        const existing = await prismaRaw.tiktokAccount.findFirst({
           where: {
             OR: [{ gpmProfileId: p.id }, { username: extractedUsername }],
           },
         });
+
+        if (existing?.deletedAt) {
+          continue;
+        }
 
         if (!existing) {
           const resolvedGroupName = await resolveGroupNameCached(p.group_id);

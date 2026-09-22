@@ -41,6 +41,9 @@ import {
   Unlock,
   Square,
   Sparkles,
+  RotateCcw,
+  AlertOctagon,
+  ArchiveRestore,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { Pagination } from "@/components/ui/pagination";
@@ -268,7 +271,8 @@ function getPunishedVideos30d(acc: any): any[] {
 function getStrikeTheme(count: number) {
   if (count === 1) {
     return {
-      badge: "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
+      badge:
+        "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
       icon: "text-yellow-500",
       headerGrad: "border-yellow-200 dark:border-yellow-900/40",
       headerIcon: "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400",
@@ -277,12 +281,15 @@ function getStrikeTheme(count: number) {
       border: "border-yellow-200 dark:border-yellow-900/60",
       label: "1 video bị phạt (30 ngày)",
       levelTag: "Mức 1",
-      iconOnly: "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-600 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
+      iconOnly:
+        "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-600 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700/80 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
     };
   }
+
   if (count === 2) {
     return {
-      badge: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
+      badge:
+        "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
       icon: "text-amber-500",
       headerGrad: "border-amber-200 dark:border-amber-900/40",
       headerIcon: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
@@ -291,12 +298,15 @@ function getStrikeTheme(count: number) {
       border: "border-amber-200 dark:border-amber-900/60",
       label: "2 video bị phạt (30 ngày)",
       levelTag: "Mức 2",
-      iconOnly: "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
+      iconOnly:
+        "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900/40",
     };
   }
+
   if (count === 3) {
     return {
-      badge: "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
+      badge:
+        "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
       icon: "text-orange-500",
       headerGrad: "border-orange-200 dark:border-orange-900/40",
       headerIcon: "bg-orange-500/20 text-orange-600 dark:text-orange-400",
@@ -304,13 +314,16 @@ function getStrikeTheme(count: number) {
       headerSub: "text-orange-700 dark:text-orange-400",
       border: "border-orange-200 dark:border-orange-900/60",
       label: "3 video bị phạt (30 ngày)",
-      levelTag: "Mức 3 - Nghiêm trọng",
-      iconOnly: "bg-orange-50 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
+      levelTag: "Mức 3 - Cần lưu ý",
+      iconOnly:
+        "bg-orange-50 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400 border-orange-300 dark:border-orange-700/80 hover:bg-orange-100 dark:hover:bg-orange-900/40",
     };
   }
+
   if (count === 4) {
     return {
-      badge: "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
+      badge:
+        "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
       icon: "text-rose-500",
       headerGrad: "border-rose-200 dark:border-rose-900/40",
       headerIcon: "bg-rose-500/20 text-rose-600 dark:text-rose-400",
@@ -318,21 +331,25 @@ function getStrikeTheme(count: number) {
       headerSub: "text-rose-700 dark:text-rose-400",
       border: "border-rose-200 dark:border-rose-900/60",
       label: "4 video bị phạt (30 ngày)",
-      levelTag: "Mức 4 - Nguy cơ huỷ quỹ",
-      iconOnly: "bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
+      levelTag: "Mức 4 - Cảnh báo cao",
+      iconOnly:
+        "bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40",
     };
   }
+
   return {
-    badge: "bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-200 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60",
+    badge:
+      "bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-200 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60",
     icon: "text-red-600 dark:text-red-400",
     headerGrad: "border-red-300 dark:border-red-800",
     headerIcon: "bg-red-600/20 text-red-600 dark:text-red-300",
     headerText: "text-red-950 dark:text-red-100",
     headerSub: "text-red-700 dark:text-red-300 font-bold",
     border: "border-red-400 dark:border-red-800",
-    label: `${count} video bị phạt (30 ngày - Nguy cấp)`,
-    levelTag: "Mức 5 - Nguy cơ huỷ quỹ",
-    iconOnly: "bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60",
+    label: `${count} video bị phạt (30 ngày)`,
+    levelTag: "Mức 5 - Cảnh báo nghiêm trọng",
+    iconOnly:
+      "bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border-2 border-red-500 dark:border-red-600 hover:bg-red-200 dark:hover:bg-red-900/60",
   };
 }
 
@@ -473,15 +490,14 @@ function StrikeWarningPopover({
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                       <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${
-                          isShop
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${isShop
                             ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
                             : isSeries
                               ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
                               : isGifts
                                 ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
                                 : "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20"
-                        }`}
+                          }`}
                       >
                         <Sparkles className="w-2.5 h-2.5 shrink-0" />
                         {progName}
@@ -524,11 +540,16 @@ function AccountsPageContent() {
   const searchParams = useSearchParams();
 
   const { data: session } = useSession();
+  const isAdmin = (session?.user as any)?.role === "ADMIN";
   const isLeadOrAdmin =
-    (session?.user as any)?.role === "ADMIN" || (session?.user as any)?.role === "LEAD";
+    isAdmin || (session?.user as any)?.role === "LEAD";
 
   // SaaS URL Query State Synchronization
   const { updateUrlParams } = useUrlParams();
+
+  // Trash mode state (Admin only)
+  const initialViewTrash = isAdmin && searchParams?.get("trash") === "true";
+  const [viewTrash, setViewTrash] = useState<boolean>(initialViewTrash);
 
   // View Mode: read initial value from URL Search Params ("v" or "view")
   const initialViewMode = ((searchParams?.get("v") || searchParams?.get("view")) === "list" ? "list" : "grid") as "grid" | "list";
@@ -611,6 +632,7 @@ function AccountsPageContent() {
         minRev: minRevenue,
         sort: sortConfig.key,
         dir: sortConfig.desc ? "desc" : "asc",
+        trash: viewTrash ? "true" : "",
       },
       {
         v: "grid",
@@ -627,6 +649,7 @@ function AccountsPageContent() {
         minRev: "",
         sort: "updatedAt",
         dir: "desc",
+        trash: "",
       }
     );
   }, [
@@ -643,6 +666,7 @@ function AccountsPageContent() {
     minViews,
     minRevenue,
     sortConfig,
+    viewTrash,
     updateUrlParams,
   ]);
 
@@ -743,10 +767,11 @@ function AccountsPageContent() {
   // tRPC Queries
   const { data: accountsData, isLoading: loading } = trpc.accounts.list.useQuery({
     search: search || undefined,
-    status: statusFilter !== "ALL" ? statusFilter : undefined,
-    onlineStatus: onlineFilter !== "ALL" ? onlineFilter : undefined,
+    status: !viewTrash && statusFilter !== "ALL" ? statusFilter : undefined,
+    onlineStatus: !viewTrash && onlineFilter !== "ALL" ? onlineFilter : undefined,
     country: countryFilter !== "ALL" ? countryFilter : undefined,
     assignedUserId: isLeadOrAdmin && assignedFilter !== "ALL" ? assignedFilter : undefined,
+    viewTrash: viewTrash && isAdmin ? true : false,
   });
 
   const { data: users = [] } = trpc.user.listStaff.useQuery();
@@ -757,6 +782,7 @@ function AccountsPageContent() {
 
   const accounts = accountsData?.items || [];
   const stats = accountsData?.stats;
+  const fleetStats = stats?.mode === "fleet" ? stats : null;
 
   const getAssigneeLabel = (acc: any) => {
     if (!acc?.assignedUserId) return "-- Chưa gán --";
@@ -816,11 +842,27 @@ function AccountsPageContent() {
     onError: (err: any) => toast.error(err.message),
   });
 
+  // Trash mode modal states
+  const [accountToHardDelete, setAccountToHardDelete] = useState<any>(null);
+  const [isHardDeleteOpen, setIsHardDeleteOpen] = useState(false);
+  const [isBulkHardDeleteOpen, setIsBulkHardDeleteOpen] = useState(false);
+  const [forcePurge, setForcePurge] = useState(false);
+  const [bulkHardDeleteResult, setBulkHardDeleteResult] = useState<{
+    purgedCount: number;
+    blockedCount: number;
+    blockedAccounts: Array<{ id: string; username: string }>;
+  } | null>(null);
+
+  // Auto-restore confirm dialog state for Create Account
+  const [autoRestoreConfirm, setAutoRestoreConfirm] = useState<{
+    username: string;
+  } | null>(null);
+
   const deleteMutation = trpc.accounts.delete.useMutation({
     onSuccess: () => {
       setIsDeleteOpen(false);
       setAccountToDelete(null);
-      setActionMsg("🗑️ Đã xóa tài khoản TikTok thành công!");
+      setActionMsg("🗑️ Đã chuyển tài khoản TikTok vào thùng rác!");
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
@@ -831,9 +873,57 @@ function AccountsPageContent() {
     onSuccess: (res) => {
       setIsBulkDeleteOpen(false);
       setSelectedIds(new Set());
-      setActionMsg(`🗑️ Đã xóa thành công ${res.count} tài khoản!`);
+      setActionMsg(`🗑️ Đã chuyển thành công ${res.count} tài khoản vào thùng rác!`);
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const restoreMutation = trpc.accounts.restore.useMutation({
+    onSuccess: () => {
+      setActionMsg("✅ Đã khôi phục tài khoản thành công!");
+      utils.accounts.list.invalidate();
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const bulkRestoreMutation = trpc.accounts.bulkRestore.useMutation({
+    onSuccess: (res) => {
+      setSelectedIds(new Set());
+      setActionMsg(`✅ Đã khôi phục thành công ${res.restoredCount} tài khoản!`);
+      utils.accounts.list.invalidate();
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const hardDeleteMutation = trpc.accounts.hardDelete.useMutation({
+    onSuccess: () => {
+      setIsHardDeleteOpen(false);
+      setAccountToHardDelete(null);
+      setForcePurge(false);
+      setActionMsg("💥 Đã xóa vĩnh viễn tài khoản khỏi hệ thống!");
+      utils.accounts.list.invalidate();
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const bulkHardDeleteMutation = trpc.accounts.bulkHardDelete.useMutation({
+    onSuccess: (res) => {
+      if (res.blockedCount > 0 && !forcePurge) {
+        setBulkHardDeleteResult(res);
+      } else {
+        setIsBulkHardDeleteOpen(false);
+        setBulkHardDeleteResult(null);
+        setForcePurge(false);
+        setSelectedIds(new Set());
+        setActionMsg(`💥 Đã xóa vĩnh viễn ${res.purgedCount} tài khoản!`);
+        utils.accounts.list.invalidate();
+        setTimeout(() => setActionMsg(null), 4000);
+      }
     },
     onError: (err: any) => toast.error(err.message),
   });
@@ -907,9 +997,7 @@ function AccountsPageContent() {
     }
   };
 
-  const handleCreateAccount = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newUsername.trim()) return;
+  const executeCreate = (override?: boolean) => {
     createMutation.mutate({
       username: newUsername.trim(),
       country: newCountry,
@@ -917,6 +1005,23 @@ function AccountsPageContent() {
       gpmProfileId: newGpmId.trim() || null,
       assignedUserId: newAssignedUser || null,
     });
+  };
+
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUsername.trim()) return;
+
+    try {
+      const checkRes = await utils.accounts.checkUsername.fetch({ username: newUsername.trim() });
+      if (checkRes.canAutoRestore) {
+        setAutoRestoreConfirm({ username: newUsername.trim() });
+        return;
+      }
+    } catch {
+      // If check fails, fallback to direct create attempt
+    }
+
+    executeCreate();
   };
 
   const handleStatusChange = (accountId: string, newStatus: any) => {
@@ -1224,24 +1329,80 @@ function AccountsPageContent() {
           </div>
 
           {isLeadOrAdmin && (
-            <div className="flex items-center gap-3 shrink-0">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setIsCreateOpen(true)}
-                    className="h-10 flex items-center gap-2 px-4 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
-                  >
-                    <Plus className="w-4 h-4 shrink-0" />
-                    <span className="truncate">Thêm Tài Khoản</span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs font-semibold">
-                  Thêm tài khoản TikTok mới vào hệ thống
-                </TooltipContent>
-              </Tooltip>
+            <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+              {isAdmin && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewTrash(!viewTrash);
+                        setPage(1);
+                        setSelectedIds(new Set());
+                      }}
+                      className={`h-10 flex items-center gap-2 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${viewTrash
+                          ? "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 font-extrabold"
+                          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        }`}
+                    >
+                      <Trash2 className={`w-4 h-4 ${viewTrash ? "text-white" : "text-rose-500"}`} />
+                      <span>
+                        Thùng rác {stats?.trashCount !== undefined && stats.trashCount !== null ? `(${stats.trashCount})` : ""}
+                      </span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    {viewTrash
+                      ? "Đang xem thùng rác — bấm để quay lại danh sách chính"
+                      : "Xem danh sách tài khoản đã xóa (Chỉ Admin)"}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
+              {!viewTrash && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setIsCreateOpen(true)}
+                      className="h-10 flex items-center gap-2 px-4 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <Plus className="w-4 h-4 shrink-0" />
+                      <span className="truncate">Thêm Tài Khoản</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs font-semibold">
+                    Thêm tài khoản TikTok mới vào hệ thống
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </div>
           )}
         </div>
+
+        {/* Trash Mode Banner */}
+        {viewTrash && (
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 animate-in fade-in">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+              <div className="min-w-0">
+                <span className="font-bold">Chế độ Thùng rác (Trash Mode):</span>
+                <span className="ml-1 text-slate-600 dark:text-slate-300">
+                  Hiển thị các tài khoản TikTok đã bị xóa mềm. Bạn có thể khôi phục về danh sách chính hoặc xóa vĩnh viễn (Hard Delete).
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setViewTrash(false);
+                setPage(1);
+                setSelectedIds(new Set());
+              }}
+              className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-500/40 text-amber-700 dark:text-amber-300 font-bold hover:bg-amber-500/20 transition-all cursor-pointer whitespace-nowrap shrink-0"
+            >
+              ← Quay lại danh sách chính
+            </button>
+          </div>
+        )}
 
         {actionMsg && (
           <div className="p-3.5 rounded-xl bg-cyan-50 dark:bg-slate-900 border border-cyan-200 dark:border-slate-800 text-xs font-bold text-center text-cyan-800 dark:text-cyan-300 shadow-sm animate-in fade-in">
@@ -1250,7 +1411,7 @@ function AccountsPageContent() {
         )}
 
         {/* KPI Stats Bar */}
-        {loading || !stats ? (
+        {!viewTrash && (loading || !fleetStats ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
               <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate whitespace-nowrap">Tổng Số Acc</div>
@@ -1302,7 +1463,7 @@ function AccountsPageContent() {
               <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate whitespace-nowrap" title="Tổng Số Acc">
                 Tổng Số Acc
               </div>
-              <div className="text-xl font-black text-slate-900 dark:text-white mt-1">{stats.total}</div>
+              <div className="text-xl font-black text-slate-900 dark:text-white mt-1">{fleetStats.total}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
               <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 min-w-0" title="Đang Online">
@@ -1313,8 +1474,8 @@ function AccountsPageContent() {
                 <span className="truncate whitespace-nowrap">Đang Online</span>
               </div>
               <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1 flex items-baseline gap-1">
-                <span>{stats.online || 0}</span>
-                <span className="text-xs font-normal text-slate-400">/ {stats.total || 0}</span>
+                <span>{fleetStats.online}</span>
+                <span className="text-xs font-normal text-slate-400">/ {fleetStats.total}</span>
               </div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
@@ -1322,37 +1483,37 @@ function AccountsPageContent() {
                 <CheckCircle className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate whitespace-nowrap">Hoạt Động (Active)</span>
               </div>
-              <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{stats.active}</div>
+              <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{fleetStats.active}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
               <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1 min-w-0" title="Nuôi Acc (Warming)">
                 <Flame className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate whitespace-nowrap">Nuôi Acc (Warming)</span>
               </div>
-              <div className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1">{stats.warming}</div>
+              <div className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1">{fleetStats.warming}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
               <div className="text-xs font-semibold text-orange-600 dark:text-orange-400 flex items-center gap-1 min-w-0" title="Hạn Chế (Restricted)">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate whitespace-nowrap">Hạn Chế (Restricted)</span>
               </div>
-              <div className="text-xl font-black text-orange-600 dark:text-orange-400 mt-1">{stats.restricted}</div>
+              <div className="text-xl font-black text-orange-600 dark:text-orange-400 mt-1">{fleetStats.restricted}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
               <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1 min-w-0" title="Bị Khóa (Banned)">
                 <XCircle className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate whitespace-nowrap">Bị Khóa (Banned)</span>
               </div>
-              <div className="text-xl font-black text-rose-600 dark:text-rose-400 mt-1">{stats.banned}</div>
+              <div className="text-xl font-black text-rose-600 dark:text-rose-400 mt-1">{fleetStats.banned}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
               <div className="text-xs font-semibold text-pink-600 dark:text-pink-400 truncate whitespace-nowrap" title="Doanh Thu Toàn Dàn">
                 Doanh Thu Toàn Dàn
               </div>
-              <div className="text-xl font-black text-pink-600 dark:text-pink-400 mt-1">${stats.totalRevenue.toLocaleString()}</div>
+              <div className="text-xl font-black text-pink-600 dark:text-pink-400 mt-1">${fleetStats.totalRevenue.toLocaleString()}</div>
             </div>
           </div>
-        )}
+        ))}
 
         {/* Filter & Toolbar Area (Sticky only on desktop) */}
         <div className="lg:sticky lg:top-[72px] z-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm space-y-3">
@@ -1387,54 +1548,55 @@ function AccountsPageContent() {
                 )}
               </div>
 
-              {/* Status Fast Filter */}
-              <div className="relative shrink-0">
-                <Select
-                  value={statusFilter}
-                  onValueChange={(val) => {
-                    setStatusFilter(val);
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger
-                    className={`w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${
-                      statusFilter !== "ALL"
-                        ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                        : ""
-                    }`}
+              {/* Status Fast Filter (Fleet mode only) */}
+              {!viewTrash && (
+                <div className="relative shrink-0">
+                  <Select
+                    value={statusFilter}
+                    onValueChange={(val) => {
+                      setStatusFilter(val);
+                      setPage(1);
+                    }}
                   >
-                    <SelectValue placeholder="Trạng thái" />
-                  </SelectTrigger>
-                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
-                    <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
-                    <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
-                    <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
-                    <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
-                    <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
-                  </SelectContent>
-                </Select>
-                {statusFilter !== "ALL" && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          setStatusFilter("ALL");
-                          setPage(1);
-                        }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                        aria-label="Xóa chọn trạng thái"
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
-                  </Tooltip>
-                )}
-              </div>
+                    <SelectTrigger
+                      className={`w-40 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${statusFilter !== "ALL"
+                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                          : ""
+                        }`}
+                    >
+                      <SelectValue placeholder="Trạng thái" />
+                    </SelectTrigger>
+                    <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
+                      <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
+                      <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
+                      <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
+                      <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
+                      <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {statusFilter !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setStatusFilter("ALL");
+                            setPage(1);
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn trạng thái"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              )}
 
               {/* Assigned Staff Fast Filter (Admin and Lead only) */}
               {isLeadOrAdmin && (
@@ -1447,11 +1609,10 @@ function AccountsPageContent() {
                     }}
                   >
                     <SelectTrigger
-                      className={`w-40 sm:w-44 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${
-                        assignedFilter !== "ALL"
+                      className={`w-40 sm:w-44 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${assignedFilter !== "ALL"
                           ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                           : ""
-                      }`}
+                        }`}
                     >
                       <SelectValue placeholder="Nhân sự" />
                     </SelectTrigger>
@@ -1564,11 +1725,10 @@ function AccountsPageContent() {
                         }}
                       >
                         <SelectTrigger
-                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
-                            onlineFilter !== "ALL"
+                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${onlineFilter !== "ALL"
                               ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                               : ""
-                          }`}
+                            }`}
                         >
                           <SelectValue placeholder="Tất cả kết nối" />
                         </SelectTrigger>
@@ -1625,11 +1785,10 @@ function AccountsPageContent() {
                         }}
                       >
                         <SelectTrigger
-                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
-                            countryFilter !== "ALL"
+                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${countryFilter !== "ALL"
                               ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                               : ""
-                          }`}
+                            }`}
                         >
                           <SelectValue placeholder="Tất cả quốc gia" />
                         </SelectTrigger>
@@ -1679,11 +1838,10 @@ function AccountsPageContent() {
                         }}
                       >
                         <SelectTrigger
-                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
-                            warningFilter !== "ALL"
+                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${warningFilter !== "ALL"
                               ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                               : ""
-                          }`}
+                            }`}
                         >
                           <SelectValue placeholder="Tất cả" />
                         </SelectTrigger>
@@ -1730,11 +1888,10 @@ function AccountsPageContent() {
                         }}
                       >
                         <SelectTrigger
-                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
-                            gpmFilter !== "ALL"
+                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${gpmFilter !== "ALL"
                               ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                               : ""
-                          }`}
+                            }`}
                         >
                           <SelectValue placeholder="Tất cả" />
                         </SelectTrigger>
@@ -1813,11 +1970,10 @@ function AccountsPageContent() {
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${
-                          sortConfig.key
+                        className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${sortConfig.key
                             ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
                             : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
-                        }`}
+                          }`}
                       >
                         <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-pink-600 dark:text-pink-400" : "text-slate-500"}`} />
                         <span>Sắp xếp</span>
@@ -1843,11 +1999,10 @@ function AccountsPageContent() {
                       <button
                         key={item.key}
                         onClick={() => handleSort(item.key)}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                          isSelected
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${isSelected
                             ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
                             : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
-                        }`}
+                          }`}
                       >
                         <span>{item.label}</span>
                         {isSelected && (
@@ -2289,73 +2444,113 @@ function AccountsPageContent() {
                             <TooltipContent side="top">Tùy chọn thao tác</TooltipContent>
                           </Tooltip>
                           <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
-                            <DropdownMenuItem asChild>
-                              <Link
-                                href={`/accounts/${acc.id}`}
-                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-slate-400" />
-                                <span>Xem chi tiết</span>
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => syncMutation.mutate({ accountId: acc.id })}
-                              disabled={syncMutation.isPending}
-                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                            >
-                              <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin text-pink-500" : ""}`} />
-                              <span>{syncMutation.isPending ? "Đang đồng bộ..." : "Đồng bộ số liệu"}</span>
-                            </DropdownMenuItem>
-                            {syncMutation.isPending && (
-                              <DropdownMenuItem
-                                onClick={() => stopSyncMutation.mutate({ accountId: acc.id })}
-                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
-                              >
-                                <Square className="w-3.5 h-3.5 fill-current text-rose-500" />
-                                <span>Dừng đồng bộ</span>
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem
-                              onClick={() => handleOpenLogs(acc)}
-                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                            >
-                              <History className="w-3.5 h-3.5 text-slate-400" />
-                              <span>Lịch sử hoạt động</span>
-                            </DropdownMenuItem>
-                            {acc.gpmProfileId && (
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  handleStartGpm(acc.gpmProfileId, acc.gpmPort || gpmStatus?.port)
-                                }
-                                disabled={
-                                  startingGpmId === acc.gpmProfileId || startGpmMutation.isPending
-                                }
-                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                              >
-                                <Play className="w-3.5 h-3.5 text-cyan-500 fill-current" />
-                                <span>Mở Profile GPM</span>
-                              </DropdownMenuItem>
-                            )}
-                            {isLeadOrAdmin && (
+                            {viewTrash ? (
                               <>
                                 <DropdownMenuItem
-                                  onClick={() => handleOpenEdit(acc)}
+                                  onClick={() => restoreMutation.mutate({ id: acc.id })}
+                                  disabled={restoreMutation.isPending}
+                                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-xl cursor-pointer"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span>Khôi phục tài khoản</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenLogs(acc)}
                                   className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                 >
-                                  <Pencil className="w-3.5 h-3.5 text-slate-400" />
-                                  <span>Chỉnh sửa</span>
+                                  <History className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Lịch sử hoạt động</span>
                                 </DropdownMenuItem>
-                                <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                {isAdmin && (
+                                  <>
+                                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        setAccountToHardDelete(acc);
+                                        setForcePurge(false);
+                                        setIsHardDeleteOpen(true);
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                    >
+                                      <AlertOctagon className="w-3.5 h-3.5 text-rose-500" />
+                                      <span>Xóa vĩnh viễn</span>
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <DropdownMenuItem asChild>
+                                  <Link
+                                    href={`/accounts/${acc.id}`}
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Xem chi tiết</span>
+                                  </Link>
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  onClick={() => {
-                                    setAccountToDelete(acc);
-                                    setIsDeleteOpen(true);
-                                  }}
-                                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                  onClick={() => syncMutation.mutate({ accountId: acc.id })}
+                                  disabled={syncMutation.isPending}
+                                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                  <span>Xóa tài khoản</span>
+                                  <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin text-pink-500" : ""}`} />
+                                  <span>{syncMutation.isPending ? "Đang đồng bộ..." : "Đồng bộ số liệu"}</span>
                                 </DropdownMenuItem>
+                                {syncMutation.isPending && (
+                                  <DropdownMenuItem
+                                    onClick={() => stopSyncMutation.mutate({ accountId: acc.id })}
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                  >
+                                    <Square className="w-3.5 h-3.5 fill-current text-rose-500" />
+                                    <span>Dừng đồng bộ</span>
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenLogs(acc)}
+                                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                >
+                                  <History className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Lịch sử hoạt động</span>
+                                </DropdownMenuItem>
+                                {acc.gpmProfileId && (
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      handleStartGpm(acc.gpmProfileId, acc.gpmPort || gpmStatus?.port)
+                                    }
+                                    disabled={
+                                      startingGpmId === acc.gpmProfileId || startGpmMutation.isPending
+                                    }
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                  >
+                                    <Play className="w-3.5 h-3.5 text-cyan-500 fill-current" />
+                                    <span>Mở Profile GPM</span>
+                                  </DropdownMenuItem>
+                                )}
+                                {isLeadOrAdmin && (
+                                  <DropdownMenuItem
+                                    onClick={() => handleOpenEdit(acc)}
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Chỉnh sửa</span>
+                                  </DropdownMenuItem>
+                                )}
+                                {isAdmin && (
+                                  <>
+                                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        setAccountToDelete(acc);
+                                        setIsDeleteOpen(true);
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                      <span>Xóa tài khoản</span>
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
                               </>
                             )}
                           </DropdownMenuContent>
@@ -2403,6 +2598,15 @@ function AccountsPageContent() {
                                 )
                               )}
                             </div>
+                            {viewTrash && (
+                              <div className="text-[11px] text-rose-500 dark:text-rose-400 font-medium flex items-center gap-1 mt-1">
+                                <Trash2 className="w-3 h-3 shrink-0" />
+                                <span className="truncate">
+                                  Đã xóa bởi {acc.deletedByName || "Hệ thống"}
+                                  {acc.deletedAt ? ` (${new Date(acc.deletedAt).toLocaleDateString("vi-VN")})` : ""}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -2951,6 +3155,11 @@ function AccountsPageContent() {
                                     <span>@{acc.username}</span>
                                   </Link>
                                   <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" showLabel={false} />
+                                  {viewTrash && (
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40">
+                                      Đã xóa
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                             )}
@@ -3453,74 +3662,114 @@ function AccountsPageContent() {
                                       <TooltipContent side="left">Tùy chọn thao tác</TooltipContent>
                                     </Tooltip>
                                     <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
-                                      <DropdownMenuItem asChild>
-                                        <Link
-                                          href={`/accounts/${acc.id}`}
-                                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                        >
-                                          <Eye className="w-3.5 h-3.5 text-slate-400" />
-                                          <span>Xem chi tiết</span>
-                                        </Link>
-                                      </DropdownMenuItem>
-
-                                      <DropdownMenuItem
-                                        onClick={() => syncMutation.mutate({ accountId: acc.id })}
-                                        disabled={syncMutation.isPending}
-                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                      >
-                                        <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-                                        <span>Đồng bộ số liệu</span>
-                                      </DropdownMenuItem>
-
-                                      <DropdownMenuItem
-                                        onClick={() => handleOpenLogs(acc)}
-                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                      >
-                                        <History className="w-3.5 h-3.5 text-slate-400" />
-                                        <span>Lịch sử hoạt động</span>
-                                      </DropdownMenuItem>
-
-                                      {acc.gpmProfileId && (
-                                        <DropdownMenuItem
-                                          onClick={() =>
-                                            handleStartGpm(
-                                              acc.gpmProfileId,
-                                              acc.gpmPort || gpmStatus?.port
-                                            )
-                                          }
-                                          disabled={
-                                            startingGpmId === acc.gpmProfileId ||
-                                            startGpmMutation.isPending
-                                          }
-                                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                        >
-                                          <Play className="w-3.5 h-3.5 text-cyan-500 fill-current" />
-                                          <span>Mở Profile GPM</span>
-                                        </DropdownMenuItem>
-                                      )}
-
-                                      {isLeadOrAdmin && (
+                                      {viewTrash ? (
                                         <>
                                           <DropdownMenuItem
-                                            onClick={() => handleOpenEdit(acc)}
+                                            onClick={() => restoreMutation.mutate({ id: acc.id })}
+                                            disabled={restoreMutation.isPending}
+                                            className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-xl cursor-pointer"
+                                          >
+                                            <RotateCcw className="w-3.5 h-3.5 text-emerald-500" />
+                                            <span>Khôi phục tài khoản</span>
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem
+                                            onClick={() => handleOpenLogs(acc)}
                                             className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                           >
-                                            <Pencil className="w-3.5 h-3.5 text-slate-400" />
-                                            <span>Chỉnh sửa thông tin</span>
+                                            <History className="w-3.5 h-3.5 text-slate-400" />
+                                            <span>Lịch sử hoạt động</span>
                                           </DropdownMenuItem>
-
-                                          <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                          {isAdmin && (
+                                            <>
+                                              <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                              <DropdownMenuItem
+                                                onClick={() => {
+                                                  setAccountToHardDelete(acc);
+                                                  setForcePurge(false);
+                                                  setIsHardDeleteOpen(true);
+                                                }}
+                                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                              >
+                                                <AlertOctagon className="w-3.5 h-3.5 text-rose-500" />
+                                                <span>Xóa vĩnh viễn</span>
+                                              </DropdownMenuItem>
+                                            </>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          <DropdownMenuItem asChild>
+                                            <Link
+                                              href={`/accounts/${acc.id}`}
+                                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                            >
+                                              <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                              <span>Xem chi tiết</span>
+                                            </Link>
+                                          </DropdownMenuItem>
 
                                           <DropdownMenuItem
-                                            onClick={() => {
-                                              setAccountToDelete(acc);
-                                              setIsDeleteOpen(true);
-                                            }}
-                                            className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                            onClick={() => syncMutation.mutate({ accountId: acc.id })}
+                                            disabled={syncMutation.isPending}
+                                            className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                           >
-                                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                            <span>Xóa tài khoản</span>
+                                            <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                                            <span>Đồng bộ số liệu</span>
                                           </DropdownMenuItem>
+
+                                          <DropdownMenuItem
+                                            onClick={() => handleOpenLogs(acc)}
+                                            className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                          >
+                                            <History className="w-3.5 h-3.5 text-slate-400" />
+                                            <span>Lịch sử hoạt động</span>
+                                          </DropdownMenuItem>
+
+                                          {acc.gpmProfileId && (
+                                            <DropdownMenuItem
+                                              onClick={() =>
+                                                handleStartGpm(
+                                                  acc.gpmProfileId,
+                                                  acc.gpmPort || gpmStatus?.port
+                                                )
+                                              }
+                                              disabled={
+                                                startingGpmId === acc.gpmProfileId ||
+                                                startGpmMutation.isPending
+                                              }
+                                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                            >
+                                              <Play className="w-3.5 h-3.5 text-cyan-500 fill-current" />
+                                              <span>Mở Profile GPM</span>
+                                            </DropdownMenuItem>
+                                          )}
+
+                                          {isLeadOrAdmin && (
+                                            <DropdownMenuItem
+                                              onClick={() => handleOpenEdit(acc)}
+                                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                            >
+                                              <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                                              <span>Chỉnh sửa thông tin</span>
+                                            </DropdownMenuItem>
+                                          )}
+
+                                          {isAdmin && (
+                                            <>
+                                              <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+
+                                              <DropdownMenuItem
+                                                onClick={() => {
+                                                  setAccountToDelete(acc);
+                                                  setIsDeleteOpen(true);
+                                                }}
+                                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                                <span>Xóa tài khoản</span>
+                                              </DropdownMenuItem>
+                                            </>
+                                          )}
                                         </>
                                       )}
                                     </DropdownMenuContent>
@@ -3570,31 +3819,61 @@ function AccountsPageContent() {
             Bỏ chọn
           </button>
 
-          {isLeadOrAdmin && (
-            <button
-              onClick={() => setIsBulkStatusOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
-            >
-              <span>Đổi trạng thái</span>
-            </button>
-          )}
+          {viewTrash ? (
+            <>
+              <button
+                onClick={() => bulkRestoreMutation.mutate({ ids: Array.from(selectedIds) })}
+                disabled={bulkRestoreMutation.isPending}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Khôi phục đã chọn ({selectedIds.size})</span>
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => {
+                    setForcePurge(false);
+                    setBulkHardDeleteResult(null);
+                    setIsBulkHardDeleteOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
+                >
+                  <AlertOctagon className="w-3.5 h-3.5" />
+                  <span>Xóa vĩnh viễn ({selectedIds.size})</span>
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {isLeadOrAdmin && (
+                <button
+                  onClick={() => setIsBulkStatusOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
+                >
+                  <span>Đổi trạng thái</span>
+                </button>
+              )}
 
-          {isLeadOrAdmin && (
-            <button
-              onClick={() => setIsBulkAssignOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
-            >
-              <span>Gán nhân sự</span>
-            </button>
-          )}
+              {isLeadOrAdmin && (
+                <button
+                  onClick={() => setIsBulkAssignOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
+                >
+                  <span>Gán nhân sự</span>
+                </button>
+              )}
 
-          <button
-            onClick={() => setIsBulkDeleteOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Xóa đã chọn ({selectedIds.size})</span>
-          </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setIsBulkDeleteOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xóa đã chọn ({selectedIds.size})</span>
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -3684,7 +3963,7 @@ function AccountsPageContent() {
                   <SelectTrigger className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white cursor-pointer">
                     <SelectValue placeholder="-- Chưa phân công --" />
                   </SelectTrigger>
-                    <SelectContent className="rounded-2xl max-h-60">
+                  <SelectContent className="rounded-2xl max-h-60">
                     <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
                       -- Chưa phân công --
                     </SelectItem>
@@ -3860,8 +4139,8 @@ function AccountsPageContent() {
         </div>
       )}
 
-      {/* Modal: Confirm Delete Single Account */}
-      {isDeleteOpen && accountToDelete && (
+      {/* Modal: Confirm Soft Delete Single Account */}
+      {isDeleteOpen && accountToDelete && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
             <div className="flex items-center gap-3">
@@ -3870,12 +4149,16 @@ function AccountsPageContent() {
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Xác nhận xóa tài khoản
+                  Chuyển vào thùng rác
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bạn có chắc chắn muốn xóa @{accountToDelete.username}?
+                  Bạn có chắc muốn chuyển @{accountToDelete.username} vào thùng rác?
                 </p>
               </div>
+            </div>
+
+            <div className="bg-amber-50/80 dark:bg-amber-950/30 rounded-2xl p-4 border border-amber-200/60 dark:border-amber-800/50 text-xs text-amber-900 dark:text-amber-200">
+              Tài khoản sẽ được chuyển vào thùng rác và có thể khôi phục bất cứ lúc nào. Dữ liệu số liệu không bị xóa.
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 space-y-1 text-xs text-slate-700 dark:text-slate-300">
@@ -3906,15 +4189,15 @@ function AccountsPageContent() {
                 className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{deleteMutation.isPending ? "Đang xóa..." : "Xác nhận xóa"}</span>
+                <span>{deleteMutation.isPending ? "Đang chuyển..." : "Chuyển vào thùng rác"}</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal: Bulk Delete */}
-      {isBulkDeleteOpen && (
+      {/* Modal: Bulk Soft Delete */}
+      {isBulkDeleteOpen && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
             <div className="flex items-center gap-3">
@@ -3923,16 +4206,16 @@ function AccountsPageContent() {
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Xác nhận xóa hàng loạt
+                  Chuyển hàng loạt vào thùng rác
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bạn có chắc chắn muốn xóa {selectedIds.size} tài khoản đã chọn?
+                  Bạn có chắc muốn chuyển {selectedIds.size} tài khoản đã chọn vào thùng rác?
                 </p>
               </div>
             </div>
 
-            <div className="bg-rose-50/60 dark:bg-rose-950/30 rounded-2xl p-4 border border-rose-200/60 dark:border-rose-800/60 text-xs text-rose-800 dark:text-rose-300">
-              ⚠️ Toàn bộ dữ liệu số liệu và liên kết của {selectedIds.size} tài khoản này sẽ bị xóa vĩnh viễn.
+            <div className="bg-amber-50/80 dark:bg-amber-950/30 rounded-2xl p-4 border border-amber-200/60 dark:border-amber-800/50 text-xs text-amber-900 dark:text-amber-200">
+              Các tài khoản sẽ được chuyển vào thùng rác và có thể khôi phục bất cứ lúc nào. Đây không phải xóa vĩnh viễn — dữ liệu số liệu vẫn được giữ lại.
             </div>
 
             <div className="flex justify-end gap-2.5 pt-2">
@@ -3952,7 +4235,7 @@ function AccountsPageContent() {
                 className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{bulkDeleteMutation.isPending ? "Đang xóa..." : `Xác nhận xóa (${selectedIds.size})`}</span>
+                <span>{bulkDeleteMutation.isPending ? "Đang chuyển..." : `Chuyển vào thùng rác (${selectedIds.size})`}</span>
               </button>
             </div>
           </div>
@@ -4065,6 +4348,197 @@ function AccountsPageContent() {
                 className="px-5 py-2 text-xs font-bold text-white bg-pink-600 hover:bg-pink-500 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
               >
                 {bulkAssignMutation.isPending ? "Đang gán..." : "Xác nhận gán"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Hard Delete Single Account */}
+      {isHardDeleteOpen && accountToHardDelete && isAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <AlertOctagon className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Xác nhận xóa vĩnh viễn
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Thao tác này sẽ xóa vĩnh viễn @{accountToHardDelete.username} khỏi cơ sở dữ liệu.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50/60 dark:bg-rose-950/30 rounded-2xl p-4 border border-rose-200/60 dark:border-rose-800/60 text-xs text-rose-800 dark:text-rose-300 space-y-2">
+              <div>⚠️ Hành động này <strong>không thể hoàn tác</strong>. Bản ghi kiểm toán (SystemAuditLog) sẽ lưu vết xóa này.</div>
+            </div>
+
+            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={forcePurge}
+                onChange={(e) => setForcePurge(e.target.checked)}
+                className="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+              />
+              <span>Xóa vĩnh viễn cả khi tài khoản có dữ liệu doanh thu hoặc lịch sử KPI (Force Purge)</span>
+            </label>
+
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsHardDeleteOpen(false);
+                  setAccountToHardDelete(null);
+                  setForcePurge(false);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={hardDeleteMutation.isPending}
+                onClick={() => {
+                  hardDeleteMutation.mutate({
+                    id: accountToHardDelete.id,
+                    forcePurgeHistoricalData: forcePurge,
+                  });
+                }}
+                className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
+              >
+                <AlertOctagon className="w-3.5 h-3.5" />
+                <span>{hardDeleteMutation.isPending ? "Đang xóa vĩnh viễn..." : "Xóa vĩnh viễn"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Bulk Hard Delete */}
+      {isBulkHardDeleteOpen && isAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <AlertOctagon className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Xóa vĩnh viễn hàng loạt
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Bạn có chắc chắn muốn xóa vĩnh viễn {selectedIds.size} tài khoản đã chọn?
+                </p>
+              </div>
+            </div>
+
+            {bulkHardDeleteResult && bulkHardDeleteResult.blockedCount > 0 ? (
+              <div className="space-y-2">
+                <div className="bg-amber-50 dark:bg-amber-950/30 rounded-2xl p-3 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300">
+                  ⚠️ Có {bulkHardDeleteResult.blockedCount} tài khoản bị chặn xóa vì có dữ liệu doanh thu hoặc lịch sử KPI.
+                  <div className="mt-1.5 max-h-24 overflow-y-auto space-y-0.5 font-mono text-[11px]">
+                    {bulkHardDeleteResult.blockedAccounts.map((a) => (
+                      <div key={a.id}>• @{a.username}</div>
+                    ))}
+                  </div>
+                </div>
+                <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={forcePurge}
+                    onChange={(e) => setForcePurge(e.target.checked)}
+                    className="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                  />
+                  <span>Buộc xóa vĩnh viễn tất cả, bao gồm cả dữ liệu doanh thu / KPI (Force Purge)</span>
+                </label>
+              </div>
+            ) : (
+              <div className="bg-rose-50/60 dark:bg-rose-950/30 rounded-2xl p-4 border border-rose-200/60 dark:border-rose-800/60 text-xs text-rose-800 dark:text-rose-300">
+                ⚠️ Hành động này <strong>không thể hoàn tác</strong>. Dữ liệu sẽ được dọn sạch vĩnh viễn và lưu vết kiểm toán.
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBulkHardDeleteOpen(false);
+                  setBulkHardDeleteResult(null);
+                  setForcePurge(false);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={bulkHardDeleteMutation.isPending}
+                onClick={() => {
+                  bulkHardDeleteMutation.mutate({
+                    ids: Array.from(selectedIds),
+                    forcePurgeHistoricalData: forcePurge,
+                  });
+                }}
+                className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
+              >
+                <AlertOctagon className="w-3.5 h-3.5" />
+                <span>
+                  {bulkHardDeleteMutation.isPending
+                    ? "Đang xóa..."
+                    : forcePurge
+                      ? `Buộc xóa vĩnh viễn (${selectedIds.size})`
+                      : `Xác nhận xóa vĩnh viễn (${selectedIds.size})`}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Auto-restore Confirmation on Create */}
+      {autoRestoreConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <ArchiveRestore className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Tài khoản đã tồn tại trong Thùng rác
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Tài khoản @{autoRestoreConfirm.username} hiện đang nằm trong Thùng rác.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50/60 dark:bg-amber-950/30 rounded-2xl p-4 border border-amber-200/60 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300">
+              Bạn có muốn khôi phục tài khoản này và cập nhật theo thông tin vừa nhập thay vì tạo mới không?
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setAutoRestoreConfirm(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={createMutation.isPending}
+                onClick={() => {
+                  setAutoRestoreConfirm(null);
+                  executeCreate();
+                }}
+                className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>{createMutation.isPending ? "Đang khôi phục..." : "Khôi phục tài khoản"}</span>
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaRaw } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import {
   checkRateLimit,
@@ -526,10 +526,13 @@ export async function POST(req: Request) {
     let gpmMatchedVia: string | null = resolvedGpmProfileId ? "client" : null;
 
     if (!resolvedGpmProfileId) {
-      const existingAccount = await prisma.tiktokAccount.findUnique({
+      const existingAccount = await prismaRaw.tiktokAccount.findUnique({
         where: { username: cleanUsername },
-        select: { gpmProfileId: true, gpmProfileName: true, groupName: true },
+        select: { gpmProfileId: true, gpmProfileName: true, groupName: true, deletedAt: true },
       });
+      if (existingAccount?.deletedAt) {
+        return NextResponse.json({ success: true, skipped: "ACCOUNT_DELETED" });
+      }
       if (existingAccount?.gpmProfileId) {
         resolvedGpmProfileId = existingAccount.gpmProfileId;
         resolvedGpmProfileName = existingAccount.gpmProfileName || resolvedGpmProfileName;
@@ -540,7 +543,7 @@ export async function POST(req: Request) {
 
     // If a GPM id is claimed, refuse to steal it from a different TikTok username
     if (resolvedGpmProfileId) {
-      const conflict = await prisma.tiktokAccount.findFirst({
+      const conflict = await prismaRaw.tiktokAccount.findFirst({
         where: {
           gpmProfileId: resolvedGpmProfileId,
           NOT: { username: cleanUsername },
@@ -556,8 +559,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Find existing account by username or gpmProfileId
-    let account: any = await prisma.tiktokAccount.findFirst({
+    // 2. Find existing account by username or gpmProfileId (using prismaRaw to see soft-deleted)
+    let account: any = await prismaRaw.tiktokAccount.findFirst({
       where: {
         OR: [
           { username: cleanUsername },
@@ -568,6 +571,16 @@ export async function POST(req: Request) {
         assignedUser: { select: { id: true, name: true, email: true, username: true } },
       },
     });
+
+    if (account?.deletedAt) {
+      syncFlowLog("report_end", {
+        reqId,
+        username: cleanUsername,
+        outcome: "skipped_account_deleted",
+        elapsedMs: Date.now() - reportT0,
+      });
+      return NextResponse.json({ success: true, skipped: "ACCOUNT_DELETED" });
+    }
     const priorTotalVideos = Number(account?.totalVideos ?? 0);
 
     // Ensure profileName and groupName are properly separated and not cross-stored
@@ -835,7 +848,15 @@ export async function POST(req: Request) {
         updateData.metadata = { ...existingMeta, ...body.metadata };
       }
 
-      if (!isBannedFromCreatorRewards && account.status !== "BANNED" && isLoggedIn && account.status !== "ACTIVE" && updateData.status !== "ACTIVE") {
+      if (
+        !isBannedFromCreatorRewards &&
+        account.status !== "BANNED" &&
+        account.status !== "STOPPED" &&
+        account.status !== "CUSTOM" &&
+        isLoggedIn &&
+        account.status !== "ACTIVE" &&
+        updateData.status !== "ACTIVE"
+      ) {
         updateData.status = "ACTIVE";
       }
 

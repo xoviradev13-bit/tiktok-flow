@@ -147,6 +147,9 @@ function RevenueDetailsPageContent() {
   const initialMinRev = searchParams?.get("minRev") || searchParams?.get("minRevenue") || "";
   const [minRevenue, setMinRevenue] = useState(initialMinRev);
 
+  const initialIncludeArchived = searchParams?.get("archived") === "true";
+  const [includeArchived, setIncludeArchived] = useState(initialIncludeArchived);
+
   const initialMinViews = searchParams?.get("minV") || searchParams?.get("minViews") || "";
   const [minViews, setMinViews] = useState(initialMinViews);
 
@@ -184,6 +187,7 @@ function RevenueDetailsPageContent() {
         minRev: minRevenue,
         minV: minViews,
         origin: originFilter,
+        archived: includeArchived ? "true" : "",
         sort: sortConfig.key,
         dir: sortConfig.desc ? "desc" : "asc",
         p: page,
@@ -197,6 +201,7 @@ function RevenueDetailsPageContent() {
         minRev: "",
         minV: "",
         origin: "ALL",
+        archived: "",
         sort: "date",
         dir: "desc",
         p: 1,
@@ -211,6 +216,7 @@ function RevenueDetailsPageContent() {
     minRevenue,
     minViews,
     originFilter,
+    includeArchived,
     sortConfig,
     page,
     pageSize,
@@ -316,6 +322,7 @@ function RevenueDetailsPageContent() {
     sourceType: sourceTypeFilter !== "ALL" ? sourceTypeFilter : undefined,
     startDate: startDate || undefined,
     endDate: endDate || undefined,
+    includeArchived: includeArchived || undefined,
   });
 
   // Handle Excel/CSV file upload
@@ -726,7 +733,8 @@ function RevenueDetailsPageContent() {
     (sourceTypeFilter !== "ALL" ? 1 : 0) +
     (minRevenue ? 1 : 0) +
     (minViews ? 1 : 0) +
-    (originFilter !== "ALL" ? 1 : 0);
+    (originFilter !== "ALL" ? 1 : 0) +
+    (includeArchived ? 1 : 0);
 
   // Filters count for Advanced Filter Popover
   const advancedFiltersCount =
@@ -747,6 +755,7 @@ function RevenueDetailsPageContent() {
     setMinRevenue("");
     setMinViews("");
     setOriginFilter("ALL");
+    setIncludeArchived(false);
     setPage(1);
   };
 
@@ -761,12 +770,51 @@ function RevenueDetailsPageContent() {
     );
   };
 
-  // Total summary of current filtered
-  const filteredTotalRevenue = useMemo(() => {
-    return filteredAndSortedRecords.reduce((sum: number, r: any) => sum + Number(r.revenue || 0), 0);
-  }, [filteredAndSortedRecords]);
-  const filteredTotalViews = useMemo(() => {
-    return filteredAndSortedRecords.reduce((sum: number, r: any) => sum + Number(r.views || 0), 0);
+  // Total summary of current filtered (split active vs archived)
+  const {
+    filteredTotalRevenue,
+    filteredActiveRevenue,
+    filteredArchivedRevenue,
+    filteredTotalViews,
+    filteredActiveViews,
+    filteredArchivedViews,
+    archivedCount,
+  } = useMemo(() => {
+    let totalRev = 0;
+    let activeRev = 0;
+    let archRev = 0;
+    let totalV = 0;
+    let activeV = 0;
+    let archV = 0;
+    let archC = 0;
+
+    for (const r of filteredAndSortedRecords) {
+      const rev = Number(r.revenue || 0);
+      const v = Number(r.views || 0);
+      const isArchived = Boolean(r.account?.deletedAt);
+
+      totalRev += rev;
+      totalV += v;
+
+      if (isArchived) {
+        archRev += rev;
+        archV += v;
+        archC++;
+      } else {
+        activeRev += rev;
+        activeV += v;
+      }
+    }
+
+    return {
+      filteredTotalRevenue: totalRev,
+      filteredActiveRevenue: activeRev,
+      filteredArchivedRevenue: archRev,
+      filteredTotalViews: totalV,
+      filteredActiveViews: activeV,
+      filteredArchivedViews: archV,
+      archivedCount: archC,
+    };
   }, [filteredAndSortedRecords]);
 
   return (
@@ -910,8 +958,21 @@ function RevenueDetailsPageContent() {
             {loading ? (
               <div className="h-8 w-24 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-1" />
             ) : (
-              <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1 truncate">
-                {formatAmount(filteredTotalRevenue, "USD")}
+              <div>
+                <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1 truncate">
+                  {formatAmount(filteredTotalRevenue, "USD")}
+                </div>
+                {includeArchived && archivedCount > 0 && (
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                      Hiện hành: {formatAmount(filteredActiveRevenue, "USD")}
+                    </span>
+                    <span>•</span>
+                    <span className="text-rose-500 dark:text-rose-400 font-semibold">
+                      Lưu trữ: {formatAmount(filteredArchivedRevenue, "USD")}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -922,8 +983,19 @@ function RevenueDetailsPageContent() {
             {loading ? (
               <div className="h-8 w-24 bg-cyan-100 dark:bg-cyan-950/60 rounded-lg animate-pulse mt-1" />
             ) : (
-              <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1 truncate">
-                {filteredTotalViews.toLocaleString()}
+              <div>
+                <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1 truncate">
+                  {filteredTotalViews.toLocaleString()}
+                </div>
+                {includeArchived && archivedCount > 0 && (
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span>Hiện hành: {filteredActiveViews.toLocaleString()}</span>
+                    <span>•</span>
+                    <span className="text-rose-500 dark:text-rose-400 font-semibold">
+                      Lưu trữ: {filteredArchivedViews.toLocaleString()}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -934,8 +1006,15 @@ function RevenueDetailsPageContent() {
             {loading ? (
               <div className="h-8 w-16 bg-pink-100 dark:bg-pink-950/60 rounded-lg animate-pulse mt-1" />
             ) : (
-              <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1 truncate">
-                {filteredAndSortedRecords.length}
+              <div>
+                <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1 truncate">
+                  {filteredAndSortedRecords.length}
+                </div>
+                {includeArchived && archivedCount > 0 && (
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                    Gồm <span className="font-bold text-rose-500">{archivedCount}</span> bản ghi tài khoản đã xóa
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1340,6 +1419,35 @@ function RevenueDetailsPageContent() {
                 </PopoverContent>
               </Popover>
 
+              {/* Include Archived / Deleted Accounts Toggle */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIncludeArchived(!includeArchived);
+                      setPage(1);
+                    }}
+                    className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-normal border transition-all cursor-pointer whitespace-nowrap ${
+                      includeArchived
+                        ? "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800 shadow-2xs font-medium"
+                        : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
+                    }`}
+                  >
+                    <Trash2 className={`w-3.5 h-3.5 ${includeArchived ? "text-rose-600 dark:text-rose-400" : "text-slate-500"}`} />
+                    <span>Tài khoản đã xóa</span>
+                    {includeArchived && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {includeArchived
+                    ? "Đang hiển thị cả doanh thu từ các tài khoản đã bị xóa (Nhấn để ẩn)"
+                    : "Bao gồm doanh thu từ các tài khoản đã bị xóa trong lịch sử"}
+                </TooltipContent>
+              </Tooltip>
+
               {/* Column Visibility Popover */}
               <Popover>
                 <Tooltip>
@@ -1490,6 +1598,19 @@ function RevenueDetailsPageContent() {
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
+                </span>
+              )}
+              {includeArchived && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300">
+                  <span>Bao gồm tài khoản đã xóa</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setIncludeArchived(false)} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Ẩn tài khoản đã xóa</TooltipContent>
                   </Tooltip>
                 </span>
               )}
@@ -1671,7 +1792,14 @@ function RevenueDetailsPageContent() {
                             style={getColumnStyle("accountUsername")}
                             className={`sticky left-10 z-10 px-5 py-3.5 font-bold text-slate-900 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] backdrop-blur-xs ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}
                           >
-                            @{item.account?.username}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span>@{item.account?.username}</span>
+                              {item.account?.deletedAt && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 shrink-0">
+                                  Đã xóa
+                                </span>
+                              )}
+                            </div>
                           </td>
                         )}
 

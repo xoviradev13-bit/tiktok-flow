@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaRaw } from "@/lib/prisma";
 import { pMap } from "@/lib/concurrency";
 import { auth } from "@/lib/auth";
 import {
@@ -1069,6 +1069,15 @@ export async function POST(req: Request) {
 
           // 1. INSERT IF NEW
           if (!existing) {
+            // Username may already exist in Trash (unique constraint) — never revive via sync.
+            const inTrash = await prismaRaw.tiktokAccount.findUnique({
+              where: { username: extractedUsername },
+              select: { id: true, deletedAt: true },
+            });
+            if (inTrash?.deletedAt) {
+              return;
+            }
+
             try {
               const assignedUserId = currentUserId || null;
               const newAccount = await prisma.tiktokAccount.create({
@@ -1106,7 +1115,7 @@ export async function POST(req: Request) {
               return;
             } catch (err: any) {
               if (err?.code === "P2002") {
-                existing = await prisma.tiktokAccount.findUnique({
+                existing = await prismaRaw.tiktokAccount.findUnique({
                   where: { username: extractedUsername },
                   include: {
                     assignedUser: {
@@ -1115,10 +1124,19 @@ export async function POST(req: Request) {
                   },
                 });
                 if (!existing) throw err;
+                // Soft-deleted row hit the unique constraint — leave Trash alone.
+                if (existing.deletedAt) {
+                  return;
+                }
               } else {
                 throw err;
               }
             }
+          }
+
+          // Soft-deleted accounts must not be updated by agent sync.
+          if (existing.deletedAt) {
+            return;
           }
 
           // 2. Link GPM + fluid handover only
@@ -1154,10 +1172,13 @@ export async function POST(req: Request) {
             }
           }
 
-          await prisma.tiktokAccount.update({
-            where: { id: existing.id },
+          const updateRes = await prisma.tiktokAccount.updateMany({
+            where: { id: existing.id, deletedAt: null },
             data: updateData,
           });
+          if (updateRes.count === 0) {
+            return;
+          }
 
           if (didHandover) {
             const oldOwner =

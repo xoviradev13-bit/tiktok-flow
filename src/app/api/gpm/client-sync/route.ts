@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, prismaRaw } from "@/lib/prisma";
 import { pMap } from "@/lib/concurrency";
 import {
   checkRateLimit,
@@ -620,7 +620,7 @@ export async function POST(req: Request) {
         const realHandle = normalizeTikTokHandle(p.tiktokHandle);
         const profileName = String(p.name || "").trim() || null;
 
-        let existing = await prisma.tiktokAccount.findFirst({
+        let existing = await prismaRaw.tiktokAccount.findFirst({
           where: {
             OR: [
               { gpmProfileId: p.id },
@@ -634,10 +634,15 @@ export async function POST(req: Request) {
           },
         });
 
+        // Skip soft-deleted accounts immediately
+        if (existing?.deletedAt) {
+          return;
+        }
+
         // Fallback: extension created @handle with Profile name but no UUID yet
         // (handle detection failed / returned garbage). Match by GPM display name.
         if (!existing && profileName && looksLikeGpmProfileName(profileName)) {
-          existing = await prisma.tiktokAccount.findFirst({
+          existing = await prismaRaw.tiktokAccount.findFirst({
             where: {
               gpmProfileId: null,
               gpmProfileName: profileName,
@@ -648,6 +653,9 @@ export async function POST(req: Request) {
               },
             },
           });
+          if (existing?.deletedAt) {
+            return;
+          }
         }
 
         // Skip profiles with no TikTok account linked
@@ -668,6 +676,15 @@ export async function POST(req: Request) {
 
         // 1. INSERT IF NEW
         if (!existing) {
+          // Check if username is in trash before creating
+          const inTrash = await prismaRaw.tiktokAccount.findUnique({
+            where: { username: extractedUsername },
+            select: { id: true, deletedAt: true },
+          });
+          if (inTrash?.deletedAt) {
+            return;
+          }
+
           try {
             // Same as Extension: assign to the operator who discovered the account
             const assignedUserId = currentUserId || null;

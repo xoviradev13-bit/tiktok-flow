@@ -260,7 +260,8 @@ const COUNTRY_OPTIONS = [
 
 function AccountDetailPageContent() {
   const { data: session } = useSession();
-  const isLeadOrAdmin = (session?.user as any)?.role === "ADMIN" || (session?.user as any)?.role === "LEAD";
+  const isAdmin = (session?.user as any)?.role === "ADMIN";
+  const isLeadOrAdmin = isAdmin || (session?.user as any)?.role === "LEAD";
   const { confirm, confirmDialog } = useConfirmDialog();
 
   const params = useParams();
@@ -383,8 +384,8 @@ function AccountDetailPageContent() {
     error,
     refetch,
   } = trpc.accounts.getById.useQuery(
-    { id: accountId },
-    { enabled: !!accountId }
+    { id: accountId, includeDeleted: isAdmin },
+    { enabled: !!accountId && !!session }
   );
 
   // 2. Fetch staff list for reassignment
@@ -1116,6 +1117,30 @@ function AccountDetailPageContent() {
         </div>
       )}
 
+      {account.deletedAt && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/80 dark:bg-rose-950/40">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-300 flex items-center justify-center shrink-0">
+              <Trash2 className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-rose-800 dark:text-rose-200">
+                Tài khoản đang trong thùng rác
+              </div>
+              <p className="text-xs text-rose-700/80 dark:text-rose-300/80 mt-0.5">
+                Đã xóa mềm{account.deletedAt ? ` · ${new Date(account.deletedAt).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}` : ""}. Khôi phục từ danh sách Thùng rác để đưa về fleet.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/accounts?trash=true"
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shrink-0 transition-colors"
+          >
+            Mở thùng rác
+          </Link>
+        </div>
+      )}
+
       {/* Account Details Header Section (Static / Non-sticky) */}
       <div className="bg-transparent pb-4 border-b border-slate-200/80 dark:border-slate-800/80 space-y-3">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
@@ -1349,22 +1374,25 @@ function AccountDetailPageContent() {
                 </DropdownMenuItem>
 
                 {isLeadOrAdmin && (
-                  <>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setActiveTab("overview");
-                        requestAnimationFrame(() => {
-                          document.getElementById("account-ops-panel")?.scrollIntoView({
-                            behavior: "smooth",
-                            block: "start",
-                          });
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setActiveTab("overview");
+                      requestAnimationFrame(() => {
+                        document.getElementById("account-ops-panel")?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
                         });
-                      }}
-                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                    >
-                      <Pencil className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Chỉnh sửa</span>
-                    </DropdownMenuItem>
+                      });
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Chỉnh sửa</span>
+                  </DropdownMenuItem>
+                )}
+
+                {isAdmin && (
+                  <>
                     <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                     <DropdownMenuItem
                       onClick={async () => {
