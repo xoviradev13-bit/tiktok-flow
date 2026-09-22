@@ -2013,6 +2013,8 @@ function assembleExtensionSweepPayload({
       revenue60d: parseMoney(p.sixty_d_income),
     }));
 
+    // NOTE: /m10n_center/all_programs no longer exists (TikTok removed it 2026-09).
+    // If programsRes is empty/null we fall through harmlessly.
     const allPrograms = programsRes?.data?.active_m10n_programs ?? [];
     const programNames = new Set(activePrograms.map((p) => p.name));
     for (const ap of allPrograms) {
@@ -2289,6 +2291,73 @@ function assembleExtensionSweepPayload({
       detectCountryIsoFromCurrency(currency) ||
       null;
 
+    // ---------------------------------------------------------------------
+    // Banned / Creator Rewards detection — mirrors agent.js scrapePageMetrics.
+    //
+    // The previous logic was `creatorRewardsMissing = !(m10nRes has data)`.
+    // That marked accounts BANNED whenever the m10n endpoint failed (403 on
+    // an expired Studio session, 429, or a transient error) — a false-positive
+    // class that also triggered PROGRAM_DISQUALIFIED alerts server-side.
+    //
+    // The correct signal is the enrolled-program list embedded in
+    // reward_analytics.m10n_program_user_income (captured into `activePrograms`
+    // above). /m10n_center/all_programs no longer exists, so we do not gate on
+    // it. A fresh/dormant account (no programs, no rewards, few followers) is
+    // NOT a ban — it just never enrolled.
+    // ---------------------------------------------------------------------
+    const m10nSucceeded = !!(
+      m10nRes?.data ||
+      m10nRes?.seven_d_income != null ||
+      m10nRes?.thirty_d_income != null ||
+      m10nRes?.sixty_d_income != null ||
+      m10nRes?.status_code === 0 ||
+      (Array.isArray(m10nData?.m10n_program_user_income) && m10nData.m10n_program_user_income.length > 0)
+    );
+
+    let creatorRewardsMissing = false;
+    let bannedReason = null;
+    let rewardsNoProgram = false;
+
+    if (m10nSucceeded) {
+      const hasCreatorRewardsInProg =
+        Array.isArray(activePrograms) &&
+        activePrograms.some((p) =>
+          /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|sáng\s*tạo|beta/i.test(p.name)
+        );
+
+      const programCount = Array.isArray(activePrograms) ? activePrograms.length : 0;
+      const postRewardsCount = Array.isArray(postRewards) ? postRewards.length : 0;
+
+      // Positive evidence this is an established, monetized creator.
+      // A fresh account (0 programs, 0 rewards, few followers) must NOT be
+      // flagged as banned — it simply never enrolled.
+      const isMonetizedCreator =
+        programCount > 0 ||
+        (totalRevenue ?? 0) > 0 ||
+        postRewardsCount > 0 ||
+        followerCount >= 10000;
+
+      console.log(
+        `   [M10N-DEBUG][ext] @${username || "?"}: ` +
+        `inProg=${hasCreatorRewardsInProg} isMonetized=${isMonetizedCreator} ` +
+        `followers=${followerCount} rewards=${totalRevenue ?? 0} ` +
+        `postRewards=${postRewardsCount} ` +
+        `activePrograms=${JSON.stringify(activePrograms.map((p) => p.name))}`
+      );
+
+      if (isMonetizedCreator && !hasCreatorRewardsInProg) {
+        // Monetized creator with no Creator Rewards in the enrolled-program list
+        // ⇒ program was revoked / banned.
+        creatorRewardsMissing = true;
+        bannedReason = "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)";
+      } else if (!isMonetizedCreator && programCount === 0 && !hasCreatorRewardsInProg) {
+        // Never enrolled in anything — not a ban, just an unenrolled account.
+        rewardsNoProgram = true;
+      }
+    }
+    // If m10n did NOT succeed (403/429/network), leave creatorRewardsMissing at
+    // false — no decision — so a transient failure cannot false-ban an account.
+
     if (!username && !followerCount && !totalRevenue && videosList.length === 0) {
       return { success: false, error: "extension_sweep_empty_data" };
     }
@@ -2325,13 +2394,9 @@ function assembleExtensionSweepPayload({
         country: resolvedCountry,
         videosList,
         postRewards,
-        creatorRewardsMissing: !(
-          m10nRes?.data ||
-          m10nRes?.seven_d_income != null ||
-          m10nRes?.thirty_d_income != null ||
-          m10nRes?.status_code === 0
-        ),
-        bannedReason: null,
+        creatorRewardsMissing,
+        bannedReason,
+        rewardsNoProgram: rewardsNoProgram || undefined,
         sumRevenue: { revenue7d, revenue28d, revenue60d, revenue365d: 0, totalRevenue: totalRevenue || 0 },
         dailyRevenueBreakdown: dailyBreakdown,
         activePrograms,

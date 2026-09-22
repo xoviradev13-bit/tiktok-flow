@@ -35,7 +35,7 @@ const GPM_DISCOVERY_CACHE_MS = 30000;
 // FIX: gate verbose Tier-0 polling debug behind an env flag. Every poll from
 // every open browser logs multiple lines; at fleet scale this drowns real output.
 const TIER0_DEBUG = process.env.TIKTOKFLOW_DEBUG_TIER0 === "1";
-const tier0Log = TIER0_DEBUG ? console.log.bind(console) : () => {};
+const tier0Log = TIER0_DEBUG ? console.log.bind(console) : () => { };
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2781,17 +2781,14 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     let interceptedPerPostRewards = [];
     let interceptedPerPostUrl = null;
     let interceptedVideoRewardAnalytics = null;
-    let interceptedAllPrograms = null;
     let interceptedInsightsHistory = null;
     let interceptedVideoCalls = [];
     let interceptedVideoReqHeaders = null;
     let interceptedVideoReqMethod = "GET";
     let interceptedVideoReqBody = null;
     let m10nRateLimited = false;
-    let m10nHadAllPrograms = false;
     let m10nHadAnalytics = false;
     let postRewardsPartial = false;
-    let allProgramsComplete = false; // set from all_programs response
     let rewardsFailReason = null; // "rate_limited" | "incomplete_list" | "timeout"
     let rewardsNoProgram = false;
 
@@ -2846,18 +2843,6 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
           const payload = j.data || j;
           if (payload.crp_analytics_data || payload.ttshop_analytics_data) {
             interceptedVideoRewardAnalytics = payload;
-          }
-        }
-        if (url.includes("/m10n_center/all_programs")) {
-          const j = await resp.json();
-          const payload = j.data || j;
-          if (payload.active_m10n_programs) {
-            interceptedAllPrograms = payload.active_m10n_programs;
-            m10nHadAllPrograms = true;
-            // Only treat the list as complete on an explicit end-of-list signal.
-            allProgramsComplete =
-              payload.has_more === false ||
-              Number(payload.total) === payload.active_m10n_programs.length;
           }
         }
         if (url.includes("/aweme/v2/data/insight/")) {
@@ -4024,18 +4009,6 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
           }
         });
 
-        if (Array.isArray(interceptedAllPrograms)) {
-          interceptedAllPrograms.forEach((ap) => {
-            if (ap && ap.name && !progsMap.has(ap.name) && !/shop/i.test(ap.name)) {
-              progsMap.set(ap.name, {
-                name: ap.name,
-                programId: ap.m10n_project,
-                revenue7d: 0, revenue30d: 0, revenue60d: 0,
-              });
-            }
-          });
-        }
-
         activePrograms = Array.from(progsMap.values());
       } else {
         // DOM fallback (best effort)
@@ -4591,26 +4564,54 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
       // Banned/creator-rewards flag: only when we actually captured both signals.
       creatorRewardsMissing = false;
       bannedReason = null;
-      if (!m10nRateLimited && m10nHadAnalytics && m10nHadAllPrograms) {
+      rewardsNoProgram = false;
+
+      if (!m10nRateLimited && m10nHadAnalytics) {
         try {
-          const pageText = await page.evaluate(() => document.body?.innerText || "").catch(() => "");
-          const hasCreatorRewardsInProg = activePrograms.some((p) => /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|sáng\s*tạo|beta/i.test(p.name));
-          const hasCreatorRewardsInAll = Array.isArray(interceptedAllPrograms) &&
-            interceptedAllPrograms.some((p) => /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|sáng\s*tạo|beta/i.test(p.name));
-          const hasCreatorRewardsInText = /creator\s*rewards?|chương\s*trình\s*creator\s*rewards|quỹ\s*nhà\s*sáng\s*tạo/i.test(pageText);
-          const hasCreatorRewards = hasCreatorRewardsInProg || hasCreatorRewardsInAll || hasCreatorRewardsInText;
-          if (!hasCreatorRewards && (followerCount >= 10000 || (totalRewardsUsd && totalRewardsUsd > 0))) {
+          const pageText = await page
+            .evaluate(() => document.body?.innerText || "")
+            .catch(() => "");
+
+          const hasCreatorRewardsInProg =
+            Array.isArray(activePrograms) &&
+            activePrograms.some((p) =>
+              /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|sáng\s*tạo|beta/i.test(p.name)
+            );
+          // Informational only — the sidebar always contains this string.
+          const hasCreatorRewardsInText =
+            /creator\s*rewards?|chương\s*trình\s*creator\s*rewards|quỹ\s*nhà\s*sáng\s*tạo/i.test(
+              pageText
+            );
+
+          // Authoritative decision: use the API program list only.
+          const hasCreatorRewards = hasCreatorRewardsInProg;
+
+          const programCount = Array.isArray(activePrograms) ? activePrograms.length : 0;
+          const postRewardsCount = Array.isArray(postRewards) ? postRewards.length : 0;
+
+          // Positive evidence this is an established, monetized creator.
+          // A fresh/dormant account (0 programs, 0 rewards, few followers)
+          // must NOT be flagged as banned — it simply never enrolled.
+          const isMonetizedCreator =
+            programCount > 0 ||
+            (totalRewardsUsd ?? 0) > 0 ||
+            postRewardsCount > 0 ||
+            followerCount >= 10000;
+
+          if (isMonetizedCreator && !hasCreatorRewards) {
+            // Monetized creator with no Creator Rewards in any program list
+            // ⇒ program was revoked / banned.
             creatorRewardsMissing = true;
             bannedReason = "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)";
-          } else if (!hasCreatorRewards && allProgramsComplete) {
-            // Program absent from a COMPLETE list AND account doesn't meet the "should have it" gate
+          } else if (!isMonetizedCreator && programCount === 0 && !hasCreatorRewards) {
+            // Never enrolled in anything — not a ban, just an unenrolled account.
             rewardsNoProgram = true;
           }
         } catch { /* ignore */ }
       }
       if (m10nRateLimited) rewardsFailReason = "rate_limited";
       else if (postRewardsPartial) rewardsFailReason = "incomplete_list";
-      else if (!m10nHadAnalytics && !m10nHadAllPrograms) rewardsFailReason = "timeout";
+      else if (!m10nHadAnalytics) rewardsFailReason = "timeout";
     } catch { /* ignore */ }
     t_m10n = Date.now() - t_m10n_start;
 
@@ -4967,12 +4968,19 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
             const d = extResult.data ?? {};
             const hasRevenue = (d.sumRevenue?.totalRevenue ?? 0) > 0 || (d.totalRevenue ?? 0) > 0;
             const hasPostRewards = Array.isArray(d.postRewards) && d.postRewards.length > 0;
-            const m10nWorked = d.creatorRewardsMissing === false;
-            const dataQualityOk = m10nWorked || hasRevenue || hasPostRewards;
+            const m10nConfirmedActive = d.creatorRewardsMissing === false;
+            const m10nConfirmedBanned = d.creatorRewardsMissing === true;
+            const dataQualityOk = m10nConfirmedActive || m10nConfirmedBanned || hasRevenue || hasPostRewards;
+
             if (dataQualityOk) {
-              console.log(`   [TIER-0] Extension returned data for @${d?.username || "unknown"} (revenue=${d.totalRevenue ?? 0}, postRewards=${Array.isArray(d.postRewards) ? d.postRewards.length : 0}, attempt=${attempt})`);
+              console.log(
+                `   [TIER-0] Extension returned data for @${d?.username || "unknown"} ` +
+                `(revenue=${d.totalRevenue ?? 0}, postRewards=${Array.isArray(d.postRewards) ? d.postRewards.length : 0}, ` +
+                `creatorRewardsMissing=${d.creatorRewardsMissing}, attempt=${attempt})`
+              );
               return extResult;
             }
+
             console.warn(`   [TIER-0] m10n unavailable for @${d?.username || "unknown"} (attempt ${attempt}/2) — Studio tab not loaded.`);
             dumpTier0Debug(profileId, "m10n_unavailable_quality_reject", extResult.tier0Debug, {
               username: d.username || null,
