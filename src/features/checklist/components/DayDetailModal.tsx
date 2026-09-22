@@ -28,7 +28,17 @@ import {
   Shield,
   ShieldCheck,
   UserCheck,
+  MoreHorizontal,
+  Zap,
+  XCircle,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -45,6 +55,10 @@ interface DayDetailModalProps {
   onLaunchGpm?: (gpmProfileId: string) => void;
   onSyncAccount?: (accountId: string) => void;
   onViewVideos?: (account: any, dateStr: string) => void;
+  isAdmin?: boolean;
+  onAdminCheckComplete?: (checklistId: string, fullName: string) => void;
+  onAdminCheckHalfDay?: (checklistId: string, fullName: string) => void;
+  onAdminCheckZero?: (checklistId: string, fullName: string) => void;
 }
 
 export default function DayDetailModal({
@@ -57,6 +71,10 @@ export default function DayDetailModal({
   onLaunchGpm,
   onSyncAccount,
   onViewVideos,
+  isAdmin,
+  onAdminCheckComplete,
+  onAdminCheckHalfDay,
+  onAdminCheckZero,
 }: DayDetailModalProps) {
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
 
@@ -288,8 +306,8 @@ export default function DayDetailModal({
                       </div>
                     </div>
 
-                    {/* Workday Badge */}
-                    <div className="self-start sm:self-auto">
+                    {/* Workday Badge + Actions */}
+                    <div className="self-start sm:self-auto flex items-center gap-2">
                       {Number(activeChecklist.workdayScore) >= 1.0 ? (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-2xs">
                           <CheckCircle2 className="w-4 h-4" />
@@ -306,6 +324,60 @@ export default function DayDetailModal({
                           <span>0 Công (Không đạt)</span>
                         </span>
                       )}
+
+                      {/* Thao Tác dropdown */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            className="flex items-center justify-center w-7.5 h-7.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer shadow-2xs"
+                            title="Thao tác"
+                          >
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56 p-1.5 rounded-2xl shadow-xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 z-[200]">
+                          {isAdmin ? (
+                            <>
+                              <DropdownMenuItem
+                                onClick={() => onAdminCheckComplete?.(activeChecklist.id, activeChecklist.user?.fullName)}
+                                className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-emerald-600 dark:text-emerald-400 cursor-pointer rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                              >
+                                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                <span>Check Hoàn Thành (1.0 Công)</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => onAdminCheckHalfDay?.(activeChecklist.id, activeChecklist.user?.fullName)}
+                                className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-amber-600 dark:text-amber-400 cursor-pointer rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/50"
+                              >
+                                <CheckCircle2 className="w-4 h-4 text-amber-500" />
+                                <span>Check Hoàn Thành (0.5 Công)</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => onAdminCheckZero?.(activeChecklist.id, activeChecklist.user?.fullName)}
+                                className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 cursor-pointer rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                              >
+                                <XCircle className="w-4 h-4 text-rose-500" />
+                                <span>Check Không Hoàn Thành (0 Công)</span>
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
+                            <div className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1.5 italic">
+                              <Shield className="w-3.5 h-3.5 shrink-0" />
+                              <span>Chỉ Admin mới được duyệt công</span>
+                            </div>
+                          )}
+                          <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/users/${activeChecklist.user?.id}`}
+                              className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-slate-600 dark:text-slate-400 cursor-pointer rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800"
+                            >
+                              <Users className="w-4 h-4 text-slate-400" />
+                              <span>Xem Profile & Dàn Kênh</span>
+                            </Link>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
 

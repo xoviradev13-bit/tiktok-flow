@@ -38,6 +38,7 @@ import {
   MoreVertical,
   MoreHorizontal,
   Ban,
+  XCircle,
 } from "lucide-react";
 import {
   format,
@@ -466,6 +467,54 @@ function ChecklistPageContent() {
             showToast(`✅ Đã duyệt hoàn thành 1.0 công cho ${fullName}!`, "success");
             confetti({ particleCount: 60, spread: 60, origin: { y: 0.7 } });
           },
+          onError: (err) => showToast(err.message || "Lỗi khi duyệt hoàn thành", "error"),
+        }
+      );
+    }
+  };
+
+  const handleAdminCheckHalfDay = async (checklistId: string, fullName: string) => {
+    if (!isAdmin) {
+      showToast("Chỉ Quản trị viên (Admin) mới có quyền duyệt hoàn thành công thủ công", "error");
+      return;
+    }
+    const ok = await confirm({
+      title: "Duyệt nửa công",
+      description: `Xác nhận duyệt hoàn thành 50% (0.5 Ngày công) cho nhân sự ${fullName}?`,
+      confirmLabel: "Xác nhận duyệt",
+      variant: "amber",
+      icon: "check",
+    });
+    if (ok) {
+      massCompleteMutation.mutate(
+        { checklistId, scoreOverride: 0.5 },
+        {
+          onSuccess: () =>
+            showToast(`✅ Đã duyệt hoàn thành 0.5 công cho ${fullName}!`, "success"),
+          onError: (err) => showToast(err.message || "Lỗi khi duyệt hoàn thành", "error"),
+        }
+      );
+    }
+  };
+
+  const handleAdminCheckZero = async (checklistId: string, fullName: string) => {
+    if (!isAdmin) {
+      showToast("Chỉ Quản trị viên (Admin) mới có quyền duyệt hoàn thành công thủ công", "error");
+      return;
+    }
+    const ok = await confirm({
+      title: "Duyệt không hoàn thành",
+      description: `Xác nhận duyệt không hoàn thành (0 Ngày công) cho nhân sự ${fullName}?`,
+      confirmLabel: "Xác nhận duyệt",
+      variant: "amber",
+      icon: "check",
+    });
+    if (ok) {
+      massCompleteMutation.mutate(
+        { checklistId, scoreOverride: 0 },
+        {
+          onSuccess: () =>
+            showToast(`✅ Đã duyệt không hoàn thành (0 công) cho ${fullName}!`, "success"),
           onError: (err) => showToast(err.message || "Lỗi khi duyệt hoàn thành", "error"),
         }
       );
@@ -1688,13 +1737,29 @@ function ChecklistPageContent() {
                                 </DropdownMenuItem>
 
                                 {isAdmin ? (
-                                  <DropdownMenuItem
-                                    onClick={() => handleAdminCheckComplete(chk.id, chk.user.fullName)}
-                                    className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-emerald-600 dark:text-emerald-400 cursor-pointer rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
-                                  >
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                                    <span>Check Hoàn Thành (1.0 Công)</span>
-                                  </DropdownMenuItem>
+                                  <>
+                                    <DropdownMenuItem
+                                      onClick={() => handleAdminCheckComplete(chk.id, chk.user.fullName)}
+                                      className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-emerald-600 dark:text-emerald-400 cursor-pointer rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                                    >
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                      <span>Check Hoàn Thành (1.0 Công)</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => handleAdminCheckHalfDay(chk.id, chk.user.fullName)}
+                                      className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-amber-600 dark:text-amber-400 cursor-pointer rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/50"
+                                    >
+                                      <CheckCircle2 className="w-4 h-4 text-amber-500" />
+                                      <span>Check Hoàn Thành (0.5 Công)</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => handleAdminCheckZero(chk.id, chk.user.fullName)}
+                                      className="flex items-center gap-2.5 px-3 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 cursor-pointer rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                                    >
+                                      <XCircle className="w-4 h-4 text-rose-500" />
+                                      <span>Check Không Hoàn Thành (0 Công)</span>
+                                    </DropdownMenuItem>
+                                  </>
                                 ) : (
                                   <div className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1.5 italic">
                                     <Shield className="w-3.5 h-3.5 shrink-0" />
@@ -2393,6 +2458,10 @@ function ChecklistPageContent() {
         onLaunchGpm={(gpmId) => startGpmMutation.mutate({ gpmProfileId: gpmId })}
         onSyncAccount={(accId) => syncAccountMutation.mutate({ accountId: accId })}
         onViewVideos={(acc, dStr) => setCrossCheckItem({ accountId: acc.id, username: acc.username, dateStr: dStr, staffName: "", itemId: "" })}
+        isAdmin={isAdmin}
+        onAdminCheckComplete={handleAdminCheckComplete}
+        onAdminCheckHalfDay={handleAdminCheckHalfDay}
+        onAdminCheckZero={handleAdminCheckZero}
       />
       {confirmDialog}
     </div>

@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/cutoff",
-      "schedule": "0 15 * * *"
+      "schedule": "0 16 * * *"
     }
   ],
   "functions": {

@@ -466,6 +466,7 @@ export const checklistRouter = router({
         .object({
           checklistId: z.string().optional(),
           date: z.string().optional(), // YYYY-MM-DD
+          scoreOverride: z.number().min(0).max(1).optional(), // e.g. 0.5 for half day
         })
         .optional()
     )
@@ -474,6 +475,8 @@ export const checklistRouter = router({
       const targetDateObj = parseDateOnly(input?.date || todayDateStr);
 
       if (input?.checklistId) {
+        const score = input?.scoreOverride ?? 1.0;
+
         await ctx.prisma.dailyChecklistItem.updateMany({
           where: { checklistId: input.checklistId },
           data: {
@@ -494,8 +497,8 @@ export const checklistRouter = router({
           data: {
             totalAssigned,
             completedCount: totalAssigned,
-            completionRate: 100,
-            workdayScore: 1.0,
+            completionRate: score * 100,
+            workdayScore: score,
           },
           include: {
             items: {

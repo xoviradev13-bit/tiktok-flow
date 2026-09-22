@@ -208,11 +208,10 @@ export default function TimesheetCalendar({
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className={`px-3 h-8 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5 ${
-                      isQuickDateOpen
-                        ? "bg-pink-500 text-white"
-                        : "text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800"
-                    }`}
+                    className={`px-3 h-8 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5 ${isQuickDateOpen
+                      ? "bg-pink-500 text-white"
+                      : "text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800"
+                      }`}
                   >
                     <span className="leading-none">
                       {quickMode === 'yesterday' ? 'Hôm qua' : quickMode === 'custom' ? 'Tùy chọn' : 'Hôm nay'}
@@ -250,11 +249,10 @@ export default function TimesheetCalendar({
                           if (onNavigateDate) onNavigateDate(format(today, "yyyy-MM-dd"));
                           setIsQuickDateOpen(false);
                         }}
-                        className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                          quickMode === 'today'
-                            ? 'bg-pink-500 text-white border-pink-500 shadow-sm'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 dark:hover:bg-pink-950/40 dark:hover:text-pink-400 dark:hover:border-pink-800 border-slate-200 dark:border-slate-700'
-                        }`}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${quickMode === 'today'
+                          ? 'bg-pink-500 text-white border-pink-500 shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 dark:hover:bg-pink-950/40 dark:hover:text-pink-400 dark:hover:border-pink-800 border-slate-200 dark:border-slate-700'
+                          }`}
                       >
                         Hôm nay
                       </button>
@@ -270,11 +268,10 @@ export default function TimesheetCalendar({
                           if (onNavigateDate) onNavigateDate(format(yest, "yyyy-MM-dd"));
                           setIsQuickDateOpen(false);
                         }}
-                        className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                          quickMode === 'yesterday'
-                            ? 'bg-pink-500 text-white border-pink-500 shadow-sm'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 dark:hover:bg-pink-950/40 dark:hover:text-pink-400 dark:hover:border-pink-800 border-slate-200 dark:border-slate-700'
-                        }`}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${quickMode === 'yesterday'
+                          ? 'bg-pink-500 text-white border-pink-500 shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 dark:hover:bg-pink-950/40 dark:hover:text-pink-400 dark:hover:border-pink-800 border-slate-200 dark:border-slate-700'
+                          }`}
                       >
                         Hôm qua
                       </button>
@@ -283,11 +280,10 @@ export default function TimesheetCalendar({
                       <button
                         type="button"
                         onClick={() => setQuickMode('custom')}
-                        className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                          quickMode === 'custom'
-                            ? 'bg-pink-500 text-white border-pink-500 shadow-sm'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 dark:hover:bg-pink-950/40 dark:hover:text-pink-400 dark:hover:border-pink-800 border-slate-200 dark:border-slate-700'
-                        }`}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${quickMode === 'custom'
+                          ? 'bg-pink-500 text-white border-pink-500 shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 dark:hover:bg-pink-950/40 dark:hover:text-pink-400 dark:hover:border-pink-800 border-slate-200 dark:border-slate-700'
+                          }`}
                       >
                         Tùy chọn
                       </button>
@@ -448,8 +444,8 @@ export default function TimesheetCalendar({
             <div
               key={lbl}
               className={`text-xs font-bold uppercase tracking-wider py-1 ${idx >= 5
-                  ? "text-rose-500/90 dark:text-rose-400/90"
-                  : "text-slate-500 dark:text-slate-400"
+                ? "text-rose-500/90 dark:text-rose-400/90"
+                : "text-slate-500 dark:text-slate-400"
                 }`}
             >
               {lbl}
@@ -521,29 +517,27 @@ export default function TimesheetCalendar({
               <div
                 key={dateStr}
                 onClick={() => onSelectDate(dateStr)}
-                className={`min-h-[110px] sm:min-h-[125px] p-2 sm:p-2.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group relative select-none ${
-                  isSelected
-                    ? "ring-2 ring-pink-500 dark:ring-pink-400 ring-offset-2 dark:ring-offset-slate-900 border-pink-500 shadow-md scale-[1.01]"
-                    : ""
-                } ${
-                  !isCurrMonth
+                className={`min-h-[110px] sm:min-h-[125px] p-2 sm:p-2.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group relative select-none ${isSelected
+                  ? "ring-2 ring-pink-500 dark:ring-pink-400 ring-offset-2 dark:ring-offset-slate-900 border-pink-500 shadow-md scale-[1.01]"
+                  : ""
+                  } ${!isCurrMonth
                     ? "opacity-35 bg-slate-50/50 dark:bg-slate-950/20 border-slate-100 dark:border-slate-800/40 hover:opacity-80"
                     : isCurrDay
                       ? "bg-gradient-to-b from-pink-50/40 to-white dark:from-pink-950/20 dark:to-slate-900 border-pink-400 dark:border-pink-600/70 shadow-xs"
                       : hasData
                         ? "bg-white dark:bg-slate-900/90 border-slate-200/90 dark:border-slate-800/90 hover:border-pink-300 dark:hover:border-slate-700 hover:shadow-md"
                         : "bg-slate-50/60 dark:bg-slate-950/40 border-slate-200/60 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-900"
-                }`}
+                  }`}
               >
                 {/* Cell Header: Day Number + Status Flag */}
                 <div className="flex items-center justify-between gap-1">
                   <div className="flex items-center gap-1.5">
                     <span
                       className={`text-xs sm:text-sm font-black rounded-lg w-6 h-6 flex items-center justify-center ${isCurrDay
-                          ? "bg-pink-600 text-white shadow-xs"
-                          : isCurrMonth
-                            ? "text-slate-800 dark:text-slate-200"
-                            : "text-slate-400 dark:text-slate-600"
+                        ? "bg-pink-600 text-white shadow-xs"
+                        : isCurrMonth
+                          ? "text-slate-800 dark:text-slate-200"
+                          : "text-slate-400 dark:text-slate-600"
                         }`}
                     >
                       {format(day, "d")}
@@ -600,10 +594,10 @@ export default function TimesheetCalendar({
                         <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                           <div
                             className={`h-full rounded-full ${singleRate >= 85
-                                ? "bg-emerald-500"
-                                : singleRate >= 50
-                                  ? "bg-amber-500"
-                                  : "bg-rose-500"
+                              ? "bg-emerald-500"
+                              : singleRate >= 50
+                                ? "bg-amber-500"
+                                : "bg-rose-500"
                               }`}
                             style={{ width: `${Math.min(100, singleRate)}%` }}
                           />
@@ -665,20 +659,20 @@ export default function TimesheetCalendar({
                         <div className="text-xs font-bold flex items-center justify-between min-h-[18px]">
                           {teamFull > 0 && (
                             <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
-                              {teamTotalStaff > 1 && <span>{teamFull}×</span>}
+                              {teamTotalStaff > 1 && <span>{teamFull} NV ×</span>}
                               <span>1 công</span>
                             </span>
                           )}
                           {teamHalf > 0 && (
                             <span className="text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
-                              {teamTotalStaff > 1 && <span>{teamHalf}×</span>}
+                              {teamTotalStaff > 1 && <span>{teamHalf} NV ×</span>}
                               <span>0.5 công</span>
                             </span>
                           )}
                           {teamZero > 0 && (
                             <span className="text-rose-600 dark:text-rose-400 flex items-center gap-0.5">
                               {teamTotalStaff > 1 ? (
-                                <span>{teamZero}× 0 công</span>
+                                <span>{teamZero} NV × 0 công</span>
                               ) : (
                                 <span>0 công</span>
                               )}

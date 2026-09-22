@@ -57,23 +57,25 @@ export async function GET(req: Request) {
       );
     }
 
-    // Capture GPM Port & Status reported by Client Agent via headers or query params
+    // Capture GPM Port & Status reported by Client Agent via headers or query params.
+    // Always update gpmLastSeenAt on every authenticated poll so the UI can detect
+    // that the agent is alive even when GPM Login is not running.
     try {
       const url = new URL(req.url);
       const rawPort = url.searchParams.get("gpmPort") || req.headers.get("x-gpm-port");
       const rawOnline = url.searchParams.get("gpmOnline") || req.headers.get("x-gpm-online");
       const parsedPort = rawPort ? parseInt(rawPort, 10) : null;
-      if (parsedPort && Number.isFinite(parsedPort) && parsedPort > 0) {
-        const isOnline = rawOnline !== "false" && rawOnline !== "0";
-        await prisma.user.update({
-          where: { id: authResult.user.id },
-          data: {
-            gpmPort: parsedPort,
-            gpmIsOnline: isOnline,
-            gpmLastSeenAt: new Date(),
-          },
-        });
-      }
+      const isOnline = rawOnline !== "false" && rawOnline !== "0" && !!parsedPort;
+      await prisma.user.update({
+        where: { id: authResult.user.id },
+        data: {
+          ...(parsedPort && Number.isFinite(parsedPort) && parsedPort > 0
+            ? { gpmPort: parsedPort }
+            : {}),
+          gpmIsOnline: isOnline,
+          gpmLastSeenAt: new Date(),
+        },
+      });
     } catch {
       // Ignore background telemetry errors
     }

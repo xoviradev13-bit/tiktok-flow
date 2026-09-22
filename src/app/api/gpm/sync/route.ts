@@ -169,8 +169,9 @@ async function getAgentSyncHint(userId: string): Promise<{
   });
 
   const lastSeenMs = user?.gpmLastSeenAt?.getTime() ?? 0;
-  const agentFresh =
-    Boolean(user?.gpmIsOnline) && Date.now() - lastSeenMs < AGENT_FRESH_MS;
+  // Agent is "fresh" if it has heartbeated recently — gpmIsOnline is NOT required
+  // because the agent polls regardless of whether GPM Login is running.
+  const agentFresh = Date.now() - lastSeenMs < AGENT_FRESH_MS;
   const boundMachineName = user?.boundMachineName || user?.boundMachineId || null;
   const gpmLastSeenAt = user?.gpmLastSeenAt?.toISOString() ?? null;
 
@@ -325,23 +326,25 @@ export async function GET(req: Request) {
         ? await getAgentSyncHint(user.id).catch(() => null)
         : null;
 
-    // Capture GPM Port & Status reported by Client Agent via headers or query params
+    // Capture GPM Port & Status reported by Client Agent via headers or query params.
+    // Always update gpmLastSeenAt on every authenticated poll so the UI can detect
+    // that the agent is alive even when GPM Login is not running.
     try {
       const url = new URL(req.url);
       const rawPort = url.searchParams.get("gpmPort") || req.headers.get("x-gpm-port");
       const rawOnline = url.searchParams.get("gpmOnline") || req.headers.get("x-gpm-online");
       const parsedPort = rawPort ? parseInt(rawPort, 10) : null;
-      if (parsedPort && Number.isFinite(parsedPort) && parsedPort > 0) {
-        const isOnline = rawOnline !== "false" && rawOnline !== "0";
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            gpmPort: parsedPort,
-            gpmIsOnline: isOnline,
-            gpmLastSeenAt: new Date(),
-          },
-        });
-      }
+      const isOnline = rawOnline !== "false" && rawOnline !== "0" && !!parsedPort;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          ...(parsedPort && Number.isFinite(parsedPort) && parsedPort > 0
+            ? { gpmPort: parsedPort }
+            : {}),
+          gpmIsOnline: isOnline,
+          gpmLastSeenAt: new Date(),
+        },
+      });
     } catch {
       // Ignore background telemetry errors
     }
