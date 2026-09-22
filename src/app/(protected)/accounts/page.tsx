@@ -88,18 +88,19 @@ import { useCurrency } from "@/contexts/CurrencyContext";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 
 const ACCOUNT_COLUMN_RESIZE_CONFIG = {
-  username: { minWidth: 160, maxWidth: 450, defaultWidth: 220 },
-  gpmGroup: { minWidth: 100, maxWidth: 300, defaultWidth: 140 },
-  gpmProfileId: { minWidth: 140, maxWidth: 350, defaultWidth: 180 },
-  country: { minWidth: 80, maxWidth: 200, defaultWidth: 110 },
-  status: { minWidth: 110, maxWidth: 260, defaultWidth: 140 },
-  assignedUser: { minWidth: 140, maxWidth: 350, defaultWidth: 180 },
-  totalViews: { minWidth: 100, maxWidth: 250, defaultWidth: 130 },
-  totalFollowers: { minWidth: 100, maxWidth: 250, defaultWidth: 140 },
-  totalVideos: { minWidth: 80, maxWidth: 200, defaultWidth: 110 },
-  totalRevenue: { minWidth: 100, maxWidth: 280, defaultWidth: 130 },
-  alertsCount: { minWidth: 100, maxWidth: 320, defaultWidth: 140 },
-  actions: { minWidth: 90, maxWidth: 220, defaultWidth: 110 },
+  // mins sized for header label + padding + core controls; text truncates inside the live width
+  username: { minWidth: 200, maxWidth: 480, defaultWidth: 280 },
+  gpmGroup: { minWidth: 150, maxWidth: 300, defaultWidth: 170 },
+  gpmProfileId: { minWidth: 220, maxWidth: 400, defaultWidth: 260 },
+  country: { minWidth: 96, maxWidth: 180, defaultWidth: 110 },
+  status: { minWidth: 128, maxWidth: 220, defaultWidth: 148 },
+  assignedUser: { minWidth: 240, maxWidth: 360, defaultWidth: 260 },
+  totalViews: { minWidth: 130, maxWidth: 240, defaultWidth: 150 },
+  totalFollowers: { minWidth: 120, maxWidth: 220, defaultWidth: 140 },
+  totalVideos: { minWidth: 90, maxWidth: 180, defaultWidth: 110 },
+  totalRevenue: { minWidth: 110, maxWidth: 240, defaultWidth: 130 },
+  alertsCount: { minWidth: 120, maxWidth: 280, defaultWidth: 150 },
+  actions: { minWidth: 100, maxWidth: 200, defaultWidth: 120 },
 } as const;
 
 type AccountSortKey =
@@ -709,11 +710,21 @@ function AccountsPageContent() {
     return 1 /* checkbox */ + Object.values(visibleColumns).filter(Boolean).length;
   }, [visibleColumns]);
 
+  const visibleResizeKeys = useMemo(
+    () =>
+      (Object.keys(ACCOUNT_COLUMN_RESIZE_CONFIG) as Array<keyof typeof ACCOUNT_COLUMN_RESIZE_CONFIG>).filter(
+        (key) => visibleColumns[key]
+      ),
+    [visibleColumns]
+  );
+
   const tableRef = useRef<HTMLDivElement>(null);
   const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
-    tableId: "accounts",
+    tableId: "accounts-v3",
     columns: ACCOUNT_COLUMN_RESIZE_CONFIG,
     tableRef,
+    visibleKeys: visibleResizeKeys,
+    extraWidth: 40, // checkbox column
   });
 
   // Modal states
@@ -1385,9 +1396,9 @@ function AccountsPageContent() {
             <div className="flex items-center gap-2.5 min-w-0">
               <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
               <div className="min-w-0">
-                <span className="font-bold">Chế độ Thùng rác (Trash Mode):</span>
+                <span className="font-bold">Thùng rác:</span>
                 <span className="ml-1 text-slate-600 dark:text-slate-300">
-                  Hiển thị các tài khoản TikTok đã bị xóa mềm. Bạn có thể khôi phục về danh sách chính hoặc xóa vĩnh viễn (Hard Delete).
+                  Hiển thị các tài khoản TikTok đã được xóa tạm thời. Bạn có thể khôi phục tài khoản hoặc xóa vĩnh viễn.
                 </span>
               </div>
             </div>
@@ -2918,13 +2929,19 @@ function AccountsPageContent() {
             </div>
           ) : (
             /* Table View */
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
+            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0">
               <div className="overflow-x-auto relative" ref={tableRef} style={getTableVars()}>
-                <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 border-collapse min-w-[1050px]">
+                <table
+                  className="text-left text-xs text-slate-700 dark:text-slate-300 border-collapse table-fixed"
+                  style={{
+                    width: "max(100%, var(--resize-table-min-width))",
+                    minWidth: "var(--resize-table-min-width)",
+                  }}
+                >
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none">
                     <tr>
                       {/* Checkbox All (Frozen Left) */}
-                      <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50 dark:bg-slate-950 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800">
+                      <th className="py-3.5 px-4 w-10 min-w-10 max-w-10 sticky left-0 z-20 bg-slate-50 dark:bg-slate-950 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800">
                         <Checkbox
                           checked={isAllPageSelected}
                           onCheckedChange={(val) => toggleSelectAll(!!val)}
@@ -2937,7 +2954,7 @@ function AccountsPageContent() {
                         <th
                           style={getColumnStyle("username")}
                           onClick={() => handleSort("username")}
-                          className="relative group/th px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]"
+                          className="relative group/th px-5 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white sticky left-10 z-20 bg-slate-50 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] overflow-hidden"
                         >
                           <div className="flex items-center gap-1.5 truncate">
                             <span className="truncate">Tài khoản</span>
@@ -2952,7 +2969,7 @@ function AccountsPageContent() {
                         <th
                           style={getColumnStyle("gpmGroup")}
                           onClick={() => handleSort("groupName")}
-                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white whitespace-nowrap"
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white overflow-hidden"
                         >
                           <div className="flex items-center gap-1.5 truncate">
                             <span className="truncate">GPM Group</span>
@@ -3133,7 +3150,7 @@ function AccountsPageContent() {
                               }`}
                           >
                             {/* Checkbox Row (Frozen Left) */}
-                            <td className={`py-3.5 px-4 sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
+                            <td className={`py-3.5 px-4 w-10 min-w-10 max-w-10 sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
                               <Checkbox
                                 checked={isSelected}
                                 onCheckedChange={() => toggleSelectRow(acc.id)}
@@ -3145,18 +3162,21 @@ function AccountsPageContent() {
                             {visibleColumns.username && (
                               <td
                                 style={getColumnStyle("username")}
-                                className={`px-5 py-3.5 sticky left-10 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]`}
+                                className={`px-5 py-3.5 sticky left-10 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] overflow-hidden`}
                               >
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 min-w-0 w-full">
+                                  <span className="shrink-0">
+                                    <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" showLabel={false} />
+                                  </span>
                                   <Link
                                     href={`/accounts/${acc.id}`}
-                                    className="font-bold text-slate-900 dark:text-slate-100 hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors flex items-center gap-1.5"
+                                    className="font-bold text-slate-900 dark:text-slate-100 hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors truncate min-w-0"
+                                    title={`@${acc.username}`}
                                   >
-                                    <span>@{acc.username}</span>
+                                    @{acc.username}
                                   </Link>
-                                  <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" showLabel={false} />
                                   {viewTrash && (
-                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40">
+                                    <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40">
                                       Đã xóa
                                     </span>
                                   )}
@@ -3166,8 +3186,8 @@ function AccountsPageContent() {
 
                             {/* GPM Group */}
                             {visibleColumns.gpmGroup && (
-                              <td style={getColumnStyle("gpmGroup")} className="px-4 py-3.5 whitespace-nowrap">
-                                <span className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
+                              <td style={getColumnStyle("gpmGroup")} className="px-4 py-3.5 overflow-hidden">
+                                <span className="inline-block max-w-full text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium truncate align-middle" title={acc.groupName || undefined}>
                                   {acc.groupName || "--"}
                                 </span>
                               </td>
@@ -3175,17 +3195,17 @@ function AccountsPageContent() {
 
                             {/* GPM Profile ID */}
                             {visibleColumns.gpmProfileId && (
-                              <td style={getColumnStyle("gpmProfileId")} className="px-4 py-3.5 whitespace-nowrap">
+                              <td style={getColumnStyle("gpmProfileId")} className="px-4 py-3.5 overflow-hidden">
                                 {acc.gpmProfileId ? (
-                                  <div className="inline-flex items-center gap-1.5 h-7.5 bg-cyan-50/80 dark:bg-cyan-950/50 border border-cyan-200/60 dark:border-cyan-800/40 rounded-xl px-2.5 shadow-2xs">
+                                  <div className="flex items-center gap-1.5 h-7.5 max-w-full min-w-0 bg-cyan-50/80 dark:bg-cyan-950/50 border border-cyan-200/60 dark:border-cyan-800/40 rounded-xl px-2.5 shadow-2xs">
                                     <span
-                                      className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 max-w-[130px] truncate"
+                                      className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 min-w-0 flex-1 truncate"
                                       title={acc.gpmProfileId}
                                     >
                                       {acc.gpmProfileId}
                                     </span>
                                     {(acc.gpmPort || gpmStatus?.port) && (
-                                      <span className="px-1 rounded text-[10px] font-mono font-bold bg-cyan-100/80 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-300 border border-cyan-300/40 dark:border-cyan-700/40" title={`Cổng API: ${acc.gpmPort || gpmStatus?.port}`}>
+                                      <span className="shrink-0 px-1 rounded text-[10px] font-mono font-bold bg-cyan-100/80 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-300 border border-cyan-300/40 dark:border-cyan-700/40" title={`Cổng API: ${acc.gpmPort || gpmStatus?.port}`}>
                                         :{acc.gpmPort || gpmStatus?.port}
                                       </span>
                                     )}
@@ -3195,7 +3215,7 @@ function AccountsPageContent() {
                                           type="button"
                                           onClick={() => handleStartGpm(acc.gpmProfileId, acc.gpmPort || gpmStatus?.port)}
                                           disabled={startingGpmId === acc.gpmProfileId || startGpmMutation.isPending}
-                                          className="p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                          className="shrink-0 p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
                                           aria-label={`Mở GPM (cổng ${acc.gpmPort || gpmStatus?.port || "auto"})`}
                                         >
                                           <Play className={`w-3 h-3 ${startingGpmId === acc.gpmProfileId ? "animate-pulse text-pink-500" : ""}`} />
@@ -3216,7 +3236,7 @@ function AccountsPageContent() {
                                             setActionMsg(`📋 Đã copy GPM ID: ${acc.gpmProfileId}`);
                                             setTimeout(() => setActionMsg(null), 3000);
                                           }}
-                                          className="p-1 -mr-1 text-cyan-600/70 hover:text-cyan-700 dark:text-cyan-400/70 dark:hover:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                          className="shrink-0 p-1 -mr-1 text-cyan-600/70 hover:text-cyan-700 dark:text-cyan-400/70 dark:hover:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
                                           aria-label="Sao chép GPM Profile ID"
                                         >
                                           {copiedGpmId === acc.id ? (
@@ -3232,21 +3252,21 @@ function AccountsPageContent() {
                                     </Tooltip>
                                   </div>
                                 ) : (
-                                  <span className="inline-flex items-center h-7.5 px-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 text-slate-400 text-xs italic bg-slate-50/50 dark:bg-slate-900/50">-- Chưa gán --</span>
+                                  <span className="inline-flex items-center h-7.5 px-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 text-slate-400 text-xs italic bg-slate-50/50 dark:bg-slate-900/50 truncate max-w-full">-- Chưa gán --</span>
                                 )}
                               </td>
                             )}
 
                             {/* Country */}
                             {visibleColumns.country && (
-                              <td style={getColumnStyle("country")} className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
-                                {getCountryFlag(acc.country)}
+                              <td style={getColumnStyle("country")} className="px-4 py-3.5 overflow-hidden font-medium text-slate-800 dark:text-slate-200">
+                                <div className="truncate">{getCountryFlag(acc.country)}</div>
                               </td>
                             )}
 
                             {/* Status Dropdown */}
                             {visibleColumns.status && (
-                              <td style={getColumnStyle("status")} className="px-4 py-3.5 whitespace-nowrap">
+                              <td style={getColumnStyle("status")} className="px-4 py-3.5 overflow-hidden">
                                 {(() => {
                                   const isBanned = acc.status === "BANNED";
                                   const statusElement = isLeadOrAdmin ? (
@@ -3254,7 +3274,7 @@ function AccountsPageContent() {
                                       value={acc.status}
                                       onValueChange={(val) => handleStatusChange(acc.id, val)}
                                     >
-                                      <SelectTrigger className="h-7.5 w-28 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                      <SelectTrigger className="h-7.5 w-full max-w-full text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent align="start" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
@@ -3294,7 +3314,7 @@ function AccountsPageContent() {
                                           </TooltipContent>
                                         </Tooltip>
                                         {acc.bannedReason && (
-                                          <span className="text-[10px] text-rose-500 font-medium truncate max-w-[130px]" title={acc.bannedReason}>
+                                          <span className="text-[10px] text-rose-500 font-medium truncate block max-w-full" title={acc.bannedReason}>
                                             {acc.bannedReason}
                                           </span>
                                         )}
@@ -3308,8 +3328,8 @@ function AccountsPageContent() {
 
                             {/* Assigned Staff */}
                             {visibleColumns.assignedUser && (
-                              <td style={getColumnStyle("assignedUser")} className="px-4 py-3.5 whitespace-nowrap">
-                                <div className="flex items-center gap-1.5">
+                              <td style={getColumnStyle("assignedUser")} className="px-4 py-3.5 overflow-hidden">
+                                <div className="flex items-center gap-1.5 min-w-0 w-full">
                                   {isLeadOrAdmin ? (
                                     <Select
                                       value={acc.assignedUserId || "UNASSIGNED"}
@@ -3318,7 +3338,7 @@ function AccountsPageContent() {
                                       }
                                       disabled={!!acc.isAssignmentLocked}
                                     >
-                                      <SelectTrigger className="h-7.5 w-40 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                      <SelectTrigger className="h-7.5 min-w-0 flex-1 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
                                         <SelectValue placeholder="-- Chưa gán --">
                                           <div className="flex items-center gap-1.5 min-w-0">
                                             {renderUserAvatar(getAssigneeUser(acc), "w-4 h-4 text-[8px]")}
@@ -3342,7 +3362,7 @@ function AccountsPageContent() {
                                     </Select>
                                   ) : (
                                     <span
-                                      className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-36 inline-flex items-center gap-1.5"
+                                      className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate min-w-0 flex-1 inline-flex items-center gap-1.5"
                                       title={getAssigneeLabel(acc)}
                                     >
                                       {renderUserAvatar(getAssigneeUser(acc), "w-4 h-4 text-[8px]")}
@@ -3400,10 +3420,10 @@ function AccountsPageContent() {
 
                             {/* Total Views */}
                             {visibleColumns.totalViews && (
-                              <td style={getColumnStyle("totalViews")} className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                              <td style={getColumnStyle("totalViews")} className="px-4 py-3.5 overflow-hidden font-medium text-slate-800 dark:text-slate-200">
                                 <HoverCard openDelay={80} closeDelay={80}>
                                   <HoverCardTrigger asChild>
-                                    <span className="cursor-help border-b border-dotted border-slate-400/50">
+                                    <span className="cursor-help border-b border-dotted border-slate-400/50 truncate inline-block max-w-full align-bottom">
                                       {Number(acc.totalViews || 0).toLocaleString()} views
                                     </span>
                                   </HoverCardTrigger>
@@ -3419,24 +3439,24 @@ function AccountsPageContent() {
 
                             {/* Total Followers */}
                             {visibleColumns.totalFollowers && (
-                              <td style={getColumnStyle("totalFollowers")} className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
-                                <span>{Number(acc.totalFollowers || 0).toLocaleString()} followers</span>
+                              <td style={getColumnStyle("totalFollowers")} className="px-4 py-3.5 overflow-hidden font-medium text-slate-800 dark:text-slate-200">
+                                <span className="truncate block">{Number(acc.totalFollowers || 0).toLocaleString()} followers</span>
                               </td>
                             )}
 
                             {/* Total Videos */}
                             {visibleColumns.totalVideos && (
-                              <td style={getColumnStyle("totalVideos")} className="px-4 py-3.5 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
-                                {acc.totalVideos || 0}
+                              <td style={getColumnStyle("totalVideos")} className="px-4 py-3.5 overflow-hidden font-medium text-slate-800 dark:text-slate-200">
+                                <span className="truncate block">{acc.totalVideos || 0}</span>
                               </td>
                             )}
 
                             {/* Total Revenue */}
                             {visibleColumns.totalRevenue && (
-                              <td style={getColumnStyle("totalRevenue")} className="px-4 py-3.5 whitespace-nowrap font-bold text-emerald-600 dark:text-emerald-400">
+                              <td style={getColumnStyle("totalRevenue")} className="px-4 py-3.5 overflow-hidden font-bold text-emerald-600 dark:text-emerald-400">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <span className="cursor-help border-b border-dotted border-emerald-500/40">
+                                    <span className="cursor-help border-b border-dotted border-emerald-500/40 truncate inline-block max-w-full align-bottom">
                                       {formatAmount(resolveAllTimeRevenue(acc as any), (acc as any).country)}
                                     </span>
                                   </TooltipTrigger>
@@ -3478,7 +3498,7 @@ function AccountsPageContent() {
 
                             {/* Alerts / Warnings */}
                             {visibleColumns.alertsCount && (
-                              <td style={getColumnStyle("alertsCount")} className="px-4 py-3.5 whitespace-nowrap">
+                              <td style={getColumnStyle("alertsCount")} className="px-4 py-3.5 overflow-hidden">
                                 {(() => {
                                   const punishedVideos = getPunishedVideos30d(acc);
 
@@ -3496,12 +3516,12 @@ function AccountsPageContent() {
                                         <PopoverTrigger asChild>
                                           <button
                                             type="button"
-                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800/80 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all shadow-sm cursor-pointer group"
+                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 max-w-full rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800/80 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all shadow-sm cursor-pointer group"
                                           >
                                             <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 group-hover:scale-110 transition-transform" />
-                                            <span>Bị loại khỏi Creator Rewards</span>
+                                            <span className="truncate">Bị loại khỏi Creator Rewards</span>
                                             {punishedVideos.length > 0 && (
-                                              <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[10px] rounded-full font-bold">
+                                              <span className="shrink-0 px-1.5 py-0.2 bg-rose-500 text-white text-[10px] rounded-full font-bold">
                                                 +{punishedVideos.length}
                                               </span>
                                             )}
@@ -3612,9 +3632,9 @@ function AccountsPageContent() {
                                     return (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
-                                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 cursor-pointer">
-                                            <AlertTriangle className="w-3 h-3" />
-                                            <span>{acc.alerts.length} cảnh báo</span>
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-1 max-w-full rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 cursor-pointer">
+                                            <AlertTriangle className="w-3 h-3 shrink-0" />
+                                            <span className="truncate">{acc.alerts.length} cảnh báo</span>
                                           </span>
                                         </TooltipTrigger>
                                         <TooltipContent className="max-w-xs text-xs space-y-1">

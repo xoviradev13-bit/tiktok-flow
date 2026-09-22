@@ -84,14 +84,14 @@ const REVENUE_SOURCE_OPTIONS = getRevenueSourceSelectOptions();
 const MAX_CUSTOM_RANGE_DAYS = 60;
 
 const REVENUE_DETAILS_COLUMN_RESIZE_CONFIG = {
-  accountUsername: { minWidth: 160, maxWidth: 400, defaultWidth: 200 },
-  assignedUser: { minWidth: 140, maxWidth: 320, defaultWidth: 180 },
-  date: { minWidth: 100, maxWidth: 220, defaultWidth: 130 },
-  views: { minWidth: 100, maxWidth: 250, defaultWidth: 140 },
-  rpm: { minWidth: 90, maxWidth: 220, defaultWidth: 120 },
-  revenue: { minWidth: 110, maxWidth: 260, defaultWidth: 140 },
-  sourceType: { minWidth: 140, maxWidth: 360, defaultWidth: 220 },
-  actions: { minWidth: 80, maxWidth: 200, defaultWidth: 100 },
+  accountUsername: { minWidth: 180, maxWidth: 400, defaultWidth: 220 },
+  assignedUser: { minWidth: 180, maxWidth: 320, defaultWidth: 210 },
+  date: { minWidth: 120, maxWidth: 220, defaultWidth: 140 },
+  views: { minWidth: 120, maxWidth: 250, defaultWidth: 140 },
+  rpm: { minWidth: 100, maxWidth: 220, defaultWidth: 120 },
+  revenue: { minWidth: 120, maxWidth: 260, defaultWidth: 140 },
+  sourceType: { minWidth: 260, maxWidth: 420, defaultWidth: 280 },
+  actions: { minWidth: 90, maxWidth: 200, defaultWidth: 110 },
 } as const;
 
 type RevenueSortKey =
@@ -242,11 +242,21 @@ function RevenueDetailsPageContent() {
     return 1 /* checkbox */ + Object.values(visibleColumns).filter(Boolean).length + 1 /* Thao tác */;
   }, [visibleColumns]);
 
+  const visibleResizeKeys = useMemo(
+    () =>
+      (Object.keys(REVENUE_DETAILS_COLUMN_RESIZE_CONFIG) as Array<
+        keyof typeof REVENUE_DETAILS_COLUMN_RESIZE_CONFIG
+      >).filter((key) => key === "actions" || visibleColumns[key as keyof typeof visibleColumns]),
+    [visibleColumns]
+  );
+
   const tableRef = useRef<HTMLDivElement>(null);
   const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
-    tableId: "revenue_details",
+    tableId: "revenue_details_v3",
     columns: REVENUE_DETAILS_COLUMN_RESIZE_CONFIG,
     tableRef,
+    visibleKeys: visibleResizeKeys,
+    extraWidth: 40,
   });
 
   // Selection & Actions
@@ -1636,7 +1646,13 @@ function RevenueDetailsPageContent() {
       ) : (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
           <div className="overflow-x-auto" ref={tableRef} style={getTableVars()}>
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 min-w-[950px]">
+            <table
+              className="text-left text-xs text-slate-700 dark:text-slate-300 table-fixed border-collapse"
+              style={{
+                width: "max(100%, var(--resize-table-min-width))",
+                minWidth: "var(--resize-table-min-width)",
+              }}
+            >
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none normal-case">
                 <tr>
                   {/* Checkbox All - Sticky Left 0 */}
@@ -1790,10 +1806,10 @@ function RevenueDetailsPageContent() {
                         {visibleColumns.accountUsername && (
                           <td
                             style={getColumnStyle("accountUsername")}
-                            className={`sticky left-10 z-10 px-5 py-3.5 font-bold text-slate-900 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] backdrop-blur-xs ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}
+                            className={`sticky left-10 z-10 px-5 py-3.5 font-bold text-slate-900 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] backdrop-blur-xs overflow-hidden ${isSelected ? "bg-amber-50/95 dark:bg-amber-950/90" : "bg-white/95 dark:bg-slate-900/95"}`}
                           >
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span>@{item.account?.username}</span>
+                            <div className="flex items-center gap-1.5 min-w-0 w-full">
+                              <span className="truncate min-w-0" title={`@${item.account?.username}`}>@{item.account?.username}</span>
                               {item.account?.deletedAt && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 shrink-0">
                                   Đã xóa
@@ -1805,48 +1821,50 @@ function RevenueDetailsPageContent() {
 
                         {/* Staff */}
                         {visibleColumns.assignedUser && (
-                          <td style={getColumnStyle("assignedUser")} className="px-4 py-3.5 text-slate-600 dark:text-slate-400">
-                            {item.account?.assignedUser?.fullName ||
-                              item.account?.assignedUser?.name ||
-                              item.account?.assignedUser?.username ||
-                              "Chưa gán"}
+                          <td style={getColumnStyle("assignedUser")} className="px-4 py-3.5 text-slate-600 dark:text-slate-400 overflow-hidden">
+                            <span className="truncate block" title={item.account?.assignedUser?.fullName || item.account?.assignedUser?.name || item.account?.assignedUser?.username || undefined}>
+                              {item.account?.assignedUser?.fullName ||
+                                item.account?.assignedUser?.name ||
+                                item.account?.assignedUser?.username ||
+                                "Chưa gán"}
+                            </span>
                           </td>
                         )}
 
                         {/* Date */}
                         {visibleColumns.date && (
-                          <td style={getColumnStyle("date")} className="px-4 py-3.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                            {item.date ? item.date.slice(0, 10) : "-"}
+                          <td style={getColumnStyle("date")} className="px-4 py-3.5 text-slate-600 dark:text-slate-400 overflow-hidden">
+                            <span className="truncate block">{item.date ? item.date.slice(0, 10) : "-"}</span>
                           </td>
                         )}
 
                         {/* Views */}
                         {visibleColumns.views && (
-                          <td style={getColumnStyle("views")} className="px-4 py-3.5 font-semibold text-slate-800 dark:text-slate-300">
-                            {Number(item.views || 0).toLocaleString()}
+                          <td style={getColumnStyle("views")} className="px-4 py-3.5 font-semibold text-slate-800 dark:text-slate-300 overflow-hidden">
+                            <span className="truncate block">{Number(item.views || 0).toLocaleString()}</span>
                           </td>
                         )}
 
                         {/* RPM */}
                         {visibleColumns.rpm && (
-                          <td style={getColumnStyle("rpm")} className="px-4 py-3.5 font-bold text-emerald-600 dark:text-emerald-400">
-                            {formatAmount(Number(item.rpm || 0), "USD")}
+                          <td style={getColumnStyle("rpm")} className="px-4 py-3.5 font-bold text-emerald-600 dark:text-emerald-400 overflow-hidden">
+                            <span className="truncate block">{formatAmount(Number(item.rpm || 0), "USD")}</span>
                           </td>
                         )}
 
                         {/* Revenue */}
                         {visibleColumns.revenue && (
-                          <td style={getColumnStyle("revenue")} className="px-4 py-3.5 font-black text-amber-600 dark:text-amber-300">
-                            {formatAmount(Number(item.revenue || 0), "USD")}
+                          <td style={getColumnStyle("revenue")} className="px-4 py-3.5 font-black text-amber-600 dark:text-amber-300 overflow-hidden">
+                            <span className="truncate block">{formatAmount(Number(item.revenue || 0), "USD")}</span>
                           </td>
                         )}
 
                         {/* Source */}
                         {visibleColumns.sourceType && (
-                          <td style={getColumnStyle("sourceType")} className="px-5 py-3.5">
+                          <td style={getColumnStyle("sourceType")} className="px-5 py-3.5 overflow-hidden">
                             <span
-                              className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs max-w-full truncate"
-                              title={item.sourceType}
+                              className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs max-w-full min-w-0 whitespace-nowrap truncate"
+                              title={formatRevenueSourceLabel(item.sourceType)}
                             >
                               {formatRevenueSourceLabel(item.sourceType)}
                             </span>

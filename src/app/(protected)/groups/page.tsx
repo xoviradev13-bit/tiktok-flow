@@ -65,13 +65,13 @@ import { toast } from "sonner";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 
 const GROUP_COLUMN_RESIZE_CONFIG = {
-  name: { minWidth: 160, maxWidth: 450, defaultWidth: 220 },
-  createdBy: { minWidth: 110, maxWidth: 280, defaultWidth: 150 },
-  createdAt: { minWidth: 100, maxWidth: 240, defaultWidth: 140 },
-  leader: { minWidth: 140, maxWidth: 320, defaultWidth: 180 },
-  members: { minWidth: 150, maxWidth: 400, defaultWidth: 200 },
-  totalAccounts: { minWidth: 110, maxWidth: 260, defaultWidth: 150 },
-  actions: { minWidth: 90, maxWidth: 220, defaultWidth: 110 },
+  name: { minWidth: 180, maxWidth: 450, defaultWidth: 220 },
+  createdBy: { minWidth: 140, maxWidth: 280, defaultWidth: 160 },
+  createdAt: { minWidth: 120, maxWidth: 240, defaultWidth: 150 },
+  leader: { minWidth: 180, maxWidth: 320, defaultWidth: 210 },
+  members: { minWidth: 180, maxWidth: 400, defaultWidth: 220 },
+  totalAccounts: { minWidth: 130, maxWidth: 260, defaultWidth: 160 },
+  actions: { minWidth: 100, maxWidth: 220, defaultWidth: 120 },
 } as const;
 
 type GroupSortKey = "name" | "membersCount" | "totalAccounts" | "createdAt";
@@ -188,11 +188,21 @@ function GroupsManagementContent() {
     return (isAdmin ? 1 : 0) + 1 /* # column */ + Object.values(visibleColumns).filter(Boolean).length;
   }, [visibleColumns, isAdmin]);
 
+  const visibleResizeKeys = useMemo(
+    () =>
+      (Object.keys(GROUP_COLUMN_RESIZE_CONFIG) as Array<keyof typeof GROUP_COLUMN_RESIZE_CONFIG>).filter(
+        (key) => visibleColumns[key]
+      ),
+    [visibleColumns]
+  );
+
   const tableRef = useRef<HTMLDivElement>(null);
   const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
-    tableId: "groups",
+    tableId: "groups_v2",
     columns: GROUP_COLUMN_RESIZE_CONFIG,
     tableRef,
+    visibleKeys: visibleResizeKeys,
+    extraWidth: isAdmin ? 80 : 40, // checkbox (admin) + # column
   });
 
   // Action feedback message
@@ -1315,7 +1325,13 @@ function GroupsManagementContent() {
         /* Table View */
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
           <div className="overflow-x-auto relative" ref={tableRef} style={getTableVars()}>
-            <table className="w-full text-left text-xs border-collapse min-w-[900px]">
+            <table
+              className="text-left text-xs border-collapse table-fixed"
+              style={{
+                width: "max(100%, var(--resize-table-min-width))",
+                minWidth: "var(--resize-table-min-width)",
+              }}
+            >
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800 select-none">
                 <tr>
                   {isAdmin && (
@@ -1468,16 +1484,16 @@ function GroupsManagementContent() {
                           <td
                             style={getColumnStyle("name")}
                             className={`py-4 px-4 align-middle sticky ${isAdmin ? "left-[80px]" : "left-[40px]"
-                              } z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]`}
+                              } z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] overflow-hidden`}
                           >
-                            <div className="flex items-center gap-2.5">
+                            <div className="flex items-center gap-2.5 min-w-0">
                               <span className={`w-3 h-3 rounded-full shrink-0 border ${getColorClass(group.color || "pink")}`} />
-                              <div>
-                                <div className="font-bold text-slate-900 dark:text-white text-xs">
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-900 dark:text-white text-xs truncate" title={group.name}>
                                   {group.name}
                                 </div>
                                 {group.description && (
-                                  <div className="text-xs text-slate-400 max-w-[220px] truncate" title={group.description}>
+                                  <div className="text-xs text-slate-400 truncate" title={group.description}>
                                     {group.description}
                                   </div>
                                 )}
@@ -1487,21 +1503,23 @@ function GroupsManagementContent() {
                         )}
 
                         {visibleColumns.createdBy && (
-                          <td style={getColumnStyle("createdBy")} className="py-4 px-4 align-middle text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                            {group.creator?.name || group.creator?.username || (
-                              <span className="text-slate-400 italic">Hệ thống</span>
-                            )}
+                          <td style={getColumnStyle("createdBy")} className="py-4 px-4 align-middle text-slate-600 dark:text-slate-400 overflow-hidden">
+                            <span className="truncate block" title={group.creator?.name || group.creator?.username || undefined}>
+                              {group.creator?.name || group.creator?.username || (
+                                <span className="text-slate-400 italic">Hệ thống</span>
+                              )}
+                            </span>
                           </td>
                         )}
 
                         {visibleColumns.createdAt && (
-                          <td style={getColumnStyle("createdAt")} className="py-4 px-4 align-middle text-slate-500 whitespace-nowrap text-xs">
-                            {group.createdAt ? new Date(group.createdAt).toLocaleDateString("vi-VN") : "--"}
+                          <td style={getColumnStyle("createdAt")} className="py-4 px-4 align-middle text-slate-500 overflow-hidden text-xs">
+                            <span className="truncate block">{group.createdAt ? new Date(group.createdAt).toLocaleDateString("vi-VN") : "--"}</span>
                           </td>
                         )}
 
                         {visibleColumns.leader && (
-                          <td style={getColumnStyle("leader")} className="py-4 px-4 align-middle whitespace-nowrap">
+                          <td style={getColumnStyle("leader")} className="py-4 px-4 align-middle overflow-hidden">
                             <Select
                               value={group.leader?.id || "UNASSIGNED"}
                               onValueChange={(val) => {
@@ -1514,10 +1532,10 @@ function GroupsManagementContent() {
                                 });
                               }}
                             >
-                              <SelectTrigger className="h-8 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer w-full max-w-[180px]">
+                              <SelectTrigger className="h-8 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer w-full min-w-0">
                                 <SelectValue>
                                   {group.leader ? (
-                                    <span className="flex items-center gap-1.5">
+                                    <span className="flex items-center gap-1.5 min-w-0">
                                       <Crown className="w-3 h-3 text-amber-500 shrink-0" />
                                       <span className="truncate">{group.leader.name}</span>
                                     </span>
@@ -1542,7 +1560,7 @@ function GroupsManagementContent() {
                         )}
 
                         {visibleColumns.members && (
-                          <td style={getColumnStyle("members")} className="py-4 px-4 align-middle whitespace-nowrap">
+                          <td style={getColumnStyle("members")} className="py-4 px-4 align-middle overflow-hidden">
                             {members.length === 0 ? (
                               <div className="flex items-center gap-2">
                                 {isAdmin && (
@@ -1739,9 +1757,11 @@ function GroupsManagementContent() {
                         )}
 
                         {visibleColumns.totalAccounts && (
-                          <td style={getColumnStyle("totalAccounts")} className="py-4 px-4 align-middle font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                            {group.totalAccounts}{" "}
-                            <span className="text-slate-400 text-xs font-normal">accounts</span>
+                          <td style={getColumnStyle("totalAccounts")} className="py-4 px-4 align-middle font-bold text-slate-800 dark:text-slate-200 overflow-hidden">
+                            <span className="truncate block">
+                              {group.totalAccounts}{" "}
+                              <span className="text-slate-400 text-xs font-normal">accounts</span>
+                            </span>
                           </td>
                         )}
 

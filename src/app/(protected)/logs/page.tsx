@@ -455,14 +455,14 @@ function LogsPageContent() {
           ) : (
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 table-fixed min-w-[900px]">
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-800">
                     <tr>
-                      <th className="px-5 py-4">Thời Gian</th>
-                      <th className="px-4 py-4">Tài Khoản TikTok</th>
-                      <th className="px-4 py-4">Loại Sự Kiện</th>
+                      <th className="px-5 py-4 w-[160px]">Thời Gian</th>
+                      <th className="px-4 py-4 w-[180px]">Tài Khoản TikTok</th>
+                      <th className="px-4 py-4 w-[140px]">Loại Sự Kiện</th>
                       <th className="px-4 py-4">Nội Dung Chi Tiết</th>
-                      <th className="px-5 py-4 text-right whitespace-nowrap min-w-[160px]">Người Thực Hiện</th>
+                      <th className="px-5 py-4 text-right w-[160px]">Người Thực Hiện</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -479,21 +479,21 @@ function LogsPageContent() {
                           className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                         >
                           {/* Timestamp */}
-                          <td className="px-5 py-4 font-mono text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
-                              <Clock className="w-3.5 h-3.5 text-slate-400" />
-                              <span>{new Date(log.createdAt).toLocaleString("vi-VN")}</span>
+                          <td className="px-5 py-4 font-mono text-xs text-slate-500 dark:text-slate-400 overflow-hidden">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="truncate">{new Date(log.createdAt).toLocaleString("vi-VN")}</span>
                             </div>
                           </td>
 
                           {/* Account */}
-                          <td className="px-4 py-4 whitespace-nowrap">
+                          <td className="px-4 py-4 overflow-hidden">
                             {log.account ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-slate-900 dark:text-slate-100">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="font-bold text-slate-900 dark:text-slate-100 truncate" title={`@${log.account.username}`}>
                                   @{log.account.username}
                                 </span>
-                                <span className="text-xs font-mono text-slate-400">
+                                <span className="text-xs font-mono text-slate-400 shrink-0">
                                   ({log.account.country})
                                 </span>
                               </div>
@@ -503,9 +503,9 @@ function LogsPageContent() {
                           </td>
 
                           {/* Log Type */}
-                          <td className="px-4 py-4 whitespace-nowrap">
+                          <td className="px-4 py-4 overflow-hidden">
                             <span
-                              className={`px-2 py-0.5 rounded-md text-xs font-black uppercase ${log.logType === "STATUS_CHANGE"
+                              className={`inline-block max-w-full truncate px-2 py-0.5 rounded-md text-xs font-black uppercase ${log.logType === "STATUS_CHANGE"
                                 ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
                                 : log.logType === "ALERT"
                                   ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
@@ -513,26 +513,27 @@ function LogsPageContent() {
                                     ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                                     : "bg-slate-500/15 text-slate-600 dark:text-slate-400"
                                 }`}
+                              title={log.logType}
                             >
                               {log.logType}
                             </span>
                           </td>
 
                           {/* Message */}
-                          <td className="px-4 py-4">
-                            <div className="text-xs text-slate-800 dark:text-slate-200 max-w-xl font-medium">
+                          <td className="px-4 py-4 overflow-hidden">
+                            <div className="text-xs text-slate-800 dark:text-slate-200 font-medium truncate" title={log.message}>
                               {log.message}
                             </div>
                             {log.oldStatus && log.newStatus && (
-                              <div className="text-xs text-slate-400 mt-0.5 font-mono">
+                              <div className="text-xs text-slate-400 mt-0.5 font-mono truncate">
                                 Trạng thái: {log.oldStatus} ➔ {log.newStatus}
                               </div>
                             )}
                           </td>
 
                           {/* Actor */}
-                          <td className="px-5 py-4 text-right whitespace-nowrap font-mono text-xs text-slate-600 dark:text-slate-400 min-w-[160px]">
-                            {log.actorName || "System"}
+                          <td className="px-5 py-4 text-right font-mono text-xs text-slate-600 dark:text-slate-400 overflow-hidden">
+                            <span className="truncate block" title={log.actorName || "System"}>{log.actorName || "System"}</span>
                           </td>
                         </tr>
                       ))

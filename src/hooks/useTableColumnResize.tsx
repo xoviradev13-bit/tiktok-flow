@@ -20,6 +20,13 @@ interface UseTableColumnResizeOptions<K extends string> {
    * giving the silkiest possible resize feel.
    */
   tableRef?: React.RefObject<HTMLElement | null>;
+  /**
+   * Optional: only include these columns when computing table min-width.
+   * Use when the table has a column visibility toggle.
+   */
+  visibleKeys?: readonly K[];
+  /** Extra px reserved for non-resizable columns (e.g. checkbox). Default 0. */
+  extraWidth?: number;
 }
 
 /** Returns the CSS variable name for a given column key */
@@ -29,8 +36,28 @@ export function useTableColumnResize<K extends string>({
   tableId,
   columns,
   tableRef,
+  visibleKeys,
+  extraWidth = 0,
 }: UseTableColumnResizeOptions<K>) {
   const storageKey = `table_col_widths_${tableId}`;
+
+  const activeKeys = useCallback((): K[] => {
+    const all = Object.keys(columns) as K[];
+    if (!visibleKeys || visibleKeys.length === 0) return all;
+    const set = new Set(visibleKeys);
+    return all.filter((k) => set.has(k));
+  }, [columns, visibleKeys]);
+
+  const sumWidths = useCallback(
+    (widths: Record<K, number>) => {
+      let total = extraWidth;
+      for (const k of activeKeys()) {
+        total += widths[k] ?? columns[k].defaultWidth;
+      }
+      return total;
+    },
+    [activeKeys, columns, extraWidth]
+  );
 
   // ─── Initial widths (localStorage → defaults) ──────────────────────────────
   const [columnWidths, setColumnWidths] = useState<Record<K, number>>(() => {
@@ -89,24 +116,32 @@ export function useTableColumnResize<K extends string>({
   const getTableVars = useCallback((): React.CSSProperties => {
     const vars: Record<string, string> = {};
     for (const key of Object.keys(columns) as K[]) {
-      vars[cssVar(key)] = `${columnWidths[key] ?? columns[key].defaultWidth}px`;
+      const w = columnWidths[key] ?? columns[key].defaultWidth;
+      vars[cssVar(key)] = `${w}px`;
     }
+    vars["--resize-table-min-width"] = `${sumWidths(columnWidths)}px`;
     return vars as React.CSSProperties;
-  }, [columns, columnWidths]);
+  }, [columns, columnWidths, sumWidths]);
 
   /**
    * Returns inline styles for a `<th>` or `<td>`.
    * Width is expressed as a CSS variable so it can be updated in the DOM
    * without triggering a React re-render during drag.
+   *
+   * min/max are locked to the same var so `table-layout: auto` + `w-full`
+   * cannot stretch columns past the resized value (a common “resize does nothing” bug).
    */
   const getColumnStyle = useCallback(
     (key: K): React.CSSProperties => {
       const def = columns[key];
       if (!def) return {};
+      const w = `var(${cssVar(key)})`;
       return {
-        width: `var(${cssVar(key)})`,
-        minWidth: `${def.minWidth}px`,
-        maxWidth: `${def.maxWidth}px`,
+        width: w,
+        minWidth: w,
+        maxWidth: w,
+        boxSizing: "border-box",
+        overflow: "hidden",
       };
     },
     [columns]
@@ -130,10 +165,16 @@ export function useTableColumnResize<K extends string>({
       const applyWidth = (nextWidth: number) => {
         // Fast path ─ directly mutate CSS custom property on the DOM container.
         // This bypasses React entirely: zero re-renders during drag.
+        widthsRef.current = { ...widthsRef.current, [key]: nextWidth };
         if (tableRef?.current) {
           tableRef.current.style.setProperty(cssVar(key), `${nextWidth}px`);
+          // Keep table min-width in sync so widening a column can create horizontal scroll
+          // instead of silently stealing space from neighbors under `w-full`.
+          tableRef.current.style.setProperty(
+            "--resize-table-min-width",
+            `${sumWidths(widthsRef.current)}px`
+          );
         }
-        widthsRef.current = { ...widthsRef.current, [key]: nextWidth };
       };
 
       const onPointerMove = (moveEvent: MouseEvent | TouchEvent) => {
@@ -195,7 +236,17 @@ export function useTableColumnResize<K extends string>({
       window.addEventListener("touchmove", onPointerMove, { passive: false });
       window.addEventListener("touchend", onPointerUp);
     },
-    [columns, saveWidths, tableRef]
+    [columns, saveWidths, sumWidths, tableRef]
+  );
+
+  const syncTableMinWidth = useCallback(
+    (widths: Record<K, number>) => {
+      tableRef?.current?.style.setProperty(
+        "--resize-table-min-width",
+        `${sumWidths(widths)}px`
+      );
+    },
+    [sumWidths, tableRef]
   );
 
   // ─── Reset helpers ─────────────────────────────────────────────────────────
@@ -207,10 +258,11 @@ export function useTableColumnResize<K extends string>({
       widthsRef.current = updated;
       // Sync CSS var immediately so there's no flash
       tableRef?.current?.style.setProperty(cssVar(key), `${def.defaultWidth}px`);
+      syncTableMinWidth(updated);
       setColumnWidths(updated);
       saveWidths(updated);
     },
-    [columns, saveWidths, tableRef]
+    [columns, saveWidths, syncTableMinWidth, tableRef]
   );
 
   const resetAllWidths = useCallback(() => {
@@ -221,9 +273,10 @@ export function useTableColumnResize<K extends string>({
     }
     const typedReset = reset as Record<K, number>;
     widthsRef.current = typedReset;
+    syncTableMinWidth(typedReset);
     setColumnWidths(typedReset);
     saveWidths(typedReset);
-  }, [columns, saveWidths, tableRef]);
+  }, [columns, saveWidths, syncTableMinWidth, tableRef]);
 
   // ─── Resize handle renderer ────────────────────────────────────────────────
   /**
@@ -262,8 +315,10 @@ export function useTableColumnResize<K extends string>({
             e.preventDefault();
             resetColumnWidth(key);
           }}
-          className={`absolute ${sideClass} top-0 bottom-0 w-2.5 cursor-col-resize select-none touch-none z-[100] group/handle flex items-center justify-center ${
-            isDragging ? "opacity-100" : "opacity-0 hover:opacity-100"
+          className={`absolute ${sideClass} top-0 bottom-0 w-3 cursor-col-resize select-none touch-none z-[100] group/handle flex items-center justify-center pointer-events-auto ${
+            isDragging
+              ? "opacity-100"
+              : "opacity-0 group-hover/th:opacity-100 hover:opacity-100"
           } ${extraClasses}`}
         >
           {/* Visual resize bar */}

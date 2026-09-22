@@ -128,12 +128,17 @@ export const userRouter = router({
       return updated;
     }),
 
-  // 2b. Secure Password Update
+  // 2b. Secure Password Update / First-time Setup
+  // - If user already has a password → requires & verifies currentPassword (change flow)
+  // - If user has no password (OAuth-only) → allows direct setup (setup flow)
   updatePassword: protectedProcedure
     .input(
       z.object({
         currentPassword: z.string().optional(),
-        newPassword: z.string().min(8, "Mật khẩu mới phải có ít nhất 8 ký tự"),
+        newPassword: z
+          .string()
+          .min(8, "Mật khẩu mới phải có ít nhất 8 ký tự")
+          .max(72, "Mật khẩu tối đa 72 ký tự"),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -149,7 +154,9 @@ export const userRouter = router({
         });
       }
 
-      // If user currently has a password, verify it
+      const isFirstTimeSetup = !user.password;
+
+      // If user currently has a password, verify it before allowing changes
       if (user.password) {
         if (!input.currentPassword) {
           throw new TRPCError({
@@ -178,7 +185,10 @@ export const userRouter = router({
 
       return {
         success: true,
-        message: "Mật khẩu đã được thay đổi thành công.",
+        wasFirstTimeSetup: isFirstTimeSetup,
+        message: isFirstTimeSetup
+          ? "Mật khẩu đã được thiết lập thành công. Bạn có thể đăng nhập bằng email và mật khẩu mới."
+          : "Mật khẩu đã được thay đổi thành công.",
       };
     }),
 

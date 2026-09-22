@@ -433,19 +433,19 @@ function StrikeWarningPopover({ account, punishedVideos }: { account: any; punis
 
 const USER_ACCOUNTS_COLUMN_RESIZE_CONFIG = {
   select: { minWidth: 40, maxWidth: 56, defaultWidth: 44 },
-  username: { minWidth: 160, maxWidth: 450, defaultWidth: 240 },
-  isOnline: { minWidth: 80, maxWidth: 160, defaultWidth: 100 },
-  country: { minWidth: 80, maxWidth: 180, defaultWidth: 110 },
-  status: { minWidth: 100, maxWidth: 200, defaultWidth: 130 },
-  gpmProfileId: { minWidth: 110, maxWidth: 260, defaultWidth: 150 },
-  gpmGroup: { minWidth: 100, maxWidth: 240, defaultWidth: 130 },
-  alerts: { minWidth: 80, maxWidth: 160, defaultWidth: 100 },
-  totalViews: { minWidth: 90, maxWidth: 220, defaultWidth: 120 },
-  totalFollowers: { minWidth: 90, maxWidth: 220, defaultWidth: 120 },
-  totalVideos: { minWidth: 80, maxWidth: 180, defaultWidth: 100 },
-  totalRevenue: { minWidth: 90, maxWidth: 240, defaultWidth: 120 },
-  lastSyncedAt: { minWidth: 110, maxWidth: 260, defaultWidth: 140 },
-  actions: { minWidth: 80, maxWidth: 200, defaultWidth: 110 },
+  username: { minWidth: 200, maxWidth: 450, defaultWidth: 260 },
+  isOnline: { minWidth: 90, maxWidth: 160, defaultWidth: 100 },
+  country: { minWidth: 96, maxWidth: 180, defaultWidth: 110 },
+  status: { minWidth: 140, maxWidth: 220, defaultWidth: 155 },
+  gpmProfileId: { minWidth: 200, maxWidth: 360, defaultWidth: 240 },
+  gpmGroup: { minWidth: 140, maxWidth: 280, defaultWidth: 160 },
+  alerts: { minWidth: 110, maxWidth: 280, defaultWidth: 140 },
+  totalViews: { minWidth: 120, maxWidth: 240, defaultWidth: 140 },
+  totalFollowers: { minWidth: 120, maxWidth: 240, defaultWidth: 140 },
+  totalVideos: { minWidth: 90, maxWidth: 180, defaultWidth: 110 },
+  totalRevenue: { minWidth: 110, maxWidth: 240, defaultWidth: 130 },
+  lastSyncedAt: { minWidth: 130, maxWidth: 260, defaultWidth: 160 },
+  actions: { minWidth: 100, maxWidth: 200, defaultWidth: 120 },
 } as const;
 
 function UserDetailPageContent() {
@@ -559,9 +559,10 @@ function UserDetailPageContent() {
 
   const tableRef = useRef<HTMLDivElement>(null);
   const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
-    tableId: "user_accounts",
+    tableId: "user_accounts_v3",
     columns: USER_ACCOUNTS_COLUMN_RESIZE_CONFIG,
     tableRef,
+    extraWidth: 0, // select column is in the resize config
   });
 
   const [toastMsg, setToastMsg] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
@@ -816,40 +817,42 @@ function UserDetailPageContent() {
 
   // Status badge helper
   const getStatusBadge = (status: string) => {
+    const badgeClass =
+      "inline-flex max-w-full min-w-0 items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold whitespace-nowrap truncate";
     switch (status) {
       case "ACTIVE":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-            <CheckCircle className="w-3 h-3" /> Hoạt Động
+          <span className={`${badgeClass} bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20`} title="Hoạt Động">
+            <CheckCircle className="w-3 h-3 shrink-0" /> Hoạt Động
           </span>
         );
       case "WARMING":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            <Flame className="w-3 h-3" /> Đang Nuôi
+          <span className={`${badgeClass} bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20`} title="Đang Nuôi">
+            <Flame className="w-3 h-3 shrink-0" /> Đang Nuôi
           </span>
         );
       case "RESTRICTED":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-            <AlertTriangle className="w-3 h-3" /> Hạn Chế
+          <span className={`${badgeClass} bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20`} title="Hạn Chế">
+            <AlertTriangle className="w-3 h-3 shrink-0" /> Hạn Chế
           </span>
         );
       case "BANNED":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-            <XCircle className="w-3 h-3" /> Bị Khóa
+          <span className={`${badgeClass} bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20`} title="Bị Khóa">
+            <XCircle className="w-3 h-3 shrink-0" /> Bị Khóa
           </span>
         );
       case "STOPPED":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
-            <Clock className="w-3 h-3" /> Tạm Dừng
+          <span className={`${badgeClass} bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20`} title="Tạm Dừng">
+            <Clock className="w-3 h-3 shrink-0" /> Tạm Dừng
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">
+          <span className={`${badgeClass} bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20`} title={status}>
             {status}
           </span>
         );
@@ -1817,10 +1820,16 @@ function UserDetailPageContent() {
           ) : (
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden relative z-0 isolate">
               <div className="overflow-x-auto" ref={tableRef} style={getTableVars()}>
-                <table className="w-full text-left text-xs">
+                <table
+                  className="text-left text-xs table-fixed border-collapse"
+                  style={{
+                    width: "max(100%, var(--resize-table-min-width))",
+                    minWidth: "var(--resize-table-min-width)",
+                  }}
+                >
                   <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 normal-case">
                     <tr>
-                      <th className="py-3.5 px-4 w-10 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs">
+                      <th style={getColumnStyle("select")} className="py-3.5 px-4 sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs overflow-hidden">
                         <Checkbox
                           checked={isAllPageSelected}
                           onCheckedChange={(val) => toggleSelectAll(!!val)}
@@ -1973,7 +1982,7 @@ function UserDetailPageContent() {
                         key={acc.id}
                         className={`group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""}`}
                       >
-                        <td className={`py-3.5 px-4 sticky left-0 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 transition-colors`}>
+                        <td style={getColumnStyle("select")} className={`py-3.5 px-4 sticky left-0 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 transition-colors overflow-hidden`}>
                           <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => toggleSelectRow(acc.id)}
@@ -1983,18 +1992,18 @@ function UserDetailPageContent() {
                         {/* Account name - Sticky Left */}
                         <td
                           style={getColumnStyle("username")}
-                          className={`py-3.5 px-4 sticky left-10 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] transition-colors`}
+                          className={`py-3.5 px-4 sticky left-10 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] transition-colors overflow-hidden`}
                         >
-                          <div>
+                          <div className="min-w-0">
                             <Link
                               href={`/accounts/${acc.id}`}
-                              className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 flex items-center gap-1.5 transition-colors"
+                              className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 flex items-center gap-1.5 transition-colors min-w-0"
                             >
-                              <span>@{acc.username}</span>
-                              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="truncate min-w-0" title={`@${acc.username}`}>@{acc.username}</span>
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             </Link>
                             {acc.bannedReason && (
-                              <div className="text-[10px] text-rose-500 dark:text-rose-400 truncate mt-0.5 max-w-[180px]" title={acc.bannedReason}>
+                              <div className="text-[10px] text-rose-500 dark:text-rose-400 truncate mt-0.5" title={acc.bannedReason}>
                                 ⚠ {acc.bannedReason}
                               </div>
                             )}
@@ -2002,26 +2011,26 @@ function UserDetailPageContent() {
                         </td>
 
                         {/* Separate Online Column */}
-                        <td style={getColumnStyle("isOnline")} className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <td style={getColumnStyle("isOnline")} className="py-3.5 px-4 text-center overflow-hidden">
                           <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" />
                         </td>
 
                         {/* Country */}
-                        <td style={getColumnStyle("country")} className="py-3.5 px-4 whitespace-nowrap">
-                          {getCountryBadge(acc.country)}
+                        <td style={getColumnStyle("country")} className="py-3.5 px-4 overflow-hidden">
+                          <div className="truncate">{getCountryBadge(acc.country)}</div>
                         </td>
 
                         {/* Status */}
-                        <td style={getColumnStyle("status")} className="py-3.5 px-4 whitespace-nowrap">
+                        <td style={getColumnStyle("status")} className="py-3.5 px-4 overflow-hidden">
                           {getStatusBadge(acc.status)}
                         </td>
 
                         {/* GPM Profile ID */}
-                        <td style={getColumnStyle("gpmProfileId")} className="py-3.5 px-4 whitespace-nowrap">
+                        <td style={getColumnStyle("gpmProfileId")} className="py-3.5 px-4 overflow-hidden">
                           {acc.gpmProfileId ? (
-                            <div className="inline-flex items-center gap-1.5 h-7.5 bg-cyan-50/80 dark:bg-cyan-950/50 border border-cyan-200/60 dark:border-cyan-800/40 rounded-xl px-2.5 shadow-2xs">
+                            <div className="flex items-center gap-1.5 h-7.5 max-w-full min-w-0 bg-cyan-50/80 dark:bg-cyan-950/50 border border-cyan-200/60 dark:border-cyan-800/40 rounded-xl px-2.5 shadow-2xs">
                               <span
-                                className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 max-w-[130px] truncate"
+                                className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 min-w-0 flex-1 truncate"
                                 title={acc.gpmProfileId}
                               >
                                 {acc.gpmProfileId}
@@ -2032,7 +2041,7 @@ function UserDetailPageContent() {
                                     type="button"
                                     onClick={() => startGpmMutation.mutate({ gpmProfileId: acc.gpmProfileId })}
                                     disabled={startGpmMutation.isPending}
-                                    className="p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                    className="shrink-0 p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
                                     aria-label="Mở GPM"
                                   >
                                     <Play className={`w-3 h-3 ${startGpmMutation.isPending ? "animate-pulse text-pink-500" : ""}`} />
@@ -2049,7 +2058,7 @@ function UserDetailPageContent() {
                                       setCopiedGpmId(acc.id);
                                       setTimeout(() => setCopiedGpmId((prev) => (prev === acc.id ? null : prev)), 2000);
                                     }}
-                                    className="p-1 -mr-1 text-cyan-600/70 hover:text-cyan-700 dark:text-cyan-400/70 dark:hover:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                    className="shrink-0 p-1 -mr-1 text-cyan-600/70 hover:text-cyan-700 dark:text-cyan-400/70 dark:hover:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
                                     aria-label="Sao chép GPM Profile ID"
                                   >
                                     {copiedGpmId === acc.id ? (
@@ -2065,19 +2074,19 @@ function UserDetailPageContent() {
                               </Tooltip>
                             </div>
                           ) : (
-                            <span className="inline-flex items-center h-7.5 px-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 text-slate-400 text-xs italic bg-slate-50/50 dark:bg-slate-900/50">-- Chưa gán --</span>
+                            <span className="inline-flex items-center h-7.5 px-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 text-slate-400 text-xs italic bg-slate-50/50 dark:bg-slate-900/50 truncate max-w-full">-- Chưa gán --</span>
                           )}
                         </td>
 
                         {/* GPM Group */}
-                        <td style={getColumnStyle("gpmGroup")} className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
+                        <td style={getColumnStyle("gpmGroup")} className="py-3.5 px-4 overflow-hidden">
+                          <span className="inline-block max-w-full text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium truncate align-middle" title={acc.groupName || undefined}>
                             {acc.groupName || "--"}
                           </span>
                         </td>
 
                         {/* Alerts */}
-                        <td style={getColumnStyle("alerts")} className="py-3.5 px-4 whitespace-nowrap">
+                        <td style={getColumnStyle("alerts")} className="py-3.5 px-4 overflow-hidden">
                           {(() => {
                             const punishedVideos = getPunishedVideos30d(acc);
                             const isBannedFromCreator =
@@ -2094,12 +2103,12 @@ function UserDetailPageContent() {
                                   <PopoverTrigger asChild>
                                     <button
                                       type="button"
-                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800/80 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all shadow-sm cursor-pointer group"
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 max-w-full rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800/80 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all shadow-sm cursor-pointer group"
                                     >
                                       <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 group-hover:scale-110 transition-transform" />
-                                      <span>Bị loại khỏi Creator Rewards</span>
+                                      <span className="truncate">Bị loại khỏi Creator Rewards</span>
                                       {punishedVideos.length > 0 && (
-                                        <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[10px] rounded-full font-bold">
+                                        <span className="shrink-0 px-1.5 py-0.2 bg-rose-500 text-white text-[10px] rounded-full font-bold">
                                           +{punishedVideos.length}
                                         </span>
                                       )}
@@ -2209,10 +2218,10 @@ function UserDetailPageContent() {
                         </td>
 
                         {/* Views */}
-                        <td style={getColumnStyle("totalViews")} className="py-3.5 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                        <td style={getColumnStyle("totalViews")} className="py-3.5 px-4 font-bold text-slate-900 dark:text-white overflow-hidden">
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <span className="cursor-help border-b border-dotted border-slate-400/50">
+                              <span className="cursor-help border-b border-dotted border-slate-400/50 truncate inline-block max-w-full align-bottom">
                                 {Number(acc.totalViews || 0).toLocaleString()}
                               </span>
                             </TooltipTrigger>
@@ -2253,20 +2262,20 @@ function UserDetailPageContent() {
                         </td>
 
                         {/* Followers */}
-                        <td style={getColumnStyle("totalFollowers")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                          {Number(acc.totalFollowers || 0).toLocaleString()}
+                        <td style={getColumnStyle("totalFollowers")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 overflow-hidden">
+                          <span className="truncate block">{Number(acc.totalFollowers || 0).toLocaleString()}</span>
                         </td>
 
                         {/* Videos */}
-                        <td style={getColumnStyle("totalVideos")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                          {Number(acc.totalVideos || 0).toLocaleString()}
+                        <td style={getColumnStyle("totalVideos")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 overflow-hidden">
+                          <span className="truncate block">{Number(acc.totalVideos || 0).toLocaleString()}</span>
                         </td>
 
                         {/* Revenue */}
-                        <td style={getColumnStyle("totalRevenue")} className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                        <td style={getColumnStyle("totalRevenue")} className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 overflow-hidden">
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <span className="cursor-help border-b border-dotted border-emerald-500/40">
+                              <span className="cursor-help border-b border-dotted border-emerald-500/40 truncate inline-block max-w-full align-bottom">
                                 {formatAmount(
                                   Number(acc.displayRevenue ?? acc.totalRevenue ?? 0),
                                   (acc as any).country
@@ -2319,15 +2328,17 @@ function UserDetailPageContent() {
                         </td>
 
                         {/* Last Synced */}
-                        <td style={getColumnStyle("lastSyncedAt")} className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                          {acc.lastSyncedAt
-                            ? new Date(acc.lastSyncedAt).toLocaleString("vi-VN", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                                day: "2-digit",
-                                month: "2-digit",
-                              })
-                            : "Chưa sync"}
+                        <td style={getColumnStyle("lastSyncedAt")} className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 overflow-hidden">
+                          <span className="truncate block">
+                            {acc.lastSyncedAt
+                              ? new Date(acc.lastSyncedAt).toLocaleString("vi-VN", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                })
+                              : "Chưa sync"}
+                          </span>
                         </td>
 
                         {/* Action Buttons - Sticky Right */}

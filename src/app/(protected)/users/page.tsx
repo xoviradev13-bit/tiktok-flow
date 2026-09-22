@@ -89,14 +89,14 @@ import { useConfirmDialog } from "@/components/ui/confirm-modal";
 import { downloadPackage } from "@/lib/download-package";
 
 const USERS_COLUMN_RESIZE_CONFIG = {
-  fullName: { minWidth: 160, maxWidth: 450, defaultWidth: 220 },
-  username: { minWidth: 110, maxWidth: 300, defaultWidth: 150 },
-  email: { minWidth: 140, maxWidth: 380, defaultWidth: 200 },
-  role: { minWidth: 90, maxWidth: 240, defaultWidth: 130 },
-  groupName: { minWidth: 120, maxWidth: 300, defaultWidth: 160 },
-  accountsCount: { minWidth: 110, maxWidth: 260, defaultWidth: 155 },
-  isActive: { minWidth: 110, maxWidth: 260, defaultWidth: 150 },
-  actions: { minWidth: 90, maxWidth: 220, defaultWidth: 110 },
+  fullName: { minWidth: 180, maxWidth: 450, defaultWidth: 220 },
+  username: { minWidth: 130, maxWidth: 300, defaultWidth: 160 },
+  email: { minWidth: 180, maxWidth: 380, defaultWidth: 220 },
+  role: { minWidth: 110, maxWidth: 240, defaultWidth: 130 },
+  groupName: { minWidth: 170, maxWidth: 300, defaultWidth: 190 },
+  accountsCount: { minWidth: 130, maxWidth: 260, defaultWidth: 160 },
+  isActive: { minWidth: 130, maxWidth: 260, defaultWidth: 150 },
+  actions: { minWidth: 100, maxWidth: 220, defaultWidth: 120 },
 } as const;
 
 type SortKey = "fullName" | "username" | "email" | "role" | "groupName" | "accountsCount" | "isActive" | "createdAt";
@@ -302,11 +302,21 @@ function UsersManagementContent() {
     return 1 /* checkbox */ + Object.values(visibleColumns).filter(Boolean).length;
   }, [visibleColumns]);
 
+  const visibleResizeKeys = useMemo(
+    () =>
+      (Object.keys(USERS_COLUMN_RESIZE_CONFIG) as Array<keyof typeof USERS_COLUMN_RESIZE_CONFIG>).filter(
+        (key) => visibleColumns[key]
+      ),
+    [visibleColumns]
+  );
+
   const tableRef = useRef<HTMLDivElement>(null);
   const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
-    tableId: "users",
+    tableId: "users_v3",
     columns: USERS_COLUMN_RESIZE_CONFIG,
     tableRef,
+    visibleKeys: visibleResizeKeys,
+    extraWidth: 40,
   });
 
   // Selection
@@ -2072,7 +2082,13 @@ function UsersManagementContent() {
         ) : (
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden relative z-0 isolate">
             <div className="overflow-x-auto relative" ref={tableRef} style={getTableVars()}>
-              <table className="w-full text-left text-xs border-collapse">
+              <table
+                className="text-left text-xs border-collapse table-fixed"
+                style={{
+                  width: "max(100%, var(--resize-table-min-width))",
+                  minWidth: "var(--resize-table-min-width)",
+                }}
+              >
                 <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 select-none normal-case">
                   <tr>
                     {/* Checkbox All (Frozen Left) */}
@@ -2230,11 +2246,11 @@ function UsersManagementContent() {
                           {visibleColumns.fullName && (
                             <td
                               style={getColumnStyle("fullName")}
-                              className="py-3 px-4 sticky left-10 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]"
+                              className="py-3 px-4 sticky left-10 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] overflow-hidden"
                             >
                               <Link
                                 href={`/users/${u.id}`}
-                                className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 transition-colors flex items-center gap-2 group/link"
+                                className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 transition-colors flex items-center gap-2 group/link min-w-0"
                               >
                                 <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white text-xs font-bold shrink-0 select-none">
                                   {u.avatar ? (
@@ -2249,7 +2265,7 @@ function UsersManagementContent() {
                                     </span>
                                   )}
                                 </div>
-                                <span className="group-hover/link:underline truncate">
+                                <span className="group-hover/link:underline truncate min-w-0" title={u.fullName || undefined}>
                                   {u.fullName || "Chưa đặt tên"}
                                 </span>
                               </Link>
@@ -2258,28 +2274,28 @@ function UsersManagementContent() {
 
                           {/* Username */}
                           {visibleColumns.username && (
-                            <td style={getColumnStyle("username")} className="py-3 px-4 text-slate-600 dark:text-slate-300 font-mono text-xs">
-                              @{u.username}
+                            <td style={getColumnStyle("username")} className="py-3 px-4 text-slate-600 dark:text-slate-300 font-mono text-xs overflow-hidden">
+                              <span className="truncate block" title={`@${u.username}`}>@{u.username}</span>
                             </td>
                           )}
 
                           {/* Email */}
                           {visibleColumns.email && (
-                            <td style={getColumnStyle("email")} className="py-3 px-4 text-slate-600 dark:text-slate-400">
-                              {u.email}
+                            <td style={getColumnStyle("email")} className="py-3 px-4 text-slate-600 dark:text-slate-400 overflow-hidden">
+                              <span className="truncate block" title={u.email}>{u.email}</span>
                             </td>
                           )}
 
                           {/* Role */}
                           {visibleColumns.role && (
-                            <td style={getColumnStyle("role")} className="py-3 px-4">
+                            <td style={getColumnStyle("role")} className="py-3 px-4 overflow-hidden">
                               {getRoleBadge(u.role)}
                             </td>
                           )}
 
                           {/* Group Select Dropdown */}
                           {visibleColumns.groupName && (
-                            <td style={getColumnStyle("groupName")} className="py-3 px-4">
+                            <td style={getColumnStyle("groupName")} className="py-3 px-4 overflow-hidden">
                               <Select
                                 value={u.groupName || "NONE"}
                                 onValueChange={(val) => {
@@ -2290,14 +2306,14 @@ function UsersManagementContent() {
                                   });
                                 }}
                               >
-                                <SelectTrigger className="w-36 h-7.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                                <SelectTrigger className="w-full min-w-0 h-7.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate">
                                   <SelectValue placeholder="Gán nhóm">
                                     {u.groupName ? (
-                                      <span className="font-normal text-slate-800 dark:text-slate-200">
+                                      <span className="font-normal text-slate-800 dark:text-slate-200 truncate whitespace-nowrap">
                                         {u.groupName}
                                       </span>
                                     ) : (
-                                      <span className="text-slate-400 font-normal">Chưa gán nhóm</span>
+                                      <span className="text-slate-400 font-normal truncate whitespace-nowrap">Chưa gán nhóm</span>
                                     )}
                                   </SelectValue>
                                 </SelectTrigger>
@@ -2317,8 +2333,8 @@ function UsersManagementContent() {
 
                           {/* Accounts Count */}
                           {visibleColumns.accountsCount && (
-                            <td style={getColumnStyle("accountsCount")} className="py-3 px-4">
-                              <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
+                            <td style={getColumnStyle("accountsCount")} className="py-3 px-4 overflow-hidden">
+                              <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs max-w-full truncate">
                                 {u.accountsCount} tài khoản
                               </span>
                             </td>
@@ -2326,7 +2342,7 @@ function UsersManagementContent() {
 
                           {/* Status */}
                           {visibleColumns.isActive && (
-                            <td style={getColumnStyle("isActive")} className="py-3 px-4 whitespace-nowrap">
+                            <td style={getColumnStyle("isActive")} className="py-3 px-4 overflow-hidden">
                               <button
                                 disabled={u.id === session?.user?.id}
                                 onClick={() => openToggleStatusModal(u)}
@@ -2337,7 +2353,7 @@ function UsersManagementContent() {
                                       ? "Bấm để chặn quyền truy cập"
                                       : "Bấm để mở chặn quyền truy cập"
                                 }
-                                className={`inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold border transition-all shadow-2xs whitespace-nowrap ${u.id === session?.user?.id
+                                className={`inline-flex items-center gap-1.5 px-3 h-7.5 max-w-full rounded-xl text-xs font-bold border transition-all shadow-2xs ${u.id === session?.user?.id
                                   ? "opacity-80 cursor-default"
                                   : "cursor-pointer"
                                   } ${u.isActive
@@ -2346,10 +2362,10 @@ function UsersManagementContent() {
                                   }`}
                               >
                                 <span
-                                  className={`w-1.5 h-1.5 rounded-full ${u.isActive ? "bg-emerald-500" : "bg-rose-500"
+                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${u.isActive ? "bg-emerald-500" : "bg-rose-500"
                                     }`}
                                 />
-                                <span>{u.isActive ? "Hoạt động" : "Bị chặn"}</span>
+                                <span className="truncate">{u.isActive ? "Hoạt động" : "Bị chặn"}</span>
                               </button>
                             </td>
                           )}

@@ -509,7 +509,7 @@ function SettingsPageContent() {
     }
   };
 
-  // Handle Password Update
+  // Handle Password Update / Set up
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword.length < 8) {
@@ -530,7 +530,12 @@ function SettingsPageContent() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      toast.success("Thay đổi mật khẩu thành công! Hãy lưu lại mật khẩu mới.");
+      await refetchProfile();
+      toast.success(
+        userProfile?.hasPassword
+          ? "Thay đổi mật khẩu thành công! Hãy lưu lại mật khẩu mới."
+          : "Thiết lập mật khẩu thành công! Bạn có thể đăng nhập bằng email và mật khẩu này."
+      );
     } catch (err: any) {
       toast.error(err?.message || "Lỗi khi đổi mật khẩu");
     } finally {
@@ -1121,7 +1126,7 @@ function SettingsPageContent() {
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-500 dark:text-slate-400">Mật khẩu:</span>
                 <span className="font-bold text-slate-800 dark:text-slate-200">
-                  {userProfile?.hasPassword ? "Đã thiết lập" : "Đăng nhập OAuth"}
+                  {userProfile?.hasPassword ? "Đã thiết lập" : "Chưa thiết lập (OAuth)"}
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">
@@ -1140,15 +1145,30 @@ function SettingsPageContent() {
             </button>
           </div>
 
-          {/* Password Change Form */}
+          {/* Password Set up / Change Form */}
           <div className="lg:col-span-2 bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs">
-            <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
-              <Lock className="w-5 h-5 text-indigo-500" />
-              Thay Đổi Mật Khẩu Đăng Nhập
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-              Mật khẩu mới yêu cầu tối thiểu 8 ký tự, bao gồm chữ hoa, chữ số hoặc ký tự đặc biệt để đạt độ an toàn cao nhất.
-            </p>
+            {userProfile?.hasPassword ? (
+              <>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+                  <Lock className="w-5 h-5 text-indigo-500" />
+                  Thay Đổi Mật Khẩu Đăng Nhập
+                </h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                  Mật khẩu mới yêu cầu tối thiểu 8 ký tự, bao gồm chữ hoa, chữ số hoặc ký tự đặc biệt để đạt độ an toàn cao nhất.
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-emerald-500" />
+                  Thiết Lập Mật Khẩu Đăng Nhập
+                </h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                  Tài khoản của bạn hiện đăng nhập bằng OAuth (Google). Hãy thiết lập mật khẩu riêng để có thể đăng nhập bằng email
+                  và tăng cường bảo mật cho tài khoản.
+                </p>
+              </>
+            )}
 
             <form onSubmit={handleUpdatePassword} className="space-y-4">
               {userProfile?.hasPassword && (
@@ -1177,7 +1197,7 @@ function SettingsPageContent() {
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 block">
-                  Mật Khẩu Mới
+                  {userProfile?.hasPassword ? "Mật Khẩu Mới" : "Mật Khẩu Mới"}
                 </label>
                 <div className="relative">
                   <input
@@ -1252,10 +1272,15 @@ function SettingsPageContent() {
                       <RefreshCw className="w-4 h-4 animate-spin" />
                       <span>Đang lưu...</span>
                     </>
-                  ) : (
+                  ) : userProfile?.hasPassword ? (
                     <>
                       <Lock className="w-4 h-4" />
                       <span>Cập Nhật Mật Khẩu Mới</span>
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound className="w-4 h-4" />
+                      <span>Thiết Lập Mật Khẩu</span>
                     </>
                   )}
                 </button>
