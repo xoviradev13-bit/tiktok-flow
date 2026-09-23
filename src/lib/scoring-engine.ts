@@ -31,6 +31,13 @@ export const DEFAULT_SCORING_CONFIG: ScoringRuleConfig = {
   excludeBannedAccounts: true,
 };
 
+/**
+ * How far back the cutoff cron will finalize/lock checklists.
+ * This is also used as the BACKFILL_WINDOW_DAYS ceiling — backfilling past
+ * this window is useless because those checklists are already locked.
+ */
+export const CHECKLIST_FINALIZATION_WINDOW_DAYS = 7;
+
 export async function getScoringConfig(prisma: any): Promise<ScoringRuleConfig> {
   try {
     const record = await prisma.systemConfig.findUnique({
@@ -189,7 +196,7 @@ export async function finalizePendingChecklists(
   const scoringConfig = await getScoringConfig(prisma);
 
   const dateFilter: any = {
-    gte: sevenDaysAgoDateOnly,
+    gte: sevenDaysAgoDateOnly, // CHECKLIST_FINALIZATION_WINDOW_DAYS back
   };
   if (options.includeToday) {
     dateFilter.lte = todayDateOnly;
@@ -241,6 +248,11 @@ export async function finalizePendingChecklists(
     }
 
     // 2. Auto-check items with videosSnapshot or (isPosted && isSynced)
+    // NOTE: videosSnapshot may include backfill-sourced entries (videoSource = "backfill").
+    // Scoring treats presence of any video on that date as satisfying the auto-check
+    // condition, regardless of isSynced or videoSource. isSynced is NOT read here —
+    // confirmed during backfill implementation (§0.2). If this ever changes, backfilled
+    // days will stop scoring correctly with no error, only silently-wrong completion state.
     for (const item of checklist.items) {
       const hasVideos = Array.isArray(item.videosSnapshot) && item.videosSnapshot.length > 0;
       const isCompleted = item.isCompleted || (item.isPosted && item.isSynced) || hasVideos;

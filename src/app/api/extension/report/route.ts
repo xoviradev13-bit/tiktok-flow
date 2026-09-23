@@ -920,58 +920,86 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. Daily Checklist Video Ingestion: Store videos posted today into DailyChecklistItem.videosSnapshot
+    // 4. Daily Checklist Video Ingestion
+    // Phase A: Write today's videos as source = "live" (real-time monitoring signal).
+    // Phase B: Backfill past days (up to 7 days) from TikTok's video history.
+    //          Uses videoSource provenance: live > manual > backfill.
     if (Array.isArray(videosList) && videosList.length > 0) {
       try {
+        const {
+          toVnDateStr,
+          vnDateStrToChecklistDate,
+          parseVideoVnDate,
+          backfillChecklistVideos,
+        } = await import("@/lib/checklist-video-backfill");
+
         const now = new Date();
-        const todayOnly = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+        const todayVnStr = toVnDateStr(now);
+        const todayChecklistDate = vnDateStrToChecklistDate(todayVnStr);
 
-        // Helper to extract Vietnam Date string (YYYY-MM-DD)
-        const parseVnDate = (v: any) => {
-          let d: Date | null = null;
-          if (v.createTime || v.create_time || v.createtime) {
-            const sec = Number(v.createTime || v.create_time || v.createtime);
-            d = new Date(sec > 1e11 ? sec : sec * 1000);
-          } else if (v.postDate) {
-            const parsed = new Date(v.postDate);
-            if (!isNaN(parsed.getTime())) d = parsed;
-          }
-          if (!d || isNaN(d.getTime())) return null;
-          const vnString = d.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" });
-          const vnDate = new Date(vnString);
-          const y = vnDate.getFullYear();
-          const m = String(vnDate.getMonth() + 1).padStart(2, "0");
-          const day = String(vnDate.getDate()).padStart(2, "0");
-          return `${y}-${m}-${day}`;
-        };
-
-        const todayVnString = (() => {
-          const vnNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
-          const y = vnNow.getFullYear();
-          const m = String(vnNow.getMonth() + 1).padStart(2, "0");
-          const day = String(vnNow.getDate()).padStart(2, "0");
-          return `${y}-${m}-${day}`;
-        })();
-
-        const todayVideos = videosList.filter((v) => parseVnDate(v) === todayVnString);
+        // --- Phase A: Live write (today only) ---
+        const todayVideos = videosList.filter(
+          (v: any) => parseVideoVnDate(v) === todayVnStr
+        );
 
         const checkItem = await prisma.dailyChecklistItem.findFirst({
           where: {
             accountId: account.id,
-            checklist: { date: todayOnly },
+            checklist: {
+              date: todayChecklistDate,
+              isLocked: false, // never write to locked checklists
+            },
           },
+          select: { id: true, videoSource: true, videosSnapshot: true },
         });
 
         if (checkItem) {
-          const updateFields: Record<string, any> = { isSynced: true };
+          const liveUpdate: Record<string, any> = {
+            isSynced: true, // live path always marks isSynced (account was seen today)
+          };
+
           if (todayVideos.length > 0) {
-            updateFields.isPosted = true;
-            updateFields.videosSnapshot = todayVideos;
+            // Change-gate: only bump videoSyncedAt / rewrite snapshot if something
+            // actually changed, to avoid churning updatedAt on every identical re-sync.
+            const prevCount = Array.isArray(checkItem.videosSnapshot)
+              ? (checkItem.videosSnapshot as any[]).length
+              : 0;
+            const changed =
+              checkItem.videoSource !== "live" || prevCount !== todayVideos.length;
+
+            if (changed) {
+              liveUpdate.isPosted = true;
+              liveUpdate.videosSnapshot = todayVideos;
+              liveUpdate.videoSource = "live";
+              liveUpdate.videoSyncedAt = now;
+            }
           }
+
           await prisma.dailyChecklistItem.update({
             where: { id: checkItem.id },
-            data: updateFields,
+            data: liveUpdate,
           });
+        }
+
+        // --- Phase B: Backfill past days ---
+        const backfillResult = await backfillChecklistVideos(
+          prisma,
+          account.id,
+          videosList,
+          todayVnStr
+          // windowDays defaults to BACKFILL_WINDOW_DAYS = 7 (matches cutoff lock window)
+        );
+
+        if (backfillResult.written.length > 0) {
+          console.log(
+            `[ExtensionReport] Backfilled @${cleanUsername} for dates: ${backfillResult.written.join(", ")}`
+          );
+        }
+        if (Object.keys(backfillResult.skipped).length > 0) {
+          console.log(
+            `[ExtensionReport] Backfill skipped @${cleanUsername}:`,
+            backfillResult.skipped
+          );
         }
       } catch (checkItemErr) {
         console.warn("[ExtensionReport] Failed to ingest daily checklist videos:", checkItemErr);

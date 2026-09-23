@@ -265,6 +265,8 @@ model DailyChecklistItem {
   isCompleted Boolean        @default(false)
   notes       String?
   videosSnapshot Json?          // Snapshot of videos posted on this day [{ id, title, views, likes, postDate, ... }]
+  videoSource    String?        // Provenance: "live" | "backfill" | "manual". Precedence: live > manual > backfill
+  videoSyncedAt  DateTime?      // Last time videosSnapshot actually changed (not just any write)
   updatedAt   DateTime       @updatedAt
 
   @@index([checklistId])
