@@ -18,7 +18,8 @@ export type SyncFlowEvent =
   | "report_analytics_ok"
   | "report_analytics_fail"
   | "report_end"
-  | "db_verify";
+  | "db_verify"
+  | "job_auto_completed";
 
 export function syncFlowLog(
   event: SyncFlowEvent,

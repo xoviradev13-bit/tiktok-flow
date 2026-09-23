@@ -282,25 +282,35 @@ export async function GET(req: Request) {
       if (hMatch && hMatch[1]) targetHandle = hMatch[1].trim();
     }
 
+    // NOTE: No auto-claim here anymore. Claiming PENDING -> PROCESSING is owned
+    // exclusively by POST { action: "start_job" } below (race-safe conditional
+    // update). Claiming it here too caused a race: this GET always runs before
+    // the agent's start_job POST, so the job was always already PROCESSING by
+    // the time start_job ran, which made start_job return 409 "already_claimed"
+    // every time — the agent then aborted and never actually ran the sweep,
+    // leaving the job orphaned in PROCESSING until the 25-minute timeout sweep
+    // killed it. Returning the job as-is (still PENDING) lets the agent's
+    // start_job call be the single source of truth for claiming.
+
     const syncJob = activeSyncJob
       ? {
-          id: activeSyncJob.id,
-          status: activeSyncJob.status,
-          requestedAt: activeSyncJob.requestedAt.getTime(),
-          targetScope: activeSyncJob.targetScope,
-          targetProfileId: targetProfileId || undefined,
-          targetHandle: targetHandle || undefined,
-        }
+        id: activeSyncJob.id,
+        status: activeSyncJob.status,
+        requestedAt: activeSyncJob.requestedAt.getTime(),
+        targetScope: activeSyncJob.targetScope,
+        targetProfileId: targetProfileId || undefined,
+        targetHandle: targetHandle || undefined,
+      }
       : null;
 
     const syncSignal = activeSyncJob
       ? {
-          jobId: activeSyncJob.id,
-          requestedAt: activeSyncJob.requestedAt.getTime(),
-          requestedBy: activeSyncJob.requestedById,
-          targetProfileId: targetProfileId || undefined,
-          targetHandle: targetHandle || undefined,
-        }
+        jobId: activeSyncJob.id,
+        requestedAt: activeSyncJob.requestedAt.getTime(),
+        requestedBy: activeSyncJob.requestedById,
+        targetProfileId: targetProfileId || undefined,
+        targetHandle: targetHandle || undefined,
+      }
       : null;
 
     return NextResponse.json({
@@ -427,7 +437,7 @@ export async function POST(req: Request) {
             gpmLastSeenAt: new Date(),
           },
         })
-        .catch(() => {});
+        .catch(() => { });
 
       if (user.role === "ADMIN" || user.role === "LEAD") {
         await prisma.systemConfig
@@ -452,7 +462,7 @@ export async function POST(req: Request) {
               }),
             },
           })
-          .catch(() => {});
+          .catch(() => { });
       }
     }
 
