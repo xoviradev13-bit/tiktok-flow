@@ -327,6 +327,16 @@ function RevenueDetailsPageContent() {
 
   const utils = trpc.useUtils();
 
+  // Refresh revenue records and account list when a sync completes
+  useEffect(() => {
+    const handleRefresh = () => {
+      utils.revenue.listDetails.invalidate();
+      utils.accounts.list.invalidate();
+    };
+    window.addEventListener("refreshData", handleRefresh);
+    return () => window.removeEventListener("refreshData", handleRefresh);
+  }, [utils]);
+
   const { data: records = [], isLoading: loading } = trpc.revenue.listDetails.useQuery({
     search: search || undefined,
     sourceType: sourceTypeFilter !== "ALL" ? sourceTypeFilter : undefined,

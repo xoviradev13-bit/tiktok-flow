@@ -1462,77 +1462,12 @@ export async function POST(req: Request) {
       hasAnalyticsSnapshot: !!analyticsSnapshot,
     });
 
-    // Auto-complete SyncQueue job for legacy agents that never send complete_job.
-    // After each agent report, check if all accounts for this user have been
-    // synced recently. If so, mark the PROCESSING job as COMPLETED.
-    //
-    // FIX: gate this on the job's targetScope. This check is fleet-wide (all of
-    // the user's assigned accounts synced in the last 30 min) and is NOT scoped
-    // to the specific job's targets, so for a single-profile job (targetScope
-    // starting with "PROFILE:" or "HANDLE:") it could mark the job COMPLETED
-    // after just this one unrelated report — purely because other accounts
-    // happened to sync recently for other reasons. The current daemon already
-    // calls action:"complete_job" explicitly with an accurate summary right
-    // after performFullSweep finishes, for both full and single-profile jobs,
-    // so this legacy fallback is only needed for true full-fleet jobs from
-    // agents that never call complete_job; skip it for targeted jobs entirely.
-    if (isAgentSource) {
-      try {
-        const processingJob = await prisma.syncQueue.findFirst({
-          where: {
-            status: "PROCESSING",
-            OR: [
-              { requestedById: memberUser.id },
-              { targetScope: `USER:${memberUser.id}` },
-              { targetScope: memberUser.id },
-              { targetScope: { startsWith: `USER:${memberUser.id}|` } },
-            ],
-          },
-          orderBy: { requestedAt: "desc" },
-          select: { id: true, startedAt: true, targetScope: true },
-        });
-
-        const isTargetedJob =
-          !!processingJob?.targetScope &&
-          /^(PROFILE|HANDLE):/.test(processingJob.targetScope);
-
-        if (processingJob && !isTargetedJob) {
-          const syncWindowMs = 30 * 60 * 1000; // 30 min
-          const syncedSince = new Date(Date.now() - syncWindowMs);
-          const [totalAssigned, totalSynced] = await Promise.all([
-            prisma.tiktokAccount.count({ where: { assignedUserId: memberUser.id } }),
-            prisma.tiktokAccount.count({
-              where: { assignedUserId: memberUser.id, lastSyncedAt: { gte: syncedSince } },
-            }),
-          ]);
-
-          if (totalAssigned > 0 && totalSynced >= totalAssigned) {
-            await prisma.syncQueue.updateMany({
-              where: { id: processingJob.id, status: "PROCESSING" },
-              data: {
-                status: "COMPLETED",
-                completedAt: new Date(),
-                resultSummary: JSON.stringify({
-                  autoCompleted: true,
-                  totalSynced,
-                  totalAssigned,
-                  completedAt: new Date().toISOString(),
-                }),
-              },
-            });
-            syncFlowLog("job_auto_completed", {
-              jobId: processingJob.id,
-              userId: memberUser.id,
-              totalSynced,
-              totalAssigned,
-            });
-          }
-        }
-      } catch (autoCompleteErr: any) {
-        // Never fail the report response because of auto-complete logic
-        console.warn("[ExtensionReport] Auto-complete job failed:", autoCompleteErr?.message || autoCompleteErr);
-      }
-    }
+    // NOTE: Legacy "auto-complete" heuristic removed.
+    // The current Client Agent (agent.js) explicitly calls action:"complete_job"
+    // via /api/gpm/client-sync immediately after performFullSweep finishes,
+    // carrying the full resultSummary. The old 30-min window check was firing
+    // mid-sweep (as soon as enough accounts were recently synced) and caused
+    // the Header to show "✅ Đồng bộ hoàn tất!" while the agent was still scanning.
 
     return NextResponse.json({
       success: true,

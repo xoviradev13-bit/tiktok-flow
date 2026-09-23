@@ -244,6 +244,16 @@ function GroupsManagementContent() {
 
   const utils = trpc.useUtils();
 
+  // Refresh when sync completes — group member counts/assignments may change
+  useEffect(() => {
+    const handleRefresh = () => {
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
+    };
+    window.addEventListener("refreshData", handleRefresh);
+    return () => window.removeEventListener("refreshData", handleRefresh);
+  }, [utils]);
+
   // Queries
   const { data: groupsData, isLoading: loading } = trpc.admin.listGroups.useQuery(undefined, { enabled: isAdmin });
   const { data: allUsers = [], isLoading: loadingUsers } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });

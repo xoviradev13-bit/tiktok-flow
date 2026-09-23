@@ -358,6 +358,16 @@ function UsersManagementContent() {
 
   const utils = trpc.useUtils();
 
+  // Refresh user and group list when a sync completes (accounts may be re-assigned)
+  useEffect(() => {
+    const handleRefresh = () => {
+      utils.admin.listUsers.invalidate();
+      utils.admin.listGroups.invalidate();
+    };
+    window.addEventListener("refreshData", handleRefresh);
+    return () => window.removeEventListener("refreshData", handleRefresh);
+  }, [utils]);
+
   const { data: users = [], isLoading: loading } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
   const { data: invitations = [], isLoading: loadingInvites } = trpc.admin.listInvitations.useQuery(undefined, { enabled: isAdmin });
   const { data: groupsData } = trpc.admin.listGroups.useQuery(undefined, { enabled: isAdmin });
