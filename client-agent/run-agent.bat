@@ -62,5 +62,5 @@ pause >nul
 goto :eof
 
 :run_daemon
-"%NODE_CMD%" agent.js --daemon
+"%NODE_CMD%" agent.js --daemon >> "%~dp0agent-run.log" 2>&1
 goto :eof

@@ -653,6 +653,17 @@ function isTrustedRequest(req) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Runtime state for sync jobs & scheduled sweeps
+// ---------------------------------------------------------------------------
+const doneScheduleKeys = new Set();
+const handledJobIds = new Set();
+let lastHandledJobAt = 0;
+let isSweepingActive = false;
+let isBackgroundSweep = false;
+let abortCurrentSweep = false;
+let currentJobId = null;
+
 /** Exclusive bind on 127.0.0.1:39741 — second Agent exits. Port free ⇒ stale lock ignored. */
 export function acquireAgentLock() {
   return new Promise((resolve) => {
@@ -783,10 +794,10 @@ export function acquireAgentLock() {
         }
       }
 
-      // Health only
+      // Health & Status
       if (
         (req.method === "GET" || req.method === "HEAD") &&
-        (urlPath === "/" || urlPath === "")
+        (urlPath === "/" || urlPath === "" || urlPath === "/status")
       ) {
         res.writeHead(200, headers);
         res.end(JSON.stringify({
@@ -794,7 +805,21 @@ export function acquireAgentLock() {
           role: "tiktokflow-agent",
           pid: process.pid,
           hostname: os.hostname(),
+          isSweepingActive,
+          isBackgroundSweep,
+          currentJobId: currentJobId || null,
+          handledJobsCount: handledJobIds.size,
+          lastHandledJobAt: lastHandledJobAt ? new Date(lastHandledJobAt).toISOString() : null,
         }));
+        return;
+      }
+
+      // Self-restart / Exit endpoint (loopback trusted only)
+      if (req.method === "POST" && (urlPath === "/restart" || urlPath === "/shutdown")) {
+        res.writeHead(200, headers);
+        res.end(JSON.stringify({ ok: true, message: "stopping_agent", pid: process.pid }));
+        console.log(`[*] Nhan yeu cau ${urlPath} tu API local, dang dong agent (PID: ${process.pid})...`);
+        setTimeout(() => process.exit(0), 400);
         return;
       }
 
@@ -3517,6 +3542,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
         shares: cleanNum(p.share_count || p.shareCount || p.statistics?.share_count || p.statistics?.shareCount || p.stats?.shareCount || p.stats?.share_count),
         duration: formatDuration(p.video_duration || p.duration),
         postTime: postTimestamp ? new Date(postTimestamp).toISOString() : null,
+        createTime: postTimestamp ? Math.floor(postTimestamp / 1000) : null,
         postDate: postTimestamp ? new Date(postTimestamp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "",
         coverUrl: Array.isArray(p.cover_url) ? p.cover_url[0]
           : (typeof p.cover_url === "string" ? p.cover_url
@@ -5247,6 +5273,96 @@ async function isJobCancelled(jobId) {
   return false;
 }
 
+/**
+ * Lightweight inventory synchronization without launching browsers or deep scraping.
+ * Used on daemon startup and inventory updates to inform the server of local profiles.
+ */
+async function syncProfilesInventoryOnly() {
+  const tokenOk = await verifyPersonalTokenAtStartup();
+  if (!tokenOk && config.tokenRevoked) return { success: false, reason: "token_revoked" };
+
+  const storagePath = getGpmStoragePath();
+  const gpmApi = await discoverGpmApiBase().catch(() => ({ online: false, base: null, port: null }));
+  sweepStaleTempDirs(storagePath);
+
+  if (!fs.existsSync(storagePath)) return { success: false, reason: "no_storage_dir" };
+
+  const allEntries = fs.readdirSync(storagePath, { withFileTypes: true });
+  const diskDirs = allEntries.filter(
+    (e) =>
+      e.isDirectory() &&
+      !e.name.startsWith("_") &&
+      /^[0-9a-f-]{36}$/i.test(e.name) &&
+      fs.existsSync(path.join(storagePath, e.name, "Default"))
+  );
+
+  let allowedIds = null;
+  let apiOffline = !gpmApi.online || !gpmApi.base;
+  let apiListTruncated = false;
+  if (!apiOffline) {
+    try {
+      const rows = await fetchAllGpmProfiles(gpmApi.base);
+      allowedIds = new Set(rows.map((r) => String(r.id)));
+      apiListTruncated = !!rows.truncated;
+    } catch {
+      apiOffline = true;
+    }
+  }
+
+  const useApiFilter = allowedIds && !apiListTruncated;
+  const profileDirs = diskDirs.filter((e) => {
+    if (useApiFilter) return allowedIds.has(e.name);
+    if (allowedIds && allowedIds.size === 0 && !apiListTruncated && !apiOffline) return false;
+    return true;
+  });
+
+  const profilesToSync = [];
+  await pMap(profileDirs, async (p) => {
+    const fullDir = path.join(storagePath, p.name);
+    const meta = readGpmProfileMetaFromDisk(storagePath, p.name);
+    const profileName = meta.name || `Profile ${p.name.slice(0, 8)}`;
+    let groupName = meta.groupName || null;
+    if (!groupName && meta.groupId) {
+      groupName = await lookupGpmGroupName(useApiFilter ? gpmApi.base : null, meta.groupId);
+    }
+    let handle = null;
+    try { handle = await findTikTokHandleInProfileAsync(fullDir); } catch { handle = null; }
+    profilesToSync.push({
+      id: p.name,
+      name: profileName,
+      groupId: meta.groupId || null,
+      groupName: groupName || null,
+      tiktokHandle: handle,
+    });
+  }, Math.max(2, Math.min(cpuCount, 8)));
+
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${config.serverUrl}/api/gpm/client-sync`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        gpmPort: gpmApi?.port || null,
+        gpmOnline: !!gpmApi?.online,
+        gpmBaseUrl: gpmApi?.base || null,
+        profiles: profilesToSync.map((p) => ({
+          id: p.id,
+          name: p.name,
+          group_id: p.groupId || undefined,
+          group_name: p.groupName || undefined,
+          tiktokHandle: p.tiktokHandle || null,
+        })),
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (res.ok) {
+      console.log(`[*] [Inventory] Da dong bo ${profilesToSync.length} profiles len Server.`);
+    }
+  } catch (err) {
+    console.warn("[!] Dong bo inventory that bai:", err.message);
+  }
+}
+
 async function performFullSweep(syncJob = null) {
   const jobId = (typeof syncJob === "object" && syncJob !== null) ? (syncJob.id || syncJob.jobId) : syncJob;
   const targetProfileId = (typeof syncJob === "object" && syncJob !== null) ? syncJob.targetProfileId : null;
@@ -5479,6 +5595,10 @@ async function performFullSweep(syncJob = null) {
 
   const scanOne = async (p, idx, pass = 1, timeoutOverrideMs = null) => {
     try {
+      if (isBackgroundSweep && abortCurrentSweep) {
+        console.log(`\n[*] Tam dung quet lich trinh ngam de uu tien job dong bo tu nguoi dung.`);
+        return;
+      }
       if (authBlocked || config.tokenRevoked) {
         setOutcome(p, { bucket: "failed", reason: "auth_blocked" });
         return;
@@ -5746,11 +5866,6 @@ async function fetchServerSchedule() {
   return null;
 }
 
-const doneScheduleKeys = new Set();
-const handledJobIds = new Set();
-let lastHandledJobAt = 0;
-let isSweepingActive = false;
-
 function trimDoneScheduleKeys() {
   const today = new Date().toDateString();
   for (const k of doneScheduleKeys) {
@@ -5768,14 +5883,34 @@ function trimDoneScheduleKeys() {
 }
 
 /**
+ * Optimistically claim job so it transitions PENDING -> PROCESSING on the server.
+ * This prevents the server's 5-minute timeout from auto-cancelling the job.
+ */
+async function claimJobOnServer(jobId) {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${config.serverUrl}/api/gpm/client-sync`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        action: "start_job",
+        jobId,
+        machineId: cachedMachineId || undefined,
+        machineName: cachedMachineName || os.hostname(),
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    return res.ok || res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Handle one polling tick. Returns true if a sync job or scheduled sweep ran.
  */
 async function checkAndRunSchedule(scheduleInfo) {
   if (!scheduleInfo) return false;
-  if (isSweepingActive) {
-    console.log("[*] Dang co tien trinh quet dang chay, bo qua yeu cau moi...");
-    return false;
-  }
 
   const incomingJob = scheduleInfo.syncJob;
   if (incomingJob?.requestedAt) {
@@ -5783,11 +5918,30 @@ async function checkAndRunSchedule(scheduleInfo) {
     const jobId = incomingJob.id || incomingJob.jobId;
     // Track by ID, not by timestamp (clock skew safe).
     if (jobId && handledJobIds.has(String(jobId))) return false;
-    if (Date.now() - sigAt > 15 * 60 * 1000) return false; // stale job
+    if (Date.now() - sigAt > 45 * 60 * 1000) return false; // stale job (> 45 mins)
 
-    if (jobId) handledJobIds.add(String(jobId));
+    // If a background sweep (scheduled/startup) is running, abort it to prioritize user job!
+    if (isSweepingActive && isBackgroundSweep) {
+      console.log(`\n[*] [SyncQueue] Co job moi (${jobId}) tu Web UI trong khi dang quet ngam. Yeu cau tam dung quet ngam de uu tien job!`);
+      abortCurrentSweep = true;
+    }
+
+    if (isSweepingActive) {
+      console.log(`[*] Dang ban xu ly (${currentJobId ? `Job ${currentJobId}` : "quet ngam"}), cho luot tiep nhan job ${jobId}...`);
+      // Optimistically claim job so it transitions PENDING -> PROCESSING on server
+      // and does NOT get auto-cancelled after 5 minutes!
+      if (incomingJob.status === "PENDING" && jobId) {
+        claimJobOnServer(jobId).catch(() => { });
+      }
+      return false;
+    }
+
+    handledJobIds.add(String(jobId));
     lastHandledJobAt = Date.now();
     isSweepingActive = true;
+    isBackgroundSweep = false;
+    abortCurrentSweep = false;
+    currentJobId = jobId;
     console.log(`\n[*] [SyncQueue] Nhan job dong bo tu Web/VPS (Job: ${jobId || "N/A"})! Bat dau quet ngay...`);
 
     try {
@@ -5835,7 +5989,8 @@ async function checkAndRunSchedule(scheduleInfo) {
       // If another Agent won the claim (or auth failed), release state and bail.
       if (!startWon) {
         isSweepingActive = false;
-        return;
+        currentJobId = null;
+        return false;
       }
 
       // 2. Perform sweep (passes targetProfileId / targetHandle if single account)
@@ -5880,6 +6035,7 @@ async function checkAndRunSchedule(scheduleInfo) {
       }
     } finally {
       isSweepingActive = false;
+      currentJobId = null;
     }
     return true;
   }
@@ -5910,7 +6066,9 @@ async function checkAndRunSchedule(scheduleInfo) {
         doneScheduleKeys.add(key);
         console.log(`\n[*] [Lich Trinh Server] Kich hoat quet vet luc ${targetTime}...`);
         isSweepingActive = true;
-        try { await performFullSweep(); } finally { isSweepingActive = false; }
+        isBackgroundSweep = true;
+        abortCurrentSweep = false;
+        try { await performFullSweep(); } finally { isSweepingActive = false; isBackgroundSweep = false; }
         ran = true;
       }
     } else if (s.repeat === "HOURLY") {
@@ -5921,7 +6079,9 @@ async function checkAndRunSchedule(scheduleInfo) {
           doneScheduleKeys.add(key);
           console.log(`\n[*] [Lich Trinh Server] Kich hoat quet vet moi ${h} gio...`);
           isSweepingActive = true;
-          try { await performFullSweep(); } finally { isSweepingActive = false; }
+          isBackgroundSweep = true;
+          abortCurrentSweep = false;
+          try { await performFullSweep(); } finally { isSweepingActive = false; isBackgroundSweep = false; }
           ran = true;
         }
       }
@@ -5934,7 +6094,9 @@ async function checkAndRunSchedule(scheduleInfo) {
         doneScheduleKeys.add(key);
         console.log(`\n[*] [Lich Trinh Tuy Bien Server] Kich hoat quet vet moi ${m} phut...`);
         isSweepingActive = true;
-        try { await performFullSweep(); } finally { isSweepingActive = false; }
+        isBackgroundSweep = true;
+        abortCurrentSweep = false;
+        try { await performFullSweep(); } finally { isSweepingActive = false; isBackgroundSweep = false; }
         ran = true;
       }
     }
@@ -5957,16 +6119,17 @@ async function runDaemon() {
   }
   const initialHandled = await checkAndRunSchedule(activeSchedule);
 
-  // Run the startup sweep in the background so the poll loop starts immediately.
-  // isSweepingActive is held for the duration so the poll loop cannot launch a
-  // second concurrent sweep while the startup sweep is still running.
+  // On startup: synchronize profile inventory only (lightweight, zero browsers launched).
+  // Do NOT launch a full 15-profile scraping sweep at Windows startup,
+  // which monopolizes the agent for 5-10 minutes and blocks all manual sync jobs!
   if (!initialHandled) {
-    console.log("[*] [Khoi Dong Cung Windows] Tien hanh quet ban dau (background)...");
-    isSweepingActive = true;
+    console.log("[*] [Khoi Dong Cung Windows] Dong bo danh sach Profile len Server (khong mo trinh duyet)...");
     (async () => {
-      try { await performFullSweep(); }
-      catch (err) { console.warn("[!] Quet ban dau gap loi:", err.message); }
-      finally { isSweepingActive = false; }
+      try {
+        await syncProfilesInventoryOnly();
+      } catch (err) {
+        console.warn("[!] Dong bo danh sach ban dau gap loi:", err.message);
+      }
     })();
   }
 

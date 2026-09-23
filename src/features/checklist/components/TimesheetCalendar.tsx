@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   format,
   startOfMonth,
@@ -69,8 +69,39 @@ export default function TimesheetCalendar({
   isLoading,
 }: TimesheetCalendarProps) {
   const [isQuickDateOpen, setIsQuickDateOpen] = useState(false);
-  // 'today' | 'yesterday' | 'custom' | null
   const [quickMode, setQuickMode] = useState<'today' | 'yesterday' | 'custom' | null>('today');
+
+  // Synchronize quickMode with selectedDate
+  useEffect(() => {
+    if (!selectedDate) return;
+    const today = format(new Date(), "yyyy-MM-dd");
+    const yest = format(subDays(new Date(), 1), "yyyy-MM-dd");
+    if (selectedDate === today && quickMode === 'today') {
+      // keep today
+    } else if (selectedDate === yest && quickMode === 'yesterday') {
+      // keep yesterday
+    } else if (selectedDate !== today && selectedDate !== yest) {
+      setQuickMode('custom');
+    }
+  }, [selectedDate]);
+
+  const formattedSelectedDate = useMemo(() => {
+    if (!selectedDate) return null;
+    try {
+      return format(new Date(selectedDate + "T00:00:00"), "dd/MM/yyyy");
+    } catch {
+      return null;
+    }
+  }, [selectedDate]);
+
+  const triggerLabel = useMemo(() => {
+    if (quickMode === 'yesterday') return 'Hôm qua';
+    if (quickMode === 'custom') {
+      return formattedSelectedDate || 'Tùy chọn';
+    }
+    return 'Hôm nay';
+  }, [quickMode, formattedSelectedDate]);
+
   // Calendar Matrix generation
   const { daysInGrid, monthStart, monthEnd } = useMemo(() => {
     const mStart = startOfMonth(selectedMonthDate);
@@ -208,15 +239,15 @@ export default function TimesheetCalendar({
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className={`px-3 h-8 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5 ${isQuickDateOpen
-                      ? "bg-pink-500 text-white"
+                    className={`px-3 h-8 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5 ${isQuickDateOpen || quickMode === 'custom' || quickMode === 'yesterday'
+                      ? "bg-pink-500 text-white shadow-xs"
                       : "text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800"
                       }`}
                   >
-                    <span className="leading-none">
-                      {quickMode === 'yesterday' ? 'Hôm qua' : quickMode === 'custom' ? 'Tùy chọn' : 'Hôm nay'}
+                    <span className="leading-none whitespace-nowrap">
+                      {triggerLabel}
                     </span>
-                    <CalendarIcon className={`w-3.5 h-3.5 shrink-0 self-center ${isQuickDateOpen ? 'text-white' : 'text-pink-500'}`} />
+                    <CalendarIcon className={`w-3.5 h-3.5 shrink-0 self-center ${isQuickDateOpen || quickMode === 'custom' || quickMode === 'yesterday' ? 'text-white' : 'text-pink-500'}`} />
                   </button>
                 </PopoverTrigger>
                 <PopoverContent
@@ -297,6 +328,7 @@ export default function TimesheetCalendar({
                           selected={selectedDate ? new Date(selectedDate + "T00:00:00") : selectedMonthDate}
                           onSelect={(d) => {
                             if (d) {
+                              setQuickMode('custom');
                               onMonthChange(d);
                               if (onNavigateDate) onNavigateDate(format(d, "yyyy-MM-dd"));
                               setIsQuickDateOpen(false);
@@ -331,15 +363,8 @@ export default function TimesheetCalendar({
             </div>
 
             <div>
-              <h2 className="text-xl font-black text-slate-900 dark:text-white capitalize tracking-tight flex items-center gap-2">
-                <span>
-                  {format(selectedMonthDate, "MMMM, yyyy", { locale: vi })}
-                </span>
-                {isSingleUser && currentUserObj && (
-                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-pink-50 text-pink-700 dark:bg-pink-950/60 dark:text-pink-300 border border-pink-200 dark:border-pink-800">
-                    {currentUserObj.fullName || currentUserObj.username}
-                  </span>
-                )}
+              <h2 className="text-xl font-black text-slate-900 dark:text-white capitalize tracking-tight">
+                {format(selectedMonthDate, "MMMM, yyyy", { locale: vi })}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Click vào bất kỳ ô ngày nào để xem chi tiết.
@@ -347,24 +372,29 @@ export default function TimesheetCalendar({
             </div>
           </div>
 
-          {/* Color Legend */}
-          <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400 self-start md:self-auto bg-slate-50 dark:bg-slate-950 px-3 py-2 rounded-2xl border border-slate-200/80 dark:border-slate-800">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-              <span>1 công (&ge;85%)</span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
-              <span>0.5 công (50-84%)</span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
-              <span>0 công (&lt;50%)</span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0" />
-              <span>Nghỉ / Chưa có ca</span>
-            </span>
+          {/* Right: Staff Info Badge */}
+          <div className="flex items-center gap-3 self-start md:self-auto">
+            {/* Staff Profile Badge */}
+            {isSingleUser && currentUserObj ? (
+              <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-pink-500/10 via-rose-500/5 to-purple-500/10 dark:from-pink-950/40 dark:via-rose-950/20 dark:to-purple-950/30 border border-pink-200/80 dark:border-pink-800/60 shadow-2xs">
+                <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-pink-500 to-rose-400 text-white flex items-center justify-center text-xs font-black shadow-xs shrink-0">
+                  {(currentUserObj.fullName || currentUserObj.username || "U").charAt(0).toUpperCase()}
+                </div>
+                <div className="flex flex-col min-w-0 pr-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-pink-600 dark:text-pink-400 leading-none">
+                    Nhân sự
+                  </span>
+                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[160px] mt-0.5 leading-tight">
+                    {currentUserObj.fullName || currentUserObj.username}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 shadow-2xs">
+                <Users className="w-4 h-4 text-cyan-500 shrink-0" />
+                <span>Toàn bộ nhân sự ({staffList.length})</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -517,7 +547,7 @@ export default function TimesheetCalendar({
               <div
                 key={dateStr}
                 onClick={() => onSelectDate(dateStr)}
-                className={`min-h-[110px] sm:min-h-[125px] p-2 sm:p-2.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group relative select-none ${isSelected
+                className={`min-h-[115px] sm:min-h-[128px] p-2 sm:p-2.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group relative select-none ${isSelected
                   ? "ring-2 ring-pink-500 dark:ring-pink-400 ring-offset-2 dark:ring-offset-slate-900 border-pink-500 shadow-md scale-[1.01]"
                   : ""
                   } ${!isCurrMonth
@@ -565,11 +595,11 @@ export default function TimesheetCalendar({
                 </div>
 
                 {/* Cell Center: Metrics & Workday Status */}
-                <div className="my-1.5 space-y-1">
+                <div className="my-2">
                   {/* Case A: Single Staff Mode */}
                   {isSingleUser ? (
                     singleChecklist ? (
-                      <div className="space-y-1">
+                      <div className="flex flex-col gap-2.5">
                         {/* Workday Badge Pill */}
                         <div className="flex items-center">
                           {singleScore !== null && singleScore >= 1.0 ? (
@@ -623,7 +653,7 @@ export default function TimesheetCalendar({
                   ) : (
                     /* Case B: Team / All Staff Mode */
                     hasData ? (
-                      <div className="space-y-1">
+                      <div className="flex flex-col gap-2.5">
                         {/* Segmented attendance micro-bar */}
                         <div className="w-full h-1.5 rounded-full overflow-hidden flex bg-slate-100 dark:bg-slate-800">
                           {teamFull > 0 && (

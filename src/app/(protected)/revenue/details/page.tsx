@@ -341,11 +341,11 @@ function RevenueDetailsPageContent() {
       .map((row) => {
         const username = String(
           row.Username ||
-            row.username ||
-            row["Tài khoản"] ||
-            row["Account Name"] ||
-            row["Account"] ||
-            ""
+          row.username ||
+          row["Tài khoản"] ||
+          row["Account Name"] ||
+          row["Account"] ||
+          ""
         )
           .trim()
           .replace(/^@+/, "");
@@ -369,11 +369,11 @@ function RevenueDetailsPageContent() {
         const rpm = Number(row.RPM || row.rpm || row["RPM ($)"] || 0);
         const revenue = Number(
           row.Revenue ||
-            row.revenue ||
-            row["Doanh thu ($)"] ||
-            row["Doanh thu"] ||
-            row["Tiền"] ||
-            0
+          row.revenue ||
+          row["Doanh thu ($)"] ||
+          row["Doanh thu"] ||
+          row["Tiền"] ||
+          0
         );
         const sourceRaw =
           row.Source ||
@@ -748,12 +748,16 @@ function RevenueDetailsPageContent() {
 
   // Filters count for Advanced Filter Popover
   const advancedFiltersCount =
-    (minRevenue ? 1 : 0) + (minViews ? 1 : 0) + (originFilter !== "ALL" ? 1 : 0);
+    (minRevenue ? 1 : 0) +
+    (minViews ? 1 : 0) +
+    (originFilter !== "ALL" ? 1 : 0) +
+    (includeArchived ? 1 : 0);
 
   const clearAdvancedFilters = () => {
     setMinRevenue("");
     setMinViews("");
     setOriginFilter("ALL");
+    setIncludeArchived(false);
     setPage(1);
   };
 
@@ -1232,8 +1236,8 @@ function RevenueDetailsPageContent() {
                 >
                   <SelectTrigger
                     className={`w-44 sm:w-56 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${sourceTypeFilter !== "ALL"
-                        ? "pr-8 border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/25 text-amber-700 dark:text-amber-300 [&_svg]:hidden"
-                        : ""
+                      ? "pr-8 border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/25 text-amber-700 dark:text-amber-300 [&_svg]:hidden"
+                      : ""
                       }`}
                   >
                     <SelectValue placeholder="Tất cả nguồn thu" />
@@ -1372,6 +1376,28 @@ function RevenueDetailsPageContent() {
                         className="h-8.5 text-xs font-normal bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
                       />
                     </div>
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <label className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer select-none">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Trash2 className={`w-3.5 h-3.5 shrink-0 ${includeArchived ? "text-rose-600 dark:text-rose-400" : "text-slate-400"}`} />
+                          <div className="min-w-0">
+                            <span className="block text-xs font-medium text-slate-800 dark:text-slate-200 leading-tight">
+                              Tài khoản đã xóa
+                            </span>
+                            <span className="block text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                              Bao gồm doanh thu từ account đã xóa
+                            </span>
+                          </div>
+                        </div>
+                        <Checkbox
+                          checked={includeArchived}
+                          onCheckedChange={(checked) => {
+                            setIncludeArchived(!!checked);
+                            setPage(1);
+                          }}
+                        />
+                      </label>
+                    </div>
                   </div>
                 </PopoverContent>
               </Popover>
@@ -1384,8 +1410,8 @@ function RevenueDetailsPageContent() {
                       <button
                         type="button"
                         className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs transition-all cursor-pointer whitespace-nowrap ${sortConfig.key
-                            ? "bg-amber-50/80 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/80 hover:bg-amber-100 dark:hover:bg-amber-900/50 shadow-2xs font-medium"
-                            : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
+                          ? "bg-amber-50/80 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/80 hover:bg-amber-100 dark:hover:bg-amber-900/50 shadow-2xs font-medium"
+                          : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
                           }`}
                       >
                         <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-amber-600 dark:text-amber-400" : "text-slate-500"}`} />
@@ -1413,8 +1439,8 @@ function RevenueDetailsPageContent() {
                         key={item.key}
                         onClick={() => handleSort(item.key as RevenueSortKey)}
                         className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${isSelected
-                            ? "bg-amber-50/80 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 font-semibold border border-amber-200/80 dark:border-amber-900/60"
-                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
+                          ? "bg-amber-50/80 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 font-semibold border border-amber-200/80 dark:border-amber-900/60"
+                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
                           }`}
                       >
                         <span>{item.label}</span>
@@ -1428,35 +1454,6 @@ function RevenueDetailsPageContent() {
                   })}
                 </PopoverContent>
               </Popover>
-
-              {/* Include Archived / Deleted Accounts Toggle */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIncludeArchived(!includeArchived);
-                      setPage(1);
-                    }}
-                    className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-normal border transition-all cursor-pointer whitespace-nowrap ${
-                      includeArchived
-                        ? "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800 shadow-2xs font-medium"
-                        : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900"
-                    }`}
-                  >
-                    <Trash2 className={`w-3.5 h-3.5 ${includeArchived ? "text-rose-600 dark:text-rose-400" : "text-slate-500"}`} />
-                    <span>Tài khoản đã xóa</span>
-                    {includeArchived && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {includeArchived
-                    ? "Đang hiển thị cả doanh thu từ các tài khoản đã bị xóa (Nhấn để ẩn)"
-                    : "Bao gồm doanh thu từ các tài khoản đã bị xóa trong lịch sử"}
-                </TooltipContent>
-              </Tooltip>
 
               {/* Column Visibility Popover */}
               <Popover>

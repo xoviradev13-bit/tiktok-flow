@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { format } from "date-fns";
+import { format, eachDayOfInterval } from "date-fns";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -37,6 +37,8 @@ import {
 
 interface TimesheetChartsProps {
   checklists: any[];
+  startDate?: string;
+  endDate?: string;
   selectedUserId: string;
   staffList: any[];
   onSelectDate?: (dateStr: string) => void;
@@ -49,14 +51,25 @@ const SCORE_COLORS = {
   ZERO: "#ef4444", // rose-500
 };
 
+interface PieSliceData {
+  name: string;
+  value: number;
+  percentage: number;
+  color: string;
+  isEmpty?: boolean;
+}
+
 export default function TimesheetCharts({
   checklists,
+  startDate,
+  endDate,
   selectedUserId,
   staffList,
   onSelectDate,
   isLoading,
 }: TimesheetChartsProps) {
   const [metricTab, setMetricTab] = useState<"ALL" | "SCORES" | "VIDEOS" | "RATE">("ALL");
+  const [hoveredSlice, setHoveredSlice] = useState<PieSliceData | null>(null);
 
   const isSingleUser = selectedUserId !== "ALL";
 
@@ -99,23 +112,57 @@ export default function TimesheetCharts({
       }
     }
 
-    // Sort chronologically
-    const sorted = Array.from(map.values()).sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
+    let allDates: string[] = [];
+    if (startDate && endDate) {
+      try {
+        const s = new Date(startDate + "T00:00:00");
+        const e = new Date(endDate + "T00:00:00");
+        if (!isNaN(s.getTime()) && !isNaN(e.getTime()) && s <= e) {
+          const days = eachDayOfInterval({ start: s, end: e });
+          allDates = days.map((d) => format(d, "yyyy-MM-dd"));
+        }
+      } catch (err) {
+        console.error("Error generating date interval", err);
+      }
+    }
+
+    if (allDates.length === 0) {
+      allDates = Array.from(map.keys()).sort(
+        (a, b) => new Date(a).getTime() - new Date(b).getTime()
+      );
+    }
 
     // Compute averages & cumulative score
     let cumulative = 0;
-    return sorted.map((d) => {
-      cumulative += d.totalScore;
+    return allDates.map((dStr) => {
+      const existing = map.get(dStr);
+      if (existing) {
+        cumulative += existing.totalScore;
+        return {
+          ...existing,
+          avgCompletionRate:
+            existing.count > 0 ? Math.round((existing.totalCompletion / existing.count) * 10) / 10 : 0,
+          cumulativeScore: Math.round(cumulative * 10) / 10,
+        };
+      }
+      const dayDate = new Date(dStr + "T00:00:00");
       return {
-        ...d,
-        avgCompletionRate:
-          d.count > 0 ? Math.round((d.totalCompletion / d.count) * 10) / 10 : 0,
+        date: dStr,
+        displayDate: format(dayDate, "dd/MM"),
+        fullWorkdays: 0,
+        halfWorkdays: 0,
+        zeroWorkdays: 0,
+        totalScore: 0,
+        totalCompletion: 0,
+        count: 0,
+        totalVideos: 0,
+        totalSynced: 0,
+        totalAssigned: 0,
+        avgCompletionRate: 0,
         cumulativeScore: Math.round(cumulative * 10) / 10,
       };
     });
-  }, [checklists]);
+  }, [checklists, startDate, endDate]);
 
   // 2. High-level Summary Metrics
   const summaryMetrics = useMemo(() => {
@@ -166,7 +213,7 @@ export default function TimesheetCharts({
   }, [checklists]);
 
   // 3. Score Distribution Data for Donut Chart
-  const scoreDistributionData = useMemo(() => {
+  const scoreDistributionData: PieSliceData[] = useMemo(() => {
     const total = summaryMetrics.totalRecords || 1;
     return [
       {
@@ -189,6 +236,23 @@ export default function TimesheetCharts({
       },
     ];
   }, [summaryMetrics]);
+
+  // Only pass slices with value > 0 to the Pie chart so a single 100% slice has no seam/gap
+  const activePieData: PieSliceData[] = useMemo(() => {
+    const valid = scoreDistributionData.filter((d) => d.value > 0);
+    if (valid.length === 0) {
+      return [
+        {
+          name: "Chưa có dữ liệu",
+          value: 1,
+          color: "#94a3b8",
+          percentage: 0,
+          isEmpty: true,
+        },
+      ];
+    }
+    return valid;
+  }, [scoreDistributionData]);
 
   // 4. Staff Performance Ranking (Leaderboard) for Team View
   const staffRanking = useMemo(() => {
@@ -286,8 +350,8 @@ export default function TimesheetCharts({
                 {data.totalScore >= 1.0
                   ? "1.0 Công"
                   : data.totalScore === 0.5
-                  ? "0.5 Công"
-                  : "0 Công"}
+                    ? "0.5 Công"
+                    : "0 Công"}
               </span>
             </div>
           )}
@@ -428,11 +492,10 @@ export default function TimesheetCharts({
                 key={tab.key}
                 type="button"
                 onClick={() => setMetricTab(tab.key)}
-                className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  metricTab === tab.key
-                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
-                    : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
+                className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${metricTab === tab.key
+                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
               >
                 {tab.label}
               </button>
@@ -475,6 +538,7 @@ export default function TimesheetCharts({
                 />
                 <XAxis
                   dataKey="displayDate"
+                  minTickGap={20}
                   tick={{ fill: "#64748b", fontSize: 11 }}
                   tickLine={false}
                   axisLine={{ stroke: "#334155", opacity: 0.3 }}
@@ -548,8 +612,8 @@ export default function TimesheetCharts({
                           entry.totalScore >= 1.0
                             ? SCORE_COLORS.FULL
                             : entry.totalScore === 0.5
-                            ? SCORE_COLORS.HALF
-                            : SCORE_COLORS.ZERO
+                              ? SCORE_COLORS.HALF
+                              : SCORE_COLORS.ZERO
                         }
                       />
                     ))}
@@ -628,41 +692,54 @@ export default function TimesheetCharts({
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={scoreDistributionData}
+                  data={activePieData}
                   cx="50%"
                   cy="50%"
                   innerRadius={62}
                   outerRadius={85}
-                  paddingAngle={4}
+                  paddingAngle={activePieData.length > 1 ? 4 : 0}
                   dataKey="value"
+                  onMouseEnter={(_, index) => {
+                    const item = activePieData[index];
+                    if (!item?.isEmpty) setHoveredSlice(item);
+                  }}
+                  onMouseLeave={() => setHoveredSlice(null)}
                 >
-                  {scoreDistributionData.map((entry, idx) => (
+                  {activePieData.map((entry, idx) => (
                     <Cell key={`cell-${idx}`} fill={entry.color} />
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(val: any, name: any, item: any) => [
-                    `${val} ca (${item.payload.percentage}%)`,
-                    name,
-                  ]}
-                  contentStyle={{
-                    backgroundColor: "#0f172a",
-                    borderColor: "#1e293b",
-                    borderRadius: "12px",
-                    fontSize: "12px",
-                    color: "#fff",
+                  offset={20}
+                  wrapperStyle={{ zIndex: 50, pointerEvents: "none" }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const item = payload[0];
+                    if (item?.payload?.isEmpty) return null;
+                    return (
+                      <div className="bg-slate-950/95 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-xl shadow-2xl text-xs text-white flex items-center gap-2 whitespace-nowrap pointer-events-none z-50">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: item.payload.color }}
+                        />
+                        <span className="font-semibold text-slate-200">{item.name}:</span>
+                        <span className="font-bold text-white">
+                          {item.value} ca ({item.payload.percentage}%)
+                        </span>
+                      </div>
+                    );
                   }}
                 />
               </PieChart>
             </ResponsiveContainer>
 
             {/* Donut Center Label */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-2xl font-black text-slate-900 dark:text-white">
-                {summaryMetrics.totalScore}
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
+              <span className="text-2xl font-black text-slate-900 dark:text-white leading-none">
+                {hoveredSlice ? `${hoveredSlice.value} ca` : summaryMetrics.totalScore}
               </span>
-              <span className="text-[10px] uppercase font-bold text-slate-400">
-                Tổng Công
+              <span className="text-[10px] uppercase font-bold text-slate-400 mt-1 leading-none text-center px-1">
+                {hoveredSlice ? hoveredSlice.name : "Tổng Công"}
               </span>
             </div>
           </div>
@@ -712,7 +789,7 @@ export default function TimesheetCharts({
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
                 data={timeSeriesData}
-                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                margin={{ top: 10, right: 15, left: -5, bottom: 0 }}
               >
                 <defs>
                   <linearGradient id="vidGrad" x1="0" y1="0" x2="0" y2="1">
@@ -728,11 +805,13 @@ export default function TimesheetCharts({
                 />
                 <XAxis
                   dataKey="displayDate"
+                  minTickGap={20}
                   tick={{ fill: "#64748b", fontSize: 11 }}
                   tickLine={false}
                   axisLine={{ stroke: "#334155", opacity: 0.3 }}
                 />
                 <YAxis
+                  width={30}
                   tick={{ fill: "#64748b", fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
@@ -760,7 +839,7 @@ export default function TimesheetCharts({
             </ResponsiveContainer>
           </div>
 
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
             <span>Tổng video hoàn thành: <strong className="text-pink-500">{summaryMetrics.totalVideos} videos</strong></span>
             <span>Tỷ lệ hoàn thành trung bình: <strong className="text-emerald-500">{summaryMetrics.avgRate}%</strong></span>
           </div>
@@ -839,13 +918,12 @@ export default function TimesheetCharts({
                     </td>
 
                     <td className="py-3 px-3 text-center">
-                      <span className={`text-[11px] px-2 py-0.5 rounded-lg font-bold ${
-                        s.role === "ADMIN"
-                          ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20"
-                          : s.role === "LEAD"
+                      <span className={`text-[11px] px-2 py-0.5 rounded-lg font-bold ${s.role === "ADMIN"
+                        ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20"
+                        : s.role === "LEAD"
                           ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20"
                           : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-                      }`}>
+                        }`}>
                         {s.role === "ADMIN" ? "Quản trị viên" : s.role === "LEAD" ? "Trưởng nhóm" : "Nhân viên"}
                       </span>
                     </td>
@@ -870,13 +948,12 @@ export default function TimesheetCharts({
                       </div>
                       <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
                         <div
-                          className={`h-full rounded-full ${
-                            s.avgRate >= 85
-                              ? "bg-emerald-500"
-                              : s.avgRate >= 50
+                          className={`h-full rounded-full ${s.avgRate >= 85
+                            ? "bg-emerald-500"
+                            : s.avgRate >= 50
                               ? "bg-amber-500"
                               : "bg-rose-500"
-                          }`}
+                            }`}
                           style={{ width: `${Math.min(100, s.avgRate)}%` }}
                         />
                       </div>

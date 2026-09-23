@@ -1,7 +1,7 @@
 import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { calculateWorkdayScore, getCutoffTimeInfo, getScoringConfig, DEFAULT_SCORING_CONFIG, ScoringRuleConfig, getBusinessToday, finalizePendingChecklists } from "@/lib/scoring-engine";
+import { calculateWorkdayScore, getCutoffTimeInfo, getScoringConfig, DEFAULT_SCORING_CONFIG, ScoringRuleConfig, getBusinessToday, finalizePendingChecklists, ensureDailyChecklistsForDate } from "@/lib/scoring-engine";
 import { reconcileTodayChecklistForUser } from "@/lib/checklist-reconcile";
 
 let lastCatchupCheckTime = 0;
@@ -242,56 +242,7 @@ export const checklistRouter = router({
       // 1. Ensure checklists exist for all active staff for the requested date (only when single day mode)
       if (!isRangeMode) {
         const dateObj = parseDateOnly(targetDateStr);
-        const scoringConfig = await getScoringConfig(ctx.prisma);
-        const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
-        const allowedStatuses = shouldExcludeBanned
-          ? ["ACTIVE", "WARMING", "RESTRICTED"]
-          : ["ACTIVE", "WARMING", "RESTRICTED", "BANNED"];
-
-        const activeUsers = await ctx.prisma.user.findMany({
-          where: { isActive: true, role: { in: ["STAFF", "LEAD", "ADMIN"] }, deletedAt: null },
-          include: { tiktokAccounts: { where: { status: { in: allowedStatuses as any }, deletedAt: null } } },
-        });
-
-        const usersWithAccounts = activeUsers.filter((u) => u.tiktokAccounts.length > 0);
-        if (usersWithAccounts.length > 0) {
-          const candidateUserIds = usersWithAccounts.map((u) => u.id);
-          const existingChecklists = await ctx.prisma.dailyChecklist.findMany({
-            where: {
-              date: dateObj,
-              userId: { in: candidateUserIds },
-            },
-            select: { userId: true },
-          });
-
-          const existingSet = new Set(existingChecklists.map((c) => c.userId));
-          const missingUsers = usersWithAccounts.filter((u) => !existingSet.has(u.id));
-
-          if (missingUsers.length > 0) {
-            await Promise.all(
-              missingUsers.map((u) =>
-                ctx.prisma.dailyChecklist.create({
-                  data: {
-                    userId: u.id,
-                    date: dateObj,
-                    totalAssigned: u.tiktokAccounts.length,
-                    completedCount: 0,
-                    completionRate: 0,
-                    workdayScore: 0,
-                    items: {
-                      create: u.tiktokAccounts.map((acc) => ({
-                        accountId: acc.id,
-                        isPosted: false,
-                        isSynced: !!acc.lastSyncedAt,
-                        isCompleted: false,
-                      })),
-                    },
-                  },
-                })
-              )
-            );
-          }
-        }
+        await ensureDailyChecklistsForDate(ctx.prisma, dateObj);
       }
 
       // 2. Build Prisma Where Clause

@@ -17,6 +17,8 @@ powershell -NoProfile -Command "$ports = @(39741); foreach ($p in $ports) { $pro
 
 echo [*] Cap nhat agent.js moi nhat sang "%PF%"...
 copy /y "%~dp0agent.js" "%PF%\agent.js" >nul
+copy /y "%~dp0run-agent.bat" "%PF%\run-agent.bat" >nul
+copy /y "%~dp0run-agent-silent.vbs" "%PF%\run-agent-silent.vbs" >nul
 if errorlevel 1 (
   echo [LOI] Khong the copy vao %PF%. Vui long kiem tra quyen Administrator.
   pause

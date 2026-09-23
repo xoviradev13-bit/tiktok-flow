@@ -79,7 +79,7 @@ export function vnDateStrToChecklistDate(dateStr: string): Date {
 export function parseVideoVnDate(v: any): string | null {
   let d: Date | null = null;
 
-  const raw = v?.createTime ?? v?.create_time ?? v?.createtime;
+  const raw = v?.postTime ?? v?.createTime ?? v?.create_time ?? v?.createtime ?? v?.post_time;
 
   if (raw != null) {
     const sec = Number(raw);

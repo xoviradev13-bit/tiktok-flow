@@ -207,21 +207,6 @@ function ChecklistPageContent() {
   const isDailyYesterday = dateStr === yesterdayStr;
   const isDailyCustom = !isDailyToday && !isDailyYesterday;
 
-  // Automatically sync calendar month whenever dateStr changes (Hôm nay, Hôm qua, or date picker)
-  useEffect(() => {
-    if (dateStr) {
-      const d = new Date(dateStr + "T00:00:00");
-      if (!isNaN(d.getTime())) {
-        setCalendarMonth((prev) => {
-          if (prev.getMonth() !== d.getMonth() || prev.getFullYear() !== d.getFullYear()) {
-            return d;
-          }
-          return prev;
-        });
-      }
-    }
-  }, [dateStr]);
-
   // Settings Drawer
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
   const [editRules, setEditRules] = useState({
@@ -1146,12 +1131,34 @@ function ChecklistPageContent() {
 
             {/* Right side: View-specific controls */}
             {viewType === "calendar" ? (
-              /* Calendar Mode: Staff Selector in header row */
-              isLeadOrAdmin && (
-                <div className="w-full sm:w-auto shrink-0">
-                  {renderStaffSelector("w-full sm:w-60 md:w-64")}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Color Legend Badge */}
+                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 px-3 py-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span>1 công (&ge;{activeRules.fullDayThreshold}%)</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                    <span>0.5 công ({activeRules.halfDayThreshold}-{Math.max(0, activeRules.fullDayThreshold - 1)}%)</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
+                    <span>0 công (&lt;{activeRules.halfDayThreshold}%)</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0" />
+                    <span>Nghỉ / Chưa có ca</span>
+                  </span>
                 </div>
-              )
+
+                {/* Calendar Mode: Staff Selector in header row */}
+                {isLeadOrAdmin && (
+                  <div className="w-full sm:w-auto shrink-0">
+                    {renderStaffSelector("w-full sm:w-60 md:w-64")}
+                  </div>
+                )}
+              </div>
             ) : viewType === "charts" || (viewType === "table" && viewMode === "range") ? (
               /* Charts or Table Range: Range presets */
               <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
@@ -1545,6 +1552,8 @@ function ChecklistPageContent() {
       ) : viewType === "charts" ? (
         <TimesheetCharts
           checklists={timesheetData?.checklists || []}
+          startDate={startDateStr}
+          endDate={endDateStr}
           selectedUserId={resolvedUserId}
           staffList={staffList}
           onSelectDate={(dStr) => setSelectedDateForModal(dStr)}

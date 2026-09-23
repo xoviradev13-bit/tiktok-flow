@@ -215,7 +215,7 @@ export async function GET(req: Request) {
 
     // Auto-expire stale jobs:
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const twentyFiveMinutesAgo = new Date(Date.now() - 25 * 60 * 1000);
+    const fortyFiveMinutesAgo = new Date(Date.now() - 45 * 60 * 1000);
 
     // 1. PENDING jobs > 5 minutes (no agent online to pick it up)
     await prisma.syncQueue.updateMany({
@@ -230,15 +230,15 @@ export async function GET(req: Request) {
       },
     });
 
-    // 2. PROCESSING jobs > 25 minutes (agent crashed)
+    // 2. PROCESSING jobs > 45 minutes (agent crashed or stuck)
     await prisma.syncQueue.updateMany({
       where: {
         status: "PROCESSING",
-        startedAt: { lt: twentyFiveMinutesAgo },
+        startedAt: { lt: fortyFiveMinutesAgo },
       },
       data: {
         status: "TIMED_OUT",
-        errorMessage: "Tiến trình quét bị gián đoạn (quá 25 phút) - Đã tự động hủy bỏ",
+        errorMessage: "Tiến trình quét bị gián đoạn (quá 45 phút) - Đã tự động hủy bỏ",
         completedAt: new Date(),
       },
     });

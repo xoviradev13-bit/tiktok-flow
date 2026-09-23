@@ -179,10 +179,119 @@ export function getBusinessToday(timezone = "Asia/Ho_Chi_Minh"): {
 }
 
 /**
+ * Ensures all active staff/leads/admins with assigned TikTok accounts have a DailyChecklist
+ * and corresponding DailyChecklistItems for the specified date.
+ * - If a user has no checklist for this date -> creates the checklist + items.
+ * - If a user already has an unlocked checklist -> creates any missing items for newly assigned accounts.
+ */
+export async function ensureDailyChecklistsForDate(
+  prisma: any,
+  date: Date
+): Promise<{ createdCount: number; userIds: string[] }> {
+  const scoringConfig = await getScoringConfig(prisma);
+  const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+  const allowedStatuses = shouldExcludeBanned
+    ? ["ACTIVE", "WARMING", "RESTRICTED"]
+    : ["ACTIVE", "WARMING", "RESTRICTED", "BANNED"];
+
+  const activeUsers = await prisma.user.findMany({
+    where: { isActive: true, role: { in: ["STAFF", "LEAD", "ADMIN"] }, deletedAt: null },
+    include: {
+      tiktokAccounts: {
+        where: { status: { in: allowedStatuses as any }, deletedAt: null },
+        select: { id: true, lastSyncedAt: true },
+      },
+    },
+  });
+
+  const usersWithAccounts = activeUsers.filter((u: any) => u.tiktokAccounts.length > 0);
+  if (usersWithAccounts.length === 0) {
+    return { createdCount: 0, userIds: [] };
+  }
+
+  const candidateUserIds = usersWithAccounts.map((u: any) => u.id);
+  const existingChecklists = await prisma.dailyChecklist.findMany({
+    where: {
+      date,
+      userId: { in: candidateUserIds },
+    },
+    include: {
+      items: { select: { accountId: true } },
+    },
+  });
+
+  const existingMap = new Map<string, (typeof existingChecklists)[0]>();
+  for (const c of existingChecklists) {
+    existingMap.set(c.userId, c);
+  }
+
+  const createdUserIds: string[] = [];
+
+  for (const u of usersWithAccounts) {
+    const existing = existingMap.get(u.id);
+    if (!existing) {
+      try {
+        await prisma.dailyChecklist.create({
+          data: {
+            userId: u.id,
+            date,
+            totalAssigned: u.tiktokAccounts.length,
+            completedCount: 0,
+            completionRate: 0,
+            workdayScore: 0,
+            items: {
+              create: u.tiktokAccounts.map((acc: any) => ({
+                accountId: acc.id,
+                isPosted: false,
+                isSynced: !!acc.lastSyncedAt,
+                isCompleted: false,
+              })),
+            },
+          },
+        });
+        createdUserIds.push(u.id);
+      } catch (err: any) {
+        if (err?.code !== "P2002") {
+          console.warn(`[ensureDailyChecklistsForDate] Error creating checklist for user ${u.id}:`, err);
+        }
+      }
+    } else if (!existing.isLocked) {
+      const existingAccountIds = new Set(existing.items.map((it: any) => it.accountId));
+      const missingAccounts = u.tiktokAccounts.filter((acc: any) => !existingAccountIds.has(acc.id));
+      if (missingAccounts.length > 0) {
+        try {
+          await prisma.dailyChecklistItem.createMany({
+            data: missingAccounts.map((acc: any) => ({
+              checklistId: existing.id,
+              accountId: acc.id,
+              isPosted: false,
+              isSynced: !!acc.lastSyncedAt,
+              isCompleted: false,
+            })),
+            skipDuplicates: true,
+          });
+          await prisma.dailyChecklist.update({
+            where: { id: existing.id },
+            data: {
+              totalAssigned: existing.items.length + missingAccounts.length,
+            },
+          });
+        } catch (err) {
+          console.warn(`[ensureDailyChecklistsForDate] Error adding missing items for user ${u.id}:`, err);
+        }
+      }
+    }
+  }
+
+  return { createdCount: createdUserIds.length, userIds: createdUserIds };
+}
+
+/**
  * Evaluates and locks pending daily checklists.
  * In catch-up mode (options.includeToday !== true), strictly locks past days:
  * isLocked = false && date >= sevenDaysAgo && date < todayDateOnly.
- * In cron/cutoff mode (options.includeToday === true), also locks today's checklist.
+ * In cron/cutoff mode (options.includeToday === true), ensures today's checklists
+ * exist for all active users with assigned accounts, then locks today's checklist.
  */
 export async function finalizePendingChecklists(
   prisma: any,
@@ -190,10 +299,17 @@ export async function finalizePendingChecklists(
 ): Promise<{
   processedCount: number;
   autoCheckedItemsCount: number;
+  createdChecklistsCount: number;
   checklists: Array<{ id: string; date: string; score: number }>;
 }> {
   const { todayDateOnly, sevenDaysAgoDateOnly } = getBusinessToday();
   const scoringConfig = await getScoringConfig(prisma);
+
+  let createdChecklistsCount = 0;
+  if (options.includeToday) {
+    const ensureResult = await ensureDailyChecklistsForDate(prisma, todayDateOnly);
+    createdChecklistsCount = ensureResult.createdCount;
+  }
 
   const dateFilter: any = {
     gte: sevenDaysAgoDateOnly, // CHECKLIST_FINALIZATION_WINDOW_DAYS back
@@ -222,7 +338,7 @@ export async function finalizePendingChecklists(
   });
 
   if (!candidates || candidates.length === 0) {
-    return { processedCount: 0, autoCheckedItemsCount: 0, checklists: [] };
+    return { processedCount: 0, autoCheckedItemsCount: 0, createdChecklistsCount, checklists: [] };
   }
 
   let processedCount = 0;
@@ -309,6 +425,7 @@ export async function finalizePendingChecklists(
   return {
     processedCount,
     autoCheckedItemsCount,
+    createdChecklistsCount,
     checklists: checklistsSummary,
   };
 }

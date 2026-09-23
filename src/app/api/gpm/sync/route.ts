@@ -327,26 +327,27 @@ export async function GET(req: Request) {
         : null;
 
     // Capture GPM Port & Status reported by Client Agent via headers or query params.
-    // Always update gpmLastSeenAt on every authenticated poll so the UI can detect
-    // that the agent is alive even when GPM Login is not running.
-    try {
-      const url = new URL(req.url);
-      const rawPort = url.searchParams.get("gpmPort") || req.headers.get("x-gpm-port");
-      const rawOnline = url.searchParams.get("gpmOnline") || req.headers.get("x-gpm-online");
-      const parsedPort = rawPort ? parseInt(rawPort, 10) : null;
-      const isOnline = rawOnline !== "false" && rawOnline !== "0" && !!parsedPort;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          ...(parsedPort && Number.isFinite(parsedPort) && parsedPort > 0
-            ? { gpmPort: parsedPort }
-            : {}),
-          gpmIsOnline: isOnline,
-          gpmLastSeenAt: new Date(),
-        },
-      });
-    } catch {
-      // Ignore background telemetry errors
+    // Only update when requested by an actual agent (Bearer token), NOT a browser dashboard session.
+    if (resolved.mode !== "session") {
+      try {
+        const url = new URL(req.url);
+        const rawPort = url.searchParams.get("gpmPort") || req.headers.get("x-gpm-port");
+        const rawOnline = url.searchParams.get("gpmOnline") || req.headers.get("x-gpm-online");
+        const parsedPort = rawPort ? parseInt(rawPort, 10) : null;
+        const isOnline = rawOnline !== "false" && rawOnline !== "0" && !!parsedPort;
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            ...(parsedPort && Number.isFinite(parsedPort) && parsedPort > 0
+              ? { gpmPort: parsedPort }
+              : {}),
+            gpmIsOnline: isOnline,
+            gpmLastSeenAt: new Date(),
+          },
+        });
+      } catch {
+        // Ignore background telemetry errors
+      }
     }
 
     const configRecord = await prisma.systemConfig.findUnique({
@@ -487,7 +488,7 @@ export async function GET(req: Request) {
       lastJobExpirySweepAt = Date.now();
       try {
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const twentyFiveMinutesAgo = new Date(Date.now() - 25 * 60 * 1000);
+        const fortyFiveMinutesAgo = new Date(Date.now() - 45 * 60 * 1000);
 
         // 1. PENDING jobs > 5 minutes (no agent online to pick it up)
         await prisma.syncQueue.updateMany({
@@ -502,15 +503,15 @@ export async function GET(req: Request) {
           },
         });
 
-        // 2. PROCESSING jobs > 25 minutes (agent crashed)
+        // 2. PROCESSING jobs > 45 minutes (agent crashed or stuck)
         await prisma.syncQueue.updateMany({
           where: {
             status: "PROCESSING",
-            startedAt: { lt: twentyFiveMinutesAgo },
+            startedAt: { lt: fortyFiveMinutesAgo },
           },
           data: {
             status: "TIMED_OUT",
-            errorMessage: "Tiến trình quét bị gián đoạn (quá 25 phút) - Đã tự động hủy bỏ",
+            errorMessage: "Tiến trình quét bị gián đoạn (quá 45 phút) - Đã tự động hủy bỏ",
             completedAt: new Date(),
           },
         });

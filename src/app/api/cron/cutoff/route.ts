@@ -123,11 +123,12 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Đã xử lý chốt công (${finalizationResult.processedCount} checklists, ${finalizationResult.autoCheckedItemsCount} items auto-checked).`,
+      message: `Đã xử lý chốt công (${finalizationResult.processedCount} checklists, ${finalizationResult.autoCheckedItemsCount} items auto-checked, ${finalizationResult.createdChecklistsCount} checklists created).`,
       canFinalizeToday,
       cutoffTime: new Date().toISOString(),
       businessDate: todayDateOnly.toISOString().split("T")[0],
       sevenDaysAgoBusinessDate: sevenDaysAgoDateOnly.toISOString().split("T")[0],
+      createdChecklistsCount: finalizationResult.createdChecklistsCount,
       finalizedChecklists: finalizationResult.checklists,
       ratesSynced,
       ratesError,
