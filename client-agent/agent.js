@@ -4601,6 +4601,8 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
           const hasCreatorRewardsInProg =
             Array.isArray(activePrograms) &&
             activePrograms.some((p) =>
+              p.programId === 9 ||
+              p.programId === 4 ||
               /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|sáng\s*tạo|beta/i.test(p.name)
             );
           // Informational only — the sidebar always contains this string.
@@ -4612,26 +4614,34 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
           // Authoritative decision: use the API program list only.
           const hasCreatorRewards = hasCreatorRewardsInProg;
 
+          // Check if there are any videos in postRewards tied specifically to Creator Rewards / Beta
+          const hasCreatorPostRewards =
+            Array.isArray(postRewards) &&
+            postRewards.some((p) =>
+              p.programId === 9 ||
+              p.programId === 4 ||
+              /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|beta/i.test(p.programName || "")
+            );
+
           const programCount = Array.isArray(activePrograms) ? activePrograms.length : 0;
-          const postRewardsCount = Array.isArray(postRewards) ? postRewards.length : 0;
 
-          // Positive evidence this is an established, monetized creator.
-          // A fresh/dormant account (0 programs, 0 rewards, few followers)
-          // must NOT be flagged as banned — it simply never enrolled.
-          const isMonetizedCreator =
-            programCount > 0 ||
-            (totalRewardsUsd ?? 0) > 0 ||
-            postRewardsCount > 0 ||
-            followerCount >= 10000;
+          // Positive evidence this account is/was enrolled in Creator Rewards.
+          // TikTok Creator Rewards Program strictly requires >= 10,000 followers.
+          // Accounts with other programs (LIVE rewards, Gaming Incentive, Shop, etc.)
+          // or < 10,000 followers must NOT be flagged as banned from Creator Rewards.
+          const isEligibleForCreatorRewards =
+            followerCount >= 10000 || hasCreatorPostRewards;
 
-          if (isMonetizedCreator && !hasCreatorRewards) {
-            // Monetized creator with no Creator Rewards in any program list
+          if (isEligibleForCreatorRewards && !hasCreatorRewards) {
+            // Enrolled/eligible creator with no Creator Rewards in active program list
             // ⇒ program was revoked / banned.
             creatorRewardsMissing = true;
             bannedReason = "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)";
-          } else if (!isMonetizedCreator && programCount === 0 && !hasCreatorRewards) {
-            // Never enrolled in anything — not a ban, just an unenrolled account.
-            rewardsNoProgram = true;
+          } else {
+            creatorRewardsMissing = false;
+            if (!hasCreatorRewards && !isEligibleForCreatorRewards && programCount === 0) {
+              rewardsNoProgram = true;
+            }
           }
         } catch { /* ignore */ }
       }

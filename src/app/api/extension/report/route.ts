@@ -600,15 +600,28 @@ export async function POST(req: Request) {
       // recover on unique violation (P2002) and fall through to the update path.
       const assignedUserId = memberUser?.id || null;
       try {
+        const effectiveFollowersOnCreate = applyMetrics && typeof followersCount === "number" ? followersCount : 0;
+        const hasCreatorPostRewardsOnCreate =
+          Array.isArray(body.postRewards) &&
+          body.postRewards.some(
+            (p: any) =>
+              p.programId === 9 ||
+              p.programId === 4 ||
+              /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|beta/i.test(p.programName || "")
+          );
+        const shouldBanOnCreate =
+          body.creatorRewardsMissing === true &&
+          (effectiveFollowersOnCreate >= 10000 || hasCreatorPostRewardsOnCreate);
+
         account = await prisma.tiktokAccount.create({
           data: {
             username: cleanUsername,
             gpmProfileId: resolvedGpmProfileId || null,
             gpmProfileName: nameFields.gpmProfileName || null,
             groupName: nameFields.groupName || null,
-            status: body.creatorRewardsMissing ? "BANNED" : targetStatus,
-            bannedReason: body.creatorRewardsMissing ? (body.bannedReason || "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)") : null,
-            metadata: body.metadata || (body.creatorRewardsMissing ? { creatorRewardsStatus: "BANNED" } : undefined),
+            status: shouldBanOnCreate ? "BANNED" : targetStatus,
+            bannedReason: shouldBanOnCreate ? (body.bannedReason || "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)") : null,
+            metadata: body.metadata || (shouldBanOnCreate ? { creatorRewardsStatus: "BANNED" } : undefined),
             isOnline: isLoggedIn === true,
             country: toStandardCountryCode(country) || undefined,
             assignedUserId,
@@ -702,13 +715,29 @@ export async function POST(req: Request) {
       }
 
       let isBannedFromCreatorRewards = false;
-      if (body.creatorRewardsMissing === true) {
+      const effectiveFollowers =
+        typeof followersCount === "number"
+          ? followersCount
+          : Number(account.totalFollowers ?? 0);
+      const existingMeta = (account.metadata as Record<string, any>) || {};
+      const hadPriorCreatorRewards =
+        existingMeta.creatorRewardsStatus === "ACTIVE" ||
+        (Array.isArray(body.postRewards) &&
+          body.postRewards.some(
+            (p: any) =>
+              p.programId === 9 ||
+              p.programId === 4 ||
+              /creator\s*reward|quỹ\s*nhà\s*sáng\s*tạo|beta/i.test(p.programName || "")
+          ));
+      const hasCreatorEligibility =
+        effectiveFollowers >= 10000 || hadPriorCreatorRewards;
+
+      if (body.creatorRewardsMissing === true && hasCreatorEligibility) {
         if (account.status !== "WARMING") {
           isBannedFromCreatorRewards = true;
           updateData.status = "BANNED";
           const reason = body.bannedReason || "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)";
           updateData.bannedReason = reason;
-          const existingMeta = (account.metadata as Record<string, any>) || {};
           updateData.metadata = {
             ...existingMeta,
             creatorRewardsStatus: "BANNED",
@@ -768,8 +797,11 @@ export async function POST(req: Request) {
             }
           }
         }
-      } else if (body.creatorRewardsMissing === false && account.status === "BANNED") {
-        // AUTO-RECOVERY: TikTok Creator Rewards Program has been restored!
+      } else if (
+        (body.creatorRewardsMissing === false || (body.creatorRewardsMissing === true && !hasCreatorEligibility)) &&
+        account.status === "BANNED"
+      ) {
+        // AUTO-RECOVERY: TikTok Creator Rewards Program has been restored OR false ban resolved (< 10k followers without Beta)
         const meta = (account.metadata as Record<string, any>) || {};
         const isBannedDueToRewards =
           meta.creatorRewardsStatus === "BANNED" ||
@@ -791,7 +823,7 @@ export async function POST(req: Request) {
               oldStatus: "BANNED",
               newStatus: "ACTIVE",
               logType: "STATUS_CHANGE",
-              message: `[KHÔI PHÚC QUYỀN KIẾM TIỀN] Đã phát hiện lại chương trình Creator Rewards Program trên TikTok Studio -> Trạng thái khôi phục: ACTIVE.`,
+              message: `[KHÔI PHÚC QUYỀN KIẾM TIỀN] Đã phát hiện lại chương trình Creator Rewards Program trên TikTok Studio hoặc khôi phục do không đủ điều kiện Quỹ Beta. Trạng thái khôi phục: ACTIVE.`,
               actorName: actorName || "Client Agent",
             },
           });
