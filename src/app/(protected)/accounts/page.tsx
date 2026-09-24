@@ -95,6 +95,7 @@ import {
 } from "@/lib/resolve-all-time-revenue";
 import { getAccountViewsPeriods } from "@/lib/daily-views-breakdown";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
+import { SyncStatusBadge, hasAccountSyncIssue } from "@/components/common/SyncStatusBadge";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 
@@ -106,6 +107,7 @@ const ACCOUNT_COLUMN_RESIZE_CONFIG = {
   gpmProfileId: { minWidth: 220, maxWidth: 400, defaultWidth: 260 },
   country: { minWidth: 96, maxWidth: 180, defaultWidth: 110 },
   status: { minWidth: 128, maxWidth: 220, defaultWidth: 148 },
+  syncStatus: { minWidth: 150, maxWidth: 280, defaultWidth: 180 },
   assignedUser: { minWidth: 240, maxWidth: 360, defaultWidth: 260 },
   totalViews: { minWidth: 130, maxWidth: 240, defaultWidth: 150 },
   totalFollowers: { minWidth: 120, maxWidth: 220, defaultWidth: 140 },
@@ -122,6 +124,7 @@ type AccountSortKey =
   | "gpmProfileId"
   | "country"
   | "status"
+  | "lastSyncedAt"
   | "assignedUser"
   | "totalViews"
   | "totalFollowers"
@@ -133,6 +136,7 @@ type AccountSortKey =
 const ACCOUNT_SORT_OPTIONS: Array<{ key: AccountSortKey; label: string }> = [
   { key: "totalRevenue", label: "Doanh thu" },
   { key: "totalViews", label: "Lượt xem" },
+  { key: "lastSyncedAt" as any, label: "Lần đồng bộ cuối" },
   { key: "totalFollowers", label: "Lượt theo dõi" },
   { key: "totalVideos", label: "Số lượng video" },
   { key: "username", label: "Tên tài khoản" },
@@ -580,6 +584,9 @@ function AccountsPageContent() {
   const initialOnline = (searchParams?.get("online") || "ALL") as "ALL" | "ONLINE" | "OFFLINE";
   const [onlineFilter, setOnlineFilter] = useState<"ALL" | "ONLINE" | "OFFLINE">(initialOnline);
 
+  const initialSync = (searchParams?.get("sync") || "ALL") as "ALL" | "SYNC_OK" | "SYNC_ISSUES";
+  const [syncFilter, setSyncFilter] = useState<"ALL" | "SYNC_OK" | "SYNC_ISSUES">(initialSync);
+
   const initialCountry = searchParams?.get("country") || "ALL";
   const [countryFilter, setCountryFilter] = useState(initialCountry);
 
@@ -639,6 +646,7 @@ function AccountsPageContent() {
         q: search,
         status: statusFilter,
         online: onlineFilter,
+        sync: syncFilter,
         country: countryFilter,
         user: assignedFilter,
         warn: warningFilter,
@@ -656,6 +664,7 @@ function AccountsPageContent() {
         q: "",
         status: "ALL",
         online: "ALL",
+        sync: "ALL",
         country: "ALL",
         user: "ALL",
         warn: "ALL",
@@ -674,6 +683,7 @@ function AccountsPageContent() {
     search,
     statusFilter,
     onlineFilter,
+    syncFilter,
     countryFilter,
     assignedFilter,
     warningFilter,
@@ -712,6 +722,7 @@ function AccountsPageContent() {
     gpmProfileId: true,
     country: true,
     status: true,
+    syncStatus: true,
     assignedUser: true,
     totalViews: true,
     totalFollowers: true,
@@ -767,6 +778,7 @@ function AccountsPageContent() {
   const [newUsername, setNewUsername] = useState("");
   const [newCountry, setNewCountry] = useState("US");
   const [newGroup, setNewGroup] = useState("Default group");
+  const [newProfileName, setNewProfileName] = useState("");
   const [newGpmId, setNewGpmId] = useState("");
   const [newAssignedUser, setNewAssignedUser] = useState("");
 
@@ -797,6 +809,7 @@ function AccountsPageContent() {
     search: search || undefined,
     status: !viewTrash && statusFilter !== "ALL" ? statusFilter : undefined,
     onlineStatus: !viewTrash && onlineFilter !== "ALL" ? onlineFilter : undefined,
+    syncStatus: !viewTrash && syncFilter !== "ALL" ? syncFilter : undefined,
     country: countryFilter !== "ALL" ? countryFilter : undefined,
     assignedUserId: isLeadOrAdmin && assignedFilter !== "ALL" ? assignedFilter : undefined,
     viewTrash: viewTrash && isAdmin ? true : false,
@@ -906,6 +919,7 @@ function AccountsPageContent() {
     onSuccess: () => {
       setIsCreateOpen(false);
       setNewUsername("");
+      setNewProfileName("");
       setNewGpmId("");
       setActionMsg("✅ Đã tạo tài khoản TikTok thành công!");
       utils.accounts.list.invalidate();
@@ -1198,6 +1212,7 @@ function AccountsPageContent() {
       username: newUsername.trim(),
       country: newCountry,
       groupName: newGroup || null,
+      gpmProfileName: newProfileName.trim() || null,
       gpmProfileId: newGpmId.trim() || null,
       assignedUserId: newAssignedUser || null,
     });
@@ -1265,6 +1280,7 @@ function AccountsPageContent() {
       id: editId,
       country: editCountry,
       groupName: editGroup?.trim() || null,
+      gpmProfileName: editProfileName?.trim() || null,
       gpmProfileId: editGpmId?.trim() || null,
       assignedUserId: editAssignedUser || null,
     });
@@ -1303,6 +1319,9 @@ function AccountsPageContent() {
       const matchOnline =
         onlineFilter === "ALL" ||
         (onlineFilter === "ONLINE" ? !!acc.isOnline : !acc.isOnline);
+      const matchSync =
+        syncFilter === "ALL" ||
+        (syncFilter === "SYNC_ISSUES" ? hasAccountSyncIssue(acc) : !hasAccountSyncIssue(acc));
       const matchCountry = countryFilter === "ALL" || normalizeCountry(acc.country) === countryFilter;
       const matchAssigned = !isLeadOrAdmin || assignedFilter === "ALL" || acc.assignedUserId === assignedFilter;
 
@@ -1327,6 +1346,7 @@ function AccountsPageContent() {
         matchSearch &&
         matchStatus &&
         matchOnline &&
+        matchSync &&
         matchCountry &&
         matchAssigned &&
         matchWarning &&
@@ -1353,9 +1373,9 @@ function AccountsPageContent() {
       } else if (sortConfig.key === "totalViews" || sortConfig.key === "totalFollowers" || sortConfig.key === "totalVideos") {
         aVal = Number(aVal || 0);
         bVal = Number(bVal || 0);
-      } else if (sortConfig.key === "updatedAt") {
-        aVal = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-        bVal = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      } else if (sortConfig.key === "updatedAt" || (sortConfig.key as string) === "lastSyncedAt") {
+        aVal = a.lastSyncedAt ? new Date(a.lastSyncedAt).getTime() : 0;
+        bVal = b.lastSyncedAt ? new Date(b.lastSyncedAt).getTime() : 0;
       } else {
         aVal = (aVal || "").toString().toLowerCase();
         bVal = (bVal || "").toString().toLowerCase();
@@ -1372,6 +1392,7 @@ function AccountsPageContent() {
     search,
     statusFilter,
     onlineFilter,
+    syncFilter,
     countryFilter,
     assignedFilter,
     warningFilter,
@@ -1417,6 +1438,7 @@ function AccountsPageContent() {
   // Active filter count
   const activeAdvancedCount =
     (onlineFilter !== "ALL" ? 1 : 0) +
+    (syncFilter !== "ALL" ? 1 : 0) +
     (countryFilter !== "ALL" ? 1 : 0) +
     (warningFilter !== "ALL" ? 1 : 0) +
     (gpmFilter !== "ALL" ? 1 : 0) +
@@ -1433,6 +1455,7 @@ function AccountsPageContent() {
     setSearch("");
     setStatusFilter("ALL");
     setOnlineFilter("ALL");
+    setSyncFilter("ALL");
     setCountryFilter("ALL");
     setAssignedFilter("ALL");
     setWarningFilter("ALL");
@@ -1966,6 +1989,7 @@ function AccountsPageContent() {
                       <button
                         onClick={() => {
                           setOnlineFilter("ALL");
+                          setSyncFilter("ALL");
                           setCountryFilter("ALL");
                           setWarningFilter("ALL");
                           setGpmFilter("ALL");
@@ -1980,10 +2004,10 @@ function AccountsPageContent() {
                     )}
                   </div>
 
-                  {/* Trạng thái kết nối (Online / Offline) */}
+                  {/* Trạng thái mở Profile GPM (Online / Offline) */}
                   <div className="space-y-1">
                     <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Trạng thái kết nối
+                      Trình duyệt GPM (Online / Offline)
                     </label>
                     <div className="relative">
                       <Select
@@ -1999,20 +2023,20 @@ function AccountsPageContent() {
                             : ""
                             }`}
                         >
-                          <SelectValue placeholder="Tất cả kết nối" />
+                          <SelectValue placeholder="Tất cả trạng thái mở" />
                         </SelectTrigger>
                         <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả kết nối</SelectItem>
+                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả (Mở &amp; Đóng)</SelectItem>
                           <SelectItem value="ONLINE" className="text-xs font-normal cursor-pointer">
                             <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
                               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50" />
-                              <span>Đang Online</span>
+                              <span>Đang mở profile (Online)</span>
                             </span>
                           </SelectItem>
                           <SelectItem value="OFFLINE" className="text-xs font-normal cursor-pointer">
                             <span className="inline-flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium">
                               <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
-                              <span>Đang Offline</span>
+                              <span>Đang đóng (Offline)</span>
                             </span>
                           </SelectItem>
                         </SelectContent>
@@ -2029,12 +2053,72 @@ function AccountsPageContent() {
                                 setPage(1);
                               }}
                               className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                              aria-label="Xóa chọn kết nối"
+                              aria-label="Xóa chọn trạng thái mở"
                             >
                               <X className="w-2.5 h-2.5" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent side="top">Xóa chọn kết nối</TooltipContent>
+                          <TooltipContent side="top">Xóa chọn trạng thái mở</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Trạng thái đồng bộ (Sync Status) */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Trạng thái đồng bộ (Sync)
+                    </label>
+                    <div className="relative">
+                      <Select
+                        value={syncFilter}
+                        onValueChange={(val: any) => {
+                          setSyncFilter(val);
+                          setPage(1);
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${syncFilter !== "ALL"
+                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                            : ""
+                            }`}
+                        >
+                          <SelectValue placeholder="Tất cả đồng bộ" />
+                        </SelectTrigger>
+                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả đồng bộ</SelectItem>
+                          <SelectItem value="SYNC_OK" className="text-xs font-normal cursor-pointer">
+                            <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                              <span>Đồng bộ tốt (&lt; 24h)</span>
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="SYNC_ISSUES" className="text-xs font-normal cursor-pointer">
+                            <span className="inline-flex items-center gap-2 text-rose-600 dark:text-rose-400 font-medium">
+                              <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                              <span>Lỗi sync / Cần xử lý</span>
+                            </span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {syncFilter !== "ALL" && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setSyncFilter("ALL");
+                                setPage(1);
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                              aria-label="Xóa chọn trạng thái sync"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Xóa chọn trạng thái sync</TooltipContent>
                         </Tooltip>
                       )}
                     </div>
@@ -2356,6 +2440,7 @@ function AccountsPageContent() {
                             gpmProfileId: true,
                             country: true,
                             status: true,
+                            syncStatus: true,
                             assignedUser: true,
                             totalViews: true,
                             totalFollowers: true,
@@ -2378,6 +2463,7 @@ function AccountsPageContent() {
                         { key: "gpmProfileId", label: "GPM Profile ID" },
                         { key: "country", label: "Quốc gia" },
                         { key: "status", label: "Trạng thái" },
+                        { key: "syncStatus", label: "Trạng thái Đồng bộ" },
                         { key: "assignedUser", label: "Người phụ trách" },
                         { key: "totalViews", label: "Số views" },
                         { key: "totalFollowers", label: "Số followers" },
@@ -2449,12 +2535,46 @@ function AccountsPageContent() {
                 </span>
               )}
               {onlineFilter !== "ALL" && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${onlineFilter === "ONLINE" ? "bg-emerald-500 shadow-xs shadow-emerald-500/50" : "bg-slate-400 dark:bg-slate-500"}`} />
-                  <span>{onlineFilter === "ONLINE" ? "Đang Online" : "Đang Offline"}</span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      onlineFilter === "ONLINE"
+                        ? "bg-emerald-500 shadow-xs shadow-emerald-500/50"
+                        : "bg-slate-400 dark:bg-slate-500"
+                    }`}
+                  />
+                  <span>
+                    {onlineFilter === "ONLINE"
+                      ? "Profile GPM: Đang mở (Online)"
+                      : "Profile GPM: Đang đóng (Offline)"}
+                  </span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button onClick={() => setOnlineFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
+                </span>
+              )}
+              {syncFilter !== "ALL" && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      syncFilter === "SYNC_ISSUES"
+                        ? "bg-rose-500 shadow-xs shadow-rose-500/50"
+                        : "bg-emerald-500"
+                    }`}
+                  />
+                  <span>
+                    {syncFilter === "SYNC_ISSUES"
+                      ? "Lỗi sync / Cần xử lý"
+                      : "Đồng bộ tốt (< 24h)"}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setSyncFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
                         <X className="w-3 h-3" />
                       </button>
                     </TooltipTrigger>
@@ -2632,8 +2752,8 @@ function AccountsPageContent() {
                       }`}
                   >
                     {/* Top Bar: Checkbox + Online & Status Badges + Actions */}
-                    <div className="p-4 pb-0 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                    <div className="p-4 pb-0 flex items-center justify-between gap-1.5">
+                      <div className="flex items-center shrink-0">
                         <Checkbox
                           checked={isSelected}
                           onCheckedChange={() => toggleSelectRow(acc.id)}
@@ -2641,11 +2761,11 @@ function AccountsPageContent() {
                         />
                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <OnlineOfflineBadge
-                          isOnline={acc.isOnline}
-                          size="sm"
-                          className="h-7 px-2.5 text-xs font-bold rounded-full border inline-flex items-center gap-1.5 shadow-2xs"
+                      <div className="flex items-center gap-1.5 min-w-0 justify-end flex-nowrap">
+                        <SyncStatusBadge
+                          account={acc}
+                          mode="compact"
+                          className="h-6.5 px-2 text-[11px] font-bold rounded-full border inline-flex items-center gap-1 shadow-2xs shrink-0"
                         />
 
                         {/* Status Select - Styled as twin badge */}
@@ -2658,9 +2778,9 @@ function AccountsPageContent() {
                               onValueChange={(val) => handleStatusChange(acc.id, val)}
                             >
                               <SelectTrigger
-                                className={`h-7 w-auto px-2.5 text-xs font-bold rounded-full border transition-all shadow-2xs cursor-pointer gap-1.5 inline-flex items-center [&>svg]:size-3 [&>svg]:opacity-70 [&>svg]:text-current ${badgeStyle.container}`}
+                                className={`h-6.5 w-auto px-2 text-[11px] font-bold rounded-full border transition-all shadow-2xs cursor-pointer gap-1 inline-flex items-center shrink-0 [&>svg]:size-2.5 [&>svg]:opacity-70 [&>svg]:text-current ${badgeStyle.container}`}
                               >
-                                <span className={`w-2 h-2 rounded-full shrink-0 ${badgeStyle.dot}`} />
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badgeStyle.dot}`} />
                                 <SelectValue className="font-bold text-inherit" />
                               </SelectTrigger>
                               <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-1">
@@ -2673,9 +2793,9 @@ function AccountsPageContent() {
                             </Select>
                           ) : (
                             <span
-                              className={`h-7 w-auto px-2.5 text-xs font-bold rounded-full border shadow-2xs gap-1.5 inline-flex items-center select-none ${badgeStyle.container}`}
+                              className={`h-6.5 w-auto px-2 text-[11px] font-bold rounded-full border shadow-2xs gap-1 inline-flex items-center shrink-0 select-none ${badgeStyle.container}`}
                             >
-                              <span className={`w-2 h-2 rounded-full shrink-0 ${badgeStyle.dot}`} />
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badgeStyle.dot}`} />
                               <span>{acc.status}</span>
                             </span>
                           );
@@ -2705,7 +2825,7 @@ function AccountsPageContent() {
                               <DropdownMenuTrigger asChild>
                                 <button
                                   type="button"
-                                  className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                  className="w-7 h-7 shrink-0 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                                   aria-label="Thao tác"
                                 >
                                   <MoreHorizontal className="w-4 h-4" />
@@ -2847,6 +2967,11 @@ function AccountsPageContent() {
                               >
                                 @{acc.username}
                               </Link>
+                              <OnlineOfflineBadge
+                                isOnline={acc.isOnline}
+                                size="sm"
+                                showLabel={false}
+                              />
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                               <span
@@ -3306,6 +3431,21 @@ function AccountsPageContent() {
                         </th>
                       )}
 
+                      {/* Sync Status */}
+                      {visibleColumns.syncStatus && (
+                        <th
+                          style={getColumnStyle("syncStatus")}
+                          onClick={() => handleSort("lastSyncedAt" as any)}
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
+                        >
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">Đồng bộ</span>
+                            {renderSortIndicator("lastSyncedAt" as any)}
+                          </div>
+                          {renderResizeHandle("syncStatus")}
+                        </th>
+                      )}
+
                       {/* Assigned User */}
                       {visibleColumns.assignedUser && (
                         <th
@@ -3457,6 +3597,7 @@ function AccountsPageContent() {
                                   >
                                     @{acc.username}
                                   </Link>
+                                  <SyncStatusBadge account={acc} mode="compact" />
                                   {viewTrash && (
                                     <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40">
                                       Đã xóa
@@ -3617,6 +3758,13 @@ function AccountsPageContent() {
                                   }
                                   return statusElement;
                                 })()}
+                              </td>
+                            )}
+
+                            {/* Sync Status Diagnostic */}
+                            {visibleColumns.syncStatus && (
+                              <td style={getColumnStyle("syncStatus")} className="px-4 py-3.5 overflow-hidden">
+                                <SyncStatusBadge account={acc} mode="full" />
                               </td>
                             )}
 
@@ -4262,6 +4410,19 @@ function AccountsPageContent() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  GPM Profile Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Profile 5404"
+                  value={newProfileName}
+                  onChange={(e) => setNewProfileName(e.target.value)}
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   GPM Profile ID
                 </label>
                 <input
@@ -4394,31 +4555,64 @@ function AccountsPageContent() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      GPM Profile Name
-                    </label>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    GPM Profile Name
+                  </label>
+                  {!isLeadOrAdmin ? (
                     <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
                       <Lock className="w-2.5 h-2.5" /> Chỉ đọc
                     </span>
-                  </div>
+                  ) : (
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                      Admin/Lead
+                    </span>
+                  )}
+                </div>
+                {isLeadOrAdmin ? (
+                  <input
+                    type="text"
+                    placeholder="Tên profile GPM (ví dụ: Profile 5404)..."
+                    value={editProfileName}
+                    onChange={(e) => setEditProfileName(e.target.value)}
+                    className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                  />
+                ) : (
                   <input
                     type="text"
                     readOnly
-                    value={editProfileName || "-- Chưa có tên --"}
-                    className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
+                    placeholder="Chưa có tên Profile GPM"
+                    value={editProfileName}
+                    className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
                   />
-                </div>
+                )}
+              </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      GPM Profile ID
-                    </label>
-                    <span className="text-[10px] text-slate-400 font-mono">(Chỉ đọc)</span>
-                  </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    GPM Profile ID
+                  </label>
+                  {!isLeadOrAdmin ? (
+                    <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                      <Lock className="w-2.5 h-2.5" /> Chỉ đọc
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                      Admin/Lead
+                    </span>
+                  )}
+                </div>
+                {isLeadOrAdmin ? (
+                  <input
+                    type="text"
+                    placeholder="Nhập GPM Profile UUID (ví dụ: 792837c8-0a3a-49ea-b550-a92bda66c149)..."
+                    value={editGpmId}
+                    onChange={(e) => setEditGpmId(e.target.value)}
+                    className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                  />
+                ) : (
                   <input
                     type="text"
                     readOnly
@@ -4426,8 +4620,14 @@ function AccountsPageContent() {
                     value={editGpmId}
                     className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs font-mono text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
                   />
-                </div>
+                )}
               </div>
+
+              {isLeadOrAdmin && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed bg-amber-500/5 border border-amber-500/10 rounded-xl p-2.5">
+                  💡 <strong>GPM Profile ID:</strong> Thay đổi Profile UUID sẽ chuyển hướng mở trình duyệt GPM và đồng bộ tự động sang profile mới. Vui lòng kiểm tra kỹ UUID.
+                </p>
+              )}
 
               {isLeadOrAdmin && (
                 <div>

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { format } from "date-fns";
+import { SyncStatusBadge } from "@/components/common/SyncStatusBadge";
 import { vi } from "date-fns/locale";
 import Link from "next/link";
 import {
@@ -492,75 +493,13 @@ export default function DayDetailModal({
                                 </TooltipContent>
                               </Tooltip>
 
-                              {/* Sync GPM Status with Rich Tooltip */}
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="flex items-center gap-1.5 text-xs font-semibold cursor-help select-none">
-                                    <span
-                                      className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] shadow-2xs ${
-                                        item.isSynced
-                                          ? "bg-cyan-500 text-white"
-                                          : isAccountFailed
-                                          ? "bg-rose-500 text-white"
-                                          : isGpmMissing
-                                          ? "bg-amber-500 text-white"
-                                          : "bg-amber-500 text-white"
-                                      }`}
-                                    >
-                                      {item.isSynced ? (
-                                        <RefreshCw className="w-3 h-3 stroke-[3]" />
-                                      ) : isAccountFailed ? (
-                                        <AlertCircle className="w-3 h-3 stroke-[2.5]" />
-                                      ) : isGpmMissing ? (
-                                        <AlertCircle className="w-3 h-3 stroke-[2.5]" />
-                                      ) : (
-                                        <RefreshCw className="w-3 h-3 stroke-[2.5]" />
-                                      )}
-                                    </span>
-                                    <span
-                                      className={
-                                        item.isSynced
-                                          ? "text-cyan-600 dark:text-cyan-400 font-bold"
-                                          : "text-slate-400"
-                                      }
-                                    >
-                                      Sync
-                                    </span>
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="text-xs font-normal z-[200] max-w-xs">
-                                  {item.isSynced
-                                    ? `Đã sync GPM${
-                                        item.syncedAt || item.account?.lastSyncedAt
-                                          ? ` lúc ${format(
-                                              new Date(item.syncedAt || item.account.lastSyncedAt),
-                                              "HH:mm dd/MM/yyyy"
-                                            )}`
-                                          : " thành công"
-                                      }`
-                                    : isAccountFailed
-                                    ? `Sync thất bại: Tài khoản bị ${
-                                        item.account?.status === "BANNED"
-                                          ? "khóa (Banned)"
-                                          : item.account?.status === "RESTRICTED"
-                                          ? "hạn chế"
-                                          : "tạm dừng"
-                                      }`
-                                    : isGpmMissing
-                                    ? "Chưa gán GPM Profile ID - Không thể đồng bộ tự động"
-                                    : `Chưa đồng bộ dữ liệu GPM Profile ngày ${format(
-                                        new Date(dateStr + "T00:00:00"),
-                                        "dd/MM/yyyy"
-                                      )}${
-                                        item.account?.lastSyncedAt
-                                          ? ` (Lần cuối: ${format(
-                                              new Date(item.account.lastSyncedAt),
-                                              "HH:mm dd/MM"
-                                            )})`
-                                          : ""
-                                      }`}
-                                </TooltipContent>
-                              </Tooltip>
+                              {/* Sync GPM Status with Rich Diagnostic Badge */}
+                              <SyncStatusBadge
+                                account={item.account}
+                                isSyncedToday={item.isSynced}
+                                syncedAt={item.syncedAt || item.account?.lastSyncedAt}
+                                mode="compact"
+                              />
 
                               {/* KPI Pill with Rich Tooltip */}
                               <Tooltip>

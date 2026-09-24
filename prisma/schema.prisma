@@ -151,6 +151,7 @@ model TiktokAccount {
   groupName          String?              // GPM group name (e.g. "Default group")
   status             AccountStatus        @default(ACTIVE)
   isOnline           Boolean              @default(false) @map("is_online")
+  syncStatus         SyncStatus           @default(NEVER_SYNCED) @map("sync_status")
   assignedUserId     String?
   assignedUser       User?                @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
   isAssignmentLocked Boolean              @default(false) @map("is_assignment_locked") // Khóa phân công: chỉ Admin mới đổi được
@@ -177,6 +178,7 @@ model TiktokAccount {
 
   @@index([status])
   @@index([isOnline])
+  @@index([syncStatus])
   @@index([assignedUserId])
   @@index([country])
   @@index([gpmProfileId])
@@ -191,6 +193,7 @@ model TiktokAccount {
   @@index([deletedAt, status])
   @@index([deletedAt, assignedUserId])
   @@index([deletedAt, isOnline, lastSyncedAt])
+  @@index([deletedAt, syncStatus])
   @@index([deletedAt, country])
   @@map("tiktok_accounts")
 }
@@ -450,6 +453,13 @@ enum AccountStatus {
   BANNED
   STOPPED
   CUSTOM
+}
+
+enum SyncStatus {
+  SYNC_OK
+  SYNC_ISSUES
+  NEVER_SYNCED
+  STALE
 }
 
 enum AlertSeverity {

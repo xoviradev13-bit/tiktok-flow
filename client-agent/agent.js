@@ -2906,7 +2906,16 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     const isLoginPage = /login|passport/i.test(page.url()) ||
       (await page.title().catch(() => "")).includes("Log in");
     if (isLoginPage) {
-      return { success: false, error: "Profile chua dang nhap TikTok hoac phien dang nhap da het han." };
+      return { success: false, error: "Profile chua dang nhap TikTok hoac phien dang nhap da het han.", isNotLoggedIn: true };
+    }
+
+    const isCaptchaPage = /captcha|verify/i.test(page.url()) ||
+      await page.evaluate(() => {
+        const sels = ["#captcha_container", ".captcha_verify_container", '[class*="captcha-verify"]', 'iframe[src*="captcha"]'];
+        return sels.some(s => Boolean(document.querySelector(s)));
+      }).catch(() => false);
+    if (isCaptchaPage) {
+      return { success: false, error: "Profile bi dinh Checkpoint / Captcha TikTok.", isCheckpoint: true };
     }
 
     let passportCountryRaw = null;
@@ -4820,7 +4829,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     );
 
     if (!userInfo && !realTotalVideos && !finalFollowerCount && !totalRewardsUsd) {
-      return { success: false, error: "unauthenticated_session_empty_data" };
+      return { success: false, error: "unauthenticated_session_empty_data", isNotLoggedIn: true };
     }
 
     return {
@@ -5748,6 +5757,31 @@ async function performFullSweep(syncJob = null) {
       } else {
         setOutcome(p, classifyProfile({ extractError: result.error || "extract_failed" }));
         console.log(`   [!] ${label}: ${result.error || "Khong the lay so lieu"}`);
+
+        // Notify backend of extraction failure so syncStatus updates to SYNC_ISSUES and alert is recorded
+        const targetHandle = p.tiktokHandle || (p.name ? (p.name.match(/@([a-zA-Z0-9_.]+)/) || [])[1] : null);
+        if (targetHandle) {
+          try {
+            const headers = await getAuthHeaders();
+            await fetch(`${config.serverUrl}/api/extension/report`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                username: targetHandle,
+                gpmProfileId: p.id,
+                gpmProfileName: p.name,
+                gpmGroupName: p.groupName || undefined,
+                source: "agent",
+                metricsSource: "agent",
+                isLoggedIn: result.isNotLoggedIn ? false : undefined,
+                hasCheckpoint: result.isCheckpoint ? true : undefined,
+                insightsFailReason: result.isCheckpoint ? "captcha" : (result.isNotLoggedIn ? "session" : undefined),
+                flagsVersion: 1,
+              }),
+              signal: AbortSignal.timeout(15000),
+            }).catch(() => {});
+          } catch (_) {}
+        }
       }
     } catch (mapperErr) {
       setOutcome(p, { bucket: "failed", reason: String(mapperErr.message).slice(0, 80) });

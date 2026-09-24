@@ -250,6 +250,9 @@ export interface ExtensionReportPayload {
     | "incomplete_list"
     | "unknown";
   rewardsNoProgram?: boolean;
+  hasCheckpoint?: boolean;
+  isCheckpoint?: boolean;
+  checkpoint?: boolean;
 }
 
 // FIX: reject oversized bodies before they hit req.json().
@@ -623,6 +626,7 @@ export async function POST(req: Request) {
             bannedReason: shouldBanOnCreate ? (body.bannedReason || "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)") : null,
             metadata: body.metadata || (shouldBanOnCreate ? { creatorRewardsStatus: "BANNED" } : undefined),
             isOnline: isLoggedIn === true,
+            syncStatus: isLoggedIn === true ? "SYNC_OK" : "SYNC_ISSUES",
             country: toStandardCountryCode(country) || undefined,
             assignedUserId,
             isAssignmentLocked: false,
@@ -681,6 +685,7 @@ export async function POST(req: Request) {
     if (!created) {
       const updateData: any = {
         lastSyncedAt: new Date(),
+        syncStatus: isLoggedIn === false ? "SYNC_ISSUES" : "SYNC_OK",
       };
 
       if (typeof isLoggedIn === "boolean") {
@@ -1307,7 +1312,10 @@ export async function POST(req: Request) {
     }
 
     // Handle alerts based on login state
-    if (isLoggedIn) {
+    const isSessionExpired = body.insightsFailReason === "session" || body.rewardsFailReason === "session";
+    const effectiveIsLoggedIn = isSessionExpired ? false : isLoggedIn;
+
+    if (effectiveIsLoggedIn) {
       await prisma.accountAlert.updateMany({
         where: {
           accountId: account.id,
@@ -1319,7 +1327,7 @@ export async function POST(req: Request) {
           resolvedAt: new Date(),
         },
       });
-    } else {
+    } else if (effectiveIsLoggedIn === false) {
       const existingAlert = await prisma.accountAlert.findFirst({
         where: {
           accountId: account.id,
@@ -1334,11 +1342,52 @@ export async function POST(req: Request) {
             accountId: account.id,
             alertType: "NOT_LOGGED_IN",
             severity: "WARNING",
-            description: `Tài khoản @${cleanUsername} phát hiện chưa đăng nhập trên profile trình duyệt.`,
+            description: `Tài khoản @${cleanUsername} phát hiện chưa đăng nhập hoặc hết phiên trên profile trình duyệt.`,
             status: "OPEN",
           },
         });
       }
+    }
+
+    // Handle alerts for Checkpoint / Captcha
+    const isCheckpointDetected =
+      body.hasCheckpoint === true ||
+      body.isCheckpoint === true ||
+      body.checkpoint === true ||
+      body.insightsFailReason === "captcha" ||
+      body.rewardsFailReason === "captcha";
+
+    if (isCheckpointDetected) {
+      const existingCheckpoint = await prisma.accountAlert.findFirst({
+        where: {
+          accountId: account.id,
+          alertType: "CHECKPOINT",
+          status: "OPEN",
+        },
+      });
+      if (!existingCheckpoint) {
+        await prisma.accountAlert.create({
+          data: {
+            accountId: account.id,
+            alertType: "CHECKPOINT",
+            severity: "CRITICAL",
+            description: `Tài khoản @${cleanUsername} gặp màn hình xác minh bảo mật (Checkpoint / Captcha). Cần mở profile GPM để xác minh.`,
+            status: "OPEN",
+          },
+        });
+      }
+    } else if (effectiveIsLoggedIn === true && (insightsStatus === "written" || body.hasCheckpoint === false)) {
+      await prisma.accountAlert.updateMany({
+        where: {
+          accountId: account.id,
+          alertType: "CHECKPOINT",
+          status: "OPEN",
+        },
+        data: {
+          status: "RESOLVED",
+          resolvedAt: new Date(),
+        },
+      });
     }
 
     // Handle alerts for punished / disqualified videos (within nearest 30 days)
@@ -1436,6 +1485,28 @@ export async function POST(req: Request) {
       }
     }
 
+    // Recalculate & update syncStatus based on alerts and account state
+    const openAlertsCount = await prisma.accountAlert.count({
+      where: {
+        accountId: account.id,
+        status: "OPEN",
+        OR: [
+          { severity: "CRITICAL" },
+          { alertType: { in: ["CHECKPOINT", "NOT_LOGGED_IN", "PROGRAM_DISQUALIFIED"] } },
+        ],
+      },
+    });
+
+    const calculatedSyncStatus =
+      openAlertsCount > 0 || effectiveIsLoggedIn === false || isCheckpointDetected || account.status === "BANNED"
+        ? "SYNC_ISSUES"
+        : "SYNC_OK";
+
+    await prisma.tiktokAccount.update({
+      where: { id: account.id },
+      data: { syncStatus: calculatedSyncStatus },
+    });
+
     // Log status change if changed to ACTIVE
     if (isLoggedIn && previousStatus && previousStatus !== "ACTIVE") {
       await prisma.accountLog.create({
@@ -1462,19 +1533,13 @@ export async function POST(req: Request) {
       hasAnalyticsSnapshot: !!analyticsSnapshot,
     });
 
-    // NOTE: Legacy "auto-complete" heuristic removed.
-    // The current Client Agent (agent.js) explicitly calls action:"complete_job"
-    // via /api/gpm/client-sync immediately after performFullSweep finishes,
-    // carrying the full resultSummary. The old 30-min window check was firing
-    // mid-sweep (as soon as enough accounts were recently synced) and caused
-    // the Header to show "✅ Đồng bộ hoàn tất!" while the agent was still scanning.
-
     return NextResponse.json({
       success: true,
       account: {
         id: account.id,
         username: account.username,
         status: account.status,
+        syncStatus: calculatedSyncStatus,
         gpmProfileId: account.gpmProfileId,
         gpmMatchedVia,
         followers: account.totalFollowers,

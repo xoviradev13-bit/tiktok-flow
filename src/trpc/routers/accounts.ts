@@ -44,6 +44,9 @@ export const accountsRouter = router({
             .enum(["ALL", "ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"])
             .optional(),
           onlineStatus: z.enum(["ALL", "ONLINE", "OFFLINE"]).optional(),
+          syncStatus: z
+            .enum(["ALL", "SYNC_OK", "SYNC_ISSUES", "NEVER_SYNCED", "STALE"])
+            .optional(),
           country: z.string().optional(),
           assignedUserId: z.string().optional(),
           viewTrash: z.boolean().optional().default(false),
@@ -92,22 +95,16 @@ export const accountsRouter = router({
         }
 
         if (input?.onlineStatus && input.onlineStatus !== "ALL") {
-          if (input.onlineStatus === "ONLINE") {
-            where.isOnline = true;
-            where.lastSyncedAt = { gte: onlineCutoff };
-          } else {
-            where.OR = [
-              { isOnline: false },
-              { lastSyncedAt: null },
-              { lastSyncedAt: { lt: onlineCutoff } },
-            ];
-          }
+          where.isOnline = input.onlineStatus === "ONLINE";
+        }
+
+        if (input?.syncStatus && input.syncStatus !== "ALL") {
+          where.syncStatus = input.syncStatus;
         }
 
         baseCountWhere = { ...where };
         if (input?.onlineStatus && input.onlineStatus !== "ALL") {
           delete baseCountWhere.isOnline;
-          delete baseCountWhere.lastSyncedAt;
           if (input?.search) {
             const s = input.search.trim();
             baseCountWhere.OR = [
@@ -119,6 +116,9 @@ export const accountsRouter = router({
           } else {
             delete baseCountWhere.OR;
           }
+        }
+        if (input?.syncStatus && input.syncStatus !== "ALL") {
+          delete baseCountWhere.syncStatus;
         }
       }
 
@@ -169,7 +169,6 @@ export const accountsRouter = router({
             where: {
               ...baseCountWhere,
               isOnline: true,
-              lastSyncedAt: { gte: onlineCutoff },
             },
           })
           : Promise.resolve(0),
@@ -271,7 +270,7 @@ export const accountsRouter = router({
 
         return {
           ...acc,
-          isOnline: isAccountOnline(acc),
+          isOnline: Boolean(acc.isOnline),
           punishedVideos30d,
           punishedVideosCount30d: strikeCount,
           strikeLevel,
@@ -384,7 +383,7 @@ export const accountsRouter = router({
 
       return serializeBigInt({
         ...account,
-        isOnline: isAccountOnline(account),
+        isOnline: Boolean(account.isOnline),
         punishedVideos30d,
         punishedVideosCount30d: strikeCount,
         strikeLevel,
@@ -612,6 +611,23 @@ export const accountsRouter = router({
           code: "FORBIDDEN",
           message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi nhóm GPM của tài khoản.",
         });
+      }
+
+      if (!isStaff && input.gpmProfileId && input.gpmProfileId !== current.gpmProfileId) {
+        const duplicate = await ctx.prisma.tiktokAccount.findFirst({
+          where: {
+            gpmProfileId: input.gpmProfileId,
+            id: { not: input.id },
+            deletedAt: null,
+          },
+          select: { username: true },
+        });
+        if (duplicate) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `GPM Profile ID này đã được liên kết với tài khoản @${duplicate.username}. Vui lòng kiểm tra lại.`,
+          });
+        }
       }
 
       const res = await ctx.prisma.tiktokAccount.updateMany({

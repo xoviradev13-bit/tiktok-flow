@@ -803,8 +803,8 @@ function SettingsPageContent() {
           {myPendingCount > 0 && (
             <span
               className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${activeTab === "requests"
-                  ? "bg-amber-500 text-white"
-                  : "bg-amber-500 text-white animate-pulse"
+                ? "bg-amber-500 text-white"
+                : "bg-amber-500 text-white animate-pulse"
                 }`}
             >
               {myPendingCount}
@@ -1518,8 +1518,6 @@ function SettingsPageContent() {
               </div>
             </div>
           </div>
-
-
           {/* ========================================================= */}
           {/* SYSTEM LANGUAGE SELECTION SECTION                         */}
           {/* ========================================================= */}
@@ -2251,16 +2249,16 @@ function SettingsPageContent() {
                   <div
                     key={`${item.kind}-${item.id}`}
                     className={`rounded-2xl border px-4 py-3.5 shadow-sm bg-white dark:bg-slate-900/80 space-y-2.5 ${isMachine
-                        ? "border-amber-200/80 dark:border-amber-900/40"
-                        : "border-rose-200/80 dark:border-rose-900/40"
+                      ? "border-amber-200/80 dark:border-amber-900/40"
+                      : "border-rose-200/80 dark:border-rose-900/40"
                       }`}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
                           className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isMachine
-                              ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400"
-                              : "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
+                            ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400"
+                            : "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
                             }`}
                         >
                           {isMachine ? (
@@ -2272,8 +2270,8 @@ function SettingsPageContent() {
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span
                             className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${isMachine
-                                ? "bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/50"
-                                : "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/50"
+                              ? "bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/50"
+                              : "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/50"
                               }`}
                           >
                             {isMachine ? "Đổi máy" : "Kích hoạt Extension"}

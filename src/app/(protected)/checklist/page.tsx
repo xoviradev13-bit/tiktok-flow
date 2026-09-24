@@ -12,6 +12,7 @@ import {
   UserCheck,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   RefreshCw,
   Sparkles,
   FileEdit,
@@ -54,6 +55,7 @@ import TimesheetCalendar from "@/features/checklist/components/TimesheetCalendar
 import TimesheetCharts from "@/features/checklist/components/TimesheetCharts";
 import DayDetailModal from "@/features/checklist/components/DayDetailModal";
 import VideoCrossCheckModal from "@/features/checklist/components/VideoCrossCheckModal";
+import { SyncStatusBadge, getAccountSyncDiagnostic, hasAccountSyncIssue } from "@/components/common/SyncStatusBadge";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import type { DateRange } from "react-day-picker";
@@ -1981,7 +1983,7 @@ function ChecklistPageContent() {
                                                 <Tooltip>
                                                   <TooltipTrigger asChild>
                                                     <div
-                                                      className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all shadow-2xs cursor-default select-none ${optPosted
+                                                      className={`w-7.5 h-7.5 rounded-full border flex items-center justify-center mx-auto transition-all shadow-2xs cursor-default select-none ${optPosted
                                                         ? "bg-emerald-500 border-emerald-500 text-white"
                                                         : isAccountFailed
                                                           ? "bg-rose-500 border-rose-500 text-white"
@@ -2009,39 +2011,83 @@ function ChecklistPageContent() {
 
                                               {/* Status: Synced */}
                                               <td className="py-3 px-4 text-center">
-                                                <Tooltip>
-                                                  <TooltipTrigger asChild>
-                                                    <div
-                                                      className={`w-7.5 h-7.5 rounded-xl border flex items-center justify-center mx-auto transition-all shadow-2xs cursor-default select-none ${optSynced
-                                                        ? "bg-cyan-500 border-cyan-500 text-white"
-                                                        : isAccountFailed
-                                                          ? "bg-rose-500 border-rose-500 text-white"
-                                                          : isGpmMissing
-                                                            ? "bg-amber-500 border-amber-500 text-white"
-                                                            : "bg-amber-500 border-amber-500 text-white"
-                                                        }`}
-                                                    >
-                                                      {optSynced ? (
-                                                        <RefreshCw className="w-3.5 h-3.5 stroke-[2.5]" />
-                                                      ) : isAccountFailed ? (
-                                                        <AlertCircle className="w-4 h-4 stroke-[2.5]" />
-                                                      ) : isGpmMissing ? (
-                                                        <AlertCircle className="w-4 h-4 stroke-[2.5]" />
-                                                      ) : (
-                                                        <RefreshCw className="w-3.5 h-3.5 stroke-[2.5]" />
-                                                      )}
-                                                    </div>
-                                                  </TooltipTrigger>
-                                                  <TooltipContent side="top" className="text-xs font-normal">
-                                                    {optSynced
-                                                      ? `Đã sync GPM${item.syncedAt || item.account.lastSyncedAt ? ` lúc ${format(new Date(item.syncedAt || item.account.lastSyncedAt), "HH:mm dd/MM/yyyy")}` : " thành công"}`
-                                                      : isAccountFailed
-                                                        ? `Sync thất bại: Tài khoản bị ${item.account.status === "BANNED" ? "khóa (Banned)" : item.account.status === "RESTRICTED" ? "hạn chế" : "tạm dừng"}`
-                                                        : isGpmMissing
-                                                          ? "Chưa gán GPM Profile ID - Không thể đồng bộ tự động"
-                                                          : `Chưa đồng bộ dữ liệu GPM Profile ngày ${format(new Date(chk.date), "dd/MM/yyyy")}${item.account.lastSyncedAt ? ` (Lần cuối: ${format(new Date(item.account.lastSyncedAt), "HH:mm dd/MM")})` : ""}`}
-                                                  </TooltipContent>
-                                                </Tooltip>
+                                                {(() => {
+                                                  const syncDiag = getAccountSyncDiagnostic(item.account, {
+                                                    isSyncedToday: optSynced,
+                                                    syncedAt: item.syncedAt || item.account?.lastSyncedAt,
+                                                  });
+                                                  const isSynced = Boolean(optSynced);
+                                                  const hasIssue = hasAccountSyncIssue(item.account);
+                                                  const openAlerts = item.account?.alerts || [];
+
+                                                  return (
+                                                    <Tooltip>
+                                                      <TooltipTrigger asChild>
+                                                        <div
+                                                          className={`w-7.5 h-7.5 rounded-full border flex items-center justify-center mx-auto transition-all shadow-2xs cursor-default select-none ${
+                                                            isSynced
+                                                              ? "bg-emerald-500 border-emerald-500 text-white"
+                                                              : "bg-cyan-500 border-cyan-500 text-white"
+                                                          }`}
+                                                        >
+                                                          {isSynced ? (
+                                                            <Check className="w-4 h-4 stroke-[3]" />
+                                                          ) : (
+                                                            <RefreshCw className="w-4 h-4" />
+                                                          )}
+                                                        </div>
+                                                      </TooltipTrigger>
+                                                      <TooltipContent side="top" className="text-xs font-normal z-[200] max-w-xs p-3">
+                                                        {isSynced && !hasIssue ? (
+                                                          <div className="space-y-1 text-left">
+                                                            <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
+                                                              <CheckCircle2 className="w-3.5 h-3.5" />
+                                                              <span>Đã sync GPM hôm nay</span>
+                                                            </div>
+                                                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                              {item.syncedAt
+                                                                ? `Lúc: ${format(new Date(item.syncedAt), "HH:mm dd/MM/yyyy")}`
+                                                                : syncDiag.detailTime !== "Chưa từng"
+                                                                ? `Lần sync: ${syncDiag.detailTime}`
+                                                                : "Đã hoàn thành đồng bộ dữ liệu"}
+                                                            </p>
+                                                          </div>
+                                                        ) : (
+                                                          <div className="space-y-1.5 text-left">
+                                                            <div className={`flex items-center gap-1.5 font-bold ${isSynced ? "text-amber-500 dark:text-amber-400" : "text-rose-500 dark:text-rose-400"}`}>
+                                                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                                              <span>{isSynced ? `Đã sync (${syncDiag.badgeText})` : `Chưa sync / ${syncDiag.badgeText}`}</span>
+                                                            </div>
+                                                            <div className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                                                              <span className="font-semibold text-slate-700 dark:text-slate-200">Nguyên nhân: </span>
+                                                              <span className="text-slate-500 dark:text-slate-400">{syncDiag.reason}</span>
+                                                            </div>
+                                                            {openAlerts.length > 0 && (
+                                                              <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
+                                                                <span className="font-semibold text-rose-600 dark:text-rose-400 text-[10px] uppercase tracking-wide">Chi tiết cảnh báo:</span>
+                                                                {openAlerts.map((al: any) => (
+                                                                  <div key={al.id} className="text-[11px] text-rose-600/90 dark:text-rose-300 flex items-start gap-1">
+                                                                    <span className="shrink-0">•</span>
+                                                                    <span>{al.description || al.alertType}</span>
+                                                                  </div>
+                                                                ))}
+                                                              </div>
+                                                            )}
+                                                            {syncDiag.action && (
+                                                              <div className="pt-1 border-t border-slate-100 dark:border-slate-800 text-[11px]">
+                                                                <span className="font-semibold text-amber-600 dark:text-amber-400">Cách xử lý: </span>
+                                                                <span className="text-slate-500 dark:text-slate-400">{syncDiag.action}</span>
+                                                              </div>
+                                                            )}
+                                                            <div className="pt-1 text-[10px] text-slate-400">
+                                                              Lần sync gần nhất: {syncDiag.detailTime}
+                                                            </div>
+                                                          </div>
+                                                        )}
+                                                      </TooltipContent>
+                                                    </Tooltip>
+                                                  );
+                                                })()}
                                               </td>
 
                                               {/* KPI Status */}
