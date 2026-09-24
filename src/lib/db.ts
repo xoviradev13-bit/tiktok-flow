@@ -36,9 +36,13 @@ const pool =
   globalForPrisma.pool ??
   new Pool({
     connectionString,
-    ssl: connectionString.includes("localhost")
-      ? undefined
-      : { rejectUnauthorized: false },
+    ssl:
+      connectionString.includes("localhost") ||
+      connectionString.includes("sslmode=disable") ||
+      connectionString.includes("supabase-db") ||
+      process.env.PG_SSL === "false"
+        ? undefined
+        : { rejectUnauthorized: false },
     max: poolMax,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 30_000),

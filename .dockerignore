@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.agents
+.claude
+.cursor
+.vscode
+.windsurf
+scratch
+tmp
+__pycache__
+*.log
+*.docx
+*.md
+Dockerfile
+.dockerignore
