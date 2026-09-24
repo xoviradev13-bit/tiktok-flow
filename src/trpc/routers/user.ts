@@ -346,6 +346,7 @@ export const userRouter = router({
                   sumViews: true,
                   postRewards: true,
                   rawSnapshot: true,
+                  revenueBreakdown: true,
                   dailyRevenueBreakdown: true,
                   dailyViewsBreakdown: true,
                 },

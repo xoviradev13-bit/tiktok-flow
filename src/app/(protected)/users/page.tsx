@@ -84,6 +84,15 @@ import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  optimisticallyUpdateUserGroup,
+  optimisticallyUpdateUserRole,
+  optimisticallyToggleUserStatus,
+  optimisticallyDeleteUsers,
+  snapshotUserGroupQueries,
+  rollbackUserGroupQueries,
+} from "@/utils/optimisticUsersGroups";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 import { useConfirmDialog } from "@/components/ui/confirm-modal";
 import { downloadPackage } from "@/lib/download-package";
@@ -357,6 +366,7 @@ function UsersManagementContent() {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
   // Refresh user and group list when a sync completes (accounts may be re-assigned)
   useEffect(() => {
@@ -453,18 +463,43 @@ function UsersManagementContent() {
   });
 
   const updateUserGroupMutation = trpc.admin.updateUserGroup.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyUpdateUserGroup(queryClient, vars.userId, vars.groupName);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi gán nhóm");
+    },
     onSuccess: () => {
       setActionMsg("✅ Đã cập nhật nhóm cho nhân sự!");
       utils.admin.listUsers.invalidate();
       utils.admin.listGroups.invalidate();
       setTimeout(() => setActionMsg(null), 3000);
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Lỗi gán nhóm");
+    onSettled: () => {
+      utils.admin.listUsers.invalidate();
+      utils.admin.listGroups.invalidate();
     },
   });
 
   const updateUserRoleMutation = trpc.admin.updateUserRole.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyUpdateUserRole(queryClient, vars.userId, vars.role as any);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi cập nhật vai trò");
+    },
     onSuccess: () => {
       setIsEditRoleOpen(false);
       setSelectedUser(null);
@@ -472,12 +507,24 @@ function UsersManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Lỗi cập nhật vai trò");
+    onSettled: () => {
+      utils.admin.listUsers.invalidate();
     },
   });
 
   const deleteUserMutation = trpc.admin.deleteUser.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyDeleteUsers(queryClient, [vars.userId]);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi xóa nhân sự");
+    },
     onSuccess: () => {
       setIsDeleteOpen(false);
       setUserToDelete(null);
@@ -485,12 +532,24 @@ function UsersManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Lỗi xóa nhân sự");
+    onSettled: () => {
+      utils.admin.listUsers.invalidate();
     },
   });
 
   const bulkDeleteUsersMutation = trpc.admin.bulkDeleteUsers.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyDeleteUsers(queryClient, vars.userIds);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi xóa hàng loạt nhân sự");
+    },
     onSuccess: (res) => {
       setIsBulkDeleteOpen(false);
       setSelectedIds(new Set());
@@ -498,12 +557,24 @@ function UsersManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Lỗi xóa hàng loạt nhân sự");
+    onSettled: () => {
+      utils.admin.listUsers.invalidate();
     },
   });
 
   const toggleStatusMutation = trpc.admin.toggleUserStatus.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyToggleUserStatus(queryClient, vars.userId);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi đổi trạng thái");
+    },
     onSuccess: (res: any) => {
       setIsToggleStatusModalOpen(false);
       setUserToToggleStatus(null);
@@ -515,7 +586,9 @@ function UsersManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.admin.listUsers.invalidate();
+    },
   });
 
   const {

@@ -137,10 +137,15 @@ export default function TimesheetCalendar({
     let totalAssigned = 0;
     let totalCompletionSum = 0;
 
-    // Filter checklists only within current month
+    // Filter checklists within cycle (from 16th of current month to 15th of next month)
+    const cycleStart = new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth(), 16);
+    cycleStart.setHours(0, 0, 0, 0);
+    const cycleEnd = new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth() + 1, 15);
+    cycleEnd.setHours(23, 59, 59, 999);
+
     const inMonthChecklists = checklists.filter((c) => {
       const cDate = new Date(c.date);
-      return cDate >= monthStart && cDate <= monthEnd;
+      return cDate >= cycleStart && cDate <= cycleEnd;
     });
 
     for (const c of inMonthChecklists) {
@@ -179,7 +184,7 @@ export default function TimesheetCalendar({
       syncRate,
       recordedDaysCount: inMonthChecklists.length,
     };
-  }, [checklists, monthStart, monthEnd]);
+  }, [checklists, selectedMonthDate]);
 
   // Selected User Object (if single user)
   const isSingleUser = selectedUserId !== "ALL";
@@ -363,10 +368,12 @@ export default function TimesheetCalendar({
             </div>
 
             <div>
-              <h2 className="text-xl font-black text-slate-900 dark:text-white capitalize tracking-tight">
-                {format(selectedMonthDate, "MMMM, yyyy", { locale: vi })}
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xl font-black text-slate-900 dark:text-white capitalize tracking-tight">
+                  {format(selectedMonthDate, "MMMM, yyyy", { locale: vi })}
+                </h2>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Click vào bất kỳ ô ngày nào để xem chi tiết.
               </p>
             </div>
@@ -407,7 +414,7 @@ export default function TimesheetCalendar({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                {isSingleUser ? "Tổng Ngày Công Tháng" : "Tổng Ngày Công Đội"}
+                {isSingleUser ? "Tổng Ngày Công Kỳ (16 - 15)" : "Tổng Ngày Công Đội (16 - 15)"}
               </div>
               <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white truncate">
                 {monthStats.totalScore}{" "}

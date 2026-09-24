@@ -19,7 +19,12 @@
  *   checklists is harmless (writes are skipped) but wasteful.
  */
 
-import { CHECKLIST_FINALIZATION_WINDOW_DAYS } from "@/lib/scoring-engine";
+import {
+  CHECKLIST_FINALIZATION_WINDOW_DAYS,
+  calculateWorkdayScore,
+  getScoringConfig,
+} from "@/lib/scoring-engine";
+import { getAccountAssigneeAt } from "@/lib/account-assignment-history";
 
 export const VN_TZ = "Asia/Ho_Chi_Minh";
 
@@ -217,7 +222,7 @@ export async function backfillChecklistVideos(
 
     // Look up the checklist item for this account + date.
     // The isLocked: false filter means we won't match locked checklists.
-    const item = await prisma.dailyChecklistItem.findFirst({
+    let item = await prisma.dailyChecklistItem.findFirst({
       where: {
         accountId,
         checklist: {
@@ -229,18 +234,145 @@ export async function backfillChecklistVideos(
         id: true,
         videoSource: true,
         videosSnapshot: true,
+        checklistId: true,
       },
     });
 
     if (!item) {
-      // Distinguish "locked" from "no checklist" — different operational implications.
-      // "locked" = intentionally finalized; "no_checklist" = missing data entirely.
+      // 1. Check if a locked item exists for this account on this date
       const lockedCheck = await prisma.dailyChecklistItem.findFirst({
-        where: { accountId, checklist: { date: dateUtc } },
+        where: { accountId, checklist: { date: dateUtc, isLocked: true } },
         select: { id: true },
       });
-      skipped[dateStr] = lockedCheck ? "locked" : "no_checklist";
-      continue;
+      if (lockedCheck) {
+        skipped[dateStr] = "locked";
+        continue;
+      }
+
+      // 2. Resolve the user who owned this account on this specific date (temporal assignment tracking)
+      const targetUserId = await getAccountAssigneeAt(prisma, accountId, dateUtc);
+
+      if (!targetUserId) {
+        skipped[dateStr] = "no_checklist";
+        continue;
+      }
+
+      // 3. Find or create the DailyChecklist for this user & date
+      let checklist = await prisma.dailyChecklist.findFirst({
+        where: {
+          userId: targetUserId,
+          date: dateUtc,
+        },
+        include: { items: true },
+      });
+
+      if (checklist?.isLocked) {
+        skipped[dateStr] = "locked";
+        continue;
+      }
+
+      if (!checklist) {
+        const scoringConfig = await getScoringConfig(prisma);
+        const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+        const allowedStatuses = shouldExcludeBanned
+          ? ["ACTIVE", "WARMING", "RESTRICTED"]
+          : ["ACTIVE", "WARMING", "RESTRICTED", "BANNED"];
+
+        const assignedAccounts = await prisma.tiktokAccount.findMany({
+          where: {
+            assignedUserId: targetUserId,
+            status: { in: allowedStatuses as any },
+            deletedAt: null,
+          },
+          select: { id: true, lastSyncedAt: true },
+        });
+
+        // Also query historical accounts that had checklist items for this user in the window
+        const histItems = await prisma.dailyChecklistItem.findMany({
+          where: {
+            checklist: {
+              userId: targetUserId,
+              date: { gte: windowStart, lte: todayUtc },
+            },
+          },
+          select: { accountId: true },
+        });
+
+        const accIds = new Set([
+          ...assignedAccounts.map((a: any) => a.id),
+          ...histItems.map((h: any) => h.accountId),
+          accountId,
+        ]);
+
+        try {
+          checklist = await prisma.dailyChecklist.create({
+            data: {
+              userId: targetUserId,
+              date: dateUtc,
+              totalAssigned: accIds.size,
+              completedCount: 0,
+              completionRate: 0,
+              workdayScore: 0,
+              items: {
+                create: Array.from(accIds).map((id) => ({
+                  accountId: id,
+                  isPosted: false,
+                  isSynced: false,
+                  isCompleted: false,
+                })),
+              },
+            },
+            include: { items: true },
+          });
+        } catch (err: any) {
+          if (err?.code === "P2002") {
+            checklist = await prisma.dailyChecklist.findFirst({
+              where: { userId: targetUserId, date: dateUtc },
+              include: { items: true },
+            });
+          } else {
+            console.warn(`[backfillChecklistVideos] Error creating missing checklist for ${dateStr}:`, err);
+            skipped[dateStr] = "no_checklist";
+            continue;
+          }
+        }
+      }
+
+      if (!checklist || checklist.isLocked) {
+        skipped[dateStr] = checklist?.isLocked ? "locked" : "no_checklist";
+        continue;
+      }
+
+      // 4. Find or create item on the checklist for this account
+      let existingItem = checklist.items?.find((it: any) => it.accountId === accountId);
+      if (!existingItem) {
+        try {
+          existingItem = await prisma.dailyChecklistItem.create({
+            data: {
+              checklistId: checklist.id,
+              accountId: accountId,
+              isPosted: false,
+              isSynced: false,
+              isCompleted: false,
+            },
+          });
+          await prisma.dailyChecklist.update({
+            where: { id: checklist.id },
+            data: { totalAssigned: (checklist.items?.length || 0) + 1 },
+          });
+        } catch (err) {
+          console.warn(`[backfillChecklistVideos] Error creating item for account ${accountId}:`, err);
+          skipped[dateStr] = "no_checklist";
+          continue;
+        }
+      }
+
+      item = {
+        id: existingItem.id,
+        videoSource: existingItem.videoSource,
+        videosSnapshot: existingItem.videosSnapshot,
+        checklistId: checklist.id,
+      };
     }
 
     // Respect source precedence: live > manual > backfill.
@@ -274,7 +406,7 @@ export async function backfillChecklistVideos(
       mergedKeys.size !== existingKeys.size ||
       [...mergedKeys].some((k) => !existingKeys.has(k));
 
-    if (!hasNewKeys) {
+    if (!hasNewKeys && item.videoSource === "backfill") {
       skipped[dateStr] = "no_change";
       continue;
     }
@@ -290,6 +422,30 @@ export async function backfillChecklistVideos(
         // "isSynced" semantically means the account was live-monitored that day.
       },
     });
+
+    // Recalculate score for checklist
+    const checklistId = (item as any).checklistId;
+    if (checklistId) {
+      try {
+        const remaining = await prisma.dailyChecklistItem.findMany({
+          where: { checklistId },
+        });
+        const totalAssigned = remaining.length;
+        const completedCount = remaining.filter((i: any) => i.isCompleted || i.isPosted).length;
+        const scoringConfig = await getScoringConfig(prisma);
+        const { completionRate, workdayScore } = calculateWorkdayScore(
+          totalAssigned,
+          completedCount,
+          scoringConfig
+        );
+        await prisma.dailyChecklist.update({
+          where: { id: checklistId },
+          data: { totalAssigned, completedCount, completionRate, workdayScore },
+        });
+      } catch (scoreErr) {
+        console.warn(`[backfillChecklistVideos] Error updating score for checklist ${checklistId}:`, scoreErr);
+      }
+    }
 
     written.push(dateStr);
   }

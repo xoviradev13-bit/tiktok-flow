@@ -9,6 +9,7 @@ import {
   resolveRevenueSourceKey,
   revenueSourceFilterKeys,
 } from "@/lib/m10n-programs";
+import { resolvePeriodRevenue } from "@/lib/resolve-all-time-revenue";
 
 function parseDateOnly(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -225,6 +226,17 @@ export const revenueRouter = router({
               a.analytics as any,
               0,
               (sum) => Number(sum?.views28d ?? (a.analytics as any)?.views28d ?? 0)
+            );
+            return s + (v ?? 0);
+          }, 0);
+          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
+        } else if (days === 30) {
+          analyticsPeriodRev = accounts.reduce((s, a) => s + resolvePeriodRevenue(a as any, 30), 0);
+          analyticsPeriodViews = accounts.reduce((s, a) => {
+            const v = insightViewsContribution(
+              a.analytics as any,
+              0,
+              (sum) => Number(sum?.views30d ?? sum?.views28d ?? (a.analytics as any)?.views30d ?? (a.analytics as any)?.views28d ?? 0)
             );
             return s + (v ?? 0);
           }, 0);

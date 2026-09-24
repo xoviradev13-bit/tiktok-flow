@@ -45,6 +45,11 @@ export type ListStats =
       warming: number;
       online: number;
       totalRevenue: number;
+      totalRevenue7d?: number;
+      totalRevenue28d?: number;
+      totalRevenue30d: number;
+      totalRevenue60d?: number;
+      totalRevenue365d?: number;
       trashCount: number | null;
     }
   | {

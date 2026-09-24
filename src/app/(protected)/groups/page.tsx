@@ -62,6 +62,16 @@ import {
 } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  optimisticallyUpdateUserGroup,
+  optimisticallyUpdateGroup,
+  optimisticallyBulkAssignGroupLeader,
+  optimisticallyBulkChangeGroupColor,
+  optimisticallyDeleteGroups,
+  snapshotUserGroupQueries,
+  rollbackUserGroupQueries,
+} from "@/utils/optimisticUsersGroups";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 
 const GROUP_COLUMN_RESIZE_CONFIG = {
@@ -243,6 +253,7 @@ function GroupsManagementContent() {
   const [memberPendingId, setMemberPendingId] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
   // Refresh when sync completes — group member counts/assignments may change
   useEffect(() => {
@@ -283,6 +294,29 @@ function GroupsManagementContent() {
   });
 
   const updateGroupMutation = trpc.admin.updateGroup.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyUpdateGroup(
+        queryClient,
+        {
+          id: vars.id,
+          name: vars.name,
+          description: vars.description,
+          color: vars.color,
+          leaderId: vars.leaderId,
+          memberIds: vars.memberIds,
+        },
+        allUsers
+      );
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi cập nhật nhóm");
+    },
     onSuccess: () => {
       setIsEditOpen(false);
       setEditingGroup(null);
@@ -293,38 +327,79 @@ function GroupsManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Lỗi cập nhật nhóm");
+    onSettled: () => {
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
     },
   });
 
   // Add member: assign user to this group
   const addMemberMutation = trpc.admin.updateUserGroup.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyUpdateUserGroup(queryClient, vars.userId, vars.groupName);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      setMemberPendingId(null);
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi thêm thành viên");
+    },
     onSuccess: () => {
       setMemberPendingId(null);
       utils.admin.listGroups.invalidate();
       utils.admin.listUsers.invalidate();
     },
-    onError: (err: any) => {
-      setMemberPendingId(null);
-      toast.error(err.message || "Lỗi thêm thành viên");
+    onSettled: () => {
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
     },
   });
 
   // Remove member: unassign user from their group
   const removeMemberMutation = trpc.admin.updateUserGroup.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyUpdateUserGroup(queryClient, vars.userId, null);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      setMemberPendingId(null);
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi xóa thành viên");
+    },
     onSuccess: () => {
       setMemberPendingId(null);
       utils.admin.listGroups.invalidate();
       utils.admin.listUsers.invalidate();
     },
-    onError: (err: any) => {
-      setMemberPendingId(null);
-      toast.error(err.message || "Lỗi xóa thành viên");
+    onSettled: () => {
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
     },
   });
 
   const deleteGroupMutation = trpc.admin.deleteGroup.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      if (vars.id) {
+        optimisticallyDeleteGroups(queryClient, [vars.id]);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi xóa nhóm");
+    },
     onSuccess: () => {
       setIsDeleteOpen(false);
       setGroupToDelete(null);
@@ -333,13 +408,26 @@ function GroupsManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Lỗi xóa nhóm");
+    onSettled: () => {
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
     },
   });
 
   // Bulk Mutations
   const bulkDeleteGroupsMutation = trpc.admin.bulkDeleteGroups.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyDeleteGroups(queryClient, vars.groupIds);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi xóa nhóm hàng loạt");
+    },
     onSuccess: (res) => {
       setIsBulkDeleteOpen(false);
       setSelectedGroupIds([]);
@@ -348,12 +436,25 @@ function GroupsManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Lỗi xóa nhóm hàng loạt");
+    onSettled: () => {
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
     },
   });
 
   const bulkAssignLeaderMutation = trpc.admin.bulkAssignGroupsLeader.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyBulkAssignGroupLeader(queryClient, vars.groupIds, vars.leaderId || null, allUsers);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi chỉ định leader");
+    },
     onSuccess: (res) => {
       setIsBulkAssignLeaderOpen(false);
       setBulkLeaderId("");
@@ -363,12 +464,25 @@ function GroupsManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Lỗi chỉ định leader");
+    onSettled: () => {
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
     },
   });
 
   const bulkChangeColorMutation = trpc.admin.bulkChangeGroupsColor.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["admin"]] });
+      const snapshot = snapshotUserGroupQueries(queryClient);
+      optimisticallyBulkChangeGroupColor(queryClient, vars.groupIds, vars.color);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackUserGroupQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi đổi màu nhóm");
+    },
     onSuccess: (res) => {
       setIsBulkColorOpen(false);
       setSelectedGroupIds([]);
@@ -377,8 +491,9 @@ function GroupsManagementContent() {
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Lỗi đổi màu nhóm");
+    onSettled: () => {
+      utils.admin.listGroups.invalidate();
+      utils.admin.listUsers.invalidate();
     },
   });
 

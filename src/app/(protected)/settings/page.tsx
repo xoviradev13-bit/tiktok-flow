@@ -42,10 +42,7 @@ import {
   X,
   ZoomIn,
   Monitor,
-  Coins,
   Globe,
-  DollarSign,
-  TrendingUp,
   Inbox,
   KeyRound,
 } from "lucide-react";
@@ -58,7 +55,6 @@ import ScheduleModal, {
 import { useSession, signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { useColorTheme, COLOR_THEMES } from "@/components/theme/ColorThemeProvider";
-import { useCurrency } from "@/contexts/CurrencyContext";
 import { toast } from "sonner";
 import {
   Tooltip,
@@ -154,8 +150,6 @@ function SettingsPageContent() {
   const isAdmin = String(rawRole).toUpperCase() === "ADMIN";
   const { theme, setTheme } = useTheme();
   const { colorTheme, setColorTheme, activeConfig } = useColorTheme();
-  const { currency, setCurrency, rates, isLiveRates, refreshRates, ratesLastFetched } = useCurrency();
-  const [refreshingRates, setRefreshingRates] = useState(false);
 
   // SaaS URL Query State Synchronization
   const { searchParams, updateUrlParams } = useUrlParams();
@@ -205,17 +199,7 @@ function SettingsPageContent() {
   const updatePasswordMutation = trpc.user.updatePassword.useMutation();
   const regenerateTokenMutation = trpc.user.regenerateToken.useMutation();
 
-  const handleManualRateRefresh = async () => {
-    setRefreshingRates(true);
-    try {
-      await refreshRates();
-      toast.success("Đã đồng bộ tỷ giá hối đoái mới nhất thành công!");
-    } catch {
-      toast.error("Không thể tải tỷ giá trực tuyến. Đang dùng tỷ giá dự phòng.");
-    } finally {
-      setRefreshingRates(false);
-    }
-  };
+
 
   // Form States - Profile
   const [displayName, setDisplayName] = useState("");
@@ -1298,10 +1282,10 @@ function SettingsPageContent() {
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
                 <Palette className="w-5 h-5 text-pink-500" />
-                Tùy Chọn Giao Diện, Tiền Tệ & Ngôn Ngữ
+                Tùy Chọn Giao Diện & Ngôn Ngữ
               </h2>
               <p className="text-sm text-slate-500 dark:text-slate-400 max-w-3xl leading-relaxed">
-                Cá nhân hóa giao diện làm việc, chủ đề màu sắc, đơn vị tiền tệ doanh thu và tùy chọn ngôn ngữ hệ thống.
+                Cá nhân hóa giao diện làm việc, chủ đề màu sắc và tùy chọn ngôn ngữ hệ thống.
               </p>
             </div>
 
@@ -1535,237 +1519,6 @@ function SettingsPageContent() {
             </div>
           </div>
 
-          {/* ========================================================= */}
-          {/* CURRENCY & EXCHANGE RATES SECTION                         */}
-          {/* ========================================================= */}
-          <div className="border-t border-slate-100 dark:border-slate-800/80 pt-6 space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Coins className="w-5 h-5 text-amber-500" />
-                  <span>Đơn Vị Tiền Tệ Hiển Thị & Tỷ Giá Hối Đoái</span>
-                </h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl leading-relaxed">
-                  Lựa chọn loại tiền tệ hiển thị trên toàn bộ bảng điều khiển, trang doanh thu và đối soát.
-                </p>
-              </div>
-
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 self-start sm:self-auto shrink-0">
-                <DollarSign className="w-3.5 h-3.5" />
-                <span>
-                  Đang hiển thị:{" "}
-                  {currency === "USD"
-                    ? "Đô la Mỹ ($ USD)"
-                    : currency === "VND"
-                      ? "Việt Nam Đồng (₫ VND)"
-                      : currency === "GBP"
-                        ? "Bảng Anh (£ GBP)"
-                        : "Đồng Euro (€ EUR)"}
-                </span>
-              </span>
-            </div>
-
-            {/* Currency Choice Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* USD Option */}
-              <div
-                onClick={() => {
-                  setCurrency("USD");
-                  toast.success("Đã chuyển đơn vị tiền tệ hiển thị sang Đô la Mỹ ($ USD)");
-                }}
-                className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${currency === "USD"
-                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.01]"
-                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
-                  }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black text-xl shadow-xs border border-emerald-200 dark:border-emerald-800">
-                      $
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                        USD ($)
-                        {currency === "USD" && (
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                            Mặc định
-                          </span>
-                        )}
-                      </h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Đô la Mỹ
-                      </p>
-                    </div>
-                  </div>
-                  {currency === "USD" && <Check className="w-5 h-5 text-pink-600 dark:text-pink-400 shrink-0" />}
-                </div>
-              </div>
-
-              {/* VND Option */}
-              <div
-                onClick={() => {
-                  setCurrency("VND");
-                  toast.success("Đã chuyển đơn vị tiền tệ hiển thị sang Việt Nam Đồng (₫ VND)");
-                }}
-                className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${currency === "VND"
-                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.01]"
-                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
-                  }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-pink-100 dark:bg-pink-950/60 text-pink-600 dark:text-pink-400 flex items-center justify-center font-black text-xl shadow-xs border border-pink-200 dark:border-pink-800">
-                      ₫
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                        VND (₫)
-                        {currency === "VND" && (
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-950/80 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800">
-                            Đang chọn
-                          </span>
-                        )}
-                      </h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Việt Nam Đồng
-                      </p>
-                    </div>
-                  </div>
-                  {currency === "VND" && <Check className="w-5 h-5 text-pink-600 dark:text-pink-400 shrink-0" />}
-                </div>
-              </div>
-
-              {/* GBP Option */}
-              <div
-                onClick={() => {
-                  setCurrency("GBP");
-                  toast.success("Đã chuyển đơn vị tiền tệ hiển thị sang Bảng Anh (£ GBP)");
-                }}
-                className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${currency === "GBP"
-                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.01]"
-                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
-                  }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center font-black text-xl shadow-xs border border-purple-200 dark:border-purple-800">
-                      £
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                        GBP (£)
-                        {currency === "GBP" && (
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/80 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
-                            Đang chọn
-                          </span>
-                        )}
-                      </h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Bảng Anh
-                      </p>
-                    </div>
-                  </div>
-                  {currency === "GBP" && <Check className="w-5 h-5 text-pink-600 dark:text-pink-400 shrink-0" />}
-                </div>
-              </div>
-
-              {/* EUR Option */}
-              <div
-                onClick={() => {
-                  setCurrency("EUR");
-                  toast.success("Đã chuyển đơn vị tiền tệ hiển thị sang Đồng Euro (€ EUR)");
-                }}
-                className={`p-5 rounded-3xl border-2 transition-all cursor-pointer relative overflow-hidden group ${currency === "EUR"
-                  ? "border-pink-600 bg-pink-50/20 dark:bg-pink-950/20 shadow-lg shadow-pink-500/10 scale-[1.01]"
-                  : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700"
-                  }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-black text-xl shadow-xs border border-blue-200 dark:border-blue-800">
-                      €
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                        EUR (€)
-                        {currency === "EUR" && (
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-                            Đang chọn
-                          </span>
-                        )}
-                      </h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        Đồng Euro
-                      </p>
-                    </div>
-                  </div>
-                  {currency === "EUR" && <Check className="w-5 h-5 text-pink-600 dark:text-pink-400 shrink-0" />}
-                </div>
-              </div>
-            </div>
-
-            {/* Exchange Rate Monitor Card */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/50 p-4 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-500" />
-                  <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                    Tỷ Giá Hối Đoái Thị Trường
-                  </span>
-                  <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                    {isLiveRates ? "Trực tuyến (Live API)" : "Tỷ giá an toàn"}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleManualRateRefresh}
-                  disabled={refreshingRates}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer disabled:opacity-60 shadow-xs self-start sm:self-auto"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingRates ? "animate-spin text-pink-500" : "text-slate-500"}`} />
-                  <span>{refreshingRates ? "Đang đồng bộ..." : "Làm mới tỷ giá ngay"}</span>
-                </button>
-              </div>
-
-              {/* Rates Badges */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80">
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Đô La Mỹ (USD/VND)</div>
-                  <div className="text-sm font-black text-slate-900 dark:text-white mt-0.5">
-                    1 USD ≈ {rates.USD_VND.toLocaleString("vi-VN")} ₫
-                  </div>
-                </div>
-                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80">
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Bảng Anh (GBP/USD)</div>
-                  <div className="text-sm font-black text-slate-900 dark:text-white mt-0.5">
-                    1 GBP ≈ ${rates.GBP_USD.toFixed(2)} USD
-                    <span className="text-xs font-normal text-slate-400 block sm:inline sm:ml-1">
-                      (≈ {(rates.GBP_USD * rates.USD_VND).toLocaleString("vi-VN")} ₫)
-                    </span>
-                  </div>
-                </div>
-                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80">
-                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Đồng Euro (EUR/USD)</div>
-                  <div className="text-sm font-black text-slate-900 dark:text-white mt-0.5">
-                    1 EUR ≈ ${rates.EUR_USD.toFixed(2)} USD
-                    <span className="text-xs font-normal text-slate-400 block sm:inline sm:ml-1">
-                      (≈ {(rates.EUR_USD * rates.USD_VND).toLocaleString("vi-VN")} ₫)
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1">
-                <span>Nguồn: ExchangeRate-API (Đồng bộ định kỳ 24h/lần hoặc thủ công)</span>
-                <span>
-                  {ratesLastFetched
-                    ? `Cập nhật lúc: ${new Date(ratesLastFetched).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`
-                    : "Tỷ giá dự phòng ổn định"}
-                </span>
-              </div>
-            </div>
-          </div>
 
           {/* ========================================================= */}
           {/* SYSTEM LANGUAGE SELECTION SECTION                         */}

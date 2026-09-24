@@ -55,6 +55,13 @@ import {
   Copy,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  optimisticallyBulkUpdateAccounts,
+  optimisticallyDeleteAccounts,
+  snapshotAccountQueries,
+  rollbackAccountQueries,
+} from "@/utils/optimisticAccounts";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
@@ -214,6 +221,8 @@ export type AccountSortKey =
   | "totalFollowers"
   | "totalVideos"
   | "username"
+  | "gpmProfileName"
+  | "groupName"
   | "country"
   | "status"
   | "isOnline"
@@ -225,6 +234,8 @@ const ACCOUNT_SORT_OPTIONS: Array<{ key: AccountSortKey; label: string }> = [
   { key: "totalFollowers", label: "Lượt theo dõi" },
   { key: "totalVideos", label: "Số lượng video" },
   { key: "username", label: "Tên tài khoản" },
+  { key: "gpmProfileName", label: "GPM Profile Name" },
+  { key: "groupName", label: "GPM Group" },
   { key: "country", label: "Quốc gia" },
   { key: "status", label: "Trạng thái" },
   { key: "isOnline", label: "Trạng thái Online" },
@@ -396,12 +407,11 @@ function StrikeWarningPopover({ account, punishedVideos }: { account: any; punis
                       {v.title || `Video #${v.id}`}
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${
-                        isShop ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border ${isShop ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
                           : isSeries ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                          : isGifts ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
-                          : "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20"
-                      }`}>
+                            : isGifts ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                              : "bg-pink-500/10 text-pink-600 dark:text-pink-400 border-pink-500/20"
+                        }`}>
                         <Sparkles className="w-2.5 h-2.5 shrink-0" />
                         {progName}
                       </span>
@@ -437,8 +447,9 @@ const USER_ACCOUNTS_COLUMN_RESIZE_CONFIG = {
   isOnline: { minWidth: 90, maxWidth: 160, defaultWidth: 100 },
   country: { minWidth: 96, maxWidth: 180, defaultWidth: 110 },
   status: { minWidth: 140, maxWidth: 220, defaultWidth: 155 },
-  gpmProfileId: { minWidth: 200, maxWidth: 360, defaultWidth: 240 },
+  gpmProfileName: { minWidth: 150, maxWidth: 300, defaultWidth: 170 },
   gpmGroup: { minWidth: 140, maxWidth: 280, defaultWidth: 160 },
+  gpmProfileId: { minWidth: 200, maxWidth: 360, defaultWidth: 240 },
   alerts: { minWidth: 110, maxWidth: 280, defaultWidth: 140 },
   totalViews: { minWidth: 120, maxWidth: 240, defaultWidth: 140 },
   totalFollowers: { minWidth: 120, maxWidth: 240, defaultWidth: 140 },
@@ -613,6 +624,7 @@ function UserDetailPageContent() {
   }, [activeTab, session?.user, userId]);
 
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
   const showToast = (text: string, type: "success" | "error" | "info" = "success") => {
     setToastMsg({ text, type });
@@ -750,21 +762,55 @@ function UserDetailPageContent() {
   });
 
   const bulkDeleteMutation = trpc.accounts.bulkDelete.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      await queryClient.cancelQueries({ queryKey: [["user", "getById"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      optimisticallyDeleteAccounts(queryClient, vars.ids);
+      return { snapshot };
+    },
+    onError: (err, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      showToast(err.message || "Lỗi xóa hàng loạt", "error");
+    },
     onSuccess: () => {
       showToast("Đã xóa các tài khoản đã chọn!", "success");
       setSelectedIds(new Set());
       utils.user.getById.invalidate({ id: userId });
+      utils.accounts.list.invalidate();
     },
-    onError: (err) => showToast(err.message || "Lỗi xóa hàng loạt", "error"),
+    onSettled: () => {
+      utils.user.getById.invalidate({ id: userId });
+      utils.accounts.list.invalidate();
+    },
   });
 
   const bulkUpdateStatusMutation = trpc.accounts.bulkUpdateStatus.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      await queryClient.cancelQueries({ queryKey: [["user", "getById"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      optimisticallyBulkUpdateAccounts(queryClient, vars.ids, { status: vars.status });
+      return { snapshot };
+    },
+    onError: (err, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      showToast(err.message || "Lỗi đổi trạng thái", "error");
+    },
     onSuccess: () => {
       showToast("Đã cập nhật trạng thái!", "success");
       setSelectedIds(new Set());
       utils.user.getById.invalidate({ id: userId });
+      utils.accounts.list.invalidate();
     },
-    onError: (err) => showToast(err.message || "Lỗi đổi trạng thái", "error"),
+    onSettled: () => {
+      utils.user.getById.invalidate({ id: userId });
+      utils.accounts.list.invalidate();
+    },
   });
 
   const [isBulkStatusOpen, setIsBulkStatusOpen] = useState(false);
@@ -890,6 +936,7 @@ function UserDetailPageContent() {
         !accountSearch ||
         acc.username.toLowerCase().includes(accountSearch.toLowerCase()) ||
         (acc.gpmProfileId && acc.gpmProfileId.toLowerCase().includes(accountSearch.toLowerCase())) ||
+        (acc.gpmProfileName && acc.gpmProfileName.toLowerCase().includes(accountSearch.toLowerCase())) ||
         (acc.groupName && acc.groupName.toLowerCase().includes(accountSearch.toLowerCase()));
 
       const matchStatus = accountStatusFilter === "ALL" || acc.status === accountStatusFilter;
@@ -1007,13 +1054,12 @@ function UserDetailPageContent() {
       {/* Toast Notification */}
       {toastMsg && (
         <div
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-xl border text-xs font-semibold backdrop-blur-md animate-slideUp ${
-            toastMsg.type === "success"
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-xl border text-xs font-semibold backdrop-blur-md animate-slideUp ${toastMsg.type === "success"
               ? "bg-emerald-500/90 text-white border-emerald-400"
               : toastMsg.type === "error"
-              ? "bg-rose-500/90 text-white border-rose-400"
-              : "bg-slate-900/90 text-white border-slate-700"
-          }`}
+                ? "bg-rose-500/90 text-white border-rose-400"
+                : "bg-slate-900/90 text-white border-slate-700"
+            }`}
         >
           {toastMsg.type === "success" && <CheckCircle className="w-4 h-4 shrink-0" />}
           {toastMsg.type === "error" && <AlertTriangle className="w-4 h-4 shrink-0" />}
@@ -1055,11 +1101,10 @@ function UserDetailPageContent() {
                   </h1>
                   {getRoleBadge(user.role)}
                   <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold ${
-                      user.isActive
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold ${user.isActive
                         ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50"
                         : "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50"
-                    }`}
+                      }`}
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${user.isActive ? "bg-emerald-500" : "bg-rose-500"}`} />
                     {user.isActive ? "Đang Hoạt Động" : "Tạm Khóa"}
@@ -1162,11 +1207,10 @@ function UserDetailPageContent() {
                         toggleStatusMutation.mutate({ userId: user.id, isActive: !user.isActive });
                       }
                     }}
-                    className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-normal ${
-                      session?.user?.id === user.id
+                    className={`flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer font-normal ${session?.user?.id === user.id
                         ? "opacity-50 cursor-not-allowed text-slate-400"
                         : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                    }`}
+                      }`}
                   >
                     {user.isActive ? (
                       <>
@@ -1236,11 +1280,10 @@ function UserDetailPageContent() {
           <div className="flex items-center gap-1 overflow-x-auto">
             <button
               onClick={() => setActiveTab("accounts")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === "accounts"
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${activeTab === "accounts"
                   ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-              }`}
+                }`}
             >
               <Users className="w-3.5 h-3.5 text-pink-500" />
               <span>Tài Khoản Phụ Trách ({stats.totalAssigned})</span>
@@ -1248,11 +1291,10 @@ function UserDetailPageContent() {
 
             <button
               onClick={() => setActiveTab("checklists")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === "checklists"
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${activeTab === "checklists"
                   ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-              }`}
+                }`}
             >
               <Calendar className="w-3.5 h-3.5 text-emerald-500" />
               <span>Lịch Sử Chấm Công ({dailyChecklists.length})</span>
@@ -1261,11 +1303,10 @@ function UserDetailPageContent() {
             {canViewUserRequests && (
               <button
                 onClick={() => setActiveTab("requests")}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === "requests"
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${activeTab === "requests"
                     ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
                     : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                }`}
+                  }`}
               >
                 <Inbox className="w-3.5 h-3.5 text-amber-500" />
                 <span>
@@ -1279,11 +1320,10 @@ function UserDetailPageContent() {
 
             <button
               onClick={() => setActiveTab("profile")}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === "profile"
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${activeTab === "profile"
                   ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-              }`}
+                }`}
             >
               <UserCog className="w-3.5 h-3.5 text-purple-500" />
               <span>Thông Tin Chi Tiết</span>
@@ -1292,261 +1332,259 @@ function UserDetailPageContent() {
 
           {/* Time Range Filter Chips */}
           {activeTab !== "requests" && (
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 self-start sm:self-auto overflow-x-auto">
-            {[
-              { value: 7, label: "7 Ngày" },
-              { value: 28, label: "28 Ngày" },
-              { value: 60, label: "60 Ngày" },
-              { value: 365, label: "365 Ngày" },
-            ].map((p) => (
-              <button
-                key={p.value}
-                onClick={() => setDays(p.value)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap ${
-                  days === p.value
-                    ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-
-            <Popover open={isRangePickerOpen} onOpenChange={setIsRangePickerOpen}>
-              <PopoverTrigger asChild>
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 self-start sm:self-auto overflow-x-auto">
+              {[
+                { value: 7, label: "7 Ngày" },
+                { value: 28, label: "28 Ngày" },
+                { value: 60, label: "60 Ngày" },
+                { value: 365, label: "365 Ngày" },
+              ].map((p) => (
                 <button
-                  type="button"
-                  className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                    days === -1
+                  key={p.value}
+                  onClick={() => setDays(p.value)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap ${days === p.value
                       ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
+                    }`}
                 >
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>
-                    {days === -1 && customStartDate && customEndDate
-                      ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
-                      : "Tùy chọn"}
-                  </span>
+                  {p.label}
                 </button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="bottom"
-                sideOffset={6}
-                align="end"
-                avoidCollisions={false}
-                className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
-              >
-                <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
-                  <div className="min-w-0">
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                      Chọn thời gian
-                    </span>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      Trong vòng {MAX_CUSTOM_RANGE_DAYS} ngày gần nhất
-                    </p>
-                  </div>
-                  {rangeSelection?.from && (
-                    <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
-                      {format(rangeSelection.from, "dd/MM/yy")} -{" "}
-                      {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
-                    </span>
-                  )}
-                </div>
+              ))}
 
-                <div className="w-full py-0.5">
-                  <CalendarPicker
-                    mode="range"
-                    selected={rangeSelection}
-                    onSelect={(range) => {
-                      if (!range?.from) {
-                        setRangeSelection(range);
-                        return;
-                      }
-                      const minDate = subDays(new Date(), MAX_CUSTOM_RANGE_DAYS);
-                      let from = range.from < minDate ? minDate : range.from;
-                      if (!range.to) {
-                        setRangeSelection({ from, to: undefined });
-                        return;
-                      }
-                      let to = range.to > new Date() ? new Date() : range.to;
-                      if (to < minDate) to = minDate;
-                      const span = Math.abs(differenceInCalendarDays(to, from));
-                      if (span > MAX_CUSTOM_RANGE_DAYS) {
-                        const fromFirst = from.getTime() <= to.getTime() ? from : to;
-                        setRangeSelection({
-                          from: fromFirst,
-                          to: addDays(fromFirst, MAX_CUSTOM_RANGE_DAYS),
-                        });
-                        return;
-                      }
-                      setRangeSelection(
-                        from.getTime() <= to.getTime() ? { from, to } : { from: to, to: from }
-                      );
-                    }}
-                    disabled={(date) => {
-                      const today = new Date();
-                      const minDate = subDays(today, MAX_CUSTOM_RANGE_DAYS);
-                      if (date > today || date < minDate) return true;
-                      if (!rangeSelection?.from || rangeSelection.to) return false;
-                      const from = rangeSelection.from;
-                      return (
-                        differenceInCalendarDays(date, from) > MAX_CUSTOM_RANGE_DAYS ||
-                        differenceInCalendarDays(from, date) > MAX_CUSTOM_RANGE_DAYS
-                      );
-                    }}
-                    numberOfMonths={1}
-                    className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
-                    classNames={{
-                      root: "w-full",
-                      months: "relative flex flex-col w-full",
-                      month: "w-full flex flex-col gap-1.5",
-                      weekdays: "flex w-full justify-between",
-                      week: "flex w-full mt-1 justify-between",
-                    }}
-                  />
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <Popover open={isRangePickerOpen} onOpenChange={setIsRangePickerOpen}>
+                <PopoverTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => setIsRangePickerOpen(false)}
-                    className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${days === -1
+                        ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
                   >
-                    Hủy
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>
+                      {days === -1 && customStartDate && customEndDate
+                        ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
+                        : "Tùy chọn"}
+                    </span>
                   </button>
-                  <button
-                    type="button"
-                    disabled={!rangeSelection?.from}
-                    onClick={() => {
-                      if (rangeSelection?.from) {
-                        let from = rangeSelection.from;
-                        let to = rangeSelection.to || from;
-                        if (to.getTime() < from.getTime()) {
-                          const tmp = from;
-                          from = to;
-                          to = tmp;
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  sideOffset={6}
+                  align="end"
+                  avoidCollisions={false}
+                  className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
+                >
+                  <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                        Chọn thời gian
+                      </span>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Trong vòng {MAX_CUSTOM_RANGE_DAYS} ngày gần nhất
+                      </p>
+                    </div>
+                    {rangeSelection?.from && (
+                      <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
+                        {format(rangeSelection.from, "dd/MM/yy")} -{" "}
+                        {rangeSelection.to ? format(rangeSelection.to, "dd/MM/yy") : "..."}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="w-full py-0.5">
+                    <CalendarPicker
+                      mode="range"
+                      selected={rangeSelection}
+                      onSelect={(range) => {
+                        if (!range?.from) {
+                          setRangeSelection(range);
+                          return;
                         }
                         const minDate = subDays(new Date(), MAX_CUSTOM_RANGE_DAYS);
-                        if (from < minDate) from = minDate;
-                        if (to > new Date()) to = new Date();
-                        if (differenceInCalendarDays(to, from) > MAX_CUSTOM_RANGE_DAYS) {
-                          to = addDays(from, MAX_CUSTOM_RANGE_DAYS);
+                        let from = range.from < minDate ? minDate : range.from;
+                        if (!range.to) {
+                          setRangeSelection({ from, to: undefined });
+                          return;
                         }
-                        setCustomStartDate(format(from, "yyyy-MM-dd"));
-                        setCustomEndDate(format(to, "yyyy-MM-dd"));
-                        setRangeSelection({ from, to });
-                        setDays(-1);
-                      }
-                      setIsRangePickerOpen(false);
-                    }}
-                    className="px-4 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow-sm cursor-pointer transition-all disabled:opacity-50"
-                  >
-                    Áp dụng
-                  </button>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
+                        let to = range.to > new Date() ? new Date() : range.to;
+                        if (to < minDate) to = minDate;
+                        const span = Math.abs(differenceInCalendarDays(to, from));
+                        if (span > MAX_CUSTOM_RANGE_DAYS) {
+                          const fromFirst = from.getTime() <= to.getTime() ? from : to;
+                          setRangeSelection({
+                            from: fromFirst,
+                            to: addDays(fromFirst, MAX_CUSTOM_RANGE_DAYS),
+                          });
+                          return;
+                        }
+                        setRangeSelection(
+                          from.getTime() <= to.getTime() ? { from, to } : { from: to, to: from }
+                        );
+                      }}
+                      disabled={(date) => {
+                        const today = new Date();
+                        const minDate = subDays(today, MAX_CUSTOM_RANGE_DAYS);
+                        if (date > today || date < minDate) return true;
+                        if (!rangeSelection?.from || rangeSelection.to) return false;
+                        const from = rangeSelection.from;
+                        return (
+                          differenceInCalendarDays(date, from) > MAX_CUSTOM_RANGE_DAYS ||
+                          differenceInCalendarDays(from, date) > MAX_CUSTOM_RANGE_DAYS
+                        );
+                      }}
+                      numberOfMonths={1}
+                      className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                      classNames={{
+                        root: "w-full",
+                        months: "relative flex flex-col w-full",
+                        month: "w-full flex flex-col gap-1.5",
+                        weekdays: "flex w-full justify-between",
+                        week: "flex w-full mt-1 justify-between",
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setIsRangePickerOpen(false)}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!rangeSelection?.from}
+                      onClick={() => {
+                        if (rangeSelection?.from) {
+                          let from = rangeSelection.from;
+                          let to = rangeSelection.to || from;
+                          if (to.getTime() < from.getTime()) {
+                            const tmp = from;
+                            from = to;
+                            to = tmp;
+                          }
+                          const minDate = subDays(new Date(), MAX_CUSTOM_RANGE_DAYS);
+                          if (from < minDate) from = minDate;
+                          if (to > new Date()) to = new Date();
+                          if (differenceInCalendarDays(to, from) > MAX_CUSTOM_RANGE_DAYS) {
+                            to = addDays(from, MAX_CUSTOM_RANGE_DAYS);
+                          }
+                          setCustomStartDate(format(from, "yyyy-MM-dd"));
+                          setCustomEndDate(format(to, "yyyy-MM-dd"));
+                          setRangeSelection({ from, to });
+                          setDays(-1);
+                        }
+                        setIsRangePickerOpen(false);
+                      }}
+                      className="px-4 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow-sm cursor-pointer transition-all disabled:opacity-50"
+                    >
+                      Áp dụng
+                    </button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           )}
         </div>
       </div>
 
       {/* Top 6 KPI Cards Overview */}
       {activeTab !== "requests" && (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-        {/* Total Assigned Accounts */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Account Giao Việc">Account Giao Việc</span>
-            <Users className="w-4 h-4 text-pink-500 shrink-0" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+          {/* Total Assigned Accounts */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Account Giao Việc">Account Giao Việc</span>
+              <Users className="w-4 h-4 text-pink-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-pink-600 dark:text-pink-400 mt-2 truncate">
+              {stats.totalAssigned}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+              <span className="truncate">{stats.activeAccounts} hoạt động • {stats.warmingAccounts} nuôi</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-pink-600 dark:text-pink-400 mt-2 truncate">
-            {stats.totalAssigned}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-            <span className="truncate">{stats.activeAccounts} hoạt động • {stats.warmingAccounts} nuôi</span>
-          </div>
-        </div>
 
-        {/* Total Views across fleet */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Views (${rangeLabelShort})`}>
-              Views ({rangeLabelShort})
-            </span>
-            <Eye className="w-4 h-4 text-cyan-500 shrink-0" />
+          {/* Total Views across fleet */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Views (${rangeLabelShort})`}>
+                Views ({rangeLabelShort})
+              </span>
+              <Eye className="w-4 h-4 text-cyan-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-2 truncate">
+              {Number(stats.totalViews).toLocaleString()}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+              <span className="truncate">Dàn kênh {rangeLabelLong}</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-2 truncate">
-            {Number(stats.totalViews).toLocaleString()}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-            <span className="truncate">Dàn kênh {rangeLabelLong}</span>
-          </div>
-        </div>
 
-        {/* Total Followers */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Tổng Followers">Tổng Followers</span>
-            <UserCheck className="w-4 h-4 text-purple-500 shrink-0" />
+          {/* Total Followers */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title="Tổng Followers">Tổng Followers</span>
+              <UserCheck className="w-4 h-4 text-purple-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2 truncate">
+              {Number(stats.totalFollowers).toLocaleString()}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+              <span className="truncate">Người theo dõi tích lũy</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-2 truncate">
-            {Number(stats.totalFollowers).toLocaleString()}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-            <span className="truncate">Người theo dõi tích lũy</span>
-          </div>
-        </div>
 
-        {/* Total Revenue */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Doanh Thu (${rangeLabelShort})`}>
-              Doanh Thu ({rangeLabelShort})
-            </span>
-            <DollarSign className="w-4 h-4 text-emerald-500 shrink-0" />
+          {/* Total Revenue */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Doanh Thu (${rangeLabelShort})`}>
+                Doanh Thu ({rangeLabelShort})
+              </span>
+              <DollarSign className="w-4 h-4 text-emerald-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2 truncate">
+              ${Number(stats.totalRevenue).toFixed(2)}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+              <span className="truncate">Thu nhập {rangeLabelLong}</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2 truncate">
-            ${Number(stats.totalRevenue).toFixed(2)}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-            <span className="truncate">Thu nhập {rangeLabelLong}</span>
-          </div>
-        </div>
 
-        {/* Workday Score */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Ngày Công (${rangeLabelShort})`}>
-              Ngày Công ({rangeLabelShort})
-            </span>
-            <Calendar className="w-4 h-4 text-amber-500 shrink-0" />
+          {/* Workday Score */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`Ngày Công (${rangeLabelShort})`}>
+                Ngày Công ({rangeLabelShort})
+              </span>
+              <Calendar className="w-4 h-4 text-amber-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-2 truncate">
+              {Number(stats.monthlyWorkdays)} Công
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+              <span className="truncate">Chốt theo mốc 10:00 AM</span>
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-2 truncate">
-            {Number(stats.monthlyWorkdays)} Công
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-            <span className="truncate">Chốt theo mốc 10:00 AM</span>
-          </div>
-        </div>
 
-        {/* Average Completion Rate */}
-        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
-            <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`KPI TB (${rangeLabelShort})`}>
-              KPI TB ({rangeLabelShort})
-            </span>
-            <TrendingUp className="w-4 h-4 text-indigo-500 shrink-0" />
-          </div>
-          <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2 truncate">
-            {stats.avgCompletionRate}%
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-            <span className="truncate">Tỷ lệ hoàn thành nhiệm vụ</span>
+          {/* Average Completion Rate */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 min-w-0">
+              <span className="text-xs font-bold uppercase tracking-wider truncate whitespace-nowrap" title={`KPI TB (${rangeLabelShort})`}>
+                KPI TB ({rangeLabelShort})
+              </span>
+              <TrendingUp className="w-4 h-4 text-indigo-500 shrink-0" />
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2 truncate">
+              {stats.avgCompletionRate}%
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+              <span className="truncate">Tỷ lệ hoàn thành nhiệm vụ</span>
+            </div>
           </div>
         </div>
-      </div>
       )}
 
       {/* TAB 1: Assigned Accounts */}
@@ -1584,11 +1622,10 @@ function UserDetailPageContent() {
                 <div className="relative shrink-0">
                   <Select value={accountStatusFilter} onValueChange={setAccountStatusFilter}>
                     <SelectTrigger
-                      className={`h-9 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer transition-colors ${
-                        accountStatusFilter !== "ALL"
+                      className={`h-9 w-36 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer transition-colors ${accountStatusFilter !== "ALL"
                           ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                           : ""
-                      }`}
+                        }`}
                     >
                       <SelectValue placeholder="Trạng thái" />
                     </SelectTrigger>
@@ -1625,11 +1662,10 @@ function UserDetailPageContent() {
                 <div className="relative shrink-0">
                   <Select value={accountCountryFilter} onValueChange={setAccountCountryFilter}>
                     <SelectTrigger
-                      className={`h-9 w-44 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer transition-colors ${
-                        accountCountryFilter !== "ALL"
+                      className={`h-9 w-44 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 whitespace-nowrap [&>span]:truncate cursor-pointer transition-colors ${accountCountryFilter !== "ALL"
                           ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                           : ""
-                      }`}
+                        }`}
                     >
                       <SelectValue placeholder="Tất cả quốc gia" />
                     </SelectTrigger>
@@ -1678,11 +1714,10 @@ function UserDetailPageContent() {
                       <PopoverTrigger asChild>
                         <button
                           type="button"
-                          className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${
-                            sortConfig.key
+                          className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl text-xs transition-all cursor-pointer ${sortConfig.key
                               ? "bg-pink-50/80 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/50 shadow-2xs font-medium"
                               : "bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 font-normal"
-                          }`}
+                            }`}
                         >
                           <SlidersHorizontal className={`w-3.5 h-3.5 ${sortConfig.key ? "text-pink-600 dark:text-pink-400" : "text-slate-500"}`} />
                           <span>Sắp xếp</span>
@@ -1708,11 +1743,10 @@ function UserDetailPageContent() {
                         <button
                           key={item.key}
                           onClick={() => handleAccountSort(item.key)}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
-                            isSelected
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${isSelected
                               ? "bg-pink-50/80 dark:bg-pink-950/50 text-pink-700 dark:text-pink-300 font-semibold border border-pink-200/80 dark:border-pink-900/60"
                               : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent font-normal"
-                          }`}
+                            }`}
                         >
                           <span>{item.label}</span>
                           {isSelected && (
@@ -1880,23 +1914,37 @@ function UserDetailPageContent() {
                         </div>
                         {renderResizeHandle("status")}
                       </th>
+                      {/* GPM Profile Name */}
+                      <th
+                        style={getColumnStyle("gpmProfileName")}
+                        onClick={() => handleAccountSort("gpmProfileName")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">GPM Profile Name</span>
+                          {renderAccountSortIndicator("gpmProfileName")}
+                        </div>
+                        {renderResizeHandle("gpmProfileName")}
+                      </th>
+                      <th
+                        style={getColumnStyle("gpmGroup")}
+                        onClick={() => handleAccountSort("groupName")}
+                        className="relative group/th py-3.5 px-4 whitespace-nowrap cursor-pointer select-none group hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">GPM Group</span>
+                          {renderAccountSortIndicator("groupName")}
+                        </div>
+                        {renderResizeHandle("gpmGroup")}
+                      </th>
                       <th
                         style={getColumnStyle("gpmProfileId")}
                         className="relative group/th py-3.5 px-4 whitespace-nowrap"
                       >
                         <div className="flex items-center gap-1.5 truncate">
-                          <span className="truncate">Profile GPM</span>
+                          <span className="truncate">GPM Profile ID</span>
                         </div>
                         {renderResizeHandle("gpmProfileId")}
-                      </th>
-                      <th
-                        style={getColumnStyle("gpmGroup")}
-                        className="relative group/th py-3.5 px-4 whitespace-nowrap"
-                      >
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className="truncate">Nhóm GPM</span>
-                        </div>
-                        {renderResizeHandle("gpmGroup")}
                       </th>
                       <th
                         style={getColumnStyle("alerts")}
@@ -1978,466 +2026,482 @@ function UserDetailPageContent() {
                         ? "bg-pink-50/40 dark:bg-pink-950/20"
                         : "bg-white dark:bg-slate-900";
                       return (
-                      <tr
-                        key={acc.id}
-                        className={`group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""}`}
-                      >
-                        <td style={getColumnStyle("select")} className={`py-3.5 px-4 sticky left-0 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 transition-colors overflow-hidden`}>
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={() => toggleSelectRow(acc.id)}
-                            aria-label={`Chọn @${acc.username}`}
-                          />
-                        </td>
-                        {/* Account name - Sticky Left */}
-                        <td
-                          style={getColumnStyle("username")}
-                          className={`py-3.5 px-4 sticky left-10 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] transition-colors overflow-hidden`}
+                        <tr
+                          key={acc.id}
+                          className={`group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${isSelected ? "bg-pink-50/40 dark:bg-pink-950/20" : ""}`}
                         >
-                          <div className="min-w-0">
-                            <Link
-                              href={`/accounts/${acc.id}`}
-                              className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 flex items-center gap-1.5 transition-colors min-w-0"
-                            >
-                              <span className="truncate min-w-0" title={`@${acc.username}`}>@{acc.username}</span>
-                              <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            </Link>
-                            {acc.bannedReason && (
-                              <div className="text-[10px] text-rose-500 dark:text-rose-400 truncate mt-0.5" title={acc.bannedReason}>
-                                ⚠ {acc.bannedReason}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Separate Online Column */}
-                        <td style={getColumnStyle("isOnline")} className="py-3.5 px-4 text-center overflow-hidden">
-                          <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" />
-                        </td>
-
-                        {/* Country */}
-                        <td style={getColumnStyle("country")} className="py-3.5 px-4 overflow-hidden">
-                          <div className="truncate">{getCountryBadge(acc.country)}</div>
-                        </td>
-
-                        {/* Status */}
-                        <td style={getColumnStyle("status")} className="py-3.5 px-4 overflow-hidden">
-                          {getStatusBadge(acc.status)}
-                        </td>
-
-                        {/* GPM Profile ID */}
-                        <td style={getColumnStyle("gpmProfileId")} className="py-3.5 px-4 overflow-hidden">
-                          {acc.gpmProfileId ? (
-                            <div className="flex items-center gap-1.5 h-7.5 max-w-full min-w-0 bg-cyan-50/80 dark:bg-cyan-950/50 border border-cyan-200/60 dark:border-cyan-800/40 rounded-xl px-2.5 shadow-2xs">
-                              <span
-                                className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 min-w-0 flex-1 truncate"
-                                title={acc.gpmProfileId}
+                          <td style={getColumnStyle("select")} className={`py-3.5 px-4 sticky left-0 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 transition-colors overflow-hidden`}>
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleSelectRow(acc.id)}
+                              aria-label={`Chọn @${acc.username}`}
+                            />
+                          </td>
+                          {/* Account name - Sticky Left */}
+                          <td
+                            style={getColumnStyle("username")}
+                            className={`py-3.5 px-4 sticky left-10 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] transition-colors overflow-hidden`}
+                          >
+                            <div className="min-w-0">
+                              <Link
+                                href={`/accounts/${acc.id}`}
+                                className="font-bold text-slate-900 dark:text-white hover:text-pink-600 dark:hover:text-pink-400 flex items-center gap-1.5 transition-colors min-w-0"
                               >
-                                {acc.gpmProfileId}
-                              </span>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={() => startGpmMutation.mutate({ gpmProfileId: acc.gpmProfileId })}
-                                    disabled={startGpmMutation.isPending}
-                                    className="shrink-0 p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
-                                    aria-label="Mở GPM"
-                                  >
-                                    <Play className={`w-3 h-3 ${startGpmMutation.isPending ? "animate-pulse text-pink-500" : ""}`} />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Mở profile GPMLogin</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(acc.gpmProfileId);
-                                      setCopiedGpmId(acc.id);
-                                      setTimeout(() => setCopiedGpmId((prev) => (prev === acc.id ? null : prev)), 2000);
-                                    }}
-                                    className="shrink-0 p-1 -mr-1 text-cyan-600/70 hover:text-cyan-700 dark:text-cyan-400/70 dark:hover:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
-                                    aria-label="Sao chép GPM Profile ID"
-                                  >
-                                    {copiedGpmId === acc.id ? (
-                                      <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                    ) : (
-                                      <Copy className="w-3 h-3" />
-                                    )}
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="text-xs font-medium">
-                                  {copiedGpmId === acc.id ? "Đã sao chép!" : "Sao chép GPM Profile ID"}
-                                </TooltipContent>
-                              </Tooltip>
+                                <span className="truncate min-w-0" title={`@${acc.username}`}>@{acc.username}</span>
+                                <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              </Link>
+                              {acc.bannedReason && (
+                                <div className="text-[10px] text-rose-500 dark:text-rose-400 truncate mt-0.5" title={acc.bannedReason}>
+                                  ⚠ {acc.bannedReason}
+                                </div>
+                              )}
                             </div>
-                          ) : (
-                            <span className="inline-flex items-center h-7.5 px-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 text-slate-400 text-xs italic bg-slate-50/50 dark:bg-slate-900/50 truncate max-w-full">-- Chưa gán --</span>
-                          )}
-                        </td>
+                          </td>
 
-                        {/* GPM Group */}
-                        <td style={getColumnStyle("gpmGroup")} className="py-3.5 px-4 overflow-hidden">
-                          <span className="inline-block max-w-full text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium truncate align-middle" title={acc.groupName || undefined}>
-                            {acc.groupName || "--"}
-                          </span>
-                        </td>
+                          {/* Separate Online Column */}
+                          <td style={getColumnStyle("isOnline")} className="py-3.5 px-4 text-center overflow-hidden">
+                            <OnlineOfflineBadge isOnline={acc.isOnline} size="sm" />
+                          </td>
 
-                        {/* Alerts */}
-                        <td style={getColumnStyle("alerts")} className="py-3.5 px-4 overflow-hidden">
-                          {(() => {
-                            const punishedVideos = getPunishedVideos30d(acc);
-                            const isBannedFromCreator =
-                              acc.status === "BANNED" ||
-                              Boolean(acc.bannedReason) ||
-                              ((acc.metadata as any)?.creatorRewardsMissing === true) ||
-                              ((acc.metadata as any)?.creatorRewardsStatus === "BANNED") ||
-                              acc.alerts?.some((al: any) => al.alertType === "PROGRAM_DISQUALIFIED");
+                          {/* Country */}
+                          <td style={getColumnStyle("country")} className="py-3.5 px-4 overflow-hidden">
+                            <div className="truncate">{getCountryBadge(acc.country)}</div>
+                          </td>
 
-                            // Case 1: Banned / Removed from Creator Program
-                            if (isBannedFromCreator) {
-                              return (
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 max-w-full rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800/80 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all shadow-sm cursor-pointer group"
-                                    >
-                                      <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 group-hover:scale-110 transition-transform" />
-                                      <span className="truncate">Bị loại khỏi Creator Rewards</span>
-                                      {punishedVideos.length > 0 && (
-                                        <span className="shrink-0 px-1.5 py-0.2 bg-rose-500 text-white text-[10px] rounded-full font-bold">
-                                          +{punishedVideos.length}
-                                        </span>
-                                      )}
-                                    </button>
-                                  </PopoverTrigger>
-                                  <PopoverContent align="start" className="w-96 p-0 rounded-2xl shadow-2xl border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs">
-                                    <div className="p-3.5 border-b border-rose-200 dark:border-rose-900/40 flex items-start gap-2.5 bg-white dark:bg-slate-900">
-                                      <div className="p-2 bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl shrink-0">
-                                        <XCircle className="w-5 h-5" />
-                                      </div>
-                                      <div>
-                                        <h4 className="font-bold text-rose-900 dark:text-rose-200 text-sm">Bị loại khỏi Creator Rewards</h4>
-                                        <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
-                                          Tài khoản @{acc.username} đã bị tắt tính năng kiếm tiền TikTok Beta
-                                        </p>
-                                      </div>
-                                    </div>
-                                    <div className="p-3.5 space-y-3">
-                                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
-                                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">Lý do ghi nhận:</span>
-                                        <span className="text-xs text-rose-600 dark:text-rose-300 font-medium">
-                                          {acc.bannedReason || "Không tìm thấy chương trình Creator Rewards trên TikTok Studio"}
-                                        </span>
-                                      </div>
-                                      {punishedVideos.length > 0 && (
-                                        <div>
-                                          <div className="flex items-center justify-between mb-1.5">
-                                            <span className="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
-                                              Video bị phạt / vi phạm trong 30 ngày ({punishedVideos.length}):
-                                            </span>
-                                          </div>
-                                          <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                                            {punishedVideos.map((v: any, vIdx: number) => (
-                                              <div key={vIdx} className="p-2 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 flex items-start gap-2">
-                                                <div className="w-10 h-12 rounded-lg bg-slate-200 dark:bg-slate-800 overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
-                                                  {v.coverUrl || v.cover ? (
-                                                    <img src={v.coverUrl || v.cover} alt={v.title || "Cover"} className="w-full h-full object-cover" />
-                                                  ) : (
-                                                    <div className="w-full h-full flex items-center justify-center text-slate-400">
-                                                      <Video className="w-3.5 h-3.5" />
-                                                    </div>
-                                                  )}
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                  <p className="text-xs font-medium text-slate-800 dark:text-slate-200 line-clamp-1" title={v.title}>
-                                                    {v.title || `Video #${v.id}`}
-                                                  </p>
-                                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                    <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.2 rounded border border-blue-500/20">
-                                                      {v.programName || "Creator Rewards"}
-                                                    </span>
-                                                    {v.postDate && <span className="text-[10px] text-slate-400">{v.postDate}</span>}
-                                                    <span className="text-[10px] font-bold text-rose-500">Bị phạt</span>
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-                                        <Link href={`/accounts/${acc.id}?tab=rewards`} className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline">
-                                          <span>Xem chi tiết tài khoản</span>
-                                          <ExternalLink className="w-3 h-3" />
-                                        </Link>
-                                      </div>
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              );
-                            }
+                          {/* Status */}
+                          <td style={getColumnStyle("status")} className="py-3.5 px-4 overflow-hidden">
+                            {getStatusBadge(acc.status)}
+                          </td>
 
-                            // Case 2: Punished Videos (Strike Warning)
-                            if (punishedVideos.length > 0) {
-                              return <StrikeWarningPopover account={acc} punishedVideos={punishedVideos} />;
-                            }
+                          {/* GPM Profile Name */}
+                          <td style={getColumnStyle("gpmProfileName")} className="py-3.5 px-4 overflow-hidden">
+                            <span
+                              className="inline-block max-w-full text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium truncate align-middle"
+                              title={acc.gpmProfileName || undefined}
+                            >
+                              {acc.gpmProfileName || "--"}
+                            </span>
+                          </td>
 
-                            // Case 3: Other alerts
-                            if (acc.alerts && acc.alerts.length > 0) {
-                              return (
+                          {/* GPM Group */}
+                          <td style={getColumnStyle("gpmGroup")} className="py-3.5 px-4 overflow-hidden">
+                            <span className="inline-block max-w-full text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium truncate align-middle" title={acc.groupName || undefined}>
+                              {acc.groupName || "--"}
+                            </span>
+                          </td>
+
+                          {/* GPM Profile ID */}
+                          <td style={getColumnStyle("gpmProfileId")} className="py-3.5 px-4 overflow-hidden">
+                            {acc.gpmProfileId ? (
+                              <div className="flex items-center gap-1.5 h-7.5 max-w-full min-w-0 bg-cyan-50/80 dark:bg-cyan-950/50 border border-cyan-200/60 dark:border-cyan-800/40 rounded-xl px-2.5 shadow-2xs">
+                                <span
+                                  className="font-mono text-xs font-semibold text-cyan-700 dark:text-cyan-300 min-w-0 flex-1 truncate"
+                                  title={acc.gpmProfileId}
+                                >
+                                  {acc.gpmProfileId}
+                                </span>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 cursor-pointer">
-                                      <AlertTriangle className="w-3 h-3" />
-                                      <span>{acc.alerts.length} cảnh báo</span>
-                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => startGpmMutation.mutate({ gpmProfileId: acc.gpmProfileId })}
+                                      disabled={startGpmMutation.isPending}
+                                      className="shrink-0 p-1 text-cyan-700 hover:text-cyan-900 dark:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                      aria-label="Mở GPM"
+                                    >
+                                      <Play className={`w-3 h-3 ${startGpmMutation.isPending ? "animate-pulse text-pink-500" : ""}`} />
+                                    </button>
                                   </TooltipTrigger>
-                                  <TooltipContent className="max-w-xs text-xs space-y-1">
-                                    {acc.alerts.map((al: any, idx: number) => (
-                                      <div key={idx} className="text-slate-200">
-                                        • {al.description || al.message || al.alertType}
-                                      </div>
-                                    ))}
+                                  <TooltipContent side="top">Mở profile GPMLogin</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(acc.gpmProfileId);
+                                        setCopiedGpmId(acc.id);
+                                        setTimeout(() => setCopiedGpmId((prev) => (prev === acc.id ? null : prev)), 2000);
+                                      }}
+                                      className="shrink-0 p-1 -mr-1 text-cyan-600/70 hover:text-cyan-700 dark:text-cyan-400/70 dark:hover:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/60 rounded-md transition-colors cursor-pointer"
+                                      aria-label="Sao chép GPM Profile ID"
+                                    >
+                                      {copiedGpmId === acc.id ? (
+                                        <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="text-xs font-medium">
+                                    {copiedGpmId === acc.id ? "Đã sao chép!" : "Sao chép GPM Profile ID"}
                                   </TooltipContent>
                                 </Tooltip>
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center h-7.5 px-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 text-slate-400 text-xs italic bg-slate-50/50 dark:bg-slate-900/50 truncate max-w-full">-- Chưa gán --</span>
+                            )}
+                          </td>
+
+                          {/* Alerts */}
+                          <td style={getColumnStyle("alerts")} className="py-3.5 px-4 overflow-hidden">
+                            {(() => {
+                              const punishedVideos = getPunishedVideos30d(acc);
+                              const isBannedFromCreator =
+                                acc.status === "BANNED" ||
+                                Boolean(acc.bannedReason) ||
+                                ((acc.metadata as any)?.creatorRewardsMissing === true) ||
+                                ((acc.metadata as any)?.creatorRewardsStatus === "BANNED") ||
+                                acc.alerts?.some((al: any) => al.alertType === "PROGRAM_DISQUALIFIED");
+
+                              // Case 1: Banned / Removed from Creator Program
+                              if (isBannedFromCreator) {
+                                return (
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 max-w-full rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800/80 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all shadow-sm cursor-pointer group"
+                                      >
+                                        <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                        <span className="truncate">Bị loại khỏi Creator Rewards</span>
+                                        {punishedVideos.length > 0 && (
+                                          <span className="shrink-0 px-1.5 py-0.2 bg-rose-500 text-white text-[10px] rounded-full font-bold">
+                                            +{punishedVideos.length}
+                                          </span>
+                                        )}
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent align="start" className="w-96 p-0 rounded-2xl shadow-2xl border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-slate-900 overflow-hidden z-50 text-xs">
+                                      <div className="p-3.5 border-b border-rose-200 dark:border-rose-900/40 flex items-start gap-2.5 bg-white dark:bg-slate-900">
+                                        <div className="p-2 bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl shrink-0">
+                                          <XCircle className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                          <h4 className="font-bold text-rose-900 dark:text-rose-200 text-sm">Bị loại khỏi Creator Rewards</h4>
+                                          <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
+                                            Tài khoản @{acc.username} đã bị tắt tính năng kiếm tiền TikTok Beta
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="p-3.5 space-y-3">
+                                        <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                                          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-0.5">Lý do ghi nhận:</span>
+                                          <span className="text-xs text-rose-600 dark:text-rose-300 font-medium">
+                                            {acc.bannedReason || "Không tìm thấy chương trình Creator Rewards trên TikTok Studio"}
+                                          </span>
+                                        </div>
+                                        {punishedVideos.length > 0 && (
+                                          <div>
+                                            <div className="flex items-center justify-between mb-1.5">
+                                              <span className="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                                                Video bị phạt / vi phạm trong 30 ngày ({punishedVideos.length}):
+                                              </span>
+                                            </div>
+                                            <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                                              {punishedVideos.map((v: any, vIdx: number) => (
+                                                <div key={vIdx} className="p-2 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 flex items-start gap-2">
+                                                  <div className="w-10 h-12 rounded-lg bg-slate-200 dark:bg-slate-800 overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700">
+                                                    {v.coverUrl || v.cover ? (
+                                                      <img src={v.coverUrl || v.cover} alt={v.title || "Cover"} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                      <div className="w-full h-full flex items-center justify-center text-slate-400">
+                                                        <Video className="w-3.5 h-3.5" />
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                  <div className="min-w-0 flex-1">
+                                                    <p className="text-xs font-medium text-slate-800 dark:text-slate-200 line-clamp-1" title={v.title}>
+                                                      {v.title || `Video #${v.id}`}
+                                                    </p>
+                                                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                      <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 py-0.2 rounded border border-blue-500/20">
+                                                        {v.programName || "Creator Rewards"}
+                                                      </span>
+                                                      {v.postDate && <span className="text-[10px] text-slate-400">{v.postDate}</span>}
+                                                      <span className="text-[10px] font-bold text-rose-500">Bị phạt</span>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                                          <Link href={`/accounts/${acc.id}?tab=rewards`} className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline">
+                                            <span>Xem chi tiết tài khoản</span>
+                                            <ExternalLink className="w-3 h-3" />
+                                          </Link>
+                                        </div>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                );
+                              }
+
+                              // Case 2: Punished Videos (Strike Warning)
+                              if (punishedVideos.length > 0) {
+                                return <StrikeWarningPopover account={acc} punishedVideos={punishedVideos} />;
+                              }
+
+                              // Case 3: Other alerts
+                              if (acc.alerts && acc.alerts.length > 0) {
+                                return (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 cursor-pointer">
+                                        <AlertTriangle className="w-3 h-3" />
+                                        <span>{acc.alerts.length} cảnh báo</span>
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs text-xs space-y-1">
+                                      {acc.alerts.map((al: any, idx: number) => (
+                                        <div key={idx} className="text-slate-200">
+                                          • {al.description || al.message || al.alertType}
+                                        </div>
+                                      ))}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                );
+                              }
+
+                              // Case 4: Clean & Safe
+                              return (
+                                <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                                  <Shield className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">An toàn</span>
+                                </span>
                               );
-                            }
+                            })()}
+                          </td>
 
-                            // Case 4: Clean & Safe
-                            return (
-                              <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-                                <Shield className="w-3.5 h-3.5 text-emerald-500" />
-                                <span className="text-emerald-600 dark:text-emerald-400 font-medium">An toàn</span>
-                              </span>
-                            );
-                          })()}
-                        </td>
+                          {/* Views */}
+                          <td style={getColumnStyle("totalViews")} className="py-3.5 px-4 font-bold text-slate-900 dark:text-white overflow-hidden">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-help border-b border-dotted border-slate-400/50 truncate inline-block max-w-full align-bottom">
+                                  {Number(acc.totalViews || 0).toLocaleString()}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
+                                {(() => {
+                                  const p = getAccountViewsPeriods(acc as any);
+                                  return (
+                                    <>
+                                      <div className="font-bold text-cyan-400 border-b border-slate-700 pb-1 flex items-center gap-1">
+                                        <Eye className="w-3 h-3" />
+                                        <span>Lượt Xem TikTok Studio</span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px]">
+                                        <span className="text-slate-400">7 ngày:</span>
+                                        <span className="font-semibold text-cyan-300">{p.views7d.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px]">
+                                        <span className="text-slate-400">28 ngày:</span>
+                                        <span className="font-semibold text-purple-300">{p.views28d.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px]">
+                                        <span className="text-slate-400">60 ngày:</span>
+                                        <span className="font-semibold text-indigo-300">{p.views60d.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px]">
+                                        <span className="text-slate-400">365 ngày:</span>
+                                        <span className="font-semibold text-amber-300">{p.views365d.toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
+                                        <span className="text-slate-300">Toàn bộ:</span>
+                                        <span className="text-cyan-300">{p.totalViews.toLocaleString()}</span>
+                                      </div>
+                                    </>
+                                  );
+                                })()}
+                              </TooltipContent>
+                            </Tooltip>
+                          </td>
 
-                        {/* Views */}
-                        <td style={getColumnStyle("totalViews")} className="py-3.5 px-4 font-bold text-slate-900 dark:text-white overflow-hidden">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="cursor-help border-b border-dotted border-slate-400/50 truncate inline-block max-w-full align-bottom">
-                                {Number(acc.totalViews || 0).toLocaleString()}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
-                              {(() => {
-                                const p = getAccountViewsPeriods(acc as any);
-                                return (
-                                  <>
-                                    <div className="font-bold text-cyan-400 border-b border-slate-700 pb-1 flex items-center gap-1">
-                                      <Eye className="w-3 h-3" />
-                                      <span>Lượt Xem TikTok Studio</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">7 ngày:</span>
-                                      <span className="font-semibold text-cyan-300">{p.views7d.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">28 ngày:</span>
-                                      <span className="font-semibold text-purple-300">{p.views28d.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">60 ngày:</span>
-                                      <span className="font-semibold text-indigo-300">{p.views60d.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">365 ngày:</span>
-                                      <span className="font-semibold text-amber-300">{p.views365d.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                      <span className="text-slate-300">Toàn bộ:</span>
-                                      <span className="text-cyan-300">{p.totalViews.toLocaleString()}</span>
-                                    </div>
-                                  </>
-                                );
-                              })()}
-                            </TooltipContent>
-                          </Tooltip>
-                        </td>
+                          {/* Followers */}
+                          <td style={getColumnStyle("totalFollowers")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 overflow-hidden">
+                            <span className="truncate block">{Number(acc.totalFollowers || 0).toLocaleString()}</span>
+                          </td>
 
-                        {/* Followers */}
-                        <td style={getColumnStyle("totalFollowers")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 overflow-hidden">
-                          <span className="truncate block">{Number(acc.totalFollowers || 0).toLocaleString()}</span>
-                        </td>
+                          {/* Videos */}
+                          <td style={getColumnStyle("totalVideos")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 overflow-hidden">
+                            <span className="truncate block">{Number(acc.totalVideos || 0).toLocaleString()}</span>
+                          </td>
 
-                        {/* Videos */}
-                        <td style={getColumnStyle("totalVideos")} className="py-3.5 px-4 text-slate-700 dark:text-slate-300 overflow-hidden">
-                          <span className="truncate block">{Number(acc.totalVideos || 0).toLocaleString()}</span>
-                        </td>
+                          {/* Revenue */}
+                          <td style={getColumnStyle("totalRevenue")} className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 overflow-hidden">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-help border-b border-dotted border-emerald-500/40 truncate inline-block max-w-full align-bottom">
+                                  {formatAmount(
+                                    Number(acc.displayRevenue ?? acc.totalRevenue ?? 0),
+                                    (acc as any).country
+                                  )}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
+                                {(() => {
+                                  const p = getAccountRevenuePeriods(acc as any);
+                                  return (
+                                    <>
+                                      <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1">
+                                        Doanh Thu TikTok Studio
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px]">
+                                        <span className="text-slate-400">7 ngày:</span>
+                                        <span className="font-semibold text-cyan-300">
+                                          {formatAmount(p.revenue7d, (acc as any).country)}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px]">
+                                        <span className="text-slate-400">28 ngày:</span>
+                                        <span className="font-semibold text-purple-300">
+                                          {formatAmount(p.revenue28d, (acc as any).country)}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px]">
+                                        <span className="text-slate-400">30 ngày:</span>
+                                        <span className="font-semibold text-pink-400">
+                                          {formatAmount(p.revenue30d, (acc as any).country)}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px]">
+                                        <span className="text-slate-400">60 ngày:</span>
+                                        <span className="font-semibold text-indigo-300">
+                                          {formatAmount(p.revenue60d, (acc as any).country)}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px]">
+                                        <span className="text-slate-400">365 ngày:</span>
+                                        <span className="font-semibold text-amber-300">
+                                          {formatAmount(p.revenue365d, (acc as any).country)}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
+                                        <span className="text-slate-300">Toàn bộ:</span>
+                                        <span className="text-emerald-400">
+                                          {formatAmount(p.totalRevenue, (acc as any).country)}
+                                        </span>
+                                      </div>
+                                    </>
+                                  );
+                                })()}
+                              </TooltipContent>
+                            </Tooltip>
+                          </td>
 
-                        {/* Revenue */}
-                        <td style={getColumnStyle("totalRevenue")} className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400 overflow-hidden">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="cursor-help border-b border-dotted border-emerald-500/40 truncate inline-block max-w-full align-bottom">
-                                {formatAmount(
-                                  Number(acc.displayRevenue ?? acc.totalRevenue ?? 0),
-                                  (acc as any).country
-                                )}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
-                              {(() => {
-                                const p = getAccountRevenuePeriods(acc as any);
-                                return (
-                                  <>
-                                    <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1">
-                                      Doanh Thu TikTok Studio
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">7 ngày:</span>
-                                      <span className="font-semibold text-cyan-300">
-                                        {formatAmount(p.revenue7d, (acc as any).country)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">28 ngày:</span>
-                                      <span className="font-semibold text-purple-300">
-                                        {formatAmount(p.revenue28d, (acc as any).country)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">60 ngày:</span>
-                                      <span className="font-semibold text-indigo-300">
-                                        {formatAmount(p.revenue60d, (acc as any).country)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">365 ngày:</span>
-                                      <span className="font-semibold text-amber-300">
-                                        {formatAmount(p.revenue365d, (acc as any).country)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                      <span className="text-slate-300">Toàn bộ:</span>
-                                      <span className="text-emerald-400">
-                                        {formatAmount(p.totalRevenue, (acc as any).country)}
-                                      </span>
-                                    </div>
-                                  </>
-                                );
-                              })()}
-                            </TooltipContent>
-                          </Tooltip>
-                        </td>
-
-                        {/* Last Synced */}
-                        <td style={getColumnStyle("lastSyncedAt")} className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 overflow-hidden">
-                          <span className="truncate block">
-                            {acc.lastSyncedAt
-                              ? new Date(acc.lastSyncedAt).toLocaleString("vi-VN", {
+                          {/* Last Synced */}
+                          <td style={getColumnStyle("lastSyncedAt")} className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 overflow-hidden">
+                            <span className="truncate block">
+                              {acc.lastSyncedAt
+                                ? new Date(acc.lastSyncedAt).toLocaleString("vi-VN", {
                                   hour: "2-digit",
                                   minute: "2-digit",
                                   day: "2-digit",
                                   month: "2-digit",
                                 })
-                              : "Chưa sync"}
-                          </span>
-                        </td>
+                                : "Chưa sync"}
+                            </span>
+                          </td>
 
-                        {/* Action Buttons - Sticky Right */}
-                        <td
-                          style={getColumnStyle("actions")}
-                          className={`py-3.5 px-4 text-center sticky right-0 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap transition-colors`}
-                        >
-                          <div className="flex items-center justify-center">
-                            <DropdownMenu>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <DropdownMenuTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                                      aria-label="Thao tác"
-                                    >
-                                      <MoreHorizontal className="w-4 h-4" />
-                                    </button>
-                                  </DropdownMenuTrigger>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Tùy chọn thao tác</TooltipContent>
-                              </Tooltip>
-                              <DropdownMenuContent
-                                align="end"
-                                className="w-48 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl"
-                              >
-                                <DropdownMenuItem asChild>
-                                  <Link
-                                    href={`/accounts/${acc.id}`}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                  >
-                                    <Eye className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Xem chi tiết</span>
-                                  </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => syncMutation.mutate({ accountId: acc.id })}
-                                  disabled={syncMutation.isPending}
-                                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                          {/* Action Buttons - Sticky Right */}
+                          <td
+                            style={getColumnStyle("actions")}
+                            className={`py-3.5 px-4 text-center sticky right-0 z-10 ${rowBg} group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] whitespace-nowrap transition-colors`}
+                          >
+                            <div className="flex items-center justify-center">
+                              <DropdownMenu>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                        aria-label="Thao tác"
+                                      >
+                                        <MoreHorizontal className="w-4 h-4" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">Tùy chọn thao tác</TooltipContent>
+                                </Tooltip>
+                                <DropdownMenuContent
+                                  align="end"
+                                  className="w-48 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl"
                                 >
-                                  <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin text-pink-500" : ""}`} />
-                                  <span>{syncMutation.isPending ? "Đang đồng bộ..." : "Đồng bộ số liệu"}</span>
-                                </DropdownMenuItem>
-                                {syncMutation.isPending && (
-                                  <DropdownMenuItem
-                                    onClick={() => stopSyncMutation.mutate({ accountId: acc.id })}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
-                                  >
-                                    <Square className="w-3.5 h-3.5 fill-current text-rose-500" />
-                                    <span>Dừng đồng bộ</span>
+                                  <DropdownMenuItem asChild>
+                                    <Link
+                                      href={`/accounts/${acc.id}`}
+                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                      <span>Xem chi tiết</span>
+                                    </Link>
                                   </DropdownMenuItem>
-                                )}
-                                {acc.gpmProfileId && (
                                   <DropdownMenuItem
-                                    onClick={() => startGpmMutation.mutate({ gpmProfileId: acc.gpmProfileId })}
-                                    disabled={startGpmMutation.isPending}
+                                    onClick={() => syncMutation.mutate({ accountId: acc.id })}
+                                    disabled={syncMutation.isPending}
                                     className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                   >
-                                    <Play className="w-3.5 h-3.5 text-cyan-500 fill-current" />
-                                    <span>Mở Profile GPM</span>
+                                    <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${syncMutation.isPending ? "animate-spin text-pink-500" : ""}`} />
+                                    <span>{syncMutation.isPending ? "Đang đồng bộ..." : "Đồng bộ số liệu"}</span>
                                   </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem asChild>
-                                  <Link
-                                    href={`/accounts/${acc.id}?tab=logs`}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
-                                  >
-                                    <History className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Lịch sử hoạt động</span>
-                                  </Link>
-                                </DropdownMenuItem>
-                                {isAdmin && (
-                                  <>
-                                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                  {syncMutation.isPending && (
                                     <DropdownMenuItem
-                                      onClick={async () => {
-                                        const ok = await confirm({
-                                          title: "Xác nhận xóa tài khoản",
-                                          description: `Bạn có chắc chắn muốn xóa @${acc.username}?`,
-                                          confirmLabel: "Xác nhận xóa",
-                                          variant: "danger",
-                                        });
-                                        if (ok) {
-                                          bulkDeleteMutation.mutate({ ids: [acc.id] });
-                                        }
-                                      }}
+                                      onClick={() => stopSyncMutation.mutate({ accountId: acc.id })}
                                       className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
                                     >
-                                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                      <span>Xóa tài khoản</span>
+                                      <Square className="w-3.5 h-3.5 fill-current text-rose-500" />
+                                      <span>Dừng đồng bộ</span>
                                     </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </td>
-                      </tr>
+                                  )}
+                                  {acc.gpmProfileId && (
+                                    <DropdownMenuItem
+                                      onClick={() => startGpmMutation.mutate({ gpmProfileId: acc.gpmProfileId })}
+                                      disabled={startGpmMutation.isPending}
+                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                    >
+                                      <Play className="w-3.5 h-3.5 text-cyan-500 fill-current" />
+                                      <span>Mở Profile GPM</span>
+                                    </DropdownMenuItem>
+                                  )}
+                                  <DropdownMenuItem asChild>
+                                    <Link
+                                      href={`/accounts/${acc.id}?tab=logs`}
+                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                    >
+                                      <History className="w-3.5 h-3.5 text-slate-400" />
+                                      <span>Lịch sử hoạt động</span>
+                                    </Link>
+                                  </DropdownMenuItem>
+                                  {isAdmin && (
+                                    <>
+                                      <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                      <DropdownMenuItem
+                                        onClick={async () => {
+                                          const ok = await confirm({
+                                            title: "Xác nhận xóa tài khoản",
+                                            description: `Bạn có chắc chắn muốn xóa @${acc.username}?`,
+                                            confirmLabel: "Xác nhận xóa",
+                                            variant: "danger",
+                                          });
+                                          if (ok) {
+                                            bulkDeleteMutation.mutate({ ids: [acc.id] });
+                                          }
+                                        }}
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                        <span>Xóa tài khoản</span>
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </td>
+                        </tr>
                       );
                     })}
                   </tbody>
@@ -2529,13 +2593,12 @@ function UserDetailPageContent() {
                               <span className="font-bold">{rate}%</span>
                               <div className="w-16 bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                                 <div
-                                  className={`h-full ${
-                                    rate >= 85
+                                  className={`h-full ${rate >= 85
                                       ? "bg-emerald-500"
                                       : rate >= 50
-                                      ? "bg-amber-500"
-                                      : "bg-rose-500"
-                                  }`}
+                                        ? "bg-amber-500"
+                                        : "bg-rose-500"
+                                    }`}
                                   style={{ width: `${Math.min(rate, 100)}%` }}
                                 />
                               </div>
@@ -2543,13 +2606,12 @@ function UserDetailPageContent() {
                           </td>
                           <td className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">
                             <span
-                              className={`px-2.5 py-1 rounded-lg text-xs font-black ${
-                                score >= 1.0
+                              className={`px-2.5 py-1 rounded-lg text-xs font-black ${score >= 1.0
                                   ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
                                   : score >= 0.5
-                                  ? "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
-                                  : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
-                              }`}
+                                    ? "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
+                                    : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                                }`}
                             >
                               {score} Ngày Công
                             </span>
@@ -3133,11 +3195,10 @@ function UserDetailPageContent() {
                   );
                 }}
                 disabled={tokenData?.accessEnabled === false}
-                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                  tokenData?.accessEnabled === false
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${tokenData?.accessEnabled === false
                     ? "bg-slate-200 text-slate-400 cursor-not-allowed"
                     : "text-white bg-gradient-to-r from-pink-600 to-rose-600 cursor-pointer active:scale-95"
-                }`}
+                  }`}
               >
                 <Download className="w-3.5 h-3.5" />
                 Tải Extension hộ

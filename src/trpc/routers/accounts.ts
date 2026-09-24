@@ -11,7 +11,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { calculateWorkdayScore, getScoringConfig } from "@/lib/scoring-engine";
 import { isAccountOnline, getOnlineCutoffDate } from "@/lib/account-status";
-import { resolveAllTimeRevenue } from "@/lib/resolve-all-time-revenue";
+import { resolveAllTimeRevenue, resolvePeriodRevenue } from "@/lib/resolve-all-time-revenue";
 import { Prisma } from "@/generated/prisma/client";
 import {
   AccountPurgeSnapshot,
@@ -20,6 +20,10 @@ import {
 } from "@/lib/audit-types";
 import { cancelInFlightSyncJobs } from "@/lib/sync-scope";
 import { reconcileAfterCommit } from "@/lib/checklist-reconcile";
+import {
+  recordAccountTransfer,
+  recordBulkAccountTransfer,
+} from "@/lib/account-assignment-history";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -69,6 +73,8 @@ export const accountsRouter = router({
         where.OR = [
           { username: { contains: s, mode: "insensitive" } },
           { groupName: { contains: s, mode: "insensitive" } },
+          { gpmProfileName: { contains: s, mode: "insensitive" } },
+          { gpmProfileId: { contains: s, mode: "insensitive" } },
         ];
       }
 
@@ -107,6 +113,8 @@ export const accountsRouter = router({
             baseCountWhere.OR = [
               { username: { contains: s, mode: "insensitive" } },
               { groupName: { contains: s, mode: "insensitive" } },
+              { gpmProfileName: { contains: s, mode: "insensitive" } },
+              { gpmProfileId: { contains: s, mode: "insensitive" } },
             ];
           } else {
             delete baseCountWhere.OR;
@@ -139,6 +147,8 @@ export const accountsRouter = router({
                 sumRevenue: true,
                 sumViews: true,
                 rawSnapshot: true,
+                revenueBreakdown: true,
+                dailyRevenueBreakdown: true,
               },
             },
           },
@@ -213,6 +223,31 @@ export const accountsRouter = router({
         0
       );
 
+      const totalFleetRevenue7d = accounts.reduce(
+        (sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 7),
+        0
+      );
+
+      const totalFleetRevenue28d = accounts.reduce(
+        (sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 28),
+        0
+      );
+
+      const totalFleetRevenue30d = accounts.reduce(
+        (sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 30),
+        0
+      );
+
+      const totalFleetRevenue60d = accounts.reduce(
+        (sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 60),
+        0
+      );
+
+      const totalFleetRevenue365d = accounts.reduce(
+        (sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 365),
+        0
+      );
+
       const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
       const now = Date.now();
 
@@ -255,6 +290,11 @@ export const accountsRouter = router({
           warming: warmingCount,
           online: onlineCount,
           totalRevenue: Math.round(totalFleetRevenue * 100) / 100,
+          totalRevenue7d: Math.round(totalFleetRevenue7d * 100) / 100,
+          totalRevenue28d: Math.round(totalFleetRevenue28d * 100) / 100,
+          totalRevenue30d: Math.round(totalFleetRevenue30d * 100) / 100,
+          totalRevenue60d: Math.round(totalFleetRevenue60d * 100) / 100,
+          totalRevenue365d: Math.round(totalFleetRevenue365d * 100) / 100,
           trashCount,
         };
 
@@ -374,6 +414,7 @@ export const accountsRouter = router({
         // No defaults here — defaults applied only in the normal create branch.
         country: z.string().optional(),
         gpmProfileId: z.string().optional().nullable(),
+        gpmProfileName: z.string().optional().nullable(),
         gpmPort: z.number().optional().nullable(),
         groupName: z.string().optional().nullable(),
         status: z.enum(["ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"]).optional(),
@@ -406,6 +447,7 @@ export const accountsRouter = router({
               deletedById: null,
               ...(input.country !== undefined && { country: input.country }),
               ...(input.gpmProfileId !== undefined && { gpmProfileId: input.gpmProfileId }),
+              ...(input.gpmProfileName !== undefined && { gpmProfileName: input.gpmProfileName }),
               ...(input.gpmPort !== undefined && { gpmPort: input.gpmPort }),
               ...(input.groupName !== undefined && { groupName: input.groupName }),
               ...(input.status !== undefined && { status: input.status }),
@@ -460,6 +502,7 @@ export const accountsRouter = router({
             username: cleanUsername,
             country: input.country ?? "US",
             gpmProfileId: input.gpmProfileId ?? null,
+            gpmProfileName: input.gpmProfileName ?? null,
             gpmPort: input.gpmPort ?? null,
             groupName: input.groupName ?? null,
             status: input.status ?? "ACTIVE",
@@ -483,6 +526,12 @@ export const accountsRouter = router({
         });
 
         if (created.assignedUserId) {
+          await recordAccountTransfer(ctx.prismaRaw, {
+            accountId: created.id,
+            newUserId: created.assignedUserId,
+            transferredBy: actorName,
+            reason: "Account created and assigned",
+          });
           await reconcileAfterCommit(ctx.prismaRaw as any, created.assignedUserId, "create");
         }
 
@@ -504,6 +553,7 @@ export const accountsRouter = router({
         id: z.string(),
         country: z.string().optional(),
         gpmProfileId: z.string().optional().nullable(),
+        gpmProfileName: z.string().optional().nullable(),
         gpmPort: z.number().optional().nullable(),
         groupName: z.string().optional().nullable(),
         status: z.enum(["ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"]).optional(),
@@ -569,6 +619,7 @@ export const accountsRouter = router({
         data: {
           country: !isStaff ? input.country : undefined,
           gpmProfileId: !isStaff ? input.gpmProfileId : undefined,
+          gpmProfileName: !isStaff ? input.gpmProfileName : undefined,
           gpmPort: !isStaff && input.gpmPort !== undefined ? input.gpmPort : undefined,
           groupName: !isStaff ? input.groupName : undefined,
           status: !isStaff ? input.status : undefined,
@@ -603,6 +654,13 @@ export const accountsRouter = router({
             message: `[CHUYỂN GIAO QUẢN LÝ] Tài khoản @${current.username} đã được chuyển giao từ ${oldUser?.name || oldUser?.username || "Chưa gán"} sang ${newUser?.name || newUser?.username || "Chưa gán"} bởi ${ctx.session.user.name || ctx.session.user.email || "Admin"}.`,
             actorName: ctx.session.user.name || ctx.session.user.email || "Admin",
           },
+        });
+
+        await recordAccountTransfer(ctx.prismaRaw, {
+          accountId: current.id,
+          newUserId: input.assignedUserId ?? null,
+          transferredBy: ctx.session.user.name || ctx.session.user.email || "Admin",
+          reason: `Handover from ${oldUser?.name || oldUser?.username || "Chưa gán"} to ${newUser?.name || newUser?.username || "Chưa gán"}`,
         });
 
         if (current.assignedUserId) {
@@ -802,6 +860,15 @@ export const accountsRouter = router({
             actorName,
           },
         });
+
+        if (resolvedAssignee) {
+          await recordAccountTransfer(tx, {
+            accountId: account.id,
+            newUserId: resolvedAssignee,
+            transferredBy: actorName,
+            reason: "Account restored from trash",
+          });
+        }
 
         await tx.systemAuditLog.create({
           data: {
@@ -1311,6 +1378,13 @@ export const accountsRouter = router({
       const res = await ctx.prisma.tiktokAccount.updateMany({
         where: { id: { in: input.ids }, deletedAt: null },
         data: { assignedUserId: input.assignedUserId },
+      });
+
+      await recordBulkAccountTransfer(ctx.prismaRaw, {
+        accountIds: input.ids,
+        newUserId: input.assignedUserId,
+        transferredBy: ctx.session.user.name || ctx.session.user.email || "Lead",
+        reason: "Bulk assign",
       });
 
       // Reconcile checklist for target assignee if present

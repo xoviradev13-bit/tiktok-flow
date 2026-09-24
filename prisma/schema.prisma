@@ -100,6 +100,7 @@ model User {
   accounts          Account[]
   sessions          Session[]
   tiktokAccounts    TiktokAccount[]
+  assignmentHistories AccountAssignmentHistory[]
   deletedAccounts   TiktokAccount[]         @relation("AccountDeletedBy")
   dailyChecklists        DailyChecklist[]
   sentInvitations        Invitation[]             @relation("SentInvitations")
@@ -165,6 +166,7 @@ model TiktokAccount {
   dailyRevenues      DailyRevenue[]
   analytics          AccountAnalytics?
   checklistItems     DailyChecklistItem[]
+  assignmentHistories AccountAssignmentHistory[]
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 
@@ -209,6 +211,24 @@ model AccountLog {
   @@index([accountId, createdAt])
   @@index([createdAt])
   @@map("account_logs")
+}
+
+// 3.1 Account Assignment & Transfer History (Temporal Assignment Tracking)
+model AccountAssignmentHistory {
+  id            String        @id @default(cuid())
+  accountId     String        @map("account_id")
+  account       TiktokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId        String?       @map("user_id")
+  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  startedAt     DateTime      @default(now()) @map("started_at")
+  endedAt       DateTime?     @map("ended_at")
+  transferredBy String?       @map("transferred_by")
+  reason        String?
+
+  @@index([accountId])
+  @@index([userId])
+  @@index([accountId, startedAt, endedAt])
+  @@map("account_assignment_histories")
 }
 
 // 4. Risk & Health Alerts

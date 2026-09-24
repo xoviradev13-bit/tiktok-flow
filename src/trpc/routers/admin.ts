@@ -11,6 +11,7 @@ import {
   revokeExtensionCredentials,
   writeMachineBindingLog,
 } from "@/lib/extension-auth";
+import { recordBulkAccountTransfer } from "@/lib/account-assignment-history";
 
 export const adminRouter = router({
   // 1. List all users with fleet stats & Group info (ADMIN)
@@ -579,6 +580,13 @@ export const adminRouter = router({
       const res = await ctx.prisma.tiktokAccount.updateMany({
         where: { id: { in: input.accountIds }, deletedAt: null },
         data: { assignedUserId: input.targetUserId },
+      });
+
+      await recordBulkAccountTransfer(ctx.prismaRaw, {
+        accountIds: input.accountIds,
+        newUserId: input.targetUserId,
+        transferredBy: ctx.session.user.name || ctx.session.user.email || "Admin",
+        reason: "Admin reassignFleet",
       });
 
       return { updatedCount: res.count };

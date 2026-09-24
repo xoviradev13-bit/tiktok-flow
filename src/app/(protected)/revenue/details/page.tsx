@@ -318,8 +318,13 @@ function RevenueDetailsPageContent() {
       const end = new Date();
       const start = new Date(startDate + "T00:00:00");
       const diffDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays === 7) return 7;
+      if (diffDays === 28) return 28;
+      if (diffDays === 30) return 30;
+      if (diffDays === 60) return 60;
       if (Math.abs(diffDays - 7) <= 1) return 7;
-      if (Math.abs(diffDays - 28) <= 1) return 28;
+      if (Math.abs(diffDays - 28) <= 1 && diffDays < 29) return 28;
+      if (Math.abs(diffDays - 30) <= 1 && diffDays >= 29 && diffDays <= 31) return 30;
       if (Math.abs(diffDays - 60) <= 1) return 60;
     }
     return -1;
@@ -1086,6 +1091,7 @@ function RevenueDetailsPageContent() {
                 {[
                   { value: 7, label: "7 Ngày" },
                   { value: 28, label: "28 Ngày" },
+                  { value: 30, label: "Tháng Này" },
                   { value: 60, label: "60 Ngày" },
                 ].map((p) => {
                   const active = getActivePreset() === p.value;

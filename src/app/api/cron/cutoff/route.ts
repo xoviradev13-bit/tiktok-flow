@@ -9,7 +9,6 @@ import {
   finalizePendingChecklists,
 } from "@/lib/scoring-engine";
 import { auth } from "@/lib/auth";
-import { getOrSyncExchangeRates } from "@/lib/currency";
 import { purgeExpiredExtensionAuthData } from "@/lib/extension-auth";
 
 /**
@@ -79,17 +78,6 @@ export async function GET(req: Request) {
       includeToday: canFinalizeToday,
     });
 
-    // Daily currency sync — failure is logged but not fatal.
-    let ratesSynced = false;
-    let ratesError: string | null = null;
-    try {
-      await getOrSyncExchangeRates(prisma, { forceLive: true });
-      ratesSynced = true;
-    } catch (e: any) {
-      ratesError = e?.message || String(e);
-      console.warn("[/api/cron/cutoff] Daily currency sync skipped:", ratesError);
-    }
-
     // FIX: retention windows use getBusinessToday's Vietnam-aligned boundary
     // where available, so the cron doesn't drift by up to a day depending on
     // when it runs in UTC terms. The 30/60-day windows are calendar-ish so
@@ -130,8 +118,6 @@ export async function GET(req: Request) {
       sevenDaysAgoBusinessDate: sevenDaysAgoDateOnly.toISOString().split("T")[0],
       createdChecklistsCount: finalizationResult.createdChecklistsCount,
       finalizedChecklists: finalizationResult.checklists,
-      ratesSynced,
-      ratesError,
       purgeMetrics: {
         syncQueueDeleted: syncQueuePurge.deletedCount,
         syncQueueHitCap: syncQueuePurge.hitCircuitBreaker,

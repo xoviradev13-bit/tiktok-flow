@@ -1,7 +1,7 @@
 import { router, protectedProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { insightViewsContribution } from "@/lib/insights-ui";
-import { resolveAllTimeRevenue } from "@/lib/resolve-all-time-revenue";
+import { resolveAllTimeRevenue, resolvePeriodRevenue } from "@/lib/resolve-all-time-revenue";
 
 function parseDateOnly(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -439,13 +439,24 @@ export const analyticsRouter = router({
           return s + (v ?? 0);
         }, 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
-      } else if (effectivePeriod === "28D" || effectivePeriod === "30D") {
+      } else if (effectivePeriod === "28D") {
         presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue28d ?? (a as any).analytics?.revenue28d ?? 0), 0);
         presetViews = accounts.reduce((s, a) => {
           const v = insightViewsContribution(
             (a as any).analytics,
             0,
             (sum) => Number(sum?.views28d ?? (a as any).analytics?.views28d ?? 0)
+          );
+          return s + (v ?? 0);
+        }, 0);
+        hasPresetMetrics = presetRev > 0 || presetViews > 0;
+      } else if (effectivePeriod === "30D") {
+        presetRev = accounts.reduce((s, a) => s + resolvePeriodRevenue(a as any, 30), 0);
+        presetViews = accounts.reduce((s, a) => {
+          const v = insightViewsContribution(
+            (a as any).analytics,
+            0,
+            (sum) => Number(sum?.views30d ?? sum?.views28d ?? (a as any).analytics?.views30d ?? (a as any).analytics?.views28d ?? 0)
           );
           return s + (v ?? 0);
         }, 0);

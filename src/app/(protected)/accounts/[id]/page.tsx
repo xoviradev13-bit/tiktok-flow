@@ -62,6 +62,12 @@ import {
 } from "recharts";
 import { trpc } from "@/lib/trpc";
 import { launchGpmProfile } from "@/lib/gpm-client-bridge";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  optimisticallyUpdateAccount,
+  snapshotAccountQueries,
+  rollbackAccountQueries,
+} from "@/utils/optimisticAccounts";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 import {
   Tooltip,
@@ -276,7 +282,7 @@ function AccountDetailPageContent() {
   const initialTab = validTabs.includes(paramTab) ? paramTab : "overview";
   const [activeTab, setActiveTab] = useState<"overview" | "history" | "logs" | "alerts" | "rewards">(initialTab);
 
-  const validRanges = ["7d", "28d", "60d", "365d", "custom"] as const;
+  const validRanges = ["7d", "28d", "30d", "60d", "365d", "custom"] as const;
   const paramRange = (searchParams?.get("range") || "28d") as any;
   // Legacy "all" → 365d (TikTok Studio daily data is capped at 365 days)
   const normalizedParamRange = paramRange === "all" ? "365d" : paramRange;
@@ -284,7 +290,7 @@ function AccountDetailPageContent() {
     ? normalizedParamRange
     : "28d";
   const [selectedTimeRange, setSelectedTimeRange] = useState<
-    "7d" | "28d" | "60d" | "365d" | "custom"
+    "7d" | "28d" | "30d" | "60d" | "365d" | "custom"
   >(initialRange);
 
   const initialFrom = searchParams?.get("from") || "";
@@ -328,7 +334,7 @@ function AccountDetailPageContent() {
 
   // Separate time range filter state for "Biểu Đồ & Lịch Sử Doanh Thu" tab
   const [historyTimeRange, setHistoryTimeRange] = useState<
-    "7d" | "28d" | "60d" | "365d" | "custom"
+    "7d" | "28d" | "30d" | "60d" | "365d" | "custom"
   >("28d");
   const [historyStartDate, setHistoryStartDate] = useState<string>("");
   const [historyEndDate, setHistoryEndDate] = useState<string>("");
@@ -356,6 +362,7 @@ function AccountDetailPageContent() {
   const [toastMsg, setToastMsg] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
 
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
   const showToast = (text: string, type: "success" | "error" | "info" = "success") => {
     setToastMsg({ text, type });
@@ -363,6 +370,18 @@ function AccountDetailPageContent() {
   };
 
   const toggleLockMutation = trpc.accounts.toggleLockAssignment.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      optimisticallyUpdateAccount(queryClient, { id: vars.id, isAssignmentLocked: vars.isLocked });
+      return { snapshot };
+    },
+    onError: (err, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      showToast(err.message || "Lỗi khi cập nhật khóa", "error");
+    },
     onSuccess: (data) => {
       showToast(
         data.isAssignmentLocked
@@ -373,7 +392,10 @@ function AccountDetailPageContent() {
       utils.accounts.getById.invalidate({ id: accountId });
       utils.accounts.list.invalidate();
     },
-    onError: (err) => showToast(err.message, "error"),
+    onSettled: () => {
+      utils.accounts.getById.invalidate({ id: accountId });
+      utils.accounts.list.invalidate();
+    },
   });
 
   // 1. Fetch Account Details
@@ -393,12 +415,30 @@ function AccountDetailPageContent() {
 
   // Mutations
   const updateMutation = trpc.accounts.update.useMutation({
-    onSuccess: () => {
+    onMutate: async (newAccount) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      optimisticallyUpdateAccount(queryClient, newAccount, staffList);
+      return { snapshot };
+    },
+    onError: (err, _newAccount, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      showToast(err.message || "Lỗi khi cập nhật", "error");
+    },
+    onSuccess: (updated) => {
       showToast("Đã cập nhật thông tin tài khoản thành công!", "success");
+      if (updated?.id) {
+        optimisticallyUpdateAccount(queryClient, updated as any, staffList);
+      }
       utils.accounts.getById.invalidate({ id: accountId });
       utils.accounts.list.invalidate();
     },
-    onError: (err) => showToast(err.message || "Lỗi khi cập nhật", "error"),
+    onSettled: () => {
+      utils.accounts.getById.invalidate({ id: accountId });
+      utils.accounts.list.invalidate();
+    },
   });
 
   const syncMutation = trpc.accounts.syncAccount.useMutation({
@@ -562,9 +602,9 @@ function AccountDetailPageContent() {
 
   const strikeTheme = useMemo(() => {
     const count = punishedVideosList.length;
-  
+
     if (count <= 0) return null;
-  
+
     if (count === 1) {
       return {
         count,
@@ -580,7 +620,7 @@ function AccountDetailPageContent() {
             : "bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900/60 hover:bg-yellow-100 dark:hover:bg-yellow-900/40",
       };
     }
-  
+
     if (count === 2) {
       return {
         count,
@@ -596,7 +636,7 @@ function AccountDetailPageContent() {
             : "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100 dark:hover:bg-amber-900/40",
       };
     }
-  
+
     if (count === 3) {
       return {
         count,
@@ -612,7 +652,7 @@ function AccountDetailPageContent() {
             : "bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-900/60 hover:bg-orange-100 dark:hover:bg-orange-900/40",
       };
     }
-  
+
     if (count === 4) {
       return {
         count,
@@ -628,7 +668,7 @@ function AccountDetailPageContent() {
             : "bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40",
       };
     }
-  
+
     // 5 or > 5
     return {
       count,
@@ -692,16 +732,16 @@ function AccountDetailPageContent() {
         : selectedRewardProgram === "ALL"
           ? [...postRewardsList]
           : postRewardsList.filter((item: any) => {
-              if (Array.isArray(item.programs) && item.programs.length > 0) {
-                return item.programs.some(
-                  (p: any) => (p.name || p.program_name) === selectedRewardProgram
-                );
-              }
-              return (
-                item.programName === selectedRewardProgram ||
-                (item.programName && item.programName.includes(selectedRewardProgram))
+            if (Array.isArray(item.programs) && item.programs.length > 0) {
+              return item.programs.some(
+                (p: any) => (p.name || p.program_name) === selectedRewardProgram
               );
-            });
+            }
+            return (
+              item.programName === selectedRewardProgram ||
+              (item.programName && item.programName.includes(selectedRewardProgram))
+            );
+          });
 
     list = list.filter((item: any) =>
       isWithinRewardDatePreset(item, rewardDatePreset)
@@ -923,7 +963,7 @@ function AccountDetailPageContent() {
   // Helper to filter records by calendar time range (not last N rows)
   const filterRecordsByRange = (
     records: typeof allRevenueRecords,
-    range: "7d" | "28d" | "60d" | "365d" | "custom",
+    range: "7d" | "28d" | "30d" | "60d" | "365d" | "custom",
     startDate?: string,
     endDate?: string
   ) => {
@@ -938,7 +978,7 @@ function AccountDetailPageContent() {
       return records;
     }
 
-    const daysMap = { "7d": 7, "28d": 28, "60d": 60, "365d": 365 } as const;
+    const daysMap = { "7d": 7, "28d": 28, "30d": 30, "60d": 60, "365d": 365 } as const;
     const days = daysMap[range];
     const cutoff = new Date();
     cutoff.setUTCHours(0, 0, 0, 0);
@@ -1635,20 +1675,6 @@ function AccountDetailPageContent() {
       {/* Main Tab Content */}
       {activeTab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Banned Alert Banner */}
-          {account.status === "BANNED" && (
-            <div className="lg:col-span-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex items-start gap-3 shadow-xs">
-              <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-              <div className="space-y-1 text-xs">
-                <div className="font-bold text-rose-600 dark:text-rose-400 text-sm">
-                  ⚠️ Bị ngừng chương trình TikTok Beta
-                </div>
-                <p className="text-slate-600 dark:text-slate-300">
-                  {account.bannedReason || "Tài khoản không còn tab doanh thu Creator Rewards Program hoặc đã bị loại khỏi chương trình kiếm tiền."}
-                </p>
-              </div>
-            </div>
-          )}
           {/* Left 2 Columns: Views Breakdown & Performance Dashboard */}
           <div className="lg:col-span-2 space-y-6 flex flex-col">
             {/* Time-Window Breakdown Box */}
@@ -1668,6 +1694,7 @@ function AccountDetailPageContent() {
                   {[
                     { id: "7d", label: "7 Ngày" },
                     { id: "28d", label: "28 Ngày" },
+                    { id: "30d", label: "Tháng Này" },
                     { id: "60d", label: "60 Ngày" },
                     { id: "365d", label: "365 Ngày" },
                   ].map((range) => (
@@ -1816,7 +1843,7 @@ function AccountDetailPageContent() {
               )}
 
               {/* Metric Comparison Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
                   <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">7 Ngày Qua</div>
                   <div className="text-base sm:text-lg font-black text-cyan-600 dark:text-cyan-400 mt-1">
@@ -1825,7 +1852,7 @@ function AccountDetailPageContent() {
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {formatInsightViews(
                       (account as any).analytics?.sumViews?.views7d ??
-                        (account as any).analytics?.views7d,
+                      (account as any).analytics?.views7d,
                       account.dailyRevenues
                         ?.slice(0, 7)
                         .reduce((acc: number, r: any) => acc + Number(r.views || 0), 0) ?? null
@@ -1845,9 +1872,28 @@ function AccountDetailPageContent() {
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {formatInsightViews(
                       (account as any).analytics?.sumViews?.views28d ??
-                        (account as any).analytics?.views28d,
+                      (account as any).analytics?.views28d,
                       account.dailyRevenues
                         ?.slice(0, 28)
+                        .reduce((acc: number, r: any) => acc + Number(r.views || 0), 0) ?? null
+                    )}{" "}
+                    views
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
+                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tháng Này (30 Ngày)</div>
+                  <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                    {formatAmount(revenuePeriods.revenue30d, account?.country)}
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {formatInsightViews(
+                      (account as any).analytics?.sumViews?.views30d ??
+                      (account as any).analytics?.views30d ??
+                      (account as any).analytics?.sumViews?.views28d ??
+                      (account as any).analytics?.views28d,
+                      account.dailyRevenues
+                        ?.slice(0, 30)
                         .reduce((acc: number, r: any) => acc + Number(r.views || 0), 0) ?? null
                     )}{" "}
                     views
@@ -1862,7 +1908,7 @@ function AccountDetailPageContent() {
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {formatInsightViews(
                       (account as any).analytics?.sumViews?.views60d ??
-                        (account as any).analytics?.views60d,
+                      (account as any).analytics?.views60d,
                       account.dailyRevenues
                         ?.slice(0, 60)
                         .reduce((acc: number, r: any) => acc + Number(r.views || 0), 0) ?? null
@@ -1879,7 +1925,7 @@ function AccountDetailPageContent() {
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {formatInsightViews(
                       (account as any).analytics?.sumViews?.views365d ??
-                        (account as any).analytics?.views365d,
+                      (account as any).analytics?.views365d,
                       account.dailyRevenues
                         ?.slice(0, 365)
                         .reduce((acc: number, r: any) => acc + Number(r.views || 0), 0) ?? null
@@ -1904,13 +1950,15 @@ function AccountDetailPageContent() {
                         ? "7 ngày qua"
                         : selectedTimeRange === "28d"
                           ? "28 ngày qua"
-                          : selectedTimeRange === "60d"
-                            ? "60 ngày qua"
-                            : selectedTimeRange === "365d"
-                              ? "365 ngày qua"
-                              : customStartDate && customEndDate
-                                ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
-                                : "Tùy chọn"})
+                          : selectedTimeRange === "30d"
+                            ? "30 ngày qua (Tháng này)"
+                            : selectedTimeRange === "60d"
+                              ? "60 ngày qua"
+                              : selectedTimeRange === "365d"
+                                ? "365 ngày qua"
+                                : customStartDate && customEndDate
+                                  ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
+                                  : "Tùy chọn"})
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -2359,11 +2407,10 @@ function AccountDetailPageContent() {
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                        rewardFilterActiveCount > 0
+                      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${rewardFilterActiveCount > 0
                           ? "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800"
                           : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
+                        }`}
                     >
                       <Filter className="w-3.5 h-3.5" />
                       <span>Bộ lọc</span>
@@ -2808,6 +2855,7 @@ function AccountDetailPageContent() {
                 {[
                   { id: "7d", label: "7 Ngày" },
                   { id: "28d", label: "28 Ngày" },
+                  { id: "30d", label: "Tháng Này" },
                   { id: "60d", label: "60 Ngày" },
                   { id: "365d", label: "365 Ngày" },
                 ].map((range) => (

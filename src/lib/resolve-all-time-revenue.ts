@@ -7,8 +7,10 @@
 
 export type AccountRevenueSource = {
   totalRevenue?: unknown;
+  revenueBreakdown?: Record<string, unknown> | null;
   analytics?: {
     sumRevenue?: Record<string, unknown> | null;
+    revenueBreakdown?: Record<string, unknown> | null;
     postRewards?: unknown;
     rawSnapshot?: Record<string, unknown> | null;
     dailyRevenueBreakdown?: unknown;
@@ -58,19 +60,52 @@ export function resolveAllTimeRevenue(account: AccountRevenueSource): number {
   return num(sr.totalRevenue ?? account.totalRevenue);
 }
 
-/** Period windows as shown in tooltips / KPI cards (always from sumRevenue). */
+/** Period windows as shown in tooltips / KPI cards. */
 export function getAccountRevenuePeriods(account: AccountRevenueSource): {
   revenue7d: number;
   revenue28d: number;
+  revenue30d: number;
   revenue60d: number;
   revenue365d: number;
   totalRevenue: number;
 } {
   const sr = (account.analytics?.sumRevenue ?? {}) as Record<string, unknown>;
   const analytics = (account.analytics ?? {}) as Record<string, unknown>;
+
+  // 30-day resolution:
+  // sumRevenue natively does not contain 30-day data (TikTok Studio only provides 7d/28d/60d/365d).
+  // 1. Check revenueBreakdown.totalRevenue.revenue30d first (from monetization programs).
+  // 2. Fall back to sum of dailyRevenueBreakdown over the last 30 days.
+  // 3. Fall back to sumRevenue (revenue30d if present, or revenue28d).
+  const rb = (
+    account.analytics?.revenueBreakdown ??
+    account.revenueBreakdown ??
+    (account.analytics?.rawSnapshot as any)?.revenueBreakdown ??
+    {}
+  ) as Record<string, unknown>;
+  const rbTotal = (rb?.totalRevenue ?? {}) as Record<string, unknown>;
+  const rb30 = num(rbTotal?.revenue30d);
+
+  let rev30 = rb30 > 0 ? rb30 : 0;
+  if (rev30 <= 0) {
+    const past30 = new Date();
+    past30.setUTCHours(0, 0, 0, 0);
+    past30.setUTCDate(past30.getUTCDate() - 30);
+    const daily30 = sumDailyRevenueBreakdown(account, past30.toISOString().split("T")[0]);
+    if (daily30 > 0) {
+      rev30 = daily30;
+    }
+  }
+  if (rev30 <= 0) {
+    rev30 = num(
+      sr.revenue30d ?? analytics.revenue30d ?? sr.revenue28d ?? analytics.revenue28d
+    );
+  }
+
   return {
     revenue7d: num(sr.revenue7d ?? analytics.revenue7d),
     revenue28d: num(sr.revenue28d ?? analytics.revenue28d),
+    revenue30d: rev30,
     revenue60d: num(sr.revenue60d ?? analytics.revenue60d),
     revenue365d: num(sr.revenue365d ?? analytics.revenue365d),
     totalRevenue: resolveAllTimeRevenue(account),
@@ -114,7 +149,8 @@ export function resolvePeriodRevenue(
   const periods = getAccountRevenuePeriods(account);
   let preset = 0;
   if (days === 7) preset = periods.revenue7d;
-  else if (days === 28 || days === 30) preset = periods.revenue28d;
+  else if (days === 28) preset = periods.revenue28d;
+  else if (days === 30) preset = periods.revenue30d;
   else if (days === 60) preset = periods.revenue60d;
   else if (days === 365) preset = periods.revenue365d;
 

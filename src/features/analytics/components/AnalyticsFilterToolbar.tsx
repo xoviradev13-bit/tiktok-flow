@@ -171,6 +171,7 @@ export default function AnalyticsFilterToolbar({
   const presetButtons: Array<{ key: PeriodType; label: string }> = [
     { key: "7D", label: "7 Ngày" },
     { key: "28D", label: "28 Ngày" },
+    { key: "30D", label: "Tháng Này" },
     { key: "60D", label: "60 Ngày" },
     { key: "365D", label: "365 Ngày" },
   ];

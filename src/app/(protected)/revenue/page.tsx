@@ -85,7 +85,6 @@ function RevenuePageContent() {
         metric: chartMetric,
       },
       {
-        preset: 28,
         from: "",
         to: "",
         metric: "REVENUE",
@@ -132,6 +131,7 @@ function RevenuePageContent() {
   const periodOptions = [
     { value: 7, label: "7 Ngày" },
     { value: 28, label: "28 Ngày" },
+    { value: 30, label: "Tháng Này" },
     { value: 60, label: "60 Ngày" },
     { value: 365, label: "365 Ngày" },
   ];
@@ -146,6 +146,7 @@ function RevenuePageContent() {
         return "Tùy chọn";
       }
     }
+    if (activePreset === 30) return "Tháng Này (30 ngày)";
     return `${activePreset} ngày`;
   };
 

@@ -44,6 +44,7 @@ import {
   RotateCcw,
   AlertOctagon,
   ArchiveRestore,
+  Info,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { Pagination } from "@/components/ui/pagination";
@@ -78,9 +79,19 @@ import {
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { launchGpmProfile } from "@/lib/gpm-client-bridge";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  optimisticallyUpdateAccount,
+  optimisticallyBulkUpdateAccounts,
+  optimisticallyDeleteAccounts,
+  optimisticallyRestoreAccounts,
+  snapshotAccountQueries,
+  rollbackAccountQueries,
+} from "@/utils/optimisticAccounts";
 import {
   getAccountRevenuePeriods,
   resolveAllTimeRevenue,
+  resolvePeriodRevenue,
 } from "@/lib/resolve-all-time-revenue";
 import { getAccountViewsPeriods } from "@/lib/daily-views-breakdown";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
@@ -90,6 +101,7 @@ import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 const ACCOUNT_COLUMN_RESIZE_CONFIG = {
   // mins sized for header label + padding + core controls; text truncates inside the live width
   username: { minWidth: 200, maxWidth: 480, defaultWidth: 280 },
+  gpmProfileName: { minWidth: 160, maxWidth: 320, defaultWidth: 180 },
   gpmGroup: { minWidth: 150, maxWidth: 300, defaultWidth: 170 },
   gpmProfileId: { minWidth: 220, maxWidth: 400, defaultWidth: 260 },
   country: { minWidth: 96, maxWidth: 180, defaultWidth: 110 },
@@ -105,6 +117,7 @@ const ACCOUNT_COLUMN_RESIZE_CONFIG = {
 
 type AccountSortKey =
   | "username"
+  | "gpmProfileName"
   | "groupName"
   | "gpmProfileId"
   | "country"
@@ -123,6 +136,7 @@ const ACCOUNT_SORT_OPTIONS: Array<{ key: AccountSortKey; label: string }> = [
   { key: "totalFollowers", label: "Lượt theo dõi" },
   { key: "totalVideos", label: "Số lượng video" },
   { key: "username", label: "Tên tài khoản" },
+  { key: "gpmProfileName", label: "GPM Profile Name" },
   { key: "groupName", label: "GPM Group" },
   { key: "gpmProfileId", label: "GPM Profile ID" },
   { key: "country", label: "Quốc gia" },
@@ -693,6 +707,7 @@ function AccountsPageContent() {
   // Column visibility state (username is locked and cannot be unchecked)
   const [visibleColumns, setVisibleColumns] = useState({
     username: true,
+    gpmProfileName: true,
     gpmGroup: true,
     gpmProfileId: true,
     country: true,
@@ -760,10 +775,12 @@ function AccountsPageContent() {
   const [editUsername, setEditUsername] = useState("");
   const [editCountry, setEditCountry] = useState("US");
   const [editGroup, setEditGroup] = useState("");
+  const [editProfileName, setEditProfileName] = useState("");
   const [editGpmId, setEditGpmId] = useState("");
   const [editAssignedUser, setEditAssignedUser] = useState("");
 
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
   // Listen to global sync event
   useEffect(() => {
@@ -795,6 +812,46 @@ function AccountsPageContent() {
   const stats = accountsData?.stats;
   const fleetStats = stats?.mode === "fleet" ? stats : null;
 
+  const fleetRevenuePeriods = useMemo(() => {
+    const fs = fleetStats as any;
+    const r7 =
+      typeof fs?.totalRevenue7d === "number"
+        ? fs.totalRevenue7d
+        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 7), 0);
+    const r28 =
+      typeof fs?.totalRevenue28d === "number"
+        ? fs.totalRevenue28d
+        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 28), 0);
+    const r30 =
+      typeof fs?.totalRevenue30d === "number"
+        ? fs.totalRevenue30d
+        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 30), 0);
+    const r60 =
+      typeof fs?.totalRevenue60d === "number"
+        ? fs.totalRevenue60d
+        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 60), 0);
+    const r365 =
+      typeof fs?.totalRevenue365d === "number"
+        ? fs.totalRevenue365d
+        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 365), 0);
+    const allTime =
+      typeof fs?.totalRevenue === "number"
+        ? fs.totalRevenue
+        : accounts.reduce((sum: number, acc: any) => sum + resolveAllTimeRevenue(acc), 0);
+
+    return {
+      revenue7d: r7,
+      revenue28d: r28,
+      revenue30d: r30,
+      revenue60d: r60,
+      revenue365d: r365,
+      allTime,
+    };
+  }, [fleetStats, accounts]);
+
+  const fleetRevenue30d = fleetRevenuePeriods.revenue30d;
+  const fleetRevenueAllTime = fleetRevenuePeriods.allTime;
+
   const getAssigneeLabel = (acc: any) => {
     if (!acc?.assignedUserId) return "-- Chưa gán --";
     const fromList = users.find((u: any) => u.id === acc.assignedUserId);
@@ -818,6 +875,18 @@ function AccountsPageContent() {
   };
 
   const toggleLockMutation = trpc.accounts.toggleLockAssignment.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      optimisticallyUpdateAccount(queryClient, { id: vars.id, isAssignmentLocked: vars.isLocked });
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi cập nhật khóa");
+    },
     onSuccess: (res) => {
       setActionMsg(
         res.isAssignmentLocked
@@ -827,7 +896,9 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   // tRPC Mutations
@@ -844,13 +915,30 @@ function AccountsPageContent() {
   });
 
   const updateMutation = trpc.accounts.update.useMutation({
-    onSuccess: () => {
+    onMutate: async (newAccount) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      optimisticallyUpdateAccount(queryClient, newAccount, users);
+      return { snapshot };
+    },
+    onError: (err: any, _newAccount, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi cập nhật thông tin");
+    },
+    onSuccess: (updated) => {
       setIsEditOpen(false);
       setActionMsg("✅ Đã cập nhật thông tin tài khoản!");
+      if (updated?.id) {
+        optimisticallyUpdateAccount(queryClient, updated as any, users);
+      }
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   // Trash mode modal states
@@ -870,6 +958,20 @@ function AccountsPageContent() {
   } | null>(null);
 
   const deleteMutation = trpc.accounts.delete.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      if (!viewTrash) {
+        optimisticallyDeleteAccounts(queryClient, [vars.id]);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi xóa tài khoản");
+    },
     onSuccess: () => {
       setIsDeleteOpen(false);
       setAccountToDelete(null);
@@ -877,10 +979,26 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   const bulkDeleteMutation = trpc.accounts.bulkDelete.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      if (!viewTrash) {
+        optimisticallyDeleteAccounts(queryClient, vars.ids);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi xóa hàng loạt");
+    },
     onSuccess: (res) => {
       setIsBulkDeleteOpen(false);
       setSelectedIds(new Set());
@@ -888,26 +1006,60 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   const restoreMutation = trpc.accounts.restore.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      if (viewTrash) {
+        optimisticallyRestoreAccounts(queryClient, [vars.id]);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi khôi phục tài khoản");
+    },
     onSuccess: () => {
       setActionMsg("✅ Đã khôi phục tài khoản thành công!");
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   const bulkRestoreMutation = trpc.accounts.bulkRestore.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      if (viewTrash) {
+        optimisticallyRestoreAccounts(queryClient, vars.ids);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi khôi phục hàng loạt");
+    },
     onSuccess: (res) => {
       setSelectedIds(new Set());
       setActionMsg(`✅ Đã khôi phục thành công ${res.restoredCount} tài khoản!`);
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   const hardDeleteMutation = trpc.accounts.hardDelete.useMutation({
@@ -940,6 +1092,18 @@ function AccountsPageContent() {
   });
 
   const bulkUpdateStatusMutation = trpc.accounts.bulkUpdateStatus.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      optimisticallyBulkUpdateAccounts(queryClient, vars.ids, { status: vars.status });
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi cập nhật trạng thái");
+    },
     onSuccess: (res) => {
       setIsBulkStatusOpen(false);
       setSelectedIds(new Set());
@@ -947,10 +1111,29 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   const bulkAssignMutation = trpc.accounts.bulkAssign.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      optimisticallyBulkUpdateAccounts(
+        queryClient,
+        vars.ids,
+        { assignedUserId: vars.assignedUserId },
+        users
+      );
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi phân công nhân sự");
+    },
     onSuccess: (res) => {
       setIsBulkAssignOpen(false);
       setSelectedIds(new Set());
@@ -958,7 +1141,9 @@ function AccountsPageContent() {
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   const syncMutation = trpc.accounts.syncAccount.useMutation({
@@ -1063,6 +1248,7 @@ function AccountsPageContent() {
     setEditUsername(acc.username);
     setEditCountry(normalizeCountry(acc.country) || "");
     setEditGroup(acc.groupName || "");
+    setEditProfileName(acc.gpmProfileName || "");
     setEditGpmId(acc.gpmProfileId || "");
     setEditAssignedUser(acc.assignedUserId || "");
     setIsEditOpen(true);
@@ -1109,7 +1295,9 @@ function AccountsPageContent() {
       const matchSearch =
         !s ||
         acc.username.toLowerCase().includes(s) ||
-        (acc.groupName && acc.groupName.toLowerCase().includes(s));
+        (acc.groupName && acc.groupName.toLowerCase().includes(s)) ||
+        (acc.gpmProfileName && acc.gpmProfileName.toLowerCase().includes(s)) ||
+        (acc.gpmProfileId && acc.gpmProfileId.toLowerCase().includes(s));
 
       const matchStatus = statusFilter === "ALL" || acc.status === statusFilter;
       const matchOnline =
@@ -1464,7 +1652,10 @@ function AccountsPageContent() {
               <div className="h-7 w-14 bg-rose-100 dark:bg-rose-950/60 rounded-lg animate-pulse mt-1" />
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
-              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400 truncate whitespace-nowrap">Doanh Thu Toàn Dàn</div>
+              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400 flex items-center justify-between gap-1 min-w-0">
+                <span className="truncate whitespace-nowrap">Doanh Thu Toàn Dàn</span>
+                <Info className="w-3.5 h-3.5 opacity-40 shrink-0" />
+              </div>
               <div className="h-7 w-20 bg-pink-100 dark:bg-pink-950/60 rounded-lg animate-pulse mt-1" />
             </div>
           </div>
@@ -1518,10 +1709,77 @@ function AccountsPageContent() {
               <div className="text-xl font-black text-rose-600 dark:text-rose-400 mt-1">{fleetStats.banned}</div>
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
-              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400 truncate whitespace-nowrap" title="Doanh Thu Toàn Dàn">
-                Doanh Thu Toàn Dàn
+              <div className="text-xs font-semibold text-pink-600 dark:text-pink-400 flex items-center justify-between gap-1 min-w-0">
+                <span className="truncate whitespace-nowrap" title="Doanh Thu Toàn Dàn (30 ngày)">
+                  Doanh Thu Toàn Dàn
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="text-pink-400 hover:text-pink-600 dark:hover:text-pink-300 transition-colors p-0.5 rounded cursor-help shrink-0"
+                      aria-label="Thông tin doanh thu 30 ngày"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    className="text-xs max-w-xs space-y-1.5 bg-slate-900 text-white border-slate-800 shadow-xl p-3"
+                  >
+                    <div className="font-bold text-pink-400 border-b border-slate-700/80 pb-1 flex items-center gap-1.5">
+                      <Info className="w-3.5 h-3.5 text-pink-400" />
+                      <span>Doanh Thu Toàn Dàn (30 Ngày)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Số tiền hiển thị là tổng doanh thu trong <strong>30 ngày gần nhất</strong> được tổng hợp từ toàn bộ tài khoản TikTok trong hệ thống.
+                    </p>
+                    <div className="pt-1.5 mt-1 border-t border-slate-800 space-y-1 text-[11px]">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400">7 ngày:</span>
+                        <span className="font-semibold text-cyan-300">
+                          ${fleetRevenuePeriods.revenue7d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400">28 ngày:</span>
+                        <span className="font-semibold text-purple-300">
+                          ${fleetRevenuePeriods.revenue28d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400">Tổng 30 ngày:</span>
+                        <span className="font-bold text-pink-400">
+                          ${fleetRevenuePeriods.revenue30d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400">60 ngày:</span>
+                        <span className="font-semibold text-indigo-300">
+                          ${fleetRevenuePeriods.revenue60d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400">365 ngày:</span>
+                        <span className="font-semibold text-amber-300">
+                          ${fleetRevenuePeriods.revenue365d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      {fleetRevenueAllTime > 0 && (
+                        <div className="flex justify-between gap-4 pt-1 border-t border-slate-800 font-bold">
+                          <span className="text-slate-300">Toàn bộ (All-time):</span>
+                          <span className="font-semibold text-emerald-400">
+                            ${fleetRevenueAllTime.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
               </div>
-              <div className="text-xl font-black text-pink-600 dark:text-pink-400 mt-1">${fleetStats.totalRevenue.toLocaleString()}</div>
+              <div className="text-xl font-black text-pink-600 dark:text-pink-400 mt-1">
+                ${fleetRevenue30d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
             </div>
           </div>
         ))}
@@ -2093,6 +2351,7 @@ function AccountsPageContent() {
                         onClick={() =>
                           setVisibleColumns({
                             username: true,
+                            gpmProfileName: true,
                             gpmGroup: true,
                             gpmProfileId: true,
                             country: true,
@@ -2114,6 +2373,7 @@ function AccountsPageContent() {
                     <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
                       {[
                         { key: "username", label: "Tài khoản", locked: true },
+                        { key: "gpmProfileName", label: "GPM Profile Name" },
                         { key: "gpmGroup", label: "GPM Group" },
                         { key: "gpmProfileId", label: "GPM Profile ID" },
                         { key: "country", label: "Quốc gia" },
@@ -2588,9 +2848,12 @@ function AccountsPageContent() {
                                 @{acc.username}
                               </Link>
                             </div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 truncate max-w-[130px]">
-                                {acc.groupName || "Chưa phân nhóm"}
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              <span
+                                className="text-xs font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 truncate max-w-[140px]"
+                                title={acc.gpmProfileName ? `GPM Profile: ${acc.gpmProfileName}` : "Chưa có Profile GPM"}
+                              >
+                                {acc.gpmProfileName || "--"}
                               </span>
                               {cardPunishedVideos.length > 0 ? (
                                 <StrikeWarningPopover
@@ -2753,6 +3016,10 @@ function AccountsPageContent() {
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">28 ngày:</span>
                                       <span className="font-semibold text-purple-300">{formatAmount(p.revenue28d, (acc as any).country)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px]">
+                                      <span className="text-slate-400">30 ngày:</span>
+                                      <span className="font-semibold text-pink-400">{formatAmount(p.revenue30d, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">60 ngày:</span>
@@ -2961,6 +3228,21 @@ function AccountsPageContent() {
                             {renderSortIndicator("username")}
                           </div>
                           {renderResizeHandle("username")}
+                        </th>
+                      )}
+
+                      {/* GPM Profile Name */}
+                      {visibleColumns.gpmProfileName && (
+                        <th
+                          style={getColumnStyle("gpmProfileName")}
+                          onClick={() => handleSort("gpmProfileName")}
+                          className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white overflow-hidden"
+                        >
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate">GPM Profile Name</span>
+                            {renderSortIndicator("gpmProfileName")}
+                          </div>
+                          {renderResizeHandle("gpmProfileName")}
                         </th>
                       )}
 
@@ -3181,6 +3463,18 @@ function AccountsPageContent() {
                                     </span>
                                   )}
                                 </div>
+                              </td>
+                            )}
+
+                            {/* GPM Profile Name */}
+                            {visibleColumns.gpmProfileName && (
+                              <td style={getColumnStyle("gpmProfileName")} className="px-4 py-3.5 overflow-hidden">
+                                <span
+                                  className="inline-block max-w-full text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium truncate align-middle"
+                                  title={acc.gpmProfileName || undefined}
+                                >
+                                  {acc.gpmProfileName || "--"}
+                                </span>
                               </td>
                             )}
 
@@ -3475,6 +3769,10 @@ function AccountsPageContent() {
                                           <div className="flex justify-between gap-4 text-[11px]">
                                             <span className="text-slate-400">28 ngày:</span>
                                             <span className="font-semibold text-purple-300">{formatAmount(p.revenue28d, (acc as any).country)}</span>
+                                          </div>
+                                          <div className="flex justify-between gap-4 text-[11px]">
+                                            <span className="text-slate-400">30 ngày:</span>
+                                            <span className="font-semibold text-pink-400">{formatAmount(p.revenue30d, (acc as any).country)}</span>
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
                                             <span className="text-slate-400">60 ngày:</span>
@@ -4096,20 +4394,39 @@ function AccountsPageContent() {
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    GPM Profile ID
-                  </label>
-                  <span className="text-[10px] text-slate-400 font-mono">(Chỉ đọc)</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      GPM Profile Name
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                      <Lock className="w-2.5 h-2.5" /> Chỉ đọc
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    readOnly
+                    value={editProfileName || "-- Chưa có tên --"}
+                    className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
+                  />
                 </div>
-                <input
-                  type="text"
-                  readOnly
-                  placeholder="Chưa liên kết GPM Profile"
-                  value={editGpmId}
-                  className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs font-mono text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
-                />
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      GPM Profile ID
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-mono">(Chỉ đọc)</span>
+                  </div>
+                  <input
+                    type="text"
+                    readOnly
+                    placeholder="Chưa liên kết GPM Profile"
+                    value={editGpmId}
+                    className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs font-mono text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
+                  />
+                </div>
               </div>
 
               {isLeadOrAdmin && (

@@ -131,13 +131,23 @@ function ChecklistPageContent() {
   const [dateStr, setDateStr] = useState<string>(initialDate);
 
   const initialFrom = searchParams?.get("from") || (() => {
+    if (searchParams?.get("preset") === "month") {
+      const now = new Date();
+      return format(new Date(now.getFullYear(), now.getMonth(), 16), "yyyy-MM-dd");
+    }
     const d = new Date();
     d.setDate(d.getDate() - 7);
     return d.toISOString().split("T")[0];
   })();
   const [startDateStr, setStartDateStr] = useState<string>(initialFrom);
 
-  const initialTo = searchParams?.get("to") || new Date().toISOString().split("T")[0];
+  const initialTo = searchParams?.get("to") || (() => {
+    if (searchParams?.get("preset") === "month") {
+      const now = new Date();
+      return format(new Date(now.getFullYear(), now.getMonth() + 1, 15), "yyyy-MM-dd");
+    }
+    return new Date().toISOString().split("T")[0];
+  })();
   const [endDateStr, setEndDateStr] = useState<string>(initialTo);
 
   const initialPreset = searchParams?.get("preset") || "7d";
@@ -259,7 +269,10 @@ function ChecklistPageContent() {
 
   // Calculate Date Intervals depending on active View
   const calStartStr = format(startOfWeek(startOfMonth(calendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd");
-  const calEndStr = format(endOfWeek(endOfMonth(calendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd");
+  const calCycleEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 15);
+  const calEndGrid = endOfWeek(endOfMonth(calendarMonth), { weekStartsOn: 1 });
+  const calEffectiveEnd = calCycleEnd > calEndGrid ? calCycleEnd : calEndGrid;
+  const calEndStr = format(calEffectiveEnd, "yyyy-MM-dd");
 
   const queryStartDate =
     viewType === "calendar"
@@ -631,10 +644,11 @@ function ChecklistPageContent() {
   const applyThisMonth = () => {
     setActiveRangePreset("month");
     const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const start = new Date(now.getFullYear(), now.getMonth(), 16);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 15);
     setStartDateStr(format(start, "yyyy-MM-dd"));
-    setEndDateStr(format(now, "yyyy-MM-dd"));
-    setRangeSelection({ from: start, to: now });
+    setEndDateStr(format(end, "yyyy-MM-dd"));
+    setRangeSelection({ from: start, to: end });
   };
 
   // Country badge helper
@@ -831,6 +845,78 @@ function ChecklistPageContent() {
     totalSynced: 0,
   };
 
+  // When in Calendar view, compute cycle stats for 16th of calendarMonth to 15th of next month
+  const calendarCycleSummary = useMemo(() => {
+    if (viewType !== "calendar") return null;
+    const cycleStart = format(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 16), "yyyy-MM-dd");
+    const cycleEnd = format(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 15), "yyyy-MM-dd");
+    const items = (timesheetData?.checklists || []).filter((c: any) => {
+      const d = format(new Date(c.date), "yyyy-MM-dd");
+      return d >= cycleStart && d <= cycleEnd;
+    });
+    return {
+      totalStaff: new Set(items.map((c: any) => c.userId)).size,
+      fullWorkdayCount: items.filter((c: any) => Number(c.workdayScore) >= 1.0).length,
+      halfWorkdayCount: items.filter((c: any) => Number(c.workdayScore) === 0.5).length,
+      zeroWorkdayCount: items.filter((c: any) => Number(c.workdayScore) === 0).length,
+    };
+  }, [viewType, calendarMonth, timesheetData?.checklists]);
+
+  const displaySummary = useMemo(() => {
+    if (viewType === "calendar" && calendarCycleSummary) {
+      return { ...summary, ...calendarCycleSummary };
+    }
+    return summary;
+  }, [viewType, calendarCycleSummary, summary]);
+
+  const isMonthCycleMode =
+    viewType === "calendar" ||
+    ((viewType === "charts" || (viewType === "table" && viewMode === "range")) && activeRangePreset === "month");
+
+  const cycleRangeLabel = useMemo(() => {
+    if (viewType === "calendar") {
+      const s = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 16);
+      const e = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 15);
+      return `${format(s, "dd/MM")} - ${format(e, "dd/MM")}`;
+    }
+    if (startDateStr && endDateStr) {
+      try {
+        const s = new Date(startDateStr + "T00:00:00");
+        const e = new Date(endDateStr + "T00:00:00");
+        return `${format(s, "dd/MM")} - ${format(e, "dd/MM")}`;
+      } catch {
+        /* fallback */
+      }
+    }
+    const now = new Date();
+    const s = new Date(now.getFullYear(), now.getMonth(), 16);
+    const e = new Date(now.getFullYear(), now.getMonth() + 1, 15);
+    return `${format(s, "dd/MM")} - ${format(e, "dd/MM")}`;
+  }, [viewType, calendarMonth, startDateStr, endDateStr]);
+
+  const currentRangeLabel = useMemo(() => {
+    if (viewType === "calendar" || activeRangePreset === "month") {
+      return cycleRangeLabel;
+    }
+    if (viewType === "table" && viewMode === "daily") {
+      try {
+        return format(new Date(dateStr + "T00:00:00"), "dd/MM/yyyy");
+      } catch {
+        return dateStr;
+      }
+    }
+    if (startDateStr && endDateStr) {
+      try {
+        const s = new Date(startDateStr + "T00:00:00");
+        const e = new Date(endDateStr + "T00:00:00");
+        return `${format(s, "dd/MM")} - ${format(e, "dd/MM")}`;
+      } catch {
+        return `${startDateStr} - ${endDateStr}`;
+      }
+    }
+    return cycleRangeLabel;
+  }, [viewType, viewMode, activeRangePreset, dateStr, startDateStr, endDateStr, cycleRangeLabel]);
+
   const cutoffInfo = timesheetData?.cutoffInfo;
 
   const activeRules = timesheetData?.scoringConfig || {
@@ -1009,48 +1095,69 @@ function ChecklistPageContent() {
               </div>
             </div>
 
-            {/* Right Side: Cohesive Segmented KPI Stat Bar - Fully responsive 2x2 on mobile, 4 in row on tablet/desktop */}
-            <div className="w-full xl:w-auto grid grid-cols-2 sm:grid-cols-4 xl:flex xl:items-center bg-slate-50 dark:bg-slate-950 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 gap-1.5 shrink-0">
-              <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Tổng Nhân Sự</div>
-                {loading ? (
-                  <div className="w-10 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
-                ) : (
-                  <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white mt-0.5">{summary.totalStaff} NV</div>
-                )}
-              </div>
-              <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
-                <div className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                  1.0 Công
+            {/* Right Side: Cohesive Segmented KPI Stat Bar */}
+            <div className="w-full xl:w-auto flex flex-col items-end gap-2.5 shrink-0">
+              <div className="w-full xl:w-auto grid grid-cols-2 sm:grid-cols-4 xl:flex xl:items-center bg-slate-50 dark:bg-slate-950 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 gap-1.5">
+                <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Tổng Nhân Sự</div>
+                  {loading ? (
+                    <div className="w-10 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
+                  ) : (
+                    <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white mt-0.5">{displaySummary.totalStaff} NV</div>
+                  )}
                 </div>
-                {loading ? (
-                  <div className="w-8 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
-                ) : (
-                  <div className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{summary.fullWorkdayCount}</div>
-                )}
-              </div>
-              <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
-                <div className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                  0.5 Công
+                <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                  <div className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    1.0 Công
+                  </div>
+                  {loading ? (
+                    <div className="w-8 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
+                  ) : (
+                    <div className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{displaySummary.fullWorkdayCount}</div>
+                  )}
                 </div>
-                {loading ? (
-                  <div className="w-8 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
-                ) : (
-                  <div className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5">{summary.halfWorkdayCount}</div>
-                )}
-              </div>
-              <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
-                <div className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
-                  0 Công
+                <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                  <div className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                    0.5 Công
+                  </div>
+                  {loading ? (
+                    <div className="w-8 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
+                  ) : (
+                    <div className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5">{displaySummary.halfWorkdayCount}</div>
+                  )}
                 </div>
-                {loading ? (
-                  <div className="w-8 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
-                ) : (
-                  <div className="text-xs sm:text-sm font-black text-rose-600 dark:text-rose-400 mt-0.5">{summary.zeroWorkdayCount}</div>
-                )}
+                <div className="px-2.5 py-1.5 text-center bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 shadow-2xs">
+                  <div className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                    0 Công
+                  </div>
+                  {loading ? (
+                    <div className="w-8 h-4 mx-auto rounded bg-slate-200 dark:bg-slate-800 animate-pulse mt-1" />
+                  ) : (
+                    <div className="text-xs sm:text-sm font-black text-rose-600 dark:text-rose-400 mt-0.5">{displaySummary.zeroWorkdayCount}</div>
+                  )}
+                </div>
+              </div>
+              {/* Aligned cycle text + badge spanning full card width */}
+              <div className="flex items-center gap-1.5 self-center xl:self-end">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  {isMonthCycleMode ? "Chu kỳ tính công:" : "Thời gian thống kê:"}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-pink-50 dark:bg-pink-950/60 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800/80 cursor-help shadow-2xs">
+                      <CalendarIcon className="w-3 h-3 text-pink-500 shrink-0" />
+                      <span>{isMonthCycleMode ? `Kỳ: ${cycleRangeLabel}` : currentRangeLabel}</span>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs font-semibold z-50">
+                    {isMonthCycleMode
+                      ? `Tính từ 16 tháng trước - 15 tháng này (${cycleRangeLabel})`
+                      : `Dữ liệu tính từ ${currentRangeLabel}`}
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </div>
@@ -1165,14 +1272,15 @@ function ChecklistPageContent() {
                 {[
                   { id: "7d", label: "7 Ngày", action: () => applyRangePreset(7, "7d") },
                   { id: "28d", label: "28 Ngày", action: () => applyRangePreset(28, "28d") },
-                  { id: "60d", label: "60 Ngày", action: () => applyRangePreset(60, "60d") },
                   { id: "month", label: "Tháng Này", action: applyThisMonth },
+                  { id: "60d", label: "60 Ngày", action: () => applyRangePreset(60, "60d") },
                   { id: "365d", label: "365 Ngày", action: () => applyRangePreset(365, "365d") },
                 ].map((p) => {
                   const isActive = activeRangePreset === p.id;
-                  return (
+                  const buttonElement = (
                     <button
                       key={p.id}
+                      type="button"
                       onClick={p.action}
                       className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isActive
                         ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
@@ -1182,6 +1290,18 @@ function ChecklistPageContent() {
                       {p.label}
                     </button>
                   );
+                  if (p.id === "month") {
+                    return (
+                      <Tooltip key={p.id}>
+                        <TooltipTrigger asChild>{buttonElement}</TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs font-semibold z-50">
+                          Tính từ 16 - 15 tháng sau ({cycleRangeLabel})
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  }
+
+                  return buttonElement;
                 })}
 
                 {/* Custom Range Popover Tab Button */}
