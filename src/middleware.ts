@@ -78,18 +78,22 @@ export async function proxy(request: NextRequest) {
   }
 
   // Subdomain routing support (e.g. docs.domain.com -> /docs, api.domain.com -> /api-docs)
-  // Runs after the API/auth bypass above so subdomain-hosted API/auth traffic
-  // (e.g. api.domain.com/api/trpc/..., docs.domain.com/api/auth/session) is
-  // never rewritten into a page route.
-  const host = request.headers.get("host") || "";
+  const rawHost = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
+  const hostname = rawHost.split(":")[0].toLowerCase();
+
+  // Canonical redirect: www.tiktokflow.site -> tiktokflow.site
+  if (hostname === "www.tiktokflow.site") {
+    return NextResponse.redirect(new URL(`https://tiktokflow.site${pathname}${url.search}`), 301);
+  }
+
   if (!isApiRoute) {
-    if (host.startsWith("docs.") && !pathname.startsWith("/docs")) {
+    if (hostname.startsWith("docs.") && !pathname.startsWith("/docs")) {
       return NextResponse.rewrite(new URL(`/docs${pathname === "/" ? "" : pathname}`, request.url));
     }
-    if ((host.startsWith("api.") || host.startsWith("developers.")) && !pathname.startsWith("/api-docs")) {
+    if ((hostname.startsWith("api.") || hostname.startsWith("developers.")) && !pathname.startsWith("/api-docs")) {
       return NextResponse.rewrite(new URL(`/api-docs${pathname === "/" ? "" : pathname}`, request.url));
     }
-    if ((host.startsWith("trust.") || host.startsWith("legal.")) && !pathname.startsWith("/security")) {
+    if ((hostname.startsWith("trust.") || hostname.startsWith("legal.")) && !pathname.startsWith("/security")) {
       return NextResponse.rewrite(new URL(`/security${pathname === "/" ? "" : pathname}`, request.url));
     }
   }
@@ -109,19 +113,27 @@ export async function proxy(request: NextRequest) {
     !isAccessingAuthRoute &&
     !isPublicRoute &&
     !isInviteAccept &&
-    PROTECTED_ROUTES.some(route => pathname === route || pathname.startsWith(route + "/"));
+    (PROTECTED_ROUTES.some(route => pathname === route || pathname.startsWith(route + "/")) || pathname.startsWith("/dashboard"));
   const isAdminRoute = pathname === "/dashboard/admin" || pathname.startsWith("/dashboard/admin/");
 
-  const IS_PRODUCTION = process.env.APP_ENV === "production";
+  const IS_PRODUCTION = process.env.APP_ENV === "production" || process.env.NODE_ENV === "production";
   const SHARED_COOKIE_NAME = IS_PRODUCTION
     ? "__Secure-tiktokflow.session-token"
     : "tiktokflow.session-token";
-  const token = await getToken({
+
+  let token = await getToken({
     req: request,
     secret: process.env.AUTH_SECRET,
     cookieName: SHARED_COOKIE_NAME,
     secureCookie: IS_PRODUCTION,
   });
+
+  if (!token) {
+    token = await getToken({
+      req: request,
+      secret: process.env.AUTH_SECRET,
+    });
+  }
 
   // token.id is normalized in the `jwt` callback (auth.ts): it's set from
   // user.id or token.sub on sign-in, and explicitly cleared to "" when
@@ -130,13 +142,84 @@ export async function proxy(request: NextRequest) {
   const isAccountLocked = (token as any)?.error === "ACCOUNT_LOCKED";
   const isAuthenticated = !!token?.id;
 
+  const isPublicDomain = hostname === "tiktokflow.site";
+  const isAppDomain = hostname === "app.tiktokflow.site";
+  const appBaseUrl = "https://app.tiktokflow.site";
+
+  // ── A. ROOT PUBLIC DOMAIN (tiktokflow.site) ────────────────────────────────
+  if (isPublicDomain) {
+    // Auth routes on public domain -> redirect to app subdomain
+    if (isAccessingAuthRoute) {
+      return NextResponse.redirect(new URL(`${appBaseUrl}${pathname}${url.search}`));
+    }
+
+    // Protected dashboard routes on public domain -> redirect to app subdomain
+    if (isProtectedRoute) {
+      return NextResponse.redirect(new URL(`${appBaseUrl}${pathname}${url.search}`));
+    }
+
+    // Public pages (landing, terms, privacy, docs, security) -> serve normally
+    return NextResponse.next();
+  }
+
+  // ── B. APPLICATION SUBDOMAIN (app.tiktokflow.site) ───────────────────────────
+  if (isAppDomain) {
+    // Root URL (app.tiktokflow.site/) -> redirect to dashboard if authenticated, or signin
+    if (pathname === "/") {
+      if (isAuthenticated) {
+        return NextResponse.redirect(new URL("/accounts", url));
+      }
+      return NextResponse.redirect(new URL("/signin", url));
+    }
+
+    // Locked accounts: redirect to /auth/error
+    if (isAccountLocked && (isProtectedRoute || isAccessingAuthRoute)) {
+      if (isApiRoute) {
+        return NextResponse.json({ error: "ACCOUNT_LOCKED" }, { status: 403 });
+      }
+      const lockedUrl = new URL("/auth/error", url);
+      lockedUrl.searchParams.set("error", "ACCOUNT_LOCKED");
+      return NextResponse.redirect(lockedUrl);
+    }
+
+    // If authenticated user tries to access /signin, /signup, etc. -> redirect to accounts or callbackUrl
+    if (isAuthenticated && isAccessingAuthRoute) {
+      const callbackUrl = url.searchParams.get("callbackUrl");
+      const isCallbackAuthRoute = callbackUrl && AUTH_ROUTES.some(r => callbackUrl === r || callbackUrl.startsWith(r + "/") || callbackUrl.startsWith(r + "?"));
+      const safeDest = callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//") && !isCallbackAuthRoute ? callbackUrl : "/accounts";
+      return NextResponse.redirect(new URL(safeDest, url));
+    }
+
+    // If unauthenticated user tries to access protected routes -> redirect to /signin
+    if (!isAuthenticated && isProtectedRoute) {
+      if (isApiRoute) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const loginUrl = new URL("/signin", url);
+      const targetDest = pathname + url.search;
+      if (!AUTH_ROUTES.some(r => targetDest === r || targetDest.startsWith(r + "/") || targetDest.startsWith(r + "?"))) {
+        loginUrl.searchParams.set("callbackUrl", targetDest);
+      }
+      return NextResponse.redirect(loginUrl);
+    }
+
+    // Admin role check
+    if (isAuthenticated && isAdminRoute) {
+      const role = String((token as any)?.userType ?? "");
+      if (role.toUpperCase() !== "ADMIN") {
+        return NextResponse.redirect(new URL("/accounts", url));
+      }
+    }
+
+    return NextResponse.next();
+  }
+
+  // ── C. LOCAL DEVELOPMENT / PREVIEW FALLBACK (localhost, *.sslip.io, etc.) ──
   if (isPublicRoute) {
     return NextResponse.next();
   }
 
-  // Locked accounts: send to the dedicated error page instead of /signin,
-  // for both protected routes and auth routes (so they can't just retry
-  // sign-in and land in a loop — /auth/error explains why they're blocked).
+  // Locked accounts: send to the dedicated error page instead of /signin
   if (isAccountLocked && (isProtectedRoute || isAccessingAuthRoute)) {
     if (isApiRoute) {
       return NextResponse.json({ error: "ACCOUNT_LOCKED" }, { status: 403 });
@@ -154,9 +237,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL(safeDest, url));
   }
 
-  // Redirect unauthenticated users to signin, preserving destination.
-  // For API routes, return 401 JSON instead of an HTML redirect so client-side
-  // fetches get a handleable error rather than a redirect response.
+  // Redirect unauthenticated users to signin, preserving destination
   if (!isAuthenticated && isProtectedRoute) {
     if (isApiRoute) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

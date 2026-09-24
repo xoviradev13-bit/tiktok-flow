@@ -15,10 +15,11 @@ export function clearUserCache(userId?: string) {
   }
 }
 
-const IS_PRODUCTION = process.env.APP_ENV === "production";
+const IS_PRODUCTION = process.env.APP_ENV === "production" || process.env.NODE_ENV === "production";
 const SHARED_COOKIE_NAME = IS_PRODUCTION
   ? "__Secure-tiktokflow.session-token"
   : "tiktokflow.session-token";
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || (IS_PRODUCTION ? ".tiktokflow.site" : undefined);
 
 export const authOptions: NextAuthConfig = {
   ...authConfig,
@@ -34,7 +35,7 @@ export const authOptions: NextAuthConfig = {
         sameSite: "lax" as const,
         path: "/",
         secure: IS_PRODUCTION,
-        ...(IS_PRODUCTION ? { domain: ".tiktokflow.com" } : {}),
+        ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
       },
     },
   },
@@ -53,6 +54,33 @@ export const authOptions: NextAuthConfig = {
   debug: process.env.NODE_ENV === "development",
 
   callbacks: {
+    // Cross-subdomain redirect handler (tiktokflow.site <-> app.tiktokflow.site)
+    async redirect({ url, baseUrl }) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || (IS_PRODUCTION ? "https://app.tiktokflow.site" : baseUrl);
+
+      // Relative path: e.g. "/accounts" -> "https://app.tiktokflow.site/accounts"
+      if (url.startsWith("/")) {
+        return `${appUrl}${url}`;
+      }
+
+      // Absolute URL: allow same origin, any tiktokflow.site subdomain, or local dev
+      try {
+        const parsed = new URL(url);
+        if (
+          parsed.origin === baseUrl ||
+          parsed.hostname.endsWith("tiktokflow.site") ||
+          parsed.hostname === "localhost" ||
+          parsed.hostname === "127.0.0.1"
+        ) {
+          return url;
+        }
+      } catch {
+        // Fallback on parse failure
+      }
+
+      return `${appUrl}/accounts`;
+    },
+
     // Attach user & role to JWT
     async jwt({ token, user, account, trigger, session }) {
       if (user?.id) {

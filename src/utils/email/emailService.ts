@@ -170,10 +170,11 @@ function validateEmailConfig(config: EmailConfig): EmailConfig {
       'CONFIG_ERROR'
     );
   }
+  const port = parseInt(String(config.port));
   return {
     host: config.host,
-    port: parseInt(String(config.port)),
-    secure: config.secure ?? true,
+    port,
+    secure: config.secure ?? (port === 465),
     auth: {
       user: config.auth.user,
       pass: config.auth.pass
@@ -181,10 +182,15 @@ function validateEmailConfig(config: EmailConfig): EmailConfig {
   };
 }
 
-const gmailConfig: EmailConfig = validateEmailConfig({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '465'),
-  secure: true,
+const smtpPort = parseInt(process.env.SMTP_PORT || '465');
+const isSecure = process.env.SMTP_SECURE !== undefined 
+  ? process.env.SMTP_SECURE === 'true' 
+  : smtpPort === 465;
+
+const defaultSmtpConfig: EmailConfig = validateEmailConfig({
+  host: process.env.SMTP_HOST || 'smtp.hostinger.com',
+  port: smtpPort,
+  secure: isSecure,
   auth: {
     user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || ''
@@ -192,8 +198,8 @@ const gmailConfig: EmailConfig = validateEmailConfig({
 });
 
 export const emailService = EmailService.getInstance(
-  gmailConfig,
-  process.env.SMTP_USER || '',
+  defaultSmtpConfig,
+  process.env.EMAIL_FROM || process.env.SMTP_USER || '',
 );
 
 export default emailService;
