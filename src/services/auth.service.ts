@@ -97,7 +97,7 @@ export async function SignInWithCredentials(
         if (error instanceof AuthError) {
             return createAuthError(
                 AUTH_ERROR_CODES.INVALID_CREDENTIALS,
-                error.message
+                'Email hoặc mật khẩu không chính xác'
             );
         }
         throw error;
