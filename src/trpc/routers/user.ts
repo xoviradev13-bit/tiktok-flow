@@ -70,8 +70,6 @@ export const userRouter = router({
     const { password, ...safeUser } = user;
     return {
       ...safeUser,
-      groupId: user.teamId,
-      group: user.team,
       extensionToken: revealPersonalToken(user.extensionToken),
       hasExtensionToken: Boolean(user.extensionToken),
       hasPassword: Boolean(password),

@@ -275,7 +275,7 @@ function TeamsManagementContent() {
   const { data: teamsData, isLoading: loading } = trpc.admin.listTeams.useQuery(undefined, { enabled: isAdmin });
   const { data: allUsers = [], isLoading: loadingUsers } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
 
-  const groups = useMemo(() => {
+  const teams = useMemo(() => {
     return teamsData?.teamsDetails || [];
   }, [teamsData]);
 
@@ -344,7 +344,7 @@ function TeamsManagementContent() {
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
       const snapshot = snapshotUserTeamQueries(queryClient);
-      optimisticallyUpdateUserTeam(queryClient, vars.userId, vars.teamName || vars.groupName || null);
+      optimisticallyUpdateUserTeam(queryClient, vars.userId, vars.teamName || null);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
@@ -425,7 +425,7 @@ function TeamsManagementContent() {
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
       const snapshot = snapshotUserTeamQueries(queryClient);
-      optimisticallyDeleteTeams(queryClient, vars.teamIds || vars.groupIds || []);
+      optimisticallyDeleteTeams(queryClient, vars.teamIds || []);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
@@ -452,7 +452,7 @@ function TeamsManagementContent() {
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
       const snapshot = snapshotUserTeamQueries(queryClient);
-      optimisticallyBulkAssignTeamLeader(queryClient, vars.teamIds || vars.groupIds || [], vars.leaderId || null, allUsers);
+      optimisticallyBulkAssignTeamLeader(queryClient, vars.teamIds || [], vars.leaderId || null, allUsers);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
@@ -480,7 +480,7 @@ function TeamsManagementContent() {
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
       const snapshot = snapshotUserTeamQueries(queryClient);
-      optimisticallyBulkChangeTeamColor(queryClient, vars.teamIds || vars.groupIds || [], vars.color);
+      optimisticallyBulkChangeTeamColor(queryClient, vars.teamIds || [], vars.color);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
@@ -547,10 +547,10 @@ function TeamsManagementContent() {
   };
 
   // Filter & Sort
-  const filteredAndSortedGroups = useMemo(() => {
+  const filteredAndSortedTeams = useMemo(() => {
     const s = search.toLowerCase().trim();
 
-    const filtered = groups.filter((g: any) => {
+    const filtered = teams.filter((g: any) => {
       return smartSearchMatch(
         search,
         g.name,
@@ -580,12 +580,12 @@ function TeamsManagementContent() {
     });
 
     return filtered;
-  }, [groups, search, sortConfig]);
+  }, [teams, search, sortConfig]);
 
   // Bulk selection helpers
   const allFilteredIds = useMemo(
-    () => filteredAndSortedGroups.map((g: any) => g.id),
-    [filteredAndSortedGroups]
+    () => filteredAndSortedTeams.map((g: any) => g.id),
+    [filteredAndSortedTeams]
   );
   const isAllSelected =
     allFilteredIds.length > 0 &&
@@ -608,13 +608,13 @@ function TeamsManagementContent() {
   };
 
   // Overall Stats
-  const totalGroupsCount = groups.length;
-  const totalAssignedMembers = groups.reduce(
+  const totalTeamsCount = teams.length;
+  const totalAssignedMembers = teams.reduce(
     (sum: number, g: any) => sum + (g.membersCount || 0),
     0
   );
-  const unassignedStaffCount = allUsers.filter((u: any) => !u.groupName).length;
-  const totalAccountsCovered = groups.reduce(
+  const unassignedStaffCount = allUsers.filter((u: any) => !u.teamName).length;
+  const totalAccountsCovered = teams.reduce(
     (sum: number, g: any) => sum + (g.totalAccounts || 0),
     0
   );
@@ -665,7 +665,7 @@ function TeamsManagementContent() {
               {loading ? (
                 <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle shrink-0" />
               ) : (
-                <span className="shrink-0">({totalGroupsCount})</span>
+                <span className="shrink-0">({totalTeamsCount})</span>
               )}
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
@@ -721,7 +721,7 @@ function TeamsManagementContent() {
             {loading ? (
               <div className="h-8 w-14 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-1" />
             ) : (
-              <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">{totalGroupsCount}</div>
+              <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">{totalTeamsCount}</div>
             )}
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
@@ -991,7 +991,7 @@ function TeamsManagementContent() {
         </div>
       </div>
 
-      {/* Main Groups View: Grid or Table */}
+      {/* Main Teams View: Grid or Table */}
       {loading ? (
         viewMode === "grid" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-4">
@@ -1020,7 +1020,7 @@ function TeamsManagementContent() {
         ) : (
           <DataTableSkeleton columnCount={visibleColumnCount} rowCount={5} />
         )
-      ) : filteredAndSortedGroups.length === 0 ? (
+      ) : filteredAndSortedTeams.length === 0 ? (
         <div className="flex min-h-[360px] flex-col items-center justify-center rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8 text-center shadow-xs">
           <div className="w-14 h-14 rounded-2xl bg-pink-50 dark:bg-pink-950/40 text-pink-500 dark:text-pink-400 flex items-center justify-center mb-4">
             <Layers className="w-7 h-7" />
@@ -1029,7 +1029,7 @@ function TeamsManagementContent() {
             Không tìm thấy nhóm nào
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
-            {search ? "Không có nhóm nào khớp với từ khóa tìm kiếm của bạn." : "Chưa có nhóm nào được tạo trong hệ thống."}
+            {search ? "Không có nhóm nào khớp với từ khóa tìm kiếm của bạn." : "Chưa có đội nào được tạo trong hệ thống."}
           </p>
           {search ? (
             <button
@@ -1048,9 +1048,9 @@ function TeamsManagementContent() {
           ) : null}
         </div>
       ) : viewMode === "grid" ? (
-        /* Groups Grid View */
+        /* Teams Grid View */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-4">
-          {filteredAndSortedGroups.map((group: any) => {
+          {filteredAndSortedTeams.map((group: any) => {
             const isSelected = selectedTeamIds.includes(group.id);
             const members = group.members || [];
             const displayMembers = members.slice(0, 4);
@@ -1234,14 +1234,14 @@ function TeamsManagementContent() {
                               <PopoverContent align="start" className="w-64 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl">
                                 <div className="text-xs font-bold text-slate-900 dark:text-white pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
                                   <UserPlus className="w-3.5 h-3.5 text-pink-500" />
-                                  Thêm thành viên vào nhóm
+                                  Thêm thành viên vào đội nhóm
                                 </div>
-                                {allUsers.filter((u: any) => !u.groupId || u.groupId !== group.id).length === 0 ? (
-                                  <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong nhóm</div>
+                                {allUsers.filter((u: any) => !u.teamId || u.teamId !== group.id).length === 0 ? (
+                                  <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong đội nhóm</div>
                                 ) : (
                                   <div className="max-h-48 overflow-y-auto space-y-0.5">
                                     {allUsers
-                                      .filter((u: any) => !u.groupId || u.groupId !== group.id)
+                                      .filter((u: any) => !u.teamId || u.teamId !== group.id)
                                       .map((u: any) => (
                                         <button
                                           key={u.id}
@@ -1249,7 +1249,7 @@ function TeamsManagementContent() {
                                           disabled={memberPendingId === u.id}
                                           onClick={() => {
                                             setMemberPendingId(u.id);
-                                            addMemberMutation.mutate({ userId: u.id, groupName: group.name });
+                                            addMemberMutation.mutate({ userId: u.id, teamName: group.name });
                                           }}
                                           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
                                         >
@@ -1258,7 +1258,7 @@ function TeamsManagementContent() {
                                           </div>
                                           <div className="min-w-0">
                                             <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
-                                            <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.groupName ? ` · ${u.groupName}` : " · Chưa có nhóm"}</div>
+                                            <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.groupName}` : " · Chưa có đội"}</div>
                                           </div>
                                         </button>
                                       ))}
@@ -1344,14 +1344,14 @@ function TeamsManagementContent() {
                                 <PopoverContent align="start" className="w-64 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl">
                                   <div className="text-xs font-bold text-slate-900 dark:text-white pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
                                     <UserPlus className="w-3.5 h-3.5 text-pink-500" />
-                                    Thêm thành viên vào nhóm
+                                    Thêm thành viên vào đội nhóm
                                   </div>
-                                  {allUsers.filter((u: any) => !u.groupId || u.groupId !== group.id).length === 0 ? (
-                                    <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong nhóm</div>
+                                  {allUsers.filter((u: any) => !u.teamId || u.teamId !== group.id).length === 0 ? (
+                                    <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong đội nhóm</div>
                                   ) : (
                                     <div className="max-h-48 overflow-y-auto space-y-0.5">
                                       {allUsers
-                                        .filter((u: any) => !u.groupId || u.groupId !== group.id)
+                                        .filter((u: any) => !u.teamId || u.teamId !== group.id)
                                         .map((u: any) => (
                                           <button
                                             key={u.id}
@@ -1359,7 +1359,7 @@ function TeamsManagementContent() {
                                             disabled={memberPendingId === u.id}
                                             onClick={() => {
                                               setMemberPendingId(u.id);
-                                              addMemberMutation.mutate({ userId: u.id, groupName: group.name });
+                                              addMemberMutation.mutate({ userId: u.id, teamName: group.name });
                                             }}
                                             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
                                           >
@@ -1368,7 +1368,7 @@ function TeamsManagementContent() {
                                             </div>
                                             <div className="min-w-0">
                                               <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
-                                              <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.groupName ? ` · ${u.groupName}` : " · Chưa có nhóm"}</div>
+                                              <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.groupName}` : " · Chưa có đội"}</div>
                                             </div>
                                           </button>
                                         ))}
@@ -1582,7 +1582,7 @@ function TeamsManagementContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                {filteredAndSortedGroups.length === 0 ? (
+                {filteredAndSortedTeams.length === 0 ? (
                   <tr>
                     <td
                       colSpan={visibleColumnCount}
@@ -1593,7 +1593,7 @@ function TeamsManagementContent() {
                     </td>
                   </tr>
                 ) : (
-                  filteredAndSortedGroups.map((group: any, idx: number) => {
+                  filteredAndSortedTeams.map((group: any, idx: number) => {
                     const isSelected = selectedTeamIds.includes(group.id);
                     const rowBgClass = isSelected
                       ? "bg-pink-50 dark:bg-pink-950/90"
@@ -1729,12 +1729,12 @@ function TeamsManagementContent() {
                                         <UserPlus className="w-3.5 h-3.5 text-pink-500" />
                                         Thêm thành viên vào {group.name}
                                       </div>
-                                      {allUsers.filter((u: any) => !u.groupId || u.groupId !== group.id).length === 0 ? (
-                                        <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong nhóm</div>
+                                      {allUsers.filter((u: any) => !u.teamId || u.teamId !== group.id).length === 0 ? (
+                                        <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong đội nhóm</div>
                                       ) : (
                                         <div className="max-h-48 overflow-y-auto space-y-0.5">
                                           {allUsers
-                                            .filter((u: any) => !u.groupId || u.groupId !== group.id)
+                                            .filter((u: any) => !u.teamId || u.teamId !== group.id)
                                             .map((u: any) => (
                                               <button
                                                 key={u.id}
@@ -1742,7 +1742,7 @@ function TeamsManagementContent() {
                                                 disabled={memberPendingId === u.id}
                                                 onClick={() => {
                                                   setMemberPendingId(u.id);
-                                                  addMemberMutation.mutate({ userId: u.id, groupName: group.name });
+                                                  addMemberMutation.mutate({ userId: u.id, teamName: group.name });
                                                 }}
                                                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
                                               >
@@ -1751,7 +1751,7 @@ function TeamsManagementContent() {
                                                 </div>
                                                 <div className="min-w-0">
                                                   <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
-                                                  <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.groupName ? ` · ${u.groupName}` : " · Chưa có nhóm"}</div>
+                                                  <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.groupName}` : " · Chưa có đội"}</div>
                                                 </div>
                                               </button>
                                             ))}
@@ -1838,12 +1838,12 @@ function TeamsManagementContent() {
                                           <UserPlus className="w-3.5 h-3.5 text-pink-500" />
                                           Thêm thành viên vào {group.name}
                                         </div>
-                                        {allUsers.filter((u: any) => !u.groupId || u.groupId !== group.id).length === 0 ? (
-                                          <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong nhóm</div>
+                                        {allUsers.filter((u: any) => !u.teamId || u.teamId !== group.id).length === 0 ? (
+                                          <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong đội nhóm</div>
                                         ) : (
                                           <div className="max-h-48 overflow-y-auto space-y-0.5">
                                             {allUsers
-                                              .filter((u: any) => !u.groupId || u.groupId !== group.id)
+                                              .filter((u: any) => !u.teamId || u.teamId !== group.id)
                                               .map((u: any) => (
                                                 <button
                                                   key={u.id}
@@ -1851,7 +1851,7 @@ function TeamsManagementContent() {
                                                   disabled={memberPendingId === u.id}
                                                   onClick={() => {
                                                     setMemberPendingId(u.id);
-                                                    addMemberMutation.mutate({ userId: u.id, groupName: group.name });
+                                                    addMemberMutation.mutate({ userId: u.id, teamName: group.name });
                                                   }}
                                                   className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
                                                 >
@@ -1860,7 +1860,7 @@ function TeamsManagementContent() {
                                                   </div>
                                                   <div className="min-w-0">
                                                     <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
-                                                    <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.groupName ? ` · ${u.groupName}` : " · Chưa có nhóm"}</div>
+                                                    <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.groupName}` : " · Chưa có đội"}</div>
                                                   </div>
                                                 </button>
                                               ))}
@@ -2214,7 +2214,7 @@ function TeamsManagementContent() {
                             <div className="min-w-0 flex-1">
                               <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
                               <div className="text-[10px] text-slate-400 truncate">
-                                @{u.username} {u.groupName ? `· Nhóm: ${u.groupName}` : "· Chưa có nhóm"}
+                                @{u.username} {u.teamName ? `· Nhóm: ${u.groupName}` : "· Chưa có đội"}
                               </div>
                             </div>
                             <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
@@ -2439,7 +2439,7 @@ function TeamsManagementContent() {
                             <div className="min-w-0 flex-1">
                               <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
                               <div className="text-[10px] text-slate-400 truncate">
-                                @{u.username} {u.groupName ? `· Nhóm: ${u.groupName}` : "· Chưa có nhóm"}
+                                @{u.username} {u.teamName ? `· Nhóm: ${u.groupName}` : "· Chưa có đội"}
                               </div>
                             </div>
                             <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
@@ -2582,7 +2582,7 @@ function TeamsManagementContent() {
                   disabled={bulkAssignTeamLeaderMutation.isPending}
                   onClick={() => {
                     bulkAssignTeamLeaderMutation.mutate({
-                      groupIds: selectedTeamIds,
+                      teamIds: selectedTeamIds,
                       leaderId: bulkLeaderId || null,
                     });
                   }}
@@ -2603,7 +2603,7 @@ function TeamsManagementContent() {
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Palette className="w-4 h-4 text-pink-500" />
-                Đổi Màu Nhãn Cho {selectedTeamIds.length} Nhóm
+                Đổi Màu Nhãn Cho {selectedTeamIds.length} Đội Nhóm
               </h3>
               <button
                 onClick={() => setIsBulkColorOpen(false)}
@@ -2647,7 +2647,7 @@ function TeamsManagementContent() {
                   disabled={bulkChangeColorMutation.isPending}
                   onClick={() => {
                     bulkChangeColorMutation.mutate({
-                      groupIds: selectedTeamIds,
+                      teamIds: selectedTeamIds,
                       color: bulkColorVal,
                     });
                   }}
@@ -2674,14 +2674,14 @@ function TeamsManagementContent() {
                   Xác nhận xóa hàng loạt
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bạn có chắc muốn xóa <strong className="text-rose-500">{selectedTeamIds.length}</strong> nhóm đã chọn?
+                  Bạn có chắc muốn xóa <strong className="text-rose-500">{selectedTeamIds.length}</strong> đội nhóm đã chọn?
                 </p>
               </div>
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
               <p className="text-amber-600 dark:text-amber-400">
-                ⚠️ Tất cả nhân sự trong các nhóm này sẽ được chuyển về trạng thái Chưa phân nhóm. Hành động này không thể hoàn tác.
+                ⚠️ Tất cả nhân sự trong các đội này sẽ được chuyển về trạng thái Chưa phân đội. Hành động này không thể hoàn tác.
               </p>
             </div>
 
@@ -2698,13 +2698,13 @@ function TeamsManagementContent() {
                 disabled={bulkDeleteTeamsMutation.isPending}
                 onClick={() => {
                   bulkDeleteTeamsMutation.mutate({
-                    groupIds: selectedTeamIds,
+                    teamIds: selectedTeamIds,
                   });
                 }}
                 className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{bulkDeleteTeamsMutation.isPending ? "Đang xóa..." : `Xóa ${selectedTeamIds.length} nhóm`}</span>
+                <span>{bulkDeleteTeamsMutation.isPending ? "Đang xóa..." : `Xóa ${selectedTeamIds.length} đội nhóm`}</span>
               </button>
             </div>
           </div>

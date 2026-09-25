@@ -54,8 +54,8 @@ function AnalyticsPageContent() {
   const initialUser = searchParams?.get("user") || null;
   const [operatorId, setOperatorId] = useState<string | null>(initialUser);
 
-  const initialGroup = searchParams?.get("group") || null;
-  const [groupId, setGroupId] = useState<string | null>(initialGroup);
+  const initialTeam = searchParams?.get("team") || searchParams?.get("group") || null;
+  const [teamId, setTeamId] = useState<string | null>(initialTeam);
 
   const initialCountry = searchParams?.get("country") || null;
   const [country, setCountry] = useState<string | null>(initialCountry);
@@ -71,7 +71,7 @@ function AnalyticsPageContent() {
         from: startDate,
         to: endDate,
         user: operatorId,
-        group: groupId,
+        team: teamId,
         country: country,
       },
       {
@@ -79,7 +79,7 @@ function AnalyticsPageContent() {
         from: undefined,
         to: undefined,
         user: null,
-        group: null,
+        team: null,
         country: null,
       }
     );
@@ -89,7 +89,7 @@ function AnalyticsPageContent() {
     startDate,
     endDate,
     operatorId,
-    groupId,
+    teamId,
     country,
     updateUrlParams,
   ]);
@@ -111,7 +111,7 @@ function AnalyticsPageContent() {
       startDate,
       endDate,
       operatorId,
-      groupId,
+      teamId,
       country,
       status,
     },
@@ -205,8 +205,8 @@ function AnalyticsPageContent() {
         setEndDate={setEndDate}
         operatorId={operatorId}
         setOperatorId={setOperatorId}
-        groupId={groupId}
-        setGroupId={setGroupId}
+        teamId={teamId}
+        setTeamId={setTeamId}
         country={country}
         setCountry={setCountry}
         status={status}

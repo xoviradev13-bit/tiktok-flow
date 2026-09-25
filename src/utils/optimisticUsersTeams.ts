@@ -3,7 +3,6 @@ import type { QueryClient } from "@tanstack/react-query";
 export interface UserTeamSnapshot {
   usersList: Array<[any, any]>;
   teamsList: Array<[any, any]>;
-  groupsList: Array<[any, any]>;
   userDetail: Array<[any, any]>;
 }
 
@@ -11,12 +10,9 @@ export function snapshotUserTeamQueries(queryClient: QueryClient): UserTeamSnaps
   return {
     usersList: queryClient.getQueriesData({ queryKey: [["admin", "listUsers"]] }),
     teamsList: queryClient.getQueriesData({ queryKey: [["admin", "listTeams"]] }),
-    groupsList: queryClient.getQueriesData({ queryKey: [["admin", "listGroups"]] }),
     userDetail: queryClient.getQueriesData({ queryKey: [["user", "getById"]] }),
   };
 }
-
-export const snapshotUserGroupQueries = snapshotUserTeamQueries;
 
 export function rollbackUserTeamQueries(
   queryClient: QueryClient,
@@ -32,19 +28,12 @@ export function rollbackUserTeamQueries(
       queryClient.setQueryData(key, data);
     }
   }
-  if (snapshot.groupsList) {
-    for (const [key, data] of snapshot.groupsList) {
-      queryClient.setQueryData(key, data);
-    }
-  }
   if (snapshot.userDetail) {
     for (const [key, data] of snapshot.userDetail) {
       queryClient.setQueryData(key, data);
     }
   }
 }
-
-export const rollbackUserGroupQueries = rollbackUserTeamQueries;
 
 /**
  * Optimistically update user's team assignment across admin.listUsers and admin.listTeams.
@@ -69,9 +58,6 @@ export function optimisticallyUpdateUserTeam(
             teamName: teamName || null,
             teamId: teamName ? u.teamId : null,
             team: teamName ? { ...(u.team || {}), name: teamName } : null,
-            groupName: teamName || null,
-            groupId: teamName ? u.teamId : null,
-            group: teamName ? { ...(u.group || {}), name: teamName } : null,
           };
         }
         return u;
@@ -89,23 +75,15 @@ export function optimisticallyUpdateUserTeam(
         teamName: teamName || null,
         teamId: teamName ? oldData.teamId : null,
         team: teamName ? { ...(oldData.team || {}), name: teamName } : null,
-        groupName: teamName || null,
-        groupId: teamName ? oldData.groupId : null,
-        group: teamName ? { ...(oldData.group || {}), name: teamName } : null,
       };
     }
   );
 
-  // 3. Helper to update a teams cache
+  // 3. Helper to update teams cache
   const updateTeamsCache = (oldData: any) => {
-    const listProp = Array.isArray(oldData?.teamsDetails)
-      ? "teamsDetails"
-      : Array.isArray(oldData?.groupsDetails)
-      ? "groupsDetails"
-      : null;
-    if (!oldData || !listProp) return oldData;
+    if (!oldData || !Array.isArray(oldData.teamsDetails)) return oldData;
 
-    const updatedDetails = oldData[listProp].map((t: any) => {
+    const updatedDetails = oldData.teamsDetails.map((t: any) => {
       const isCurrentTeam = t.name === teamName;
       const hasMember = (t.members || []).some((m: any) => m.id === userId);
 
@@ -139,17 +117,12 @@ export function optimisticallyUpdateUserTeam(
 
     return {
       ...oldData,
-      [listProp]: updatedDetails,
       teamsDetails: updatedDetails,
-      groupsDetails: updatedDetails,
     };
   };
 
   queryClient.setQueriesData({ queryKey: [["admin", "listTeams"]] }, updateTeamsCache);
-  queryClient.setQueriesData({ queryKey: [["admin", "listGroups"]] }, updateTeamsCache);
 }
-
-export const optimisticallyUpdateUserGroup = optimisticallyUpdateUserTeam;
 
 /**
  * Optimistically update user's role (ADMIN, LEAD, STAFF).
@@ -176,14 +149,9 @@ export function optimisticallyUpdateUserRole(
   );
 
   const updateRolesInTeams = (oldData: any) => {
-    const listProp = Array.isArray(oldData?.teamsDetails)
-      ? "teamsDetails"
-      : Array.isArray(oldData?.groupsDetails)
-      ? "groupsDetails"
-      : null;
-    if (!oldData || !listProp) return oldData;
+    if (!oldData || !Array.isArray(oldData.teamsDetails)) return oldData;
 
-    const updated = oldData[listProp].map((t: any) => ({
+    const updated = oldData.teamsDetails.map((t: any) => ({
       ...t,
       members: (t.members || []).map((m: any) =>
         m.id === userId ? { ...m, role } : m
@@ -193,14 +161,11 @@ export function optimisticallyUpdateUserRole(
 
     return {
       ...oldData,
-      [listProp]: updated,
       teamsDetails: updated,
-      groupsDetails: updated,
     };
   };
 
   queryClient.setQueriesData({ queryKey: [["admin", "listTeams"]] }, updateRolesInTeams);
-  queryClient.setQueriesData({ queryKey: [["admin", "listGroups"]] }, updateRolesInTeams);
 }
 
 /**
@@ -255,14 +220,9 @@ export function optimisticallyDeleteUsers(
   );
 
   const deleteInTeams = (oldData: any) => {
-    const listProp = Array.isArray(oldData?.teamsDetails)
-      ? "teamsDetails"
-      : Array.isArray(oldData?.groupsDetails)
-      ? "groupsDetails"
-      : null;
-    if (!oldData || !listProp) return oldData;
+    if (!oldData || !Array.isArray(oldData.teamsDetails)) return oldData;
 
-    const updated = oldData[listProp].map((t: any) => ({
+    const updated = oldData.teamsDetails.map((t: any) => ({
       ...t,
       membersCount: (t.members || []).filter((m: any) => !idSet.has(m.id)).length,
       members: (t.members || []).filter((m: any) => !idSet.has(m.id)),
@@ -271,18 +231,15 @@ export function optimisticallyDeleteUsers(
 
     return {
       ...oldData,
-      [listProp]: updated,
       teamsDetails: updated,
-      groupsDetails: updated,
     };
   };
 
   queryClient.setQueriesData({ queryKey: [["admin", "listTeams"]] }, deleteInTeams);
-  queryClient.setQueriesData({ queryKey: [["admin", "listGroups"]] }, deleteInTeams);
 }
 
 /**
- * Optimistically update team in admin.listTeams / admin.listGroups.
+ * Optimistically update team in admin.listTeams.
  * Also promotes newly appointed leader to LEAD in users query.
  */
 export function optimisticallyUpdateTeam(
@@ -314,14 +271,9 @@ export function optimisticallyUpdateTeam(
   }
 
   const updateTeamList = (oldData: any) => {
-    const listProp = Array.isArray(oldData?.teamsDetails)
-      ? "teamsDetails"
-      : Array.isArray(oldData?.groupsDetails)
-      ? "groupsDetails"
-      : null;
-    if (!oldData || !listProp) return oldData;
+    if (!oldData || !Array.isArray(oldData.teamsDetails)) return oldData;
 
-    const updated = oldData[listProp].map((t: any) => {
+    const updated = oldData.teamsDetails.map((t: any) => {
       if (t.id !== teamPatch.id) return t;
 
       let leader = t.leader;
@@ -376,17 +328,12 @@ export function optimisticallyUpdateTeam(
     return {
       ...oldData,
       teams: updated.map((t: any) => t.name),
-      groups: updated.map((t: any) => t.name),
       teamsDetails: updated,
-      groupsDetails: updated,
     };
   };
 
   queryClient.setQueriesData({ queryKey: [["admin", "listTeams"]] }, updateTeamList);
-  queryClient.setQueriesData({ queryKey: [["admin", "listGroups"]] }, updateTeamList);
 }
-
-export const optimisticallyUpdateGroup = optimisticallyUpdateTeam;
 
 /**
  * Optimistically bulk assign leader to teams.
@@ -426,14 +373,9 @@ export function optimisticallyBulkAssignTeamLeader(
   }
 
   const updateBulkLeader = (oldData: any) => {
-    const listProp = Array.isArray(oldData?.teamsDetails)
-      ? "teamsDetails"
-      : Array.isArray(oldData?.groupsDetails)
-      ? "groupsDetails"
-      : null;
-    if (!oldData || !listProp) return oldData;
+    if (!oldData || !Array.isArray(oldData.teamsDetails)) return oldData;
 
-    const updated = oldData[listProp].map((t: any) => {
+    const updated = oldData.teamsDetails.map((t: any) => {
       if (!idSet.has(t.id)) return t;
       return {
         ...t,
@@ -444,15 +386,11 @@ export function optimisticallyBulkAssignTeamLeader(
     return {
       ...oldData,
       teamsDetails: updated,
-      groupsDetails: updated,
     };
   };
 
   queryClient.setQueriesData({ queryKey: [["admin", "listTeams"]] }, updateBulkLeader);
-  queryClient.setQueriesData({ queryKey: [["admin", "listGroups"]] }, updateBulkLeader);
 }
-
-export const optimisticallyBulkAssignGroupLeader = optimisticallyBulkAssignTeamLeader;
 
 /**
  * Optimistically bulk change color for teams.
@@ -464,29 +402,20 @@ export function optimisticallyBulkChangeTeamColor(
 ) {
   const idSet = new Set(teamIds);
   const updateColor = (oldData: any) => {
-    const listProp = Array.isArray(oldData?.teamsDetails)
-      ? "teamsDetails"
-      : Array.isArray(oldData?.groupsDetails)
-      ? "groupsDetails"
-      : null;
-    if (!oldData || !listProp) return oldData;
+    if (!oldData || !Array.isArray(oldData.teamsDetails)) return oldData;
 
-    const updated = oldData[listProp].map((t: any) =>
+    const updated = oldData.teamsDetails.map((t: any) =>
       idSet.has(t.id) ? { ...t, color } : t
     );
 
     return {
       ...oldData,
       teamsDetails: updated,
-      groupsDetails: updated,
     };
   };
 
   queryClient.setQueriesData({ queryKey: [["admin", "listTeams"]] }, updateColor);
-  queryClient.setQueriesData({ queryKey: [["admin", "listGroups"]] }, updateColor);
 }
-
-export const optimisticallyBulkChangeGroupColor = optimisticallyBulkChangeTeamColor;
 
 /**
  * Optimistically delete teams.
@@ -497,41 +426,29 @@ export function optimisticallyDeleteTeams(
 ) {
   const idSet = new Set(teamIds);
   const deleteTeamsInCache = (oldData: any) => {
-    const listProp = Array.isArray(oldData?.teamsDetails)
-      ? "teamsDetails"
-      : Array.isArray(oldData?.groupsDetails)
-      ? "groupsDetails"
-      : null;
-    if (!oldData || !listProp) return oldData;
+    if (!oldData || !Array.isArray(oldData.teamsDetails)) return oldData;
 
-    const updated = oldData[listProp].filter((t: any) => !idSet.has(t.id));
+    const updated = oldData.teamsDetails.filter((t: any) => !idSet.has(t.id));
     return {
       ...oldData,
       teams: updated.map((t: any) => t.name),
-      groups: updated.map((t: any) => t.name),
       teamsDetails: updated,
-      groupsDetails: updated,
     };
   };
 
   queryClient.setQueriesData({ queryKey: [["admin", "listTeams"]] }, deleteTeamsInCache);
-  queryClient.setQueriesData({ queryKey: [["admin", "listGroups"]] }, deleteTeamsInCache);
 
   queryClient.setQueriesData(
     { queryKey: [["admin", "listUsers"]] },
     (oldData: any) => {
       if (!Array.isArray(oldData)) return oldData;
       return oldData.map((u: any) => {
-        const idToCheck = u.teamId || u.groupId;
-        if (idToCheck && idSet.has(idToCheck)) {
+        if (u.teamId && idSet.has(u.teamId)) {
           return {
             ...u,
             teamId: null,
             teamName: null,
             team: null,
-            groupId: null,
-            groupName: null,
-            group: null,
           };
         }
         return u;
@@ -539,5 +456,3 @@ export function optimisticallyDeleteTeams(
     }
   );
 }
-
-export const optimisticallyDeleteGroups = optimisticallyDeleteTeams;

@@ -107,15 +107,17 @@ interface AnalyticsFilterToolbarProps {
   setEndDate: (d?: string) => void;
   operatorId?: string | null;
   setOperatorId: (id: string | null) => void;
+  teamId?: string | null;
+  setTeamId: (id: string | null) => void;
+  // Backward compatibility alias (optional)
   groupId?: string | null;
-  setGroupId: (id: string | null) => void;
+  setGroupId?: (id: string | null) => void;
   country?: string | null;
   setCountry: (c: string | null) => void;
   status?: any | null;
   setStatus: (s: any | null) => void;
   filterOptions?: {
     teams?: Array<{ id: string; name: string; color: string | null }>;
-    groups?: Array<{ id: string; name: string; color: string | null }>;
     operators: Array<{
       id: string;
       name: string;
@@ -124,7 +126,6 @@ interface AnalyticsFilterToolbarProps {
       avatar: string | null;
       role: string;
       teamName?: string | null;
-      groupName?: string | null;
     }>;
     countries: string[];
     userRole: string;
@@ -143,6 +144,8 @@ export default function AnalyticsFilterToolbar({
   setEndDate,
   operatorId,
   setOperatorId,
+  teamId,
+  setTeamId,
   groupId,
   setGroupId,
   country,
@@ -154,6 +157,11 @@ export default function AnalyticsFilterToolbar({
   onRefresh,
   onExportExcel,
 }: AnalyticsFilterToolbarProps) {
+  const effectiveTeamId = teamId !== undefined ? teamId : (groupId || null);
+  const handleTeamChange = (id: string | null) => {
+    if (setTeamId) setTeamId(id);
+    if (setGroupId) setGroupId(id);
+  };
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
     if (startDate && endDate) {
@@ -179,12 +187,12 @@ export default function AnalyticsFilterToolbar({
   ];
 
   const hasActiveFilters = Boolean(
-    operatorId || groupId || country || status || period === "CUSTOM"
+    operatorId || effectiveTeamId || country || status || period === "CUSTOM"
   );
 
   const handleResetFilters = () => {
     setOperatorId(null);
-    setGroupId(null);
+    handleTeamChange(null);
     setCountry(null);
     setStatus(null);
     setPeriod("28D");
@@ -360,15 +368,15 @@ export default function AnalyticsFilterToolbar({
         </div>
 
         {/* 1. Team filter (Admin/Lead only) */}
-        {!isStaff && filterOptions && ((filterOptions.teams && filterOptions.teams.length > 0) || (filterOptions.groups && filterOptions.groups.length > 0)) && (
+        {!isStaff && filterOptions && filterOptions.teams && filterOptions.teams.length > 0 && (
           <div className="relative">
             <Select
-              value={groupId || "ALL"}
-              onValueChange={(val) => setGroupId(val === "ALL" ? null : val)}
+              value={effectiveTeamId || "ALL"}
+              onValueChange={(val) => handleTeamChange(val === "ALL" ? null : val)}
             >
               <SelectTrigger
                 className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${
-                  groupId && groupId !== "ALL"
+                  effectiveTeamId && effectiveTeamId !== "ALL"
                     ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
                     : ""
                 }`}
@@ -379,14 +387,14 @@ export default function AnalyticsFilterToolbar({
                 <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
                   Tất Cả Đội Nhóm (Teams)
                 </SelectItem>
-                {(filterOptions.teams || filterOptions.groups || []).map((t) => (
+                {(filterOptions.teams || []).map((t) => (
                   <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">
                     {t.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {groupId && groupId !== "ALL" && (
+            {effectiveTeamId && effectiveTeamId !== "ALL" && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -394,7 +402,7 @@ export default function AnalyticsFilterToolbar({
                     onClick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
-                      setGroupId(null);
+                      handleTeamChange(null);
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
                     aria-label="Xóa chọn đội nhóm"

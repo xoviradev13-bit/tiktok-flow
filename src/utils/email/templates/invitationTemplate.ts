@@ -4,6 +4,7 @@ export interface WorkspaceInvitationEmailData {
   recipientName?: string;
   inviterName: string;
   workspaceName?: string;
+  teamName?: string | null;
   groupName?: string | null;
   role?: string;
   invitationUrl: string;
@@ -43,6 +44,7 @@ export class InvitationEmailTemplates {
         : "Nhân Viên Vận Hành (Staff)";
 
     const workspace = data.workspaceName || "TIKTOKFLOW";
+    const displayTeam = data.teamName || data.groupName || null;
 
     return {
       subject: `[TIKTOKFLOW] ${data.inviterName} đã gửi thư mời bạn tham gia hệ thống (${roleBadgeText})`,
@@ -93,10 +95,10 @@ export class InvitationEmailTemplates {
                                         <td style="padding: 4px 0; color: #64748b; width: 140px;">Vai trò được gán:</td>
                                         <td style="padding: 4px 0; color: #0f172a; font-weight: 700;">${roleBadgeText}</td>
                                     </tr>
-                                    ${data.groupName ? `
+                                    ${displayTeam ? `
                                     <tr>
-                                        <td style="padding: 4px 0; color: #64748b;">Nhóm / Team:</td>
-                                        <td style="padding: 4px 0; color: #ec4899; font-weight: 700;">${data.groupName}</td>
+                                        <td style="padding: 4px 0; color: #64748b;">Đội ngũ / Team:</td>
+                                        <td style="padding: 4px 0; color: #ec4899; font-weight: 700;">${displayTeam}</td>
                                     </tr>
                                     ` : ""}
                                     <tr>

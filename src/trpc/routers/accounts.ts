@@ -157,7 +157,7 @@ export const accountsRouter = router({
         }
       }
 
-      const [accounts, trashCount, statusGroups, onlineCount] = await Promise.all([
+      const [accounts, trashCount, statusTeams, onlineCount] = await Promise.all([
         client.tiktokAccount.findMany({
           where,
           include: {
@@ -241,12 +241,12 @@ export const accountsRouter = router({
         }
       }
 
-      const statusMap: Record<string, number> = statusGroups.reduce((acc: Record<string, number>, curr: { status: string; _count: { id: number } }) => {
+      const statusMap: Record<string, number> = statusTeams.reduce((acc: Record<string, number>, curr: { status: string; _count: { id: number } }) => {
         acc[curr.status] = curr._count.id;
         return acc;
       }, {} as Record<string, number>);
 
-      const totalCount = statusGroups.reduce((sum: number, curr: { _count: { id: number } }) => sum + curr._count.id, 0);
+      const totalCount = statusTeams.reduce((sum: number, curr: { _count: { id: number } }) => sum + curr._count.id, 0);
       const activeCount = statusMap["ACTIVE"] || 0;
       const restrictedCount = statusMap["RESTRICTED"] || 0;
       const bannedCount = statusMap["BANNED"] || 0;

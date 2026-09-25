@@ -129,7 +129,6 @@ export const analyticsRouter = router({
         startDate: z.string().optional(),
         endDate: z.string().optional(),
         operatorId: z.string().optional().nullable(),
-        groupId: z.string().optional().nullable(),
         teamId: z.string().optional().nullable(),
         country: z.string().optional().nullable(),
         status: z
@@ -210,7 +209,7 @@ export const analyticsRouter = router({
       }
 
       // Build Account filter
-      let targetTeamId = input.teamId || input.groupId;
+      let targetTeamId = input.teamId;
       if (isLead) {
         if (!targetTeamId || !scope.teamIds.includes(targetTeamId)) {
           targetTeamId = scope.teamIds[0] || null;
