@@ -25,6 +25,7 @@ import FleetAnalyticsTab from "@/features/analytics/components/FleetAnalyticsTab
 import OperationsAnalyticsTab from "@/features/analytics/components/OperationsAnalyticsTab";
 import RiskAuditTab from "@/features/analytics/components/RiskAuditTab";
 import { exportAnalyticsToExcel } from "@/features/analytics/utils/exportAnalyticsExcel";
+import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
 import { toast } from "sonner";
 
 type TabKey = "OVERVIEW" | "REVENUE" | "FLEET" | "OPERATIONS" | "RISK";
@@ -177,6 +178,7 @@ function AnalyticsPageContent() {
 
   return (
     <div className="space-y-6 animate-fadeIn pb-16">
+      <TeamScopeBanner className="mb-2" />
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0">

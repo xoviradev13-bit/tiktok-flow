@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, Suspense } from "react";
+import { useSession } from "next-auth/react";
 import { useUrlParams } from "@/hooks/useUrlState";
 import {
   FileText,
@@ -41,8 +42,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { useSession } from "next-auth/react";
 import { useConfirmDialog } from "@/components/ui/confirm-modal";
+import { useDebounce } from "@/hooks/useDebounce";
+import { smartSearchMatch } from "@/utils/search";
 
 function LogsPageContent() {
   const { data: session } = useSession();
@@ -68,6 +70,7 @@ function LogsPageContent() {
 
   const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
   const [searchQuery, setSearchQuery] = useState(initialSearch);
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
   const [editingReport, setEditingReport] = useState<any | null>(null);
@@ -114,7 +117,7 @@ function LogsPageContent() {
       page,
       pageSize,
       logType: logTypeFilter,
-      search: searchQuery || undefined,
+      search: debouncedSearchQuery || undefined,
     });
 
   // Query Bug Reports
@@ -159,6 +162,22 @@ function LogsPageContent() {
   };
 
   const bugReports = bugsData?.items || [];
+
+  const filteredBugReports = useMemo(() => {
+    if (!searchQuery.trim()) return bugReports;
+    return bugReports.filter((report: any) =>
+      smartSearchMatch(
+        searchQuery,
+        report.title,
+        report.description,
+        report.category,
+        report.severity,
+        report.status,
+        report.reporterName,
+        report.reporterEmail
+      )
+    );
+  }, [bugReports, searchQuery]);
 
   // Export logs to CSV
   const handleExportCSV = () => {
@@ -376,7 +395,7 @@ function LogsPageContent() {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3.5 rounded-2xl bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-xs">
             {/* Search Input */}
             <div className="relative w-full sm:w-80">
-              <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={searchQuery}
@@ -385,8 +404,26 @@ function LogsPageContent() {
                   setPage(1);
                 }}
                 placeholder="Tìm nội dung log, username, actor..."
-                className="w-full pl-9 pr-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-pink-500"
+                className="w-full pl-9 pr-8 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-pink-500"
               />
+              {searchQuery && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setPage(1);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-110"
+                      aria-label="Xóa tìm kiếm"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa tìm kiếm</TooltipContent>
+                </Tooltip>
+              )}
             </div>
 
             {/* Filter Pills */}
@@ -576,7 +613,33 @@ function LogsPageContent() {
               </p>
             </div>
 
-            <div className="flex items-center gap-2.5 self-start sm:self-auto">
+            <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto w-full sm:w-auto">
+              <div className="relative w-full sm:w-60">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Tìm sự cố, mô tả, người gửi..."
+                  className="w-full pl-9 pr-8 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-pink-500"
+                />
+                {searchQuery && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-110"
+                        aria-label="Xóa tìm kiếm"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa tìm kiếm</TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+
               <div className="relative shrink-0">
                 <Select
                   value={bugStatusFilter}
@@ -633,7 +696,7 @@ function LogsPageContent() {
 
           {bugsLoading ? (
             <DataTableSkeleton columnCount={5} rowCount={5} />
-          ) : bugReports.length === 0 ? (
+          ) : filteredBugReports.length === 0 ? (
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center text-slate-400">
               <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-500/40 mb-3" />
               <h3 className="text-base font-bold text-slate-700 dark:text-slate-300">
@@ -645,7 +708,7 @@ function LogsPageContent() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
-              {bugReports.map((report) => {
+              {filteredBugReports.map((report) => {
                 const isOwner =
                   (session?.user?.id && report.reporterId === session.user.id) ||
                   (session?.user?.email && report.reporterEmail === session.user.email);

@@ -10,6 +10,7 @@ import {
   revenueSourceFilterKeys,
 } from "@/lib/m10n-programs";
 import { resolvePeriodRevenue } from "@/lib/resolve-all-time-revenue";
+import { resolveUserScope } from "@/lib/lead-scoping";
 
 function parseDateOnly(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -59,9 +60,12 @@ export const revenueRouter = router({
       const endDate = input?.endDate;
       const isCustomRange = Boolean(startDate && endDate);
 
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       const whereAccount: any = {};
-      if (ctx.session.user.role === "STAFF") {
+      if (scope.isStaff) {
         whereAccount.assignedUserId = ctx.session.user.id;
+      } else if (scope.isLead) {
+        whereAccount.assignedUserId = { in: scope.memberUserIds };
       }
 
       const accounts = await ctx.prisma.tiktokAccount.findMany({
@@ -316,10 +320,17 @@ export const revenueRouter = router({
         });
       }
 
-      if (ctx.session.user.role === "STAFF" && account.assignedUserId !== ctx.session.user.id) {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      if (scope.isStaff && account.assignedUserId !== ctx.session.user.id) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Not permitted to record revenue for this account",
+        });
+      }
+      if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể ghi nhận doanh thu cho tài khoản thuộc đội nhóm của mình.",
         });
       }
 
@@ -407,12 +418,20 @@ export const revenueRouter = router({
         });
       }
 
+      const scope = await resolveUserScope(ctx.prismaRaw, ctx.session.user);
+      let assignedUserFilter: any = {};
+      if (scope.isStaff) {
+        assignedUserFilter = { assignedUserId: ctx.session.user.id };
+      } else if (scope.isLead) {
+        assignedUserFilter = { assignedUserId: { in: scope.memberUserIds } };
+      }
+
       const accounts = await ctx.prismaRaw.tiktokAccount.findMany({
         where: {
           OR: usernames.map((u) => ({
             username: { equals: u, mode: "insensitive" as const },
           })),
-          ...(isStaff ? { assignedUserId: ctx.session.user.id } : {}),
+          ...assignedUserFilter,
           deletedAt: null,
         },
         select: { id: true, username: true, assignedUserId: true },
@@ -532,18 +551,36 @@ export const revenueRouter = router({
       const includeArchived = Boolean(input?.includeArchived);
       const dbClient = includeArchived ? ctx.prismaRaw : ctx.prisma;
 
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+
       const whereAccount: any = {};
       if (!includeArchived) {
         whereAccount.deletedAt = null;
       }
-      if (ctx.session.user.role === "STAFF") {
+      if (scope.isStaff) {
         whereAccount.assignedUserId = ctx.session.user.id;
+      } else if (scope.isLead) {
+        whereAccount.assignedUserId = { in: scope.memberUserIds };
       }
       if (input?.accountId && input.accountId !== "ALL") {
         whereAccount.id = input.accountId;
       }
       if (input?.search) {
-        whereAccount.username = { contains: input.search.trim().replace(/^@/, ""), mode: "insensitive" };
+        const s = input.search.trim().replace(/^@+/, "");
+        whereAccount.OR = [
+          { username: { contains: s, mode: "insensitive" as const } },
+          { gpmProfileName: { contains: s, mode: "insensitive" as const } },
+          { groupName: { contains: s, mode: "insensitive" as const } },
+          {
+            assignedUser: {
+              OR: [
+                { fullName: { contains: s, mode: "insensitive" as const } },
+                { name: { contains: s, mode: "insensitive" as const } },
+                { username: { contains: s, mode: "insensitive" as const } },
+              ],
+            },
+          },
+        ];
       }
 
       const where: any = {};
@@ -808,6 +845,23 @@ export const revenueRouter = router({
       });
       const accountIds = Array.from(new Set(records.map((r) => r.accountId)));
 
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      if (scope.isLead) {
+        const accounts = await ctx.prisma.tiktokAccount.findMany({
+          where: { id: { in: accountIds } },
+          select: { assignedUserId: true },
+        });
+        const hasForbidden = accounts.some(
+          (a) => !a.assignedUserId || !scope.memberUserIds.includes(a.assignedUserId)
+        );
+        if (hasForbidden) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Bạn chỉ có thể xóa doanh thu của tài khoản thuộc đội nhóm của mình.",
+          });
+        }
+      }
+
       const res = await ctx.prisma.dailyRevenue.deleteMany({
         where: { id: { in: input.ids } },
       });
@@ -845,7 +899,21 @@ export const revenueRouter = router({
         where: { id: input.id },
       });
       if (!record) {
-        throw new Error("Không tìm thấy bản ghi doanh thu.");
+        throw new TRPCError({ code: "NOT_FOUND", message: "Không tìm thấy bản ghi doanh thu." });
+      }
+
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      if (scope.isLead) {
+        const account = await ctx.prisma.tiktokAccount.findUnique({
+          where: { id: record.accountId },
+          select: { assignedUserId: true },
+        });
+        if (!account?.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Bạn chỉ có thể chỉnh sửa doanh thu của tài khoản thuộc đội nhóm của mình.",
+          });
+        }
       }
 
       const updated = await ctx.prisma.dailyRevenue.update({

@@ -199,7 +199,7 @@ export function AccountDetailSkeleton() {
 // ============================================================================
 // 3. Groups Page Skeleton
 // ============================================================================
-export function GroupsPageSkeleton() {
+export function TeamsPageSkeleton() {
   return (
     <div className="space-y-6 w-full pb-20 animate-fadeIn">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1070,4 +1070,107 @@ export function RevenueDetailsSkeleton() {
     </div>
   );
 }
+
+// ============================================================================
+// 15. Team Detail Page Skeleton
+// ============================================================================
+export function TeamDetailSkeleton() {
+  return (
+    <div className="space-y-6 w-full pb-20 animate-fadeIn">
+      {/* Breadcrumb & Navigation */}
+      <div className="flex items-center justify-between gap-4">
+        <SkeletonBox className="h-5 w-48 rounded-lg" />
+        <div className="flex items-center gap-2">
+          <SkeletonBox className="h-9 w-24 rounded-xl" />
+          <SkeletonBox className="h-9 w-28 rounded-xl" />
+          <SkeletonBox className="h-9 w-36 rounded-xl" />
+        </div>
+      </div>
+
+      {/* Hero Header Card */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <SkeletonBox className="w-14 h-14 rounded-2xl shrink-0" />
+          <div className="space-y-2">
+            <SkeletonBox className="h-8 w-60 rounded-xl" />
+            <SkeletonLine className="h-4 w-80 max-w-full" />
+          </div>
+        </div>
+        <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 lg:min-w-[340px] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <SkeletonBox className="w-11 h-11 rounded-2xl shrink-0" />
+            <div className="space-y-1.5">
+              <SkeletonBox className="h-4 w-32 rounded-lg" />
+              <SkeletonLine className="h-3 w-40" />
+            </div>
+          </div>
+          <SkeletonBox className="h-8 w-24 rounded-xl shrink-0" />
+        </div>
+      </div>
+
+      {/* 4 Metric Cards Ribbon */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex items-center justify-between"
+          >
+            <div className="space-y-2 flex-1">
+              <SkeletonLine className="h-3 w-28" />
+              <SkeletonBox className="h-7 w-20 rounded-lg" />
+              <SkeletonLine className="h-3 w-36" />
+            </div>
+            <SkeletonBox className="w-12 h-12 rounded-2xl shrink-0" />
+          </div>
+        ))}
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+        <SkeletonBox className="h-9 w-72 rounded-xl" />
+        <div className="flex items-center gap-2">
+          <SkeletonBox className="h-9 w-32 rounded-xl" />
+          <SkeletonBox className="h-9 w-36 rounded-xl" />
+          <SkeletonBox className="h-9 w-36 rounded-xl" />
+        </div>
+      </div>
+
+      {/* Table Skeleton */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+        <div className="flex items-center gap-4 px-5 py-3.5 border-b border-slate-100 dark:border-slate-800">
+          <SkeletonBox className="w-4 h-4 rounded" />
+          <SkeletonLine className="h-3 w-36" />
+          <SkeletonLine className="h-3 w-20" />
+          <SkeletonLine className="h-3 w-24" />
+          <SkeletonLine className="h-3 w-28" />
+          <SkeletonLine className="h-3 w-20 ml-auto" />
+          <SkeletonLine className="h-3 w-20" />
+          <SkeletonLine className="h-3 w-20" />
+          <SkeletonLine className="h-3 w-16" />
+        </div>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-4 px-5 py-3.5 border-b border-slate-100 dark:border-slate-800/60"
+          >
+            <SkeletonBox className="w-4 h-4 rounded shrink-0" />
+            <SkeletonBox className="w-9 h-9 rounded-xl shrink-0" />
+            <div className="space-y-1 flex-1 min-w-0">
+              <SkeletonLine className="h-3.5 w-40" />
+              <SkeletonLine className="h-2.5 w-24" />
+            </div>
+            <SkeletonBox className="h-6 w-20 rounded-full" />
+            <SkeletonBox className="h-6 w-24 rounded-full" />
+            <SkeletonLine className="h-4 w-28" />
+            <SkeletonBox className="h-6 w-16 rounded-full" />
+            <SkeletonLine className="h-4 w-20" />
+            <SkeletonLine className="h-4 w-16" />
+            <SkeletonBox className="w-7 h-7 rounded-lg shrink-0" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 

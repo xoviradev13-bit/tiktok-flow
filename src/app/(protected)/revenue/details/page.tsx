@@ -32,6 +32,7 @@ import * as XLSX from "xlsx";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
 import { format, subDays, addDays, differenceInCalendarDays, startOfDay } from "date-fns";
 import { DateRange } from "react-day-picker";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
@@ -78,6 +79,8 @@ import {
   resolveRevenueSourceKey,
 } from "@/lib/m10n-programs";
 import { useConfirmDialog } from "@/components/ui/confirm-modal";
+import { useDebounce } from "@/hooks/useDebounce";
+import { smartSearchMatch } from "@/utils/search";
 
 const REVENUE_SOURCE_OPTIONS = getRevenueSourceSelectOptions();
 /** Studio daily nguồn thu only covers ~60 days — keep custom range in sync. */
@@ -121,6 +124,7 @@ function RevenueDetailsPageContent() {
 
   const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
   const [search, setSearch] = useState(initialSearch);
+  const debouncedSearch = useDebounce(search, 300);
 
   const initialSourceRaw = searchParams?.get("source") || "ALL";
   const initialSource =
@@ -343,7 +347,7 @@ function RevenueDetailsPageContent() {
   }, [utils]);
 
   const { data: records = [], isLoading: loading } = trpc.revenue.listDetails.useQuery({
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     sourceType: sourceTypeFilter !== "ALL" ? sourceTypeFilter : undefined,
     startDate: startDate || undefined,
     endDate: endDate || undefined,
@@ -543,12 +547,18 @@ function RevenueDetailsPageContent() {
 
   // Filtered and sorted
   const filteredAndSortedRecords = useMemo(() => {
-    const s = search.toLowerCase().trim();
-
     const filtered = records.filter((r: any) => {
-      const username = (r.account?.username || "").toLowerCase();
-      const staffName = (r.account?.assignedUser?.fullName || r.account?.assignedUser?.name || "").toLowerCase();
-      const matchSearch = !s || username.includes(s) || staffName.includes(s);
+      const matchSearch = smartSearchMatch(
+        search,
+        r.account?.username,
+        r.account?.gpmProfileName,
+        r.account?.groupName,
+        r.account?.assignedUser?.fullName,
+        r.account?.assignedUser?.name,
+        r.account?.assignedUser?.username,
+        r.date,
+        formatRevenueSourceLabel(r.sourceType)
+      );
 
       const matchSource =
         sourceTypeFilter === "ALL" ||
@@ -848,6 +858,7 @@ function RevenueDetailsPageContent() {
 
   return (
     <div className="space-y-6 w-full pb-20">
+      <TeamScopeBanner className="mb-2" />
       {/* Header & Controls Section */}
       <div className="space-y-4">
         {/* Top Header */}

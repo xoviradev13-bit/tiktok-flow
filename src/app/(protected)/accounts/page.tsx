@@ -47,6 +47,7 @@ import {
   Info,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -98,6 +99,8 @@ import { OnlineOfflineBadge } from "@/components/ui/status-badge";
 import { SyncStatusBadge, hasAccountSyncIssue } from "@/components/common/SyncStatusBadge";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
+import { useDebounce } from "@/hooks/useDebounce";
+import { smartSearchMatch } from "@/utils/search";
 
 const ACCOUNT_COLUMN_RESIZE_CONFIG = {
   // mins sized for header label + padding + core controls; text truncates inside the live width
@@ -577,6 +580,7 @@ function AccountsPageContent() {
   // Fast filters
   const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
   const [search, setSearch] = useState(initialSearch);
+  const debouncedSearch = useDebounce(search, 300);
 
   const initialStatus = searchParams?.get("status") || "ALL";
   const [statusFilter, setStatusFilter] = useState<any>(initialStatus);
@@ -806,7 +810,7 @@ function AccountsPageContent() {
 
   // tRPC Queries
   const { data: accountsData, isLoading: loading } = trpc.accounts.list.useQuery({
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     status: !viewTrash && statusFilter !== "ALL" ? statusFilter : undefined,
     onlineStatus: !viewTrash && onlineFilter !== "ALL" ? onlineFilter : undefined,
     syncStatus: !viewTrash && syncFilter !== "ALL" ? syncFilter : undefined,
@@ -1308,12 +1312,20 @@ function AccountsPageContent() {
         return false;
       }
 
-      const matchSearch =
-        !s ||
-        acc.username.toLowerCase().includes(s) ||
-        (acc.groupName && acc.groupName.toLowerCase().includes(s)) ||
-        (acc.gpmProfileName && acc.gpmProfileName.toLowerCase().includes(s)) ||
-        (acc.gpmProfileId && acc.gpmProfileId.toLowerCase().includes(s));
+      const matchSearch = smartSearchMatch(
+        search,
+        acc.username,
+        acc.groupName,
+        acc.gpmProfileName,
+        acc.gpmProfileId,
+        acc.country,
+        normalizeCountry(acc.country),
+        acc.assignedUser?.fullName,
+        acc.assignedUser?.name,
+        acc.assignedUser?.username,
+        acc.assignedUser?.email,
+        getAssigneeLabel(acc)
+      );
 
       const matchStatus = statusFilter === "ALL" || acc.status === statusFilter;
       const matchOnline =
@@ -1451,18 +1463,22 @@ function AccountsPageContent() {
     (assignedFilter !== "ALL" ? 1 : 0) +
     activeAdvancedCount;
 
-  const clearAllFilters = () => {
-    setSearch("");
-    setStatusFilter("ALL");
+  const clearAdvancedFilters = () => {
     setOnlineFilter("ALL");
     setSyncFilter("ALL");
     setCountryFilter("ALL");
-    setAssignedFilter("ALL");
     setWarningFilter("ALL");
     setGpmFilter("ALL");
     setMinViews("");
     setMinRevenue("");
     setPage(1);
+  };
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setStatusFilter("ALL");
+    setAssignedFilter("ALL");
+    clearAdvancedFilters();
   };
 
   const getCountryFlag = (country: string) => {
@@ -1531,6 +1547,7 @@ function AccountsPageContent() {
 
   return (
     <div className="space-y-6 pb-20">
+      <TeamScopeBanner className="mb-2" />
       {/* Header & Controls Section */}
       <div className="space-y-4">
         {/* Top Header */}
@@ -1962,13 +1979,7 @@ function AccountsPageContent() {
                             onClick={(e) => {
                               e.stopPropagation();
                               e.preventDefault();
-                              setOnlineFilter("ALL");
-                              setCountryFilter("ALL");
-                              setWarningFilter("ALL");
-                              setGpmFilter("ALL");
-                              setMinViews("");
-                              setMinRevenue("");
-                              setPage(1);
+                              clearAdvancedFilters();
                             }}
                             className="group/badge relative ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-purple-600 hover:bg-rose-600 text-white text-[10px] font-bold transition-colors cursor-pointer shadow-2xs"
                             aria-label="Xóa tất cả bộ lọc nâng cao"
@@ -1987,16 +1998,7 @@ function AccountsPageContent() {
                     <h4 className="text-xs font-bold text-slate-900 dark:text-white">Bộ lọc chi tiết</h4>
                     {activeAdvancedCount > 0 && (
                       <button
-                        onClick={() => {
-                          setOnlineFilter("ALL");
-                          setSyncFilter("ALL");
-                          setCountryFilter("ALL");
-                          setWarningFilter("ALL");
-                          setGpmFilter("ALL");
-                          setMinViews("");
-                          setMinRevenue("");
-                          setPage(1);
-                        }}
+                        onClick={clearAdvancedFilters}
                         className="px-2.5 py-1 rounded-lg text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/50 transition-colors cursor-pointer"
                       >
                         Đặt lại

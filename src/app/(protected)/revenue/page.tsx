@@ -33,6 +33,7 @@ import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { format, subDays } from "date-fns";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
 
 function RevenuePageContent() {
   // SaaS URL Query State Synchronization
@@ -156,6 +157,7 @@ function RevenuePageContent() {
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
+      <TeamScopeBanner className="mb-2" />
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0">

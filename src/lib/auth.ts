@@ -124,6 +124,9 @@ export const authOptions: NextAuthConfig = {
               email: true,
               avatar: true,
               isActive: true,
+              teamId: true,
+              team: { select: { id: true, name: true, color: true } },
+              leadingTeams: { select: { id: true, name: true, color: true } },
             },
           });
           if (dbUser) {
@@ -148,6 +151,10 @@ export const authOptions: NextAuthConfig = {
           token.role = dbUser.role ?? "STAFF";
           token.userType = dbUser.role ?? "STAFF";
           token.isVerified = dbUser.isVerified;
+          const activeLedTeam = dbUser.leadingTeams?.[0] || dbUser.team || null;
+          token.teamId = dbUser.teamId || activeLedTeam?.id || null;
+          token.teamName = dbUser.team?.name || activeLedTeam?.name || null;
+          token.ledTeam = activeLedTeam;
         }
       }
 
@@ -178,6 +185,9 @@ export const authOptions: NextAuthConfig = {
         session.user.userType = (token.role ?? token.userType ?? "STAFF") as string;
         session.user.isVerified = Boolean(token.isVerified);
         session.accessToken = token.accessToken as string;
+        session.user.teamId = (token.teamId as string) || null;
+        session.user.teamName = (token.teamName as string) || null;
+        session.user.ledTeam = (token.ledTeam as any) || null;
       }
       return session;
     },

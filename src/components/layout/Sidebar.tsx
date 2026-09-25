@@ -74,6 +74,7 @@ export default function Sidebar() {
     icon: any;
     badge?: string;
     adminOnly?: boolean;
+    leadAllowed?: boolean;
     isExternal?: boolean;
   }
 
@@ -84,6 +85,8 @@ export default function Sidebar() {
   const rawRole = (session?.user as any)?.role || (session?.user as any)?.userType || "STAFF";
   const userRole = String(rawRole).toUpperCase();
   const isAdmin = userRole === "ADMIN";
+  const isLead = userRole === "LEAD";
+  const ledTeam = (session?.user as any)?.ledTeam;
 
   const navGroups: { group: string; items: NavItem[] }[] = [
     {
@@ -101,7 +104,13 @@ export default function Sidebar() {
       group: "HỆ THỐNG & CẤU HÌNH",
       items: [
         { href: "/users", label: "Nhân Sự & Phân Quyền", icon: UserCog, adminOnly: true },
-        { href: "/groups", label: "Quản Lý Nhóm & Teams", icon: Layers, adminOnly: true },
+        {
+          href: isLead && ledTeam?.id ? `/teams/${ledTeam.id}` : "/teams",
+          label: isLead ? `Đội Nhóm: ${ledTeam?.name || "Team"}` : "Quản Lý Đội Nhóm (Teams)",
+          icon: Layers,
+          adminOnly: true,
+          leadAllowed: true,
+        },
         { href: "/logs", label: "Nhật Ký Hoạt Động", icon: Activity },
         { href: "/settings", label: "Cài Đặt & Cá Nhân", icon: Settings },
       ],
@@ -120,7 +129,7 @@ export default function Sidebar() {
   const filteredNavGroups = navGroups
     .map((grp) => ({
       ...grp,
-      items: grp.items.filter((item) => !item.adminOnly || isAdmin),
+      items: grp.items.filter((item) => !item.adminOnly || isAdmin || (Boolean(item.leadAllowed) && isLead)),
     }))
     .filter((grp) => grp.items.length > 0);
 

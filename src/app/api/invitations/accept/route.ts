@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     const invitation = await prisma.invitation.findUnique({
       where: { token: token.trim() },
       include: {
-        group: true,
+        team: true,
         invitedBy: true,
       },
     });
@@ -86,13 +86,13 @@ export async function POST(req: Request) {
       );
     }
 
-    // Assign role, group, and activate user (upsert ensures OAuth users without pre-existing DB rows get created)
+    // Assign role, team, and activate user (upsert ensures OAuth users without pre-existing DB rows get created)
     const rawUsername = session.user.name || currentEmail.split("@")[0];
     const updatedUser = await prisma.user.upsert({
       where: { email: currentEmail },
       update: {
         role: invitation.role,
-        groupId: invitation.groupId || undefined,
+        teamId: invitation.teamId || undefined,
         isActive: true,
         isVerified: true,
       },
@@ -101,7 +101,7 @@ export async function POST(req: Request) {
         name: rawUsername,
         username: rawUsername,
         role: invitation.role,
-        groupId: invitation.groupId || undefined,
+        teamId: invitation.teamId || undefined,
         isActive: true,
         isVerified: true,
       },
@@ -121,8 +121,9 @@ export async function POST(req: Request) {
         success: true,
         message: "Chấp nhận lời mời thành công!",
         role: invitation.role,
-        groupName: invitation.group?.name || null,
-        workspaceId: invitation.groupId,
+        teamName: invitation.team?.name || null,
+        groupName: invitation.team?.name || null,
+        workspaceId: invitation.teamId,
         targetType: "workspace",
       },
       { status: 200 }
@@ -151,7 +152,7 @@ export async function GET(req: Request) {
     const invitation = await prisma.invitation.findUnique({
       where: { token: token.trim() },
       include: {
-        group: true,
+        team: true,
         invitedBy: {
           select: { name: true, username: true, email: true },
         },
@@ -170,7 +171,8 @@ export async function GET(req: Request) {
     return NextResponse.json({
       email: invitation.email,
       role: invitation.role,
-      groupName: invitation.group?.name || null,
+      teamName: invitation.team?.name || null,
+      groupName: invitation.team?.name || null,
       inviterName: invitation.invitedBy.name || invitation.invitedBy.username || "Quản trị viên",
       status: isExpired ? "EXPIRED" : invitation.status,
       expiresAt: invitation.expiresAt,

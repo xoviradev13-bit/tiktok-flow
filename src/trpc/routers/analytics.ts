@@ -2,6 +2,7 @@ import { router, protectedProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { insightViewsContribution } from "@/lib/insights-ui";
 import { resolveAllTimeRevenue, resolvePeriodRevenue } from "@/lib/resolve-all-time-revenue";
+import { resolveUserScope } from "@/lib/lead-scoping";
 
 function parseDateOnly(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -28,11 +29,17 @@ function calcGrowth(curr: number, prev: number): number {
 export const analyticsRouter = router({
   // 1. Dynamic Filter Options (Groups, Operators, Countries)
   getFilterOptions: protectedProcedure.query(async ({ ctx }) => {
+    const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
     const role = ctx.session.user.role;
     const isAdminOrLead = role === "ADMIN" || role === "LEAD";
 
-    // 1. Groups
-    const groups = await ctx.prisma.group.findMany({
+    // 1. Teams
+    const teamWhere: any = {};
+    if (scope.isLead) {
+      teamWhere.id = { in: scope.teamIds };
+    }
+    const teams = await ctx.prisma.team.findMany({
+      where: teamWhere,
       select: { id: true, name: true, color: true },
       orderBy: { name: "asc" },
     });
@@ -45,12 +52,17 @@ export const analyticsRouter = router({
       username: string | null;
       avatar: string | null;
       role: string;
+      teamName: string | null;
       groupName: string | null;
     }> = [];
 
     if (isAdminOrLead) {
+      const userWhere: any = { isActive: true, deletedAt: null };
+      if (scope.isLead) {
+        userWhere.id = { in: scope.memberUserIds };
+      }
       const users = await ctx.prisma.user.findMany({
-        where: { isActive: true, deletedAt: null },
+        where: userWhere,
         select: {
           id: true,
           name: true,
@@ -59,7 +71,7 @@ export const analyticsRouter = router({
           username: true,
           avatar: true,
           role: true,
-          group: { select: { name: true } },
+          team: { select: { name: true } },
         },
         orderBy: { name: "asc" },
       });
@@ -75,12 +87,18 @@ export const analyticsRouter = router({
         username: u.username,
         avatar: u.avatar,
         role: u.role,
-        groupName: u.group?.name || null,
+        teamName: u.team?.name || null,
+        groupName: u.team?.name || null,
       }));
     }
 
     // 3. Countries existing in fleet
+    const countryWhere: any = {};
+    if (scope.isLead) {
+      countryWhere.assignedUserId = { in: scope.memberUserIds };
+    }
     const rawCountries = await ctx.prisma.tiktokAccount.findMany({
+      where: countryWhere,
       select: { country: true },
       distinct: ["country"],
       orderBy: { country: "asc" },
@@ -91,11 +109,13 @@ export const analyticsRouter = router({
       .filter(Boolean);
 
     return {
-      groups,
+      teams,
+      groups: teams,
       operators,
       countries,
       userRole: role,
       userId: ctx.session.user.id,
+      scopedTeam: scope.ledTeam,
     };
   }),
 
@@ -110,6 +130,7 @@ export const analyticsRouter = router({
         endDate: z.string().optional(),
         operatorId: z.string().optional().nullable(),
         groupId: z.string().optional().nullable(),
+        teamId: z.string().optional().nullable(),
         country: z.string().optional().nullable(),
         status: z
           .enum(["ACTIVE", "WARMING", "RESTRICTED", "BANNED", "STOPPED", "CUSTOM"])
@@ -118,13 +139,18 @@ export const analyticsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const userRole = ctx.session.user.role;
-      const isStaff = userRole === "STAFF";
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const isStaff = scope.isStaff;
+      const isLead = scope.isLead;
 
       // Security check: STAFF is strictly limited to their own assigned data
-      const effectiveOperatorId = isStaff
+      let effectiveOperatorId = isStaff
         ? ctx.session.user.id
         : input.operatorId || null;
+
+      if (isLead && effectiveOperatorId && !scope.memberUserIds.includes(effectiveOperatorId)) {
+        effectiveOperatorId = null;
+      }
 
       const now = new Date();
       let currStart: Date | undefined;
@@ -184,12 +210,20 @@ export const analyticsRouter = router({
       }
 
       // Build Account filter
+      let targetTeamId = input.teamId || input.groupId;
+      if (isLead) {
+        if (!targetTeamId || !scope.teamIds.includes(targetTeamId)) {
+          targetTeamId = scope.teamIds[0] || null;
+        }
+      }
       const whereAccount: any = {};
       if (effectiveOperatorId) {
         whereAccount.assignedUserId = effectiveOperatorId;
+      } else if (isLead) {
+        whereAccount.assignedUserId = { in: scope.memberUserIds };
       }
-      if (input.groupId) {
-        whereAccount.assignedUser = { groupId: input.groupId };
+      if (targetTeamId) {
+        whereAccount.assignedUser = { teamId: targetTeamId };
       }
       if (input.country) {
         whereAccount.country = input.country;
@@ -220,7 +254,7 @@ export const analyticsRouter = router({
               username: true,
               avatar: true,
               role: true,
-              group: { select: { id: true, name: true, color: true } },
+              team: { select: { id: true, name: true, color: true } },
             },
           },
           alerts: {
@@ -242,8 +276,8 @@ export const analyticsRouter = router({
       const whereChecklistUsers: any = {};
       if (effectiveOperatorId) {
         whereChecklistUsers.userId = effectiveOperatorId;
-      } else if (input.groupId) {
-        whereChecklistUsers.user = { groupId: input.groupId };
+      } else if (targetTeamId) {
+        whereChecklistUsers.user = { teamId: targetTeamId };
       }
 
       const [
@@ -793,7 +827,8 @@ export const analyticsRouter = router({
           rpm,
           operatorName,
           operatorAvatar: a.assignedUser?.avatar || null,
-          groupName: a.assignedUser?.group?.name || null,
+          teamName: a.assignedUser?.team?.name || null,
+          groupName: a.assignedUser?.team?.name || null,
           openAlertsCount: a.alerts.length,
           hasCriticalAlert: a.alerts.some((al) => al.severity === "CRITICAL"),
         };
@@ -829,6 +864,7 @@ export const analyticsRouter = router({
             operatorName: string;
             operatorAvatar: string | null;
             role: string;
+            teamName: string | null;
             groupName: string | null;
             accountsCount: number;
             totalRevenue: number;
@@ -852,7 +888,8 @@ export const analyticsRouter = router({
             operatorName: opName,
             operatorAvatar: a.assignedUser.avatar,
             role: a.assignedUser.role,
-            groupName: a.assignedUser.group?.name || null,
+            teamName: a.assignedUser.team?.name || null,
+            groupName: a.assignedUser.team?.name || null,
             accountsCount: 0,
             totalRevenue: 0,
             totalViews: 0,

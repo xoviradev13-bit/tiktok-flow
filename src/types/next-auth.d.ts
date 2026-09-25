@@ -6,6 +6,9 @@ declare module "next-auth" {
     role?: string;
     userType?: string;
     isVerified?: boolean;
+    teamId?: string | null;
+    teamName?: string | null;
+    ledTeam?: { id: string; name: string; color: string | null } | null;
   }
 
   interface Session {
@@ -18,6 +21,9 @@ declare module "next-auth" {
       role?: string;
       userType?: string;
       isVerified?: boolean;
+      teamId?: string | null;
+      teamName?: string | null;
+      ledTeam?: { id: string; name: string; color: string | null } | null;
     } & DefaultSession["user"];
   }
 }
@@ -29,6 +35,9 @@ declare module "next-auth/jwt" {
     role?: string;
     userType?: string;
     isVerified?: boolean;
+    teamId?: string | null;
+    teamName?: string | null;
+    ledTeam?: { id: string; name: string; color: string | null } | null;
     // Set to "ACCOUNT_LOCKED" in the jwt callback when the DB user is inactive.
     error?: "ACCOUNT_LOCKED";
   }

@@ -114,7 +114,8 @@ interface AnalyticsFilterToolbarProps {
   status?: any | null;
   setStatus: (s: any | null) => void;
   filterOptions?: {
-    groups: Array<{ id: string; name: string; color: string | null }>;
+    teams?: Array<{ id: string; name: string; color: string | null }>;
+    groups?: Array<{ id: string; name: string; color: string | null }>;
     operators: Array<{
       id: string;
       name: string;
@@ -122,7 +123,8 @@ interface AnalyticsFilterToolbarProps {
       username: string | null;
       avatar: string | null;
       role: string;
-      groupName: string | null;
+      teamName?: string | null;
+      groupName?: string | null;
     }>;
     countries: string[];
     userRole: string;
@@ -357,8 +359,8 @@ export default function AnalyticsFilterToolbar({
           <span>Bộ Lọc:</span>
         </div>
 
-        {/* 1. Team / Group filter (Admin/Lead only) */}
-        {!isStaff && filterOptions && filterOptions.groups.length > 0 && (
+        {/* 1. Team filter (Admin/Lead only) */}
+        {!isStaff && filterOptions && ((filterOptions.teams && filterOptions.teams.length > 0) || (filterOptions.groups && filterOptions.groups.length > 0)) && (
           <div className="relative">
             <Select
               value={groupId || "ALL"}
@@ -371,15 +373,15 @@ export default function AnalyticsFilterToolbar({
                     : ""
                 }`}
               >
-                <SelectValue placeholder="Tất Cả Đội / Nhóm" />
+                <SelectValue placeholder="Tất Cả Đội Nhóm (Teams)" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
                 <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
-                  Tất Cả Đội / Nhóm
+                  Tất Cả Đội Nhóm (Teams)
                 </SelectItem>
-                {filterOptions.groups.map((g) => (
-                  <SelectItem key={g.id} value={g.id} className="text-xs font-normal cursor-pointer">
-                    {g.name}
+                {(filterOptions.teams || filterOptions.groups || []).map((t) => (
+                  <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">
+                    {t.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -395,12 +397,12 @@ export default function AnalyticsFilterToolbar({
                       setGroupId(null);
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                    aria-label="Xóa chọn đội / nhóm"
+                    aria-label="Xóa chọn đội nhóm"
                   >
                     <X className="w-2.5 h-2.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="top">Xóa chọn đội / nhóm</TooltipContent>
+                <TooltipContent side="top">Xóa chọn đội nhóm</TooltipContent>
               </Tooltip>
             )}
           </div>

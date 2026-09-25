@@ -51,17 +51,17 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
-// 0. Groups / Teams
-model Group {
+// 0. Teams
+model Team {
   id          String    @id @default(cuid())
   name        String    @unique
   description String?
   color       String?   @default("pink")
   leaderId    String?   @map("leader_id")
-  leader      User?     @relation("GroupLeader", fields: [leaderId], references: [id], onDelete: SetNull)
+  leader      User?     @relation("TeamLeader", fields: [leaderId], references: [id], onDelete: SetNull)
   createdById String?   @map("created_by_id")
-  createdBy   User?     @relation("GroupCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  members     User[]    @relation("GroupMembers")
+  createdBy   User?     @relation("TeamCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  members     User[]    @relation("TeamMembers")
   invitations Invitation[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -69,7 +69,7 @@ model Group {
   @@index([leaderId])
   @@index([createdById])
   @@index([createdAt])
-  @@map("groups")
+  @@map("teams")
 }
 
 // 1. Users / Staff / Operators / Admins
@@ -92,10 +92,10 @@ model User {
   verificationLevel VerificationLevel @default(UNVERIFIED)
   lastActiveAt      DateTime?
 
-  groupId           String?           @map("group_id")
-  group             Group?            @relation("GroupMembers", fields: [groupId], references: [id], onDelete: SetNull)
-  leadingGroups     Group[]           @relation("GroupLeader")
-  createdGroups     Group[]           @relation("GroupCreator")
+  teamId           String?           @map("team_id")
+  team             Team?             @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  leadingTeams     Team[]            @relation("TeamLeader")
+  createdTeams     Team[]            @relation("TeamCreator")
 
   accounts          Account[]
   sessions          Session[]
@@ -133,7 +133,7 @@ model User {
   @@index([deletedAt])
   @@index([isActive])
   @@index([role])
-  @@index([groupId])
+  @@index([teamId])
   @@index([createdAt])
   @@index([deletedAt, isActive])
   @@index([deletedAt, role])
@@ -362,8 +362,8 @@ model Invitation {
   id          String           @id @default(cuid())
   email       String
   role        Role             @default(STAFF)
-  groupId     String?          @map("group_id")
-  group       Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  teamId      String?          @map("team_id")
+  team        Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
   invitedById String           @map("invited_by_id")
   invitedBy   User             @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: Cascade)
   token       String           @unique
@@ -376,7 +376,7 @@ model Invitation {
   @@index([email])
   @@index([token])
   @@index([status])
-  @@index([groupId])
+  @@index([teamId])
   @@index([invitedById])
   @@index([expiresAt])
   @@map("invitations")

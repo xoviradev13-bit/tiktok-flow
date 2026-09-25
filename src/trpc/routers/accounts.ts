@@ -24,6 +24,7 @@ import {
   recordAccountTransfer,
   recordBulkAccountTransfer,
 } from "@/lib/account-assignment-history";
+import { resolveUserScope } from "@/lib/lead-scoping";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -64,20 +65,43 @@ export const accountsRouter = router({
 
       const where: any = viewTrash ? { deletedAt: { not: null } } : {};
 
-      // STAFF scoping
-      if (ctx.session.user.role === "STAFF") {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+
+      // Scoping by role: Staff sees only self, Lead sees their team's members, Admin sees all
+      if (scope.isStaff) {
         where.assignedUserId = ctx.session.user.id;
+      } else if (scope.isLead) {
+        if (!viewTrash && input?.assignedUserId && input.assignedUserId !== "ALL") {
+          if (scope.memberUserIds.includes(input.assignedUserId)) {
+            where.assignedUserId = input.assignedUserId;
+          } else {
+            where.assignedUserId = { in: scope.memberUserIds };
+          }
+        } else {
+          where.assignedUserId = { in: scope.memberUserIds };
+        }
       } else if (!viewTrash && input?.assignedUserId && input.assignedUserId !== "ALL") {
         where.assignedUserId = input.assignedUserId;
       }
 
       if (input?.search) {
-        const s = input.search.trim();
+        const s = input.search.trim().replace(/^@+/, "");
         where.OR = [
-          { username: { contains: s, mode: "insensitive" } },
-          { groupName: { contains: s, mode: "insensitive" } },
-          { gpmProfileName: { contains: s, mode: "insensitive" } },
-          { gpmProfileId: { contains: s, mode: "insensitive" } },
+          { username: { contains: s, mode: "insensitive" as const } },
+          { groupName: { contains: s, mode: "insensitive" as const } },
+          { gpmProfileName: { contains: s, mode: "insensitive" as const } },
+          { gpmProfileId: { contains: s, mode: "insensitive" as const } },
+          { country: { contains: s, mode: "insensitive" as const } },
+          {
+            assignedUser: {
+              OR: [
+                { fullName: { contains: s, mode: "insensitive" as const } },
+                { name: { contains: s, mode: "insensitive" as const } },
+                { username: { contains: s, mode: "insensitive" as const } },
+                { email: { contains: s, mode: "insensitive" as const } },
+              ],
+            },
+          },
         ];
       }
 
@@ -106,12 +130,23 @@ export const accountsRouter = router({
         if (input?.onlineStatus && input.onlineStatus !== "ALL") {
           delete baseCountWhere.isOnline;
           if (input?.search) {
-            const s = input.search.trim();
+            const s = input.search.trim().replace(/^@+/, "");
             baseCountWhere.OR = [
-              { username: { contains: s, mode: "insensitive" } },
-              { groupName: { contains: s, mode: "insensitive" } },
-              { gpmProfileName: { contains: s, mode: "insensitive" } },
-              { gpmProfileId: { contains: s, mode: "insensitive" } },
+              { username: { contains: s, mode: "insensitive" as const } },
+              { groupName: { contains: s, mode: "insensitive" as const } },
+              { gpmProfileName: { contains: s, mode: "insensitive" as const } },
+              { gpmProfileId: { contains: s, mode: "insensitive" as const } },
+              { country: { contains: s, mode: "insensitive" as const } },
+              {
+                assignedUser: {
+                  OR: [
+                    { fullName: { contains: s, mode: "insensitive" as const } },
+                    { name: { contains: s, mode: "insensitive" as const } },
+                    { username: { contains: s, mode: "insensitive" as const } },
+                    { email: { contains: s, mode: "insensitive" as const } },
+                  ],
+                },
+              },
             ];
           } else {
             delete baseCountWhere.OR;
@@ -354,11 +389,18 @@ export const accountsRouter = router({
         });
       }
 
-      // Staff access check
-      if (ctx.session.user.role === "STAFF" && account.assignedUserId !== ctx.session.user.id) {
+      // Staff and Lead access checks
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      if (scope.isStaff && account.assignedUserId !== ctx.session.user.id) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "You are not authorized to view this account.",
+        });
+      }
+      if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể xem tài khoản thuộc đội nhóm của mình.",
         });
       }
 
@@ -423,6 +465,14 @@ export const accountsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const cleanUsername = input.username.replace(/^@/, "").trim();
       const actorName = ctx.session.user.name || ctx.session.user.email || "User";
+
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      if (scope.isLead && input.assignedUserId && !scope.memberUserIds.includes(input.assignedUserId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể phân công tài khoản cho thành viên trong đội nhóm của mình.",
+        });
+      }
 
       const existing = await ctx.prismaRaw.tiktokAccount.findUnique({
         where: { username: cleanUsername },
@@ -572,10 +622,26 @@ export const accountsRouter = router({
         });
       }
 
-      if (ctx.session.user.role === "STAFF" && current.assignedUserId !== ctx.session.user.id) {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+
+      if (scope.isStaff && current.assignedUserId !== ctx.session.user.id) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Not permitted to update this account",
+        });
+      }
+
+      if (scope.isLead && (!current.assignedUserId || !scope.memberUserIds.includes(current.assignedUserId))) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể chỉnh sửa tài khoản thuộc đội nhóm của mình.",
+        });
+      }
+
+      if (scope.isLead && input.assignedUserId && !scope.memberUserIds.includes(input.assignedUserId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể phân công tài khoản cho thành viên trong đội nhóm của mình.",
         });
       }
 
@@ -1375,8 +1441,14 @@ export const accountsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const where: any = { id: { in: input.ids }, deletedAt: null };
+      if (scope.isLead) {
+        where.assignedUserId = { in: scope.memberUserIds };
+      }
+
       const res = await ctx.prisma.tiktokAccount.updateMany({
-        where: { id: { in: input.ids }, deletedAt: null },
+        where,
         data: { status: input.status },
       });
       return { count: res.count };
@@ -1391,8 +1463,21 @@ export const accountsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      if (scope.isLead && input.assignedUserId && !scope.memberUserIds.includes(input.assignedUserId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể phân công tài khoản cho thành viên trong đội nhóm của mình.",
+        });
+      }
+
+      const where: any = { id: { in: input.ids }, deletedAt: null };
+      if (scope.isLead) {
+        where.assignedUserId = { in: scope.memberUserIds };
+      }
+
       const res = await ctx.prisma.tiktokAccount.updateMany({
-        where: { id: { in: input.ids }, deletedAt: null },
+        where,
         data: { assignedUserId: input.assignedUserId },
       });
 

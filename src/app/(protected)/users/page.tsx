@@ -85,14 +85,15 @@ import { format } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { smartSearchMatch } from "@/utils/search";
 import {
-  optimisticallyUpdateUserGroup,
+  optimisticallyUpdateUserTeam,
   optimisticallyUpdateUserRole,
   optimisticallyToggleUserStatus,
   optimisticallyDeleteUsers,
-  snapshotUserGroupQueries,
-  rollbackUserGroupQueries,
-} from "@/utils/optimisticUsersGroups";
+  snapshotUserTeamQueries,
+  rollbackUserTeamQueries,
+} from "@/utils/optimisticUsersTeams";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 import { useConfirmDialog } from "@/components/ui/confirm-modal";
 import { downloadPackage } from "@/lib/download-package";
@@ -115,7 +116,7 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "username", label: "Username" },
   { key: "email", label: "Email" },
   { key: "role", label: "Vai trò" },
-  { key: "groupName", label: "Nhóm" },
+  { key: "groupName", label: "Đội nhóm" },
   { key: "accountsCount", label: "Số acc phụ trách" },
   { key: "isActive", label: "Trạng thái hoạt động" },
   { key: "createdAt", label: "Ngày tạo" },
@@ -288,12 +289,18 @@ function UsersManagementContent() {
 
   const { data: session, status } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
+  const isLead = (session?.user as any)?.role === "LEAD";
+  const ledTeamId = (session?.user as any)?.ledTeam?.id;
 
   useEffect(() => {
-    if (status !== "loading" && !isAdmin) {
-      router.replace("/accounts");
+    if (status !== "loading") {
+      if (!isAdmin && !isLead) {
+        router.replace("/accounts");
+      } else if (isLead && ledTeamId) {
+        router.replace(`/teams/${ledTeamId}`);
+      }
     }
-  }, [status, isAdmin, router]);
+  }, [status, isAdmin, isLead, ledTeamId, router]);
 
   // Column visibility state (fullName is locked and cannot be unchecked)
   const [visibleColumns, setVisibleColumns] = useState({
@@ -339,7 +346,7 @@ function UsersManagementContent() {
   const [inviteGroup, setInviteGroup] = useState("");
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
-  // Group Management modal
+  // Team Management modal
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [newGroupNameInput, setNewGroupNameInput] = useState("");
 
@@ -368,11 +375,11 @@ function UsersManagementContent() {
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
 
-  // Refresh user and group list when a sync completes (accounts may be re-assigned)
+  // Refresh user and team list when a sync completes (accounts may be re-assigned)
   useEffect(() => {
     const handleRefresh = () => {
       utils.admin.listUsers.invalidate();
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
     };
     window.addEventListener("refreshData", handleRefresh);
     return () => window.removeEventListener("refreshData", handleRefresh);
@@ -380,10 +387,10 @@ function UsersManagementContent() {
 
   const { data: users = [], isLoading: loading } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
   const { data: invitations = [], isLoading: loadingInvites } = trpc.admin.listInvitations.useQuery(undefined, { enabled: isAdmin });
-  const { data: groupsData } = trpc.admin.listGroups.useQuery(undefined, { enabled: isAdmin });
+  const { data: teamsData } = trpc.admin.listTeams.useQuery(undefined, { enabled: isAdmin });
   const availableGroups = useMemo(() => {
-    return groupsData?.groups || ["Team US #1", "Team EU #1", "Team VN #1"];
-  }, [groupsData]);
+    return teamsData?.teams || [];
+  }, [teamsData]);
 
   const createBulkInvitesMutation = trpc.admin.createBulkInvitations.useMutation({
     onSuccess: (res) => {
@@ -437,66 +444,66 @@ function UsersManagementContent() {
     },
   });
 
-  const createGroupMutation = trpc.admin.createGroup.useMutation({
+  const createGroupMutation = trpc.admin.createTeam.useMutation({
     onSuccess: () => {
       setNewGroupNameInput("");
-      setActionMsg("✅ Đã tạo nhóm mới thành công!");
-      utils.admin.listGroups.invalidate();
+      setActionMsg("✅ Đã tạo team mới thành công!");
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      toast.error(err.message || "Lỗi tạo nhóm");
+      toast.error(err.message || "Lỗi tạo team");
     },
   });
 
-  const deleteGroupMutation = trpc.admin.deleteGroup.useMutation({
+  const deleteGroupMutation = trpc.admin.deleteTeam.useMutation({
     onSuccess: () => {
-      setActionMsg("🗑️ Đã xóa nhóm thành công!");
-      utils.admin.listGroups.invalidate();
+      setActionMsg("🗑️ Đã xóa team thành công!");
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      toast.error(err.message || "Lỗi xóa nhóm");
+      toast.error(err.message || "Lỗi xóa team");
     },
   });
 
-  const updateUserGroupMutation = trpc.admin.updateUserGroup.useMutation({
+  const updateUserGroupMutation = trpc.admin.updateUserTeam.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
-      optimisticallyUpdateUserGroup(queryClient, vars.userId, vars.groupName);
+      const snapshot = snapshotUserTeamQueries(queryClient);
+      optimisticallyUpdateUserTeam(queryClient, vars.userId, vars.teamName || vars.groupName || null);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
-      toast.error(err.message || "Lỗi gán nhóm");
+      toast.error(err.message || "Lỗi gán đội nhóm");
     },
     onSuccess: () => {
-      setActionMsg("✅ Đã cập nhật nhóm cho nhân sự!");
+      setActionMsg("✅ Đã cập nhật đội nhóm cho nhân sự!");
       utils.admin.listUsers.invalidate();
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       setTimeout(() => setActionMsg(null), 3000);
     },
     onSettled: () => {
       utils.admin.listUsers.invalidate();
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
     },
   });
 
   const updateUserRoleMutation = trpc.admin.updateUserRole.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
+      const snapshot = snapshotUserTeamQueries(queryClient);
       optimisticallyUpdateUserRole(queryClient, vars.userId, vars.role as any);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
       toast.error(err.message || "Lỗi cập nhật vai trò");
     },
@@ -505,23 +512,25 @@ function UsersManagementContent() {
       setSelectedUser(null);
       setActionMsg("✅ Đã cập nhật vai trò nhân sự thành công!");
       utils.admin.listUsers.invalidate();
+      utils.admin.listTeams.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onSettled: () => {
       utils.admin.listUsers.invalidate();
+      utils.admin.listTeams.invalidate();
     },
   });
 
   const deleteUserMutation = trpc.admin.deleteUser.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
+      const snapshot = snapshotUserTeamQueries(queryClient);
       optimisticallyDeleteUsers(queryClient, [vars.userId]);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
       toast.error(err.message || "Lỗi xóa nhân sự");
     },
@@ -530,23 +539,25 @@ function UsersManagementContent() {
       setUserToDelete(null);
       setActionMsg("🗑️ Đã xóa nhân sự thành công!");
       utils.admin.listUsers.invalidate();
+      utils.admin.listTeams.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onSettled: () => {
       utils.admin.listUsers.invalidate();
+      utils.admin.listTeams.invalidate();
     },
   });
 
   const bulkDeleteUsersMutation = trpc.admin.bulkDeleteUsers.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
+      const snapshot = snapshotUserTeamQueries(queryClient);
       optimisticallyDeleteUsers(queryClient, vars.userIds);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
       toast.error(err.message || "Lỗi xóa hàng loạt nhân sự");
     },
@@ -555,23 +566,25 @@ function UsersManagementContent() {
       setSelectedIds(new Set());
       setActionMsg(`🗑️ Đã xóa thành công ${res.count} nhân sự!`);
       utils.admin.listUsers.invalidate();
+      utils.admin.listTeams.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onSettled: () => {
       utils.admin.listUsers.invalidate();
+      utils.admin.listTeams.invalidate();
     },
   });
 
   const toggleStatusMutation = trpc.admin.toggleUserStatus.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
+      const snapshot = snapshotUserTeamQueries(queryClient);
       optimisticallyToggleUserStatus(queryClient, vars.userId);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
       toast.error(err.message || "Lỗi đổi trạng thái");
     },
@@ -902,11 +915,15 @@ function UsersManagementContent() {
     const s = search.toLowerCase().trim();
 
     const filtered = users.filter((u: any) => {
-      const matchSearch =
-        !s ||
-        (u.fullName && u.fullName.toLowerCase().includes(s)) ||
-        (u.username && u.username.toLowerCase().includes(s)) ||
-        (u.email && u.email.toLowerCase().includes(s));
+      const matchSearch = smartSearchMatch(
+        search,
+        u.fullName,
+        u.username,
+        u.email,
+        u.name,
+        u.groupName,
+        u.role
+      );
 
       const matchRole = roleFilter === "ALL" || u.role === roleFilter;
       const matchGroup = groupFilter === "ALL" || (u.groupName === groupFilter);
@@ -1087,11 +1104,11 @@ function UsersManagementContent() {
 
           <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0 flex-wrap">
             <Link
-              href="/groups"
+              href="/teams"
               className="h-10 flex items-center gap-2 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
             >
               <Layers className="w-4 h-4 text-pink-500 shrink-0" />
-              <span className="truncate">Quản Lý Nhóm ({availableGroups.length})</span>
+              <span className="truncate">Quản Lý Đội Nhóm ({availableGroups.length})</span>
             </Link>
             <button
               onClick={() => setIsInviteModalOpen(true)}
@@ -3546,7 +3563,7 @@ function UsersManagementContent() {
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Layers className="w-4 h-4 text-pink-500" />
-                Quản Lý & Thêm Nhóm (Group / Team)
+                Quản Lý & Thêm Đội Nhóm (Teams)
               </h3>
               <button
                 onClick={() => setIsGroupModalOpen(false)}
@@ -3556,11 +3573,11 @@ function UsersManagementContent() {
               </button>
             </div>
 
-            {/* Create group form */}
+            {/* Create team form */}
             <form onSubmit={handleCreateGroup} className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Tên Nhóm / Team Mới
+                  Tên Đội Nhóm (Team) Mới
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -3576,16 +3593,16 @@ function UsersManagementContent() {
                     disabled={createGroupMutation.isPending || !newGroupNameInput.trim()}
                     className="px-4 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
                   >
-                    {createGroupMutation.isPending ? "Đang thêm..." : "+ Thêm Nhóm"}
+                    {createGroupMutation.isPending ? "Đang thêm..." : "+ Thêm Team"}
                   </button>
                 </div>
               </div>
             </form>
 
-            {/* Existing Groups List */}
+            {/* Existing Teams List */}
             <div className="space-y-2 pt-2">
               <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Danh Sách Nhóm Hiện Có ({availableGroups.length})
+                Danh Sách Đội Nhóm Hiện Có ({availableGroups.length})
               </div>
               <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
                 {availableGroups.map((groupName: string) => {
@@ -3608,8 +3625,8 @@ function UsersManagementContent() {
                         disabled={deleteGroupMutation.isPending}
                         onClick={async () => {
                           const ok = await confirm({
-                            title: "Xóa nhóm",
-                            description: `Bạn có chắc muốn xóa nhóm "${groupName}"? Nhân sự trong nhóm sẽ về trạng thái Chưa gán nhóm.`,
+                            title: "Xóa đội nhóm",
+                            description: `Bạn có chắc muốn xóa đội nhóm "${groupName}"? Nhân sự trong nhóm sẽ về trạng thái Chưa gán nhóm.`,
                             confirmLabel: "Xác nhận xóa",
                             variant: "danger",
                           });
@@ -3618,7 +3635,7 @@ function UsersManagementContent() {
                           }
                         }}
                         className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                        title="Xóa nhóm"
+                        title="Xóa team"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

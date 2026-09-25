@@ -1,8 +1,7 @@
 import { router, protectedProcedure } from "@/trpc/init";
 import { z } from "zod";
-import {
-  resolveAllTimeRevenue,
-} from "@/lib/resolve-all-time-revenue";
+import { resolveAllTimeRevenue } from "@/lib/resolve-all-time-revenue";
+import { resolveUserScope } from "@/lib/lead-scoping";
 
 export const leaderboardRouter = router({
   // 1. Leaderboard Ranking
@@ -13,6 +12,7 @@ export const leaderboardRouter = router({
       }).optional()
     )
     .query(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       const period = input?.period || "THIS_MONTH";
       const now = new Date();
 
@@ -32,12 +32,17 @@ export const leaderboardRouter = router({
         ? startDate.toISOString().split("T")[0]
         : undefined;
 
+      const userWhere: any = {
+        isActive: true,
+        deletedAt: null,
+      };
+      if (scope.isLead) {
+        userWhere.id = { in: scope.memberUserIds };
+      }
+
       // Fetch all active operators
       const users = await ctx.prisma.user.findMany({
-        where: {
-          isActive: true,
-          deletedAt: null,
-        },
+        where: userWhere,
         select: {
           id: true,
           username: true,

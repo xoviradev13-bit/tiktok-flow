@@ -3,6 +3,8 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { calculateWorkdayScore, getCutoffTimeInfo, getScoringConfig, DEFAULT_SCORING_CONFIG, ScoringRuleConfig, getBusinessToday, finalizePendingChecklists, ensureDailyChecklistsForDate } from "@/lib/scoring-engine";
 import { reconcileTodayChecklistForUser } from "@/lib/checklist-reconcile";
+import { smartSearchMatch } from "@/utils/search";
+import { resolveUserScope } from "@/lib/lead-scoping";
 
 let lastCatchupCheckTime = 0;
 const CATCHUP_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes in-memory cooldown per server instance
@@ -48,10 +50,19 @@ export const checklistRouter = router({
         }
       }
 
-      const targetUserId =
-        (ctx.session.user.role === "LEAD" || ctx.session.user.role === "ADMIN") && input?.userId
-          ? input.userId
-          : ctx.session.user.id;
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      let targetUserId = ctx.session.user.id;
+      if (scope.isAdmin && input?.userId) {
+        targetUserId = input.userId;
+      } else if (scope.isLead && input?.userId) {
+        if (!scope.memberUserIds.includes(input.userId)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Bạn chỉ có thể xem checklist của thành viên trong đội nhóm của mình.",
+          });
+        }
+        targetUserId = input.userId;
+      }
 
       const { todayDateOnly: today } = getBusinessToday();
 
@@ -296,8 +307,19 @@ export const checklistRouter = router({
         whereClause.date = parseDateOnly(targetDateStr);
       }
 
-      if (ctx.session.user.role === "STAFF") {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      if (scope.isStaff) {
         whereClause.userId = ctx.session.user.id;
+      } else if (scope.isLead) {
+        if (input?.userId && input.userId !== "ALL") {
+          if (scope.memberUserIds.includes(input.userId)) {
+            whereClause.userId = input.userId;
+          } else {
+            whereClause.userId = { in: scope.memberUserIds };
+          }
+        } else {
+          whereClause.userId = { in: scope.memberUserIds };
+        }
       } else if (input?.userId && input.userId !== "ALL") {
         whereClause.userId = input.userId;
       }
@@ -397,13 +419,21 @@ export const checklistRouter = router({
       });
 
       if (input?.search) {
-        const s = input.search.toLowerCase().trim().replace(/^@/, "");
-        formattedChecklists = formattedChecklists.filter(
-          (c) =>
-            c.user.fullName.toLowerCase().includes(s) ||
-            (c.user.username && c.user.username.toLowerCase().includes(s)) ||
-            (c.user.email && c.user.email.toLowerCase().includes(s)) ||
-            c.items.some((item) => item.account.username.toLowerCase().includes(s))
+        formattedChecklists = formattedChecklists.filter((c) =>
+          smartSearchMatch(
+            input.search,
+            c.user.fullName,
+            c.user.username,
+            c.user.email,
+            c.user.name,
+            c.user.role,
+            ...c.items.flatMap((item: any) => [
+              item.account?.username,
+              item.account?.gpmProfileName,
+              item.account?.groupName,
+              item.account?.country,
+            ])
+          )
         );
       }
 
@@ -475,7 +505,20 @@ export const checklistRouter = router({
       const todayDateStr = new Date().toISOString().split("T")[0];
       const targetDateObj = parseDateOnly(input?.date || todayDateStr);
 
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+
       if (input?.checklistId) {
+        const targetChk = await ctx.prisma.dailyChecklist.findUnique({
+          where: { id: input.checklistId },
+          select: { userId: true },
+        });
+        if (scope.isStaff && targetChk?.userId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Not permitted to modify this checklist" });
+        }
+        if (scope.isLead && (!targetChk?.userId || !scope.memberUserIds.includes(targetChk.userId))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể hoàn thành checklist của thành viên trong đội nhóm của mình." });
+        }
+
         const score = input?.scoreOverride ?? 1.0;
 
         await ctx.prisma.dailyChecklistItem.updateMany({
@@ -511,8 +554,10 @@ export const checklistRouter = router({
 
       // Mass complete all active checklists for the date
       const whereClause: any = { date: targetDateObj };
-      if (ctx.session.user.role === "STAFF") {
+      if (scope.isStaff) {
         whereClause.userId = ctx.session.user.id;
+      } else if (scope.isLead) {
+        whereClause.userId = { in: scope.memberUserIds };
       }
 
       const allChecklists = await ctx.prisma.dailyChecklist.findMany({
@@ -579,13 +624,20 @@ export const checklistRouter = router({
         });
       }
 
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       if (
-        ctx.session.user.role === "STAFF" &&
+        scope.isStaff &&
         item.checklist.userId !== ctx.session.user.id
       ) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Not permitted to modify this checklist",
+        });
+      }
+      if (scope.isLead && !scope.memberUserIds.includes(item.checklist.userId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể sửa checklist của thành viên trong đội nhóm của mình.",
         });
       }
 
@@ -666,15 +718,20 @@ export const checklistRouter = router({
         });
       }
 
-      // Permission check: ADMIN, LEAD, or the owner of the checklist
-      const userRole = ctx.session.user.role;
+      // Permission check: ADMIN, LEAD (within their team), or the owner of the checklist
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       const isOwner = item.checklist.userId === ctx.session.user.id;
-      const isAdminOrLead = userRole === "ADMIN" || userRole === "LEAD";
 
-      if (!isAdminOrLead && !isOwner) {
+      if (scope.isStaff && !isOwner) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Bạn không có quyền chỉnh sửa ghi chú của nhân sự khác.",
+        });
+      }
+      if (scope.isLead && !scope.memberUserIds.includes(item.checklist.userId)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể chỉnh sửa ghi chú của thành viên trong đội nhóm của mình.",
         });
       }
 
@@ -702,11 +759,27 @@ export const checklistRouter = router({
       const todayDateStr = new Date().toISOString().split("T")[0];
       const targetDateObj = parseDateOnly(input?.date || todayDateStr);
 
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       const whereClause: any = { date: targetDateObj };
       if (input?.checklistId) {
         whereClause.id = input.checklistId;
-      } else if (ctx.session.user.role === "STAFF") {
+        if (scope.isStaff) {
+          whereClause.userId = ctx.session.user.id;
+        } else if (scope.isLead) {
+          whereClause.userId = { in: scope.memberUserIds };
+        }
+      } else if (scope.isStaff) {
         whereClause.userId = ctx.session.user.id;
+      } else if (scope.isLead) {
+        if (input?.userId && input.userId !== "ALL") {
+          if (scope.memberUserIds.includes(input.userId)) {
+            whereClause.userId = input.userId;
+          } else {
+            whereClause.userId = { in: scope.memberUserIds };
+          }
+        } else {
+          whereClause.userId = { in: scope.memberUserIds };
+        }
       } else if (input?.userId && input.userId !== "ALL") {
         whereClause.userId = input.userId;
       }

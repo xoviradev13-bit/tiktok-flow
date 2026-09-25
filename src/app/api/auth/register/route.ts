@@ -128,7 +128,7 @@ export async function POST(req: Request) {
           password: hash,
           isVerified: false,
           role: pendingInvite.role || "STAFF",
-          groupId: pendingInvite.groupId || null,
+          teamId: pendingInvite.teamId || null,
           isActive: true,
         },
       });

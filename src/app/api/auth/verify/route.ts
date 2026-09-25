@@ -113,7 +113,7 @@ export async function GET(req: Request) {
           isVerified: true,
           emailVerified: new Date(),
           role: pendingInvite?.role || "STAFF",
-          groupId: pendingInvite?.groupId || null,
+          teamId: pendingInvite?.teamId || null,
           isActive: true,
         },
       });

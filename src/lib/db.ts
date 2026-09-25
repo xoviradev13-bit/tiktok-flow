@@ -5,7 +5,7 @@ import { Pool } from "pg";
 /** Bump when AccountAnalytics (or other) schema fields change so the Next.js
  *  global singleton does not keep a stale PrismaClient that rejects new args
  *  (e.g. Unknown argument `dailyViewsBreakdown`). */
-const PRISMA_CLIENT_REV = 4;
+const PRISMA_CLIENT_REV = 5;
 
 type SoftDeletePrismaClient = ReturnType<typeof createSoftDeleteClient>;
 

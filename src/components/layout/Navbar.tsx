@@ -111,7 +111,7 @@ export default function Navbar() {
     { href: "/revenue", label: "Doanh Thu", icon: BarChart3 },
     { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
     { href: "/users", label: "Nhân Sự", icon: Users },
-    { href: "/groups", label: "Nhóm & Teams", icon: Layers },
+    { href: "/teams", label: "Đội Nhóm (Teams)", icon: Layers },
     { href: "/gpm", label: "GPM-Login Hub", icon: Bot },
     { href: "/settings", label: "Cấu Hình", icon: Settings },
   ];

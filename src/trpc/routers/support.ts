@@ -588,11 +588,14 @@ export const supportRouter = router({
       }
 
       if (search && search.trim()) {
-        const query = search.trim();
+        const raw = search.trim();
+        const clean = raw.replace(/^@+/, "");
         where.OR = [
-          { message: { contains: query, mode: "insensitive" } },
-          { actorName: { contains: query, mode: "insensitive" } },
-          { account: { username: { contains: query, mode: "insensitive" } } },
+          { message: { contains: raw, mode: "insensitive" as const } },
+          { actorName: { contains: raw, mode: "insensitive" as const } },
+          { logType: { contains: raw, mode: "insensitive" as const } },
+          { account: { username: { contains: clean, mode: "insensitive" as const } } },
+          { account: { gpmProfileName: { contains: clean, mode: "insensitive" as const } } },
         ];
       }
 

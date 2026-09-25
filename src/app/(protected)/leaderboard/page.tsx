@@ -19,6 +19,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { LeaderboardPageSkeleton } from "@/components/skeletons/PageSkeletons";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
 import { trpc } from "@/lib/trpc";
 
 function LeaderboardPageContent() {
@@ -83,6 +84,7 @@ function LeaderboardPageContent() {
 
   return (
     <div className="space-y-8 animate-fadeIn">
+      <TeamScopeBanner className="mb-2" />
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0">

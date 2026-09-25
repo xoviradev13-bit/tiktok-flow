@@ -15,6 +15,7 @@ import {
   resolvePeriodRevenue,
 } from "@/lib/resolve-all-time-revenue";
 import { insightViewsContribution } from "@/lib/insights-ui";
+import { resolveUserScope } from "@/lib/lead-scoping";
 
 function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -51,8 +52,8 @@ export const userRouter = router({
         boundMachineName: true,
         boundOsUser: true,
         boundMachineAt: true,
-        groupId: true,
-        group: {
+        teamId: true,
+        team: {
           select: { id: true, name: true, color: true },
         },
         password: true,
@@ -69,6 +70,8 @@ export const userRouter = router({
     const { password, ...safeUser } = user;
     return {
       ...safeUser,
+      groupId: user.teamId,
+      group: user.team,
       extensionToken: revealPersonalToken(user.extensionToken),
       hasExtensionToken: Boolean(user.extensionToken),
       hasPassword: Boolean(password),
@@ -236,11 +239,19 @@ export const userRouter = router({
 
   // 3. List all staff / operators for account assignment
   listStaff: protectedProcedure.query(async ({ ctx }) => {
+    const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+    const where: any = {
+      isActive: true,
+      deletedAt: null,
+    };
+    if (scope.isStaff) {
+      where.id = ctx.session.user.id;
+    } else if (scope.isLead) {
+      where.id = { in: scope.memberUserIds };
+    }
+
     const users = await ctx.prisma.user.findMany({
-      where: {
-        isActive: true,
-        deletedAt: null,
-      },
+      where,
       select: {
         id: true,
         username: true,
@@ -275,13 +286,17 @@ export const userRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      if (
-        ctx.session.user.role === "STAFF" &&
-        ctx.session.user.id !== input.id
-      ) {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      if (scope.isStaff && ctx.session.user.id !== input.id) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "You can only view your own staff profile",
+          message: "Bạn chỉ có thể xem hồ sơ của chính mình.",
+        });
+      }
+      if (scope.isLead && !scope.memberUserIds.includes(input.id)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể xem hồ sơ thành viên thuộc đội nhóm của mình.",
         });
       }
 

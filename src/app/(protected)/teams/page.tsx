@@ -34,7 +34,6 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
-import { GroupsPageSkeleton } from "@/components/skeletons/PageSkeletons";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Popover,
@@ -64,17 +63,18 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  optimisticallyUpdateUserGroup,
-  optimisticallyUpdateGroup,
-  optimisticallyBulkAssignGroupLeader,
-  optimisticallyBulkChangeGroupColor,
-  optimisticallyDeleteGroups,
-  snapshotUserGroupQueries,
-  rollbackUserGroupQueries,
-} from "@/utils/optimisticUsersGroups";
+  optimisticallyUpdateUserTeam,
+  optimisticallyUpdateTeam,
+  optimisticallyBulkAssignTeamLeader,
+  optimisticallyBulkChangeTeamColor,
+  optimisticallyDeleteTeams,
+  snapshotUserTeamQueries,
+  rollbackUserTeamQueries,
+} from "@/utils/optimisticUsersTeams";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
+import { smartSearchMatch } from "@/utils/search";
 
-const GROUP_COLUMN_RESIZE_CONFIG = {
+const TEAM_COLUMN_RESIZE_CONFIG = {
   name: { minWidth: 180, maxWidth: 450, defaultWidth: 220 },
   createdBy: { minWidth: 140, maxWidth: 280, defaultWidth: 160 },
   createdAt: { minWidth: 120, maxWidth: 240, defaultWidth: 150 },
@@ -84,10 +84,10 @@ const GROUP_COLUMN_RESIZE_CONFIG = {
   actions: { minWidth: 100, maxWidth: 220, defaultWidth: 120 },
 } as const;
 
-type GroupSortKey = "name" | "membersCount" | "totalAccounts" | "createdAt";
+type TeamSortKey = "name" | "membersCount" | "totalAccounts" | "createdAt";
 
-const GROUP_SORT_OPTIONS: Array<{ key: GroupSortKey; label: string }> = [
-  { key: "name", label: "Tên nhóm" },
+const TEAM_SORT_OPTIONS: Array<{ key: TeamSortKey; label: string }> = [
+  { key: "name", label: "Tên đội nhóm" },
   { key: "membersCount", label: "Số lượng thành viên" },
   { key: "totalAccounts", label: "Số account phụ trách" },
   { key: "createdAt", label: "Thời gian tạo" },
@@ -124,7 +124,7 @@ const renderUserAvatar = (
   );
 };
 
-function GroupsManagementContent() {
+function TeamsManagementContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -139,9 +139,9 @@ function GroupsManagementContent() {
   const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
   const [search, setSearch] = useState(initialSearch);
 
-  const initialSortKey = (searchParams?.get("sort") || searchParams?.get("sortBy") || "createdAt") as GroupSortKey;
+  const initialSortKey = (searchParams?.get("sort") || searchParams?.get("sortBy") || "createdAt") as TeamSortKey;
   const initialSortDesc = (searchParams?.get("dir") || searchParams?.get("sortOrder")) === "asc" ? false : true;
-  const [sortConfig, setSortConfig] = useState<{ key: GroupSortKey; desc: boolean }>({
+  const [sortConfig, setSortConfig] = useState<{ key: TeamSortKey; desc: boolean }>({
     key: initialSortKey,
     desc: initialSortDesc,
   });
@@ -170,15 +170,21 @@ function GroupsManagementContent() {
 
   const { data: session, status } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
+  const isLead = (session?.user as any)?.role === "LEAD";
+  const ledTeamId = (session?.user as any)?.ledTeam?.id;
 
   useEffect(() => {
-    if (status !== "loading" && !isAdmin) {
-      router.replace("/accounts");
+    if (status !== "loading") {
+      if (!isAdmin && !isLead) {
+        router.replace("/accounts");
+      } else if (isLead && ledTeamId) {
+        router.replace(`/teams/${ledTeamId}`);
+      }
     }
-  }, [status, isAdmin, router]);
+  }, [status, isAdmin, isLead, ledTeamId, router]);
 
   const currentSortOption = useMemo(() => {
-    return GROUP_SORT_OPTIONS.find((opt) => opt.key === sortConfig.key) || { key: sortConfig.key, label: "Mặc định" };
+    return TEAM_SORT_OPTIONS.find((opt) => opt.key === sortConfig.key) || { key: sortConfig.key, label: "Mặc định" };
   }, [sortConfig.key]);
 
   const sortDirectionText = sortConfig.desc ? "Giảm dần" : "Tăng dần";
@@ -200,7 +206,7 @@ function GroupsManagementContent() {
 
   const visibleResizeKeys = useMemo(
     () =>
-      (Object.keys(GROUP_COLUMN_RESIZE_CONFIG) as Array<keyof typeof GROUP_COLUMN_RESIZE_CONFIG>).filter(
+      (Object.keys(TEAM_COLUMN_RESIZE_CONFIG) as Array<keyof typeof TEAM_COLUMN_RESIZE_CONFIG>).filter(
         (key) => visibleColumns[key]
       ),
     [visibleColumns]
@@ -208,8 +214,8 @@ function GroupsManagementContent() {
 
   const tableRef = useRef<HTMLDivElement>(null);
   const { getColumnStyle, getTableVars, renderResizeHandle } = useTableColumnResize({
-    tableId: "groups_v2",
-    columns: GROUP_COLUMN_RESIZE_CONFIG,
+    tableId: "teams_v2",
+    columns: TEAM_COLUMN_RESIZE_CONFIG,
     tableRef,
     visibleKeys: visibleResizeKeys,
     extraWidth: isAdmin ? 80 : 40, // checkbox (admin) + # column
@@ -219,7 +225,7 @@ function GroupsManagementContent() {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   // Bulk Selection State
-  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
 
   // Modals: Single Actions
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -231,7 +237,7 @@ function GroupsManagementContent() {
   const [createMemberSearch, setCreateMemberSearch] = useState("");
 
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editingGroup, setEditingGroup] = useState<any>(null);
+  const [editingTeam, setEditingTeam] = useState<any>(null);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [editColor, setEditColor] = useState("pink");
@@ -240,7 +246,7 @@ function GroupsManagementContent() {
   const [editMemberSearch, setEditMemberSearch] = useState("");
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [groupToDelete, setGroupToDelete] = useState<any>(null);
+  const [teamToDelete, setTeamToDelete] = useState<any>(null);
 
   // Modals: Bulk Actions
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
@@ -258,7 +264,7 @@ function GroupsManagementContent() {
   // Refresh when sync completes — group member counts/assignments may change
   useEffect(() => {
     const handleRefresh = () => {
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     };
     window.addEventListener("refreshData", handleRefresh);
@@ -266,15 +272,15 @@ function GroupsManagementContent() {
   }, [utils]);
 
   // Queries
-  const { data: groupsData, isLoading: loading } = trpc.admin.listGroups.useQuery(undefined, { enabled: isAdmin });
+  const { data: teamsData, isLoading: loading } = trpc.admin.listTeams.useQuery(undefined, { enabled: isAdmin });
   const { data: allUsers = [], isLoading: loadingUsers } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
 
   const groups = useMemo(() => {
-    return groupsData?.groupsDetails || [];
-  }, [groupsData]);
+    return teamsData?.teamsDetails || [];
+  }, [teamsData]);
 
   // Mutations
-  const createGroupMutation = trpc.admin.createGroup.useMutation({
+  const createTeamMutation = trpc.admin.createTeam.useMutation({
     onSuccess: () => {
       setIsCreateOpen(false);
       setNewName("");
@@ -283,21 +289,21 @@ function GroupsManagementContent() {
       setNewLeaderId("");
       setNewMemberIds([]);
       setCreateMemberSearch("");
-      setActionMsg("✅ Đã tạo nhóm mới thành công!");
-      utils.admin.listGroups.invalidate();
+      setActionMsg("✅ Đã tạo đội nhóm mới thành công!");
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onError: (err: any) => {
-      toast.error(err.message || "Lỗi tạo nhóm");
+      toast.error(err.message || "Lỗi tạo đội nhóm");
     },
   });
 
-  const updateGroupMutation = trpc.admin.updateGroup.useMutation({
+  const updateTeamMutation = trpc.admin.updateTeam.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
-      optimisticallyUpdateGroup(
+      const snapshot = snapshotUserTeamQueries(queryClient);
+      optimisticallyUpdateTeam(
         queryClient,
         {
           id: vars.id,
@@ -313,186 +319,186 @@ function GroupsManagementContent() {
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
-      toast.error(err.message || "Lỗi cập nhật nhóm");
+      toast.error(err.message || "Lỗi cập nhật đội nhóm");
     },
     onSuccess: () => {
       setIsEditOpen(false);
-      setEditingGroup(null);
+      setEditingTeam(null);
       setEditMemberIds([]);
       setEditMemberSearch("");
-      setActionMsg("✅ Đã cập nhật thông tin nhóm!");
-      utils.admin.listGroups.invalidate();
+      setActionMsg("✅ Đã cập nhật thông tin đội nhóm!");
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onSettled: () => {
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     },
   });
 
-  // Add member: assign user to this group
-  const addMemberMutation = trpc.admin.updateUserGroup.useMutation({
+  // Add member: assign user to this team
+  const addMemberMutation = trpc.admin.updateUserTeam.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
-      optimisticallyUpdateUserGroup(queryClient, vars.userId, vars.groupName);
+      const snapshot = snapshotUserTeamQueries(queryClient);
+      optimisticallyUpdateUserTeam(queryClient, vars.userId, vars.teamName || vars.groupName || null);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       setMemberPendingId(null);
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
       toast.error(err.message || "Lỗi thêm thành viên");
     },
     onSuccess: () => {
       setMemberPendingId(null);
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     },
     onSettled: () => {
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     },
   });
 
-  // Remove member: unassign user from their group
-  const removeMemberMutation = trpc.admin.updateUserGroup.useMutation({
+  // Remove member: unassign user from their team
+  const removeMemberMutation = trpc.admin.updateUserTeam.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
-      optimisticallyUpdateUserGroup(queryClient, vars.userId, null);
+      const snapshot = snapshotUserTeamQueries(queryClient);
+      optimisticallyUpdateUserTeam(queryClient, vars.userId, null);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       setMemberPendingId(null);
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
       toast.error(err.message || "Lỗi xóa thành viên");
     },
     onSuccess: () => {
       setMemberPendingId(null);
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     },
     onSettled: () => {
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     },
   });
 
-  const deleteGroupMutation = trpc.admin.deleteGroup.useMutation({
+  const deleteTeamMutation = trpc.admin.deleteTeam.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
+      const snapshot = snapshotUserTeamQueries(queryClient);
       if (vars.id) {
-        optimisticallyDeleteGroups(queryClient, [vars.id]);
+        optimisticallyDeleteTeams(queryClient, [vars.id]);
       }
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
-      toast.error(err.message || "Lỗi xóa nhóm");
+      toast.error(err.message || "Lỗi xóa đội nhóm");
     },
     onSuccess: () => {
       setIsDeleteOpen(false);
-      setGroupToDelete(null);
-      setActionMsg("🗑️ Đã xóa nhóm thành công!");
-      utils.admin.listGroups.invalidate();
+      setTeamToDelete(null);
+      setActionMsg("🗑️ Đã xóa đội nhóm thành công!");
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onSettled: () => {
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     },
   });
 
   // Bulk Mutations
-  const bulkDeleteGroupsMutation = trpc.admin.bulkDeleteGroups.useMutation({
+  const bulkDeleteTeamsMutation = trpc.admin.bulkDeleteTeams.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
-      optimisticallyDeleteGroups(queryClient, vars.groupIds);
+      const snapshot = snapshotUserTeamQueries(queryClient);
+      optimisticallyDeleteTeams(queryClient, vars.teamIds || vars.groupIds || []);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
-      toast.error(err.message || "Lỗi xóa nhóm hàng loạt");
+      toast.error(err.message || "Lỗi xóa đội nhóm hàng loạt");
     },
     onSuccess: (res) => {
       setIsBulkDeleteOpen(false);
-      setSelectedGroupIds([]);
+      setSelectedTeamIds([]);
       setActionMsg(`🗑️ Đã xóa thành công ${res.count} nhóm đã chọn!`);
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onSettled: () => {
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     },
   });
 
-  const bulkAssignLeaderMutation = trpc.admin.bulkAssignGroupsLeader.useMutation({
+  const bulkAssignTeamLeaderMutation = trpc.admin.bulkAssignTeamsLeader.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
-      optimisticallyBulkAssignGroupLeader(queryClient, vars.groupIds, vars.leaderId || null, allUsers);
+      const snapshot = snapshotUserTeamQueries(queryClient);
+      optimisticallyBulkAssignTeamLeader(queryClient, vars.teamIds || vars.groupIds || [], vars.leaderId || null, allUsers);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
       toast.error(err.message || "Lỗi chỉ định leader");
     },
     onSuccess: (res) => {
       setIsBulkAssignLeaderOpen(false);
       setBulkLeaderId("");
-      setSelectedGroupIds([]);
+      setSelectedTeamIds([]);
       setActionMsg(`👑 Đã cập nhật Trưởng nhóm cho ${res.count} nhóm!`);
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onSettled: () => {
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     },
   });
 
-  const bulkChangeColorMutation = trpc.admin.bulkChangeGroupsColor.useMutation({
+  const bulkChangeColorMutation = trpc.admin.bulkChangeTeamsColor.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
-      const snapshot = snapshotUserGroupQueries(queryClient);
-      optimisticallyBulkChangeGroupColor(queryClient, vars.groupIds, vars.color);
+      const snapshot = snapshotUserTeamQueries(queryClient);
+      optimisticallyBulkChangeTeamColor(queryClient, vars.teamIds || vars.groupIds || [], vars.color);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
       if (context?.snapshot) {
-        rollbackUserGroupQueries(queryClient, context.snapshot);
+        rollbackUserTeamQueries(queryClient, context.snapshot);
       }
       toast.error(err.message || "Lỗi đổi màu nhóm");
     },
     onSuccess: (res) => {
       setIsBulkColorOpen(false);
-      setSelectedGroupIds([]);
+      setSelectedTeamIds([]);
       setActionMsg(`🎨 Đã đổi màu nhãn cho ${res.count} nhóm!`);
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
     onSettled: () => {
-      utils.admin.listGroups.invalidate();
+      utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
     },
   });
@@ -500,7 +506,7 @@ function GroupsManagementContent() {
   const handleCreateGroup = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
-    createGroupMutation.mutate({
+    createTeamMutation.mutate({
       name: newName.trim(),
       description: newDesc.trim() || undefined,
       color: newColor,
@@ -510,7 +516,7 @@ function GroupsManagementContent() {
   };
 
   const handleOpenEdit = (group: any) => {
-    setEditingGroup(group);
+    setEditingTeam(group);
     setEditName(group.name);
     setEditDesc(group.description || "");
     setEditColor(group.color || "pink");
@@ -522,9 +528,9 @@ function GroupsManagementContent() {
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingGroup || !editName.trim()) return;
-    updateGroupMutation.mutate({
-      id: editingGroup.id,
+    if (!editingTeam || !editName.trim()) return;
+    updateTeamMutation.mutate({
+      id: editingTeam.id,
       name: editName.trim(),
       description: editDesc.trim() || null,
       color: editColor,
@@ -533,7 +539,7 @@ function GroupsManagementContent() {
     });
   };
 
-  const handleSort = (key: GroupSortKey) => {
+  const handleSort = (key: TeamSortKey) => {
     setSortConfig((prev) => ({
       key,
       desc: prev.key === key ? !prev.desc : false,
@@ -545,13 +551,15 @@ function GroupsManagementContent() {
     const s = search.toLowerCase().trim();
 
     const filtered = groups.filter((g: any) => {
-      const matchName = g.name.toLowerCase().includes(s);
-      const matchDesc = g.description && g.description.toLowerCase().includes(s);
-      const matchLeader = g.leader && g.leader.name.toLowerCase().includes(s);
-      const matchMember = g.members?.some(
-        (m: any) => m.name.toLowerCase().includes(s) || m.username.toLowerCase().includes(s)
+      return smartSearchMatch(
+        search,
+        g.name,
+        g.description,
+        g.leader?.name,
+        g.leader?.fullName,
+        g.leader?.username,
+        ...(g.members || []).flatMap((m: any) => [m.name, m.fullName, m.username, m.email])
       );
-      return !s || matchName || matchDesc || matchLeader || matchMember;
     });
 
     filtered.sort((a: any, b: any) => {
@@ -581,20 +589,20 @@ function GroupsManagementContent() {
   );
   const isAllSelected =
     allFilteredIds.length > 0 &&
-    allFilteredIds.every((id: string) => selectedGroupIds.includes(id));
+    allFilteredIds.every((id: string) => selectedTeamIds.includes(id));
   const isSomeSelected =
-    allFilteredIds.some((id: string) => selectedGroupIds.includes(id)) && !isAllSelected;
+    allFilteredIds.some((id: string) => selectedTeamIds.includes(id)) && !isAllSelected;
 
   const toggleSelectAll = () => {
     if (isAllSelected) {
-      setSelectedGroupIds([]);
+      setSelectedTeamIds([]);
     } else {
-      setSelectedGroupIds(allFilteredIds);
+      setSelectedTeamIds(allFilteredIds);
     }
   };
 
   const toggleSelectGroup = (id: string) => {
-    setSelectedGroupIds((prev) =>
+    setSelectedTeamIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     );
   };
@@ -611,7 +619,7 @@ function GroupsManagementContent() {
     0
   );
 
-  const renderSortIndicator = (key: GroupSortKey) => {
+  const renderSortIndicator = (key: TeamSortKey) => {
     if (sortConfig.key !== key) {
       return (
         <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-60 group-hover:opacity-100 transition-opacity" />
@@ -642,7 +650,7 @@ function GroupsManagementContent() {
   };
 
   if (status === "loading" || !isAdmin) {
-    return <GroupsPageSkeleton />;
+    return <DataTableSkeleton />;
   }
 
   return (
@@ -653,7 +661,7 @@ function GroupsManagementContent() {
           <div className="min-w-0">
             <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
               <Layers className="w-7 h-7 text-pink-500 shrink-0" />
-              <span className="truncate">Quản Lý Nhóm & Teams</span>
+              <span className="truncate">Quản Lý Đội Nhóm (Teams)</span>
               {loading ? (
                 <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle shrink-0" />
               ) : (
@@ -689,7 +697,7 @@ function GroupsManagementContent() {
                     className="h-10 flex items-center gap-2 px-5 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <Plus className="w-4 h-4 shrink-0" />
-                    <span className="truncate">Tạo Nhóm Mới</span>
+                    <span className="truncate">Tạo Đội Nhóm Mới</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs font-semibold">
@@ -808,7 +816,7 @@ function GroupsManagementContent() {
                   <div className="text-xs font-semibold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800">
                     Sắp xếp theo cột
                   </div>
-                  {GROUP_SORT_OPTIONS.map((item) => {
+                  {TEAM_SORT_OPTIONS.map((item) => {
                     const isSelected = sortConfig.key === item.key;
                     return (
                       <button
@@ -1035,7 +1043,7 @@ function GroupsManagementContent() {
               onClick={() => setIsCreateOpen(true)}
               className="mt-4 px-4 py-2 text-xs font-bold text-white bg-pink-600 hover:bg-pink-500 rounded-xl shadow-md transition-colors cursor-pointer"
             >
-              + Tạo Nhóm Mới
+              + Tạo Đội Nhóm Mới
             </button>
           ) : null}
         </div>
@@ -1043,7 +1051,7 @@ function GroupsManagementContent() {
         /* Groups Grid View */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-4">
           {filteredAndSortedGroups.map((group: any) => {
-            const isSelected = selectedGroupIds.includes(group.id);
+            const isSelected = selectedTeamIds.includes(group.id);
             const members = group.members || [];
             const displayMembers = members.slice(0, 4);
             const remainingMembers = members.slice(4);
@@ -1088,7 +1096,9 @@ function GroupsManagementContent() {
                     </div>
                     <div className="min-w-0">
                       <h3 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400 transition-colors truncate">
-                        {group.name}
+                        <Link href={`/teams/${group.id}`} className="hover:underline">
+                          {group.name}
+                        </Link>
                       </h3>
                       <span className="text-xs text-slate-400 block">
                         {group.createdAt ? new Date(group.createdAt).toLocaleDateString("vi-VN") : "Hôm nay"}
@@ -1107,24 +1117,33 @@ function GroupsManagementContent() {
                           <MoreHorizontal className="w-4 h-4" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
+                      <DropdownMenuContent align="end" className="w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
+                        <DropdownMenuItem asChild>
+                          <Link
+                            href={`/teams/${group.id}`}
+                            className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                          >
+                            <Users className="w-3.5 h-3.5 text-pink-500" />
+                            <span>Xem chi tiết đội nhóm</span>
+                          </Link>
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => handleOpenEdit(group)}
                           className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                         >
                           <Pencil className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Chỉnh sửa nhóm</span>
+                          <span>Chỉnh sửa đội nhóm</span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                         <DropdownMenuItem
                           onClick={() => {
-                            setGroupToDelete(group);
+                            setTeamToDelete(group);
                             setIsDeleteOpen(true);
                           }}
                           className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                          <span>Xóa nhóm</span>
+                          <span>Xóa đội nhóm</span>
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -1144,7 +1163,7 @@ function GroupsManagementContent() {
                       <Select
                         value={group.leader?.id || "UNASSIGNED"}
                         onValueChange={(val) => {
-                          updateGroupMutation.mutate({
+                          updateTeamMutation.mutate({
                             id: group.id,
                             name: group.name,
                             description: group.description,
@@ -1488,7 +1507,7 @@ function GroupsManagementContent() {
                         } z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200 dark:border-slate-800 after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-slate-200 dark:after:bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)]`}
                     >
                       <div className="flex items-center gap-1.5 truncate">
-                        <span className="truncate">Tên nhóm</span>
+                        <span className="truncate">Tên đội nhóm</span>
                         {renderSortIndicator("name")}
                       </div>
                       {renderResizeHandle("name")}
@@ -1575,7 +1594,7 @@ function GroupsManagementContent() {
                   </tr>
                 ) : (
                   filteredAndSortedGroups.map((group: any, idx: number) => {
-                    const isSelected = selectedGroupIds.includes(group.id);
+                    const isSelected = selectedTeamIds.includes(group.id);
                     const rowBgClass = isSelected
                       ? "bg-pink-50 dark:bg-pink-950/90"
                       : "bg-white dark:bg-slate-900";
@@ -1613,7 +1632,9 @@ function GroupsManagementContent() {
                               <span className={`w-3 h-3 rounded-full shrink-0 border ${getColorClass(group.color || "pink")}`} />
                               <div className="min-w-0">
                                 <div className="font-bold text-slate-900 dark:text-white text-xs truncate" title={group.name}>
-                                  {group.name}
+                                  <Link href={`/teams/${group.id}`} className="hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors">
+                                    {group.name}
+                                  </Link>
                                 </div>
                                 {group.description && (
                                   <div className="text-xs text-slate-400 truncate" title={group.description}>
@@ -1646,7 +1667,7 @@ function GroupsManagementContent() {
                             <Select
                               value={group.leader?.id || "UNASSIGNED"}
                               onValueChange={(val) => {
-                                updateGroupMutation.mutate({
+                                updateTeamMutation.mutate({
                                   id: group.id,
                                   name: group.name,
                                   description: group.description,
@@ -1909,24 +1930,33 @@ function GroupsManagementContent() {
                                   </TooltipTrigger>
                                   <TooltipContent side="left">Tùy chọn nhóm</TooltipContent>
                                 </Tooltip>
-                                <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
+                                <DropdownMenuContent align="end" className="w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
+                                  <DropdownMenuItem asChild>
+                                    <Link
+                                      href={`/teams/${group.id}`}
+                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                    >
+                                      <Users className="w-3.5 h-3.5 text-pink-500" />
+                                      <span>Xem chi tiết đội nhóm</span>
+                                    </Link>
+                                  </DropdownMenuItem>
                                   <DropdownMenuItem
                                     onClick={() => handleOpenEdit(group)}
                                     className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                   >
                                     <Pencil className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Chỉnh sửa nhóm</span>
+                                    <span>Chỉnh sửa đội nhóm</span>
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                                   <DropdownMenuItem
                                     onClick={() => {
-                                      setGroupToDelete(group);
+                                      setTeamToDelete(group);
                                       setIsDeleteOpen(true);
                                     }}
                                     className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
                                   >
                                     <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                    <span>Xóa nhóm</span>
+                                    <span>Xóa đội nhóm</span>
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -1946,11 +1976,11 @@ function GroupsManagementContent() {
       )}
 
       {/* Floating Bulk Action Bar */}
-      {isAdmin && selectedGroupIds.length > 0 && (
+      {isAdmin && selectedTeamIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-slate-900/95 border border-slate-700/80 text-white px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-4 animate-in slide-in-from-bottom-5">
           <div className="flex items-center gap-2 text-xs font-bold border-r border-slate-700 pr-3">
             <Layers className="w-4 h-4 text-pink-400" />
-            <span>Đã chọn <strong className="text-pink-400 font-extrabold">{selectedGroupIds.length}</strong> nhóm</span>
+            <span>Đã chọn <strong className="text-pink-400 font-extrabold">{selectedTeamIds.length}</strong> nhóm</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1984,7 +2014,7 @@ function GroupsManagementContent() {
 
           {/* Clear Selection */}
           <button
-            onClick={() => setSelectedGroupIds([])}
+            onClick={() => setSelectedTeamIds([])}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer ml-1"
             title="Bỏ chọn tất cả"
           >
@@ -2060,7 +2090,7 @@ function GroupsManagementContent() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Chỉ Định Trưởng Nhóm (Leader)
+                  Chỉ Định Trưởng Nhóm (Leader) — Tự động cấp quyền LEAD
                 </label>
                 <Select
                   value={newLeaderId || "UNASSIGNED"}
@@ -2208,10 +2238,10 @@ function GroupsManagementContent() {
                 </button>
                 <button
                   type="submit"
-                  disabled={createGroupMutation.isPending}
+                  disabled={createTeamMutation.isPending}
                   className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
                 >
-                  {createGroupMutation.isPending ? "Đang tạo..." : "Tạo Nhóm"}
+                  {createTeamMutation.isPending ? "Đang tạo..." : "Tạo Nhóm"}
                 </button>
               </div>
             </form>
@@ -2220,13 +2250,13 @@ function GroupsManagementContent() {
       )}
 
       {/* Modal: Edit Group */}
-      {isEditOpen && editingGroup && (
+      {isEditOpen && editingTeam && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Pencil className="w-4 h-4 text-pink-500" />
-                Chỉnh Sửa Nhóm {editingGroup.name}
+                Chỉnh Sửa Nhóm {editingTeam.name}
               </h3>
               <button
                 onClick={() => setIsEditOpen(false)}
@@ -2285,7 +2315,7 @@ function GroupsManagementContent() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Chỉ Định Trưởng Nhóm (Leader)
+                  Chỉ Định Trưởng Nhóm (Leader) — Tự động cấp quyền LEAD
                 </label>
                 <Select
                   value={editLeaderId || "UNASSIGNED"}
@@ -2334,7 +2364,7 @@ function GroupsManagementContent() {
                     <span className="text-xs text-slate-400 italic px-1">Chưa có thành viên nào trong nhóm</span>
                   ) : (
                     editMemberIds.map((userId) => {
-                      const u = allUsers.find((x: any) => x.id === userId) || editingGroup.members?.find((x: any) => x.id === userId);
+                      const u = allUsers.find((x: any) => x.id === userId) || editingTeam.members?.find((x: any) => x.id === userId);
                       if (!u) return null;
                       return (
                         <span
@@ -2433,10 +2463,10 @@ function GroupsManagementContent() {
                 </button>
                 <button
                   type="submit"
-                  disabled={updateGroupMutation.isPending}
+                  disabled={updateTeamMutation.isPending}
                   className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
                 >
-                  {updateGroupMutation.isPending ? "Đang lưu..." : "Lưu Thay Đổi"}
+                  {updateTeamMutation.isPending ? "Đang lưu..." : "Lưu Thay Đổi"}
                 </button>
               </div>
             </form>
@@ -2445,7 +2475,7 @@ function GroupsManagementContent() {
       )}
 
       {/* Modal: Confirm Delete Single Group */}
-      {isDeleteOpen && groupToDelete && (
+      {isDeleteOpen && teamToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
             <div className="flex items-center gap-3">
@@ -2457,14 +2487,14 @@ function GroupsManagementContent() {
                   Xác nhận xóa nhóm
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bạn có chắc muốn xóa nhóm <strong className="text-slate-800 dark:text-slate-200">{groupToDelete.name}</strong>?
+                  Bạn có chắc muốn xóa nhóm <strong className="text-slate-800 dark:text-slate-200">{teamToDelete.name}</strong>?
                 </p>
               </div>
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
-              <div><span className="font-semibold">Số thành viên:</span> {groupToDelete.membersCount} nhân sự</div>
-              <div><span className="font-semibold">Tài khoản liên đới:</span> {groupToDelete.totalAccounts} accounts</div>
+              <div><span className="font-semibold">Số thành viên:</span> {teamToDelete.membersCount} nhân sự</div>
+              <div><span className="font-semibold">Tài khoản liên đới:</span> {teamToDelete.totalAccounts} accounts</div>
               <p className="text-xs text-amber-600 dark:text-amber-400 pt-1">
                 ⚠️ Các thành viên trong nhóm này sẽ được chuyển về trạng thái Chưa phân nhóm.
               </p>
@@ -2475,7 +2505,7 @@ function GroupsManagementContent() {
                 type="button"
                 onClick={() => {
                   setIsDeleteOpen(false);
-                  setGroupToDelete(null);
+                  setTeamToDelete(null);
                 }}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
               >
@@ -2483,14 +2513,14 @@ function GroupsManagementContent() {
               </button>
               <button
                 type="button"
-                disabled={deleteGroupMutation.isPending}
+                disabled={deleteTeamMutation.isPending}
                 onClick={() => {
-                  deleteGroupMutation.mutate({ id: groupToDelete.id });
+                  deleteTeamMutation.mutate({ id: teamToDelete.id });
                 }}
                 className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{deleteGroupMutation.isPending ? "Đang xóa..." : "Xác nhận xóa"}</span>
+                <span>{deleteTeamMutation.isPending ? "Đang xóa..." : "Xác nhận xóa"}</span>
               </button>
             </div>
           </div>
@@ -2504,7 +2534,7 @@ function GroupsManagementContent() {
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Crown className="w-4 h-4 text-cyan-500" />
-                Chỉ Định Leader Cho {selectedGroupIds.length} Nhóm
+                Chỉ Định Leader Cho {selectedTeamIds.length} Nhóm
               </h3>
               <button
                 onClick={() => setIsBulkAssignLeaderOpen(false)}
@@ -2549,16 +2579,16 @@ function GroupsManagementContent() {
                 </button>
                 <button
                   type="button"
-                  disabled={bulkAssignLeaderMutation.isPending}
+                  disabled={bulkAssignTeamLeaderMutation.isPending}
                   onClick={() => {
-                    bulkAssignLeaderMutation.mutate({
-                      groupIds: selectedGroupIds,
+                    bulkAssignTeamLeaderMutation.mutate({
+                      groupIds: selectedTeamIds,
                       leaderId: bulkLeaderId || null,
                     });
                   }}
                   className="px-5 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md shadow-cyan-600/30 cursor-pointer disabled:opacity-60"
                 >
-                  {bulkAssignLeaderMutation.isPending ? "Đang gán..." : "Áp Dụng Cho Tất Cả"}
+                  {bulkAssignTeamLeaderMutation.isPending ? "Đang gán..." : "Áp Dụng Cho Tất Cả"}
                 </button>
               </div>
             </div>
@@ -2573,7 +2603,7 @@ function GroupsManagementContent() {
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Palette className="w-4 h-4 text-pink-500" />
-                Đổi Màu Nhãn Cho {selectedGroupIds.length} Nhóm
+                Đổi Màu Nhãn Cho {selectedTeamIds.length} Nhóm
               </h3>
               <button
                 onClick={() => setIsBulkColorOpen(false)}
@@ -2617,7 +2647,7 @@ function GroupsManagementContent() {
                   disabled={bulkChangeColorMutation.isPending}
                   onClick={() => {
                     bulkChangeColorMutation.mutate({
-                      groupIds: selectedGroupIds,
+                      groupIds: selectedTeamIds,
                       color: bulkColorVal,
                     });
                   }}
@@ -2644,7 +2674,7 @@ function GroupsManagementContent() {
                   Xác nhận xóa hàng loạt
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bạn có chắc muốn xóa <strong className="text-rose-500">{selectedGroupIds.length}</strong> nhóm đã chọn?
+                  Bạn có chắc muốn xóa <strong className="text-rose-500">{selectedTeamIds.length}</strong> nhóm đã chọn?
                 </p>
               </div>
             </div>
@@ -2665,16 +2695,16 @@ function GroupsManagementContent() {
               </button>
               <button
                 type="button"
-                disabled={bulkDeleteGroupsMutation.isPending}
+                disabled={bulkDeleteTeamsMutation.isPending}
                 onClick={() => {
-                  bulkDeleteGroupsMutation.mutate({
-                    groupIds: selectedGroupIds,
+                  bulkDeleteTeamsMutation.mutate({
+                    groupIds: selectedTeamIds,
                   });
                 }}
                 className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{bulkDeleteGroupsMutation.isPending ? "Đang xóa..." : `Xóa ${selectedGroupIds.length} nhóm`}</span>
+                <span>{bulkDeleteTeamsMutation.isPending ? "Đang xóa..." : `Xóa ${selectedTeamIds.length} nhóm`}</span>
               </button>
             </div>
           </div>
@@ -2684,10 +2714,10 @@ function GroupsManagementContent() {
   );
 }
 
-export default function GroupsManagementPage() {
+export default function TeamsManagementPage() {
   return (
     <Suspense fallback={<DataTableSkeleton columnCount={7} rowCount={6} />}>
-      <GroupsManagementContent />
+      <TeamsManagementContent />
     </Suspense>
   );
 }

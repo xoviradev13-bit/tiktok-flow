@@ -57,6 +57,9 @@ import DayDetailModal from "@/features/checklist/components/DayDetailModal";
 import VideoCrossCheckModal from "@/features/checklist/components/VideoCrossCheckModal";
 import { SyncStatusBadge, getAccountSyncDiagnostic, hasAccountSyncIssue } from "@/components/common/SyncStatusBadge";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
+import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
+import { useDebounce } from "@/hooks/useDebounce";
+import { smartSearchMatch } from "@/utils/search";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import type { DateRange } from "react-day-picker";
 import {
@@ -157,6 +160,7 @@ function ChecklistPageContent() {
 
   const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
   const [search, setSearch] = useState<string>(initialSearch);
+  const debouncedSearch = useDebounce(search, 300);
 
   const initialScore = (searchParams?.get("score") || "ALL") as "ALL" | "FULL" | "HALF" | "ZERO";
   const [scoreFilter, setScoreFilter] = useState<"ALL" | "FULL" | "HALF" | "ZERO">(initialScore);
@@ -299,9 +303,31 @@ function ChecklistPageContent() {
     startDate: queryStartDate,
     endDate: queryEndDate,
     userId: selectedUserId === "ALL" ? undefined : selectedUserId,
-    search: viewType === "table" && search ? search : undefined,
+    search: viewType === "table" && debouncedSearch ? debouncedSearch : undefined,
     scoreFilter: viewType === "table" && scoreFilter !== "ALL" ? scoreFilter : undefined,
   });
+
+  const filteredChecklists = useMemo(() => {
+    const list = timesheetData?.checklists || [];
+    if (!search.trim()) return list;
+    return list.filter((chk: any) =>
+      smartSearchMatch(
+        search,
+        chk.user?.fullName,
+        chk.user?.name,
+        chk.user?.username,
+        chk.user?.email,
+        chk.user?.role,
+        ...(chk.items || []).flatMap((item: any) => [
+          item.account?.username,
+          item.account?.gpmProfileName,
+          item.account?.groupName,
+          item.account?.country,
+          item.account?.status,
+        ])
+      )
+    );
+  }, [timesheetData?.checklists, search]);
 
   // Listen to auto-refresh event
   useEffect(() => {
@@ -978,6 +1004,7 @@ function ChecklistPageContent() {
 
   return (
     <div className="space-y-6 w-full pb-24 animate-fadeIn">
+      <TeamScopeBanner className="mb-2" />
       {/* Top Header Section */}
       <div className="space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1631,7 +1658,7 @@ function ChecklistPageContent() {
                 {loading ? (
                   <span className="inline-block w-8 h-4 rounded bg-slate-200 dark:bg-slate-800 animate-pulse" />
                 ) : (
-                  <strong>{timesheetData?.checklists?.length || 0}</strong>
+                  <strong>{filteredChecklists.length}</strong>
                 )}
                 <span>bản ghi chấm công.</span>
               </div>
@@ -1683,7 +1710,7 @@ function ChecklistPageContent() {
         />
       ) : loading ? (
         <DataTableSkeleton columnCount={8} rowCount={8} />
-      ) : timesheetData?.checklists.length === 0 ? (
+      ) : filteredChecklists.length === 0 ? (
         <div className="text-center py-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 space-y-4 shadow-sm">
           <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
             <CheckSquare className="w-6 h-6" />
@@ -1713,7 +1740,7 @@ function ChecklistPageContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                {(timesheetData?.checklists || []).map((chk: any, idx: number) => {
+                {filteredChecklists.map((chk: any, idx: number) => {
                   const isExpanded = expandedRowIds.has(chk.id);
                   const totalAcc = chk.items.length;
                   const postedCount = chk.items.filter((i: any) => i.isPosted).length;
