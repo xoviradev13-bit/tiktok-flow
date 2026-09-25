@@ -40,8 +40,6 @@ export const leaderboardRouter = router({
 
       if (input?.teamId && input.teamId !== "ALL") {
         userWhere.teamId = input.teamId;
-      } else if (!input?.teamId && scope.isLead && scope.ledTeam?.id) {
-        userWhere.teamId = scope.ledTeam.id;
       }
 
       // Fetch all active operators
@@ -200,4 +198,12 @@ export const leaderboardRouter = router({
 
       return rankedList;
     }),
+
+  // 2. Public teams list for leaderboard dropdown
+  getTeams: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.prisma.team.findMany({
+      select: { id: true, name: true, color: true },
+      orderBy: { name: "asc" },
+    });
+  }),
 });

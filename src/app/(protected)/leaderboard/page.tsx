@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useUrlParams } from "@/hooks/useUrlState";
 import {
   Trophy,
@@ -16,6 +16,8 @@ import {
   Shield,
   Layers,
   Users,
+  Search,
+  X,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { Pagination } from "@/components/ui/pagination";
@@ -44,6 +46,9 @@ function LeaderboardPageContent() {
   const initialTeam = searchParams?.get("teamId") || "ALL";
   const [teamFilter, setTeamFilter] = useState<string>(initialTeam);
 
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const [searchQuery, setSearchQuery] = useState(initialSearch);
+
   const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
   const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 10;
   const [page, setPage] = useState(initialPage);
@@ -55,17 +60,19 @@ function LeaderboardPageContent() {
       {
         period: period,
         teamId: teamFilter,
+        q: searchQuery,
         p: page,
         ps: pageSize,
       },
       {
         period: "THIS_MONTH",
         teamId: "ALL",
+        q: "",
         p: 1,
         ps: 10,
       }
     );
-  }, [period, teamFilter, page, pageSize, updateUrlParams]);
+  }, [period, teamFilter, searchQuery, page, pageSize, updateUrlParams]);
 
   const utils = trpc.useUtils();
 
@@ -82,8 +89,18 @@ function LeaderboardPageContent() {
     teamId: teamFilter,
   });
 
-  const { data: teamsData } = trpc.admin.listTeams.useQuery();
-  const allTeams = teamsData?.teamsDetails || [];
+  const { data: allTeams = [] } = trpc.leaderboard.getTeams.useQuery();
+
+  const filteredLeaderboard = useMemo(() => {
+    if (!searchQuery.trim()) return leaderboard;
+    const q = searchQuery.toLowerCase().trim().replace(/^@+/, "");
+    return leaderboard.filter((u: any) => {
+      const fn = String(u.fullName || "").toLowerCase();
+      const un = String(u.username || "").toLowerCase();
+      const n = String(u.name || "").toLowerCase();
+      return fn.includes(q) || un.includes(q) || n.includes(q);
+    });
+  }, [leaderboard, searchQuery]);
 
   const top1 = leaderboard[0];
   const top2 = leaderboard[1];
@@ -256,24 +273,58 @@ function LeaderboardPageContent() {
         <DataTableSkeleton columnCount={10} rowCount={pageSize} />
       ) : (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm dark:shadow-xl overflow-hidden relative z-0 isolate">
-          <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Medal className="w-4 h-4 text-yellow-500" />
-              Bảng Xếp Hạng Chi Tiết Toàn Team
+          <div className="px-5 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 shrink-0">
+              <Medal className="w-4 h-4 text-yellow-500 shrink-0" />
+              <span>Bảng Xếp Hạng Chi Tiết Toàn Team</span>
+              {searchQuery && (
+                <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                  ({filteredLeaderboard.length}/{leaderboard.length})
+                </span>
+              )}
             </h2>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleCelebrate}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-pink-50 hover:bg-pink-100 dark:bg-pink-600/20 dark:hover:bg-pink-600/30 text-pink-600 dark:text-pink-400 transition-colors cursor-pointer border border-pink-200 dark:border-pink-500/20"
-                >
-                  <Sparkles className="w-3.5 h-3.5" /> Chúc Mừng
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs font-semibold">
-                Bắn pháo hoa vinh danh bảng vàng
-              </TooltipContent>
-            </Tooltip>
+            <div className="flex items-center gap-2">
+              {/* Search input for username / full name */}
+              <div className="relative w-48 sm:w-60">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Tìm tên hoặc @username..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setPage(1);
+                  }}
+                  className="w-full h-8 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-8 pr-7 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 focus:ring-1 focus:ring-pink-500/20 transition-all"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setPage(1);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                    title="Xóa tìm kiếm"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleCelebrate}
+                    className="h-8 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold bg-pink-50 hover:bg-pink-100 dark:bg-pink-600/20 dark:hover:bg-pink-600/30 text-pink-600 dark:text-pink-400 transition-colors cursor-pointer border border-pink-200 dark:border-pink-500/20 shrink-0 whitespace-nowrap"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" /> Chúc Mừng
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs font-semibold">
+                  Bắn pháo hoa vinh danh bảng vàng
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -293,14 +344,16 @@ function LeaderboardPageContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
-                {leaderboard.length === 0 ? (
+                {filteredLeaderboard.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">
-                      Chưa có dữ liệu xếp hạng trong kỳ này.
+                      {searchQuery.trim()
+                        ? `Không tìm thấy nhân viên nào phù hợp với từ khóa "${searchQuery}".`
+                        : "Chưa có dữ liệu xếp hạng trong kỳ này."}
                     </td>
                   </tr>
                 ) : (
-                  leaderboard
+                  filteredLeaderboard
                     .slice((page - 1) * pageSize, page * pageSize)
                     .map((user) => (
                       <tr
@@ -415,19 +468,19 @@ function LeaderboardPageContent() {
           </div>
 
           {/* Pagination Bar */}
-          {leaderboard.length > 0 && (
+          {filteredLeaderboard.length > 0 && (
             <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50">
               <Pagination
                 currentPage={page}
-                totalPages={Math.max(1, Math.ceil(leaderboard.length / pageSize))}
-                totalItems={leaderboard.length}
+                totalPages={Math.max(1, Math.ceil(filteredLeaderboard.length / pageSize))}
+                totalItems={filteredLeaderboard.length}
                 pageSize={pageSize}
                 pageSizeOptions={[10, 25, 50]}
                 onPageSizeChange={(size) => {
                   setPageSize(size);
                   setPage(1);
                 }}
-                hasNextPage={page < Math.max(1, Math.ceil(leaderboard.length / pageSize))}
+                hasNextPage={page < Math.max(1, Math.ceil(filteredLeaderboard.length / pageSize))}
                 hasPreviousPage={page > 1}
                 onPageChange={setPage}
                 isLoading={loading}

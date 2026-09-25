@@ -178,7 +178,6 @@ function AnalyticsPageContent() {
 
   return (
     <div className="space-y-6 animate-fadeIn pb-16">
-      <TeamScopeBanner className="mb-2" />
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0">

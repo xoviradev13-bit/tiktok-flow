@@ -1286,12 +1286,12 @@ function TeamsManagementContent() {
                                   <UserPlus className="w-3.5 h-3.5 text-pink-500" />
                                   Thêm thành viên vào đội nhóm
                                 </div>
-                                {allUsers.filter((u: any) => !u.teamId || u.teamId !== group.id).length === 0 ? (
-                                  <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong đội nhóm</div>
+                                {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN").length === 0 ? (
+                                  <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân nhóm</div>
                                 ) : (
                                   <div className="max-h-48 overflow-y-auto space-y-0.5">
                                     {allUsers
-                                      .filter((u: any) => !u.teamId || u.teamId !== group.id)
+                                      .filter((u: any) => !u.teamId && u.role !== "ADMIN")
                                       .map((u: any) => (
                                         <button
                                           key={u.id}
@@ -1396,12 +1396,12 @@ function TeamsManagementContent() {
                                     <UserPlus className="w-3.5 h-3.5 text-pink-500" />
                                     Thêm thành viên vào đội nhóm
                                   </div>
-                                  {allUsers.filter((u: any) => !u.teamId || u.teamId !== group.id).length === 0 ? (
-                                    <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong đội nhóm</div>
+                                  {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN").length === 0 ? (
+                                    <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân nhóm</div>
                                   ) : (
                                     <div className="max-h-48 overflow-y-auto space-y-0.5">
                                       {allUsers
-                                        .filter((u: any) => !u.teamId || u.teamId !== group.id)
+                                        .filter((u: any) => !u.teamId && u.role !== "ADMIN")
                                         .map((u: any) => (
                                           <button
                                             key={u.id}
@@ -1496,10 +1496,10 @@ function TeamsManagementContent() {
                 {/* Card Footer */}
                 <div className="mt-auto px-4 py-2.5 bg-slate-50/80 dark:bg-slate-950/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                   <Link
-                    href={`/accounts?search=${encodeURIComponent(group.name)}`}
+                    href={`/teams/${group.id}`}
                     className="inline-flex items-center gap-1 text-xs font-semibold text-pink-600 dark:text-pink-400 px-2 py-1 rounded-lg hover:bg-pink-50 dark:hover:bg-pink-950/40 hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
                   >
-                    <span>Xem dàn tài khoản</span>
+                    <span>Xem chi tiết nhóm</span>
                     <ArrowRight className="w-3 h-3" />
                   </Link>
                   {(isAdmin || group.leader?.id === session?.user?.id) && (
@@ -1795,12 +1795,12 @@ function TeamsManagementContent() {
                                         <UserPlus className="w-3.5 h-3.5 text-pink-500" />
                                         Thêm thành viên vào {group.name}
                                       </div>
-                                      {allUsers.filter((u: any) => !u.teamId || u.teamId !== group.id).length === 0 ? (
-                                        <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong đội nhóm</div>
+                                      {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN").length === 0 ? (
+                                        <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân nhóm</div>
                                       ) : (
                                         <div className="max-h-48 overflow-y-auto space-y-0.5">
                                           {allUsers
-                                            .filter((u: any) => !u.teamId || u.teamId !== group.id)
+                                            .filter((u: any) => !u.teamId && u.role !== "ADMIN")
                                             .map((u: any) => (
                                               <button
                                                 key={u.id}
@@ -1904,12 +1904,12 @@ function TeamsManagementContent() {
                                           <UserPlus className="w-3.5 h-3.5 text-pink-500" />
                                           Thêm thành viên vào {group.name}
                                         </div>
-                                        {allUsers.filter((u: any) => !u.teamId || u.teamId !== group.id).length === 0 ? (
-                                          <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả thành viên đã trong đội nhóm</div>
+                                        {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN").length === 0 ? (
+                                          <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân nhóm</div>
                                         ) : (
                                           <div className="max-h-48 overflow-y-auto space-y-0.5">
                                             {allUsers
-                                              .filter((u: any) => !u.teamId || u.teamId !== group.id)
+                                              .filter((u: any) => !u.teamId && u.role !== "ADMIN")
                                               .map((u: any) => (
                                                 <button
                                                   key={u.id}
@@ -2282,7 +2282,7 @@ function TeamsManagementContent() {
                       />
                       <div className="max-h-48 overflow-y-auto space-y-0.5">
                         {allUsers
-                          .filter((u: any) => !newMemberIds.includes(u.id))
+                          .filter((u: any) => !u.teamId && u.role !== "ADMIN" && !newMemberIds.includes(u.id))
                           .filter((u: any) => {
                             if (!createMemberSearch.trim()) return true;
                             const q = createMemberSearch.toLowerCase();
@@ -2307,14 +2307,14 @@ function TeamsManagementContent() {
                               <div className="min-w-0 flex-1">
                                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
                                 <div className="text-[10px] text-slate-400 truncate">
-                                  @{u.username} {u.teamName ? `· Nhóm: ${u.teamName}` : "· Chưa có đội"}
+                                  @{u.username} · Chưa có đội
                                 </div>
                               </div>
                               <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
                             </button>
                           ))}
-                        {allUsers.filter((u: any) => !newMemberIds.includes(u.id)).length === 0 && (
-                          <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả nhân sự đã được chọn</div>
+                        {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN" && !newMemberIds.includes(u.id)).length === 0 && (
+                          <div className="text-xs text-slate-400 italic py-2 text-center">Không còn nhân sự chưa phân nhóm</div>
                         )}
                       </div>
                     </PopoverContent>
@@ -2525,7 +2525,7 @@ function TeamsManagementContent() {
                       />
                       <div className="max-h-48 overflow-y-auto space-y-0.5">
                         {allUsers
-                          .filter((u: any) => !editMemberIds.includes(u.id))
+                          .filter((u: any) => !u.teamId && u.role !== "ADMIN" && !editMemberIds.includes(u.id))
                           .filter((u: any) => {
                             if (!editMemberSearch.trim()) return true;
                             const q = editMemberSearch.toLowerCase();
@@ -2550,14 +2550,14 @@ function TeamsManagementContent() {
                               <div className="min-w-0 flex-1">
                                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
                                 <div className="text-[10px] text-slate-400 truncate">
-                                  @{u.username} {u.teamName ? `· Nhóm: ${u.teamName}` : "· Chưa có đội"}
+                                  @{u.username} · Chưa có đội
                                 </div>
                               </div>
                               <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
                             </button>
                           ))}
-                        {allUsers.filter((u: any) => !editMemberIds.includes(u.id)).length === 0 && (
-                          <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả nhân sự đã trong nhóm</div>
+                        {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN" && !editMemberIds.includes(u.id)).length === 0 && (
+                          <div className="text-xs text-slate-400 italic py-2 text-center">Không còn nhân sự chưa phân nhóm</div>
                         )}
                       </div>
                     </PopoverContent>

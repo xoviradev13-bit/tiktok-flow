@@ -71,6 +71,7 @@ export const analyticsRouter = router({
           username: true,
           avatar: true,
           role: true,
+          teamId: true,
           team: { select: { name: true } },
         },
         orderBy: { name: "asc" },
@@ -87,6 +88,7 @@ export const analyticsRouter = router({
         username: u.username,
         avatar: u.avatar,
         role: u.role,
+        teamId: u.teamId || null,
         teamName: u.team?.name || null,
         groupName: u.team?.name || null,
       }));
@@ -209,11 +211,9 @@ export const analyticsRouter = router({
       }
 
       // Build Account filter
-      let targetTeamId = input.teamId;
-      if (isLead) {
-        if (!targetTeamId || !scope.teamIds.includes(targetTeamId)) {
-          targetTeamId = scope.teamIds[0] || null;
-        }
+      let targetTeamId = input.teamId && input.teamId !== "ALL" ? input.teamId : null;
+      if (isLead && targetTeamId && !scope.teamIds.includes(targetTeamId)) {
+        targetTeamId = null;
       }
       const whereAccount: any = {};
       if (effectiveOperatorId) {
@@ -223,6 +223,8 @@ export const analyticsRouter = router({
       }
       if (targetTeamId) {
         whereAccount.assignedUser = { teamId: targetTeamId };
+      } else if (isLead) {
+        whereAccount.assignedUser = { teamId: { in: scope.teamIds } };
       }
       if (input.country) {
         whereAccount.country = input.country;
@@ -277,6 +279,8 @@ export const analyticsRouter = router({
         whereChecklistUsers.userId = effectiveOperatorId;
       } else if (targetTeamId) {
         whereChecklistUsers.user = { teamId: targetTeamId };
+      } else if (isLead) {
+        whereChecklistUsers.user = { teamId: { in: scope.teamIds } };
       }
 
       const [

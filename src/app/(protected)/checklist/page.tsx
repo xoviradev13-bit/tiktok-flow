@@ -127,6 +127,9 @@ function ChecklistPageContent() {
   const initialUser = searchParams?.get("user") || "ALL";
   const [selectedUserId, setSelectedUserId] = useState<string>(initialUser);
 
+  const initialTeam = searchParams?.get("team") || "ALL";
+  const [teamFilter, setTeamFilter] = useState<string>(initialTeam);
+
   // STAFF users can only see their own data — lock to their session ID
   const resolvedUserId = !isLeadOrAdmin && session?.user?.id
     ? session.user.id
@@ -185,6 +188,7 @@ function ChecklistPageContent() {
         to: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? endDateStr : undefined,
         preset: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? activeRangePreset : undefined,
         user: selectedUserId,
+        team: teamFilter,
         q: viewType === "table" ? search : undefined,
         score: viewType === "table" ? scoreFilter : undefined,
       },
@@ -196,6 +200,7 @@ function ChecklistPageContent() {
         to: undefined,
         preset: "7d",
         user: "ALL",
+        team: "ALL",
         q: "",
         score: "ALL",
       }
@@ -208,6 +213,7 @@ function ChecklistPageContent() {
     endDateStr,
     activeRangePreset,
     selectedUserId,
+    teamFilter,
     search,
     scoreFilter,
     updateUrlParams,
@@ -272,6 +278,23 @@ function ChecklistPageContent() {
 
   // Fetch Staff List for filter dropdown
   const { data: staffList = [] } = trpc.user.listStaff.useQuery();
+  const { data: teamsData } = trpc.admin.listTeams.useQuery(undefined, { enabled: isLeadOrAdmin });
+  const allTeams = teamsData?.teamsDetails || [];
+
+  const filteredStaffList = useMemo(() => {
+    if (teamFilter === "ALL") return staffList;
+    return staffList.filter((s: any) => s.teamId === teamFilter);
+  }, [staffList, teamFilter]);
+
+  const handleTeamChange = (newTeam: string) => {
+    setTeamFilter(newTeam);
+    if (newTeam !== "ALL" && selectedUserId !== "ALL") {
+      const match = staffList.some((s: any) => s.id === selectedUserId && s.teamId === newTeam);
+      if (!match) {
+        setSelectedUserId("ALL");
+      }
+    }
+  };
 
   // Calculate Date Intervals depending on active View
   const calStartStr = format(startOfWeek(startOfMonth(calendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd");
@@ -303,6 +326,7 @@ function ChecklistPageContent() {
     startDate: queryStartDate,
     endDate: queryEndDate,
     userId: selectedUserId === "ALL" ? undefined : selectedUserId,
+    teamId: teamFilter === "ALL" ? undefined : teamFilter,
     search: viewType === "table" && debouncedSearch ? debouncedSearch : undefined,
     scoreFilter: viewType === "table" && scoreFilter !== "ALL" ? scoreFilter : undefined,
   });
@@ -474,8 +498,8 @@ function ChecklistPageContent() {
   };
 
   const handleAdminCheckComplete = async (checklistId: string, fullName: string) => {
-    if (!isAdmin) {
-      showToast("Chỉ Quản trị viên (Admin) mới có quyền duyệt hoàn thành công thủ công", "error");
+    if (!isLeadOrAdmin) {
+      showToast("Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền duyệt hoàn thành công thủ công", "error");
       return;
     }
     const ok = await confirm({
@@ -500,8 +524,8 @@ function ChecklistPageContent() {
   };
 
   const handleAdminCheckHalfDay = async (checklistId: string, fullName: string) => {
-    if (!isAdmin) {
-      showToast("Chỉ Quản trị viên (Admin) mới có quyền duyệt hoàn thành công thủ công", "error");
+    if (!isLeadOrAdmin) {
+      showToast("Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền duyệt hoàn thành công thủ công", "error");
       return;
     }
     const ok = await confirm({
@@ -524,8 +548,8 @@ function ChecklistPageContent() {
   };
 
   const handleAdminCheckZero = async (checklistId: string, fullName: string) => {
-    if (!isAdmin) {
-      showToast("Chỉ Quản trị viên (Admin) mới có quyền duyệt hoàn thành công thủ công", "error");
+    if (!isLeadOrAdmin) {
+      showToast("Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền duyệt hoàn thành công thủ công", "error");
       return;
     }
     const ok = await confirm({
@@ -565,8 +589,8 @@ function ChecklistPageContent() {
   };
 
   const handleToggleItemField = (item: any, field: "isPosted" | "isSynced" | "isCompleted") => {
-    if (!isAdmin) {
-      showToast("Chỉ Quản trị viên (Admin) mới có quyền chỉnh sửa trạng thái kiểm tra", "error");
+    if (!isLeadOrAdmin) {
+      showToast("Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền chỉnh sửa trạng thái kiểm tra", "error");
       return;
     }
     const currentOpt = optimisticToggles[item.id]?.[field as "isPosted" | "isSynced"];
@@ -808,7 +832,57 @@ function ChecklistPageContent() {
     );
   };
 
-  const renderStaffSelector = (widthClass = "w-full sm:w-60 md:w-64") => {
+  const renderTeamSelector = (widthClass = "w-full sm:w-44 md:w-48") => {
+    if (!isLeadOrAdmin || allTeams.length === 0) return null;
+    return (
+      <div className={cn("relative", widthClass)}>
+        <Select
+          value={teamFilter}
+          onValueChange={handleTeamChange}
+        >
+          <SelectTrigger
+            className={`w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap transition-colors ${teamFilter !== "ALL"
+              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden font-medium"
+              : ""
+              }`}
+          >
+            <SelectValue placeholder="Tất cả đội nhóm" />
+          </SelectTrigger>
+          <SelectContent className="rounded-2xl max-h-72">
+            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
+              Tất cả đội nhóm ({allTeams.length} nhóm)
+            </SelectItem>
+            {allTeams.map((t: any) => (
+              <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">
+                {t.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {teamFilter !== "ALL" && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  handleTeamChange("ALL");
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                aria-label="Xóa chọn đội nhóm"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Xóa chọn đội nhóm</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    );
+  };
+
+  const renderStaffSelector = (widthClass = "w-full sm:w-44 md:w-48") => {
     if (!isLeadOrAdmin) return null;
     return (
       <div className={cn("relative", widthClass)}>
@@ -822,17 +896,17 @@ function ChecklistPageContent() {
               : ""
               }`}
           >
-            <SelectValue placeholder="Tất cả nhân sự" />
+            <SelectValue placeholder="Tất cả thành viên" />
           </SelectTrigger>
           <SelectContent className="rounded-2xl max-h-72">
             <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
-              👥 Tất cả nhân sự ({staffList.length} thành viên)
+              Tất cả thành viên ({filteredStaffList.length})
             </SelectItem>
-            {staffList.map((s: any) => (
+            {filteredStaffList.map((s: any) => (
               <SelectItem key={s.id} value={s.id} className="text-xs font-normal cursor-pointer">
                 <div className="flex items-center gap-2">
                   {renderUserAvatar(s, "w-4 h-4 text-[8px]")}
-                  <span className="truncate">{s.fullName} (@{s.username}) — {s.role}</span>
+                  <span className="truncate">{s.fullName || s.name || s.username}</span>
                 </div>
               </SelectItem>
             ))}
@@ -1004,7 +1078,6 @@ function ChecklistPageContent() {
 
   return (
     <div className="space-y-6 w-full pb-24 animate-fadeIn">
-      <TeamScopeBanner className="mb-2" />
       {/* Top Header Section */}
       <div className="space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1267,34 +1340,12 @@ function ChecklistPageContent() {
 
             {/* Right side: View-specific controls */}
             {viewType === "calendar" ? (
-              <div className="flex flex-wrap items-center gap-2.5">
-                {/* Color Legend Badge */}
-                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 px-3 py-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span>1 công (&ge;{activeRules.fullDayThreshold}%)</span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
-                    <span>0.5 công ({activeRules.halfDayThreshold}-{Math.max(0, activeRules.fullDayThreshold - 1)}%)</span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
-                    <span>0 công (&lt;{activeRules.halfDayThreshold}%)</span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0" />
-                    <span>Nghỉ / Chưa có ca</span>
-                  </span>
+              isLeadOrAdmin ? (
+                <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 flex-wrap">
+                  {renderTeamSelector("w-full sm:w-44 md:w-48")}
+                  {renderStaffSelector("w-full sm:w-44 md:w-48")}
                 </div>
-
-                {/* Calendar Mode: Staff Selector in header row */}
-                {isLeadOrAdmin && (
-                  <div className="w-full sm:w-auto shrink-0">
-                    {renderStaffSelector("w-full sm:w-60 md:w-64")}
-                  </div>
-                )}
-              </div>
+              ) : null
             ) : viewType === "charts" || (viewType === "table" && viewMode === "range") ? (
               /* Charts or Table Range: Range presets */
               <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
@@ -1554,6 +1605,9 @@ function ChecklistPageContent() {
 
               {/* Dropdown Filters Group */}
               <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+                {/* Team Selector */}
+                {renderTeamSelector()}
+
                 {/* Staff Selector */}
                 {renderStaffSelector()}
 
@@ -1617,7 +1671,7 @@ function ChecklistPageContent() {
                 </div>
 
                 {/* Quick Reset Filters Button when any filter active */}
-                {(search || selectedUserId !== "ALL" || scoreFilter !== "ALL") && (
+                {(search || selectedUserId !== "ALL" || scoreFilter !== "ALL" || teamFilter !== "ALL") && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -1626,6 +1680,7 @@ function ChecklistPageContent() {
                           setSearch("");
                           setSelectedUserId("ALL");
                           setScoreFilter("ALL");
+                          handleTeamChange("ALL");
                         }}
                         className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
                       >
@@ -1645,6 +1700,7 @@ function ChecklistPageContent() {
                 <span>Phạm vi thống kê theo nhân sự:</span>
               </div>
               <div className="flex items-center gap-2.5 justify-end">
+                {renderTeamSelector()}
                 {renderStaffSelector()}
               </div>
             </div>
@@ -1697,6 +1753,7 @@ function ChecklistPageContent() {
             setSelectedDateForModal(dStr);
           }}
           isLoading={loading}
+          activeRules={activeRules}
         />
       ) : viewType === "charts" ? (
         <TimesheetCharts
@@ -1894,7 +1951,7 @@ function ChecklistPageContent() {
                                   <span>Quét Tự Động Nhân Sự</span>
                                 </DropdownMenuItem>
 
-                                {isAdmin ? (
+                                {isLeadOrAdmin ? (
                                   <>
                                     <DropdownMenuItem
                                       onClick={() => handleAdminCheckComplete(chk.id, chk.user.fullName)}
@@ -1921,7 +1978,7 @@ function ChecklistPageContent() {
                                 ) : (
                                   <div className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1.5 italic">
                                     <Shield className="w-3.5 h-3.5 shrink-0" />
-                                    <span>Chỉ Admin mới được duyệt công</span>
+                                    <span>Chỉ Admin/Lead mới được duyệt công</span>
                                   </div>
                                 )}
 
@@ -2051,11 +2108,10 @@ function ChecklistPageContent() {
                                                     <Tooltip>
                                                       <TooltipTrigger asChild>
                                                         <div
-                                                          className={`w-7.5 h-7.5 rounded-full border flex items-center justify-center mx-auto transition-all shadow-2xs cursor-default select-none ${
-                                                            isSynced
-                                                              ? "bg-emerald-500 border-emerald-500 text-white"
-                                                              : "bg-cyan-500 border-cyan-500 text-white"
-                                                          }`}
+                                                          className={`w-7.5 h-7.5 rounded-full border flex items-center justify-center mx-auto transition-all shadow-2xs cursor-default select-none ${isSynced
+                                                            ? "bg-emerald-500 border-emerald-500 text-white"
+                                                            : "bg-cyan-500 border-cyan-500 text-white"
+                                                            }`}
                                                         >
                                                           {isSynced ? (
                                                             <Check className="w-4 h-4 stroke-[3]" />
@@ -2075,8 +2131,8 @@ function ChecklistPageContent() {
                                                               {item.syncedAt
                                                                 ? `Lúc: ${format(new Date(item.syncedAt), "HH:mm dd/MM/yyyy")}`
                                                                 : syncDiag.detailTime !== "Chưa từng"
-                                                                ? `Lần sync: ${syncDiag.detailTime}`
-                                                                : "Đã hoàn thành đồng bộ dữ liệu"}
+                                                                  ? `Lần sync: ${syncDiag.detailTime}`
+                                                                  : "Đã hoàn thành đồng bộ dữ liệu"}
                                                             </p>
                                                           </div>
                                                         ) : (
@@ -2660,7 +2716,7 @@ function ChecklistPageContent() {
         onLaunchGpm={(gpmId) => startGpmMutation.mutate({ gpmProfileId: gpmId })}
         onSyncAccount={(accId) => syncAccountMutation.mutate({ accountId: accId })}
         onViewVideos={(acc, dStr) => setCrossCheckItem({ accountId: acc.id, username: acc.username, dateStr: dStr, staffName: "", itemId: "" })}
-        isAdmin={isAdmin}
+        isAdmin={isLeadOrAdmin}
         onAdminCheckComplete={handleAdminCheckComplete}
         onAdminCheckHalfDay={handleAdminCheckHalfDay}
         onAdminCheckZero={handleAdminCheckZero}

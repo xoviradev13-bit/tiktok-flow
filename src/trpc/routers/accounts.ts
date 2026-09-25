@@ -170,6 +170,10 @@ export const accountsRouter = router({
                 firstName: true,
                 lastName: true,
                 role: true,
+                teamId: true,
+                team: {
+                  select: { id: true, name: true, color: true },
+                },
               },
             },
             alerts: {

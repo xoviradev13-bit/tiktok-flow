@@ -175,6 +175,69 @@ function RevenueDetailsPageContent() {
 
   const sortDirectionText = sortConfig.desc ? "Giảm dần" : "Tăng dần";
 
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "ADMIN" || (session?.user as any)?.userType === "ADMIN";
+  const isLead = session?.user?.role === "LEAD";
+  const isLeadOrAdmin = isAdmin || isLead;
+
+  const initialTeam = searchParams?.get("team") || "ALL";
+  const [teamFilter, setTeamFilter] = useState(initialTeam);
+
+  const initialOperator = searchParams?.get("operator") || "ALL";
+  const [operatorFilter, setOperatorFilter] = useState(initialOperator);
+
+  const { data: teamsData } = trpc.admin.listTeams.useQuery(undefined, {
+    enabled: isLeadOrAdmin,
+  });
+  const allTeams = useMemo(() => {
+    if (!teamsData) return [];
+    if (Array.isArray(teamsData.teamsDetails) && teamsData.teamsDetails.length > 0) {
+      return teamsData.teamsDetails.map((t: any, i: number) => ({
+        id: String(t.id || t.name || `team-${i}`),
+        name: String(t.name || t.teamName || t.id || `Nhóm ${i + 1}`),
+      }));
+    }
+    if (Array.isArray(teamsData.teams)) {
+      return teamsData.teams.map((t: any, i: number) => {
+        if (typeof t === "string") return { id: t, name: t };
+        return {
+          id: String(t.id || t.name || `team-${i}`),
+          name: String(t.name || t.id || `Nhóm ${i + 1}`),
+        };
+      });
+    }
+    return [];
+  }, [teamsData]);
+
+  const selectedTeamName = useMemo(() => {
+    if (teamFilter === "ALL") return undefined;
+    const found = allTeams.find((t: any) => t.id === teamFilter || t.name === teamFilter);
+    return found ? found.name : undefined;
+  }, [allTeams, teamFilter]);
+
+  const { data: staffData } = trpc.user.listStaff.useQuery(undefined, {
+    enabled: isLeadOrAdmin,
+  });
+  const staffList = staffData || [];
+
+  const filteredStaffUsers = useMemo(() => {
+    if (teamFilter === "ALL") return staffList;
+    return staffList.filter((u: any) => u.teamId === teamFilter);
+  }, [staffList, teamFilter]);
+
+  const handleTeamChange = (newTeamId: string) => {
+    setTeamFilter(newTeamId);
+    setPage(1);
+    if (newTeamId !== "ALL" && operatorFilter !== "ALL") {
+      const userInTeam = staffList.some(
+        (u: any) => u.id === operatorFilter && u.teamId === newTeamId
+      );
+      if (!userInTeam) {
+        setOperatorFilter("ALL");
+      }
+    }
+  };
+
   const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
   const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 15;
   const [page, setPage] = useState(initialPage);
@@ -196,6 +259,8 @@ function RevenueDetailsPageContent() {
         dir: sortConfig.desc ? "desc" : "asc",
         p: page,
         ps: pageSize,
+        team: teamFilter,
+        operator: operatorFilter,
       },
       {
         q: "",
@@ -210,6 +275,8 @@ function RevenueDetailsPageContent() {
         dir: "desc",
         p: 1,
         ps: 15,
+        team: "ALL",
+        operator: "ALL",
       }
     );
   }, [
@@ -224,6 +291,8 @@ function RevenueDetailsPageContent() {
     sortConfig,
     page,
     pageSize,
+    teamFilter,
+    operatorFilter,
     updateUrlParams,
   ]);
 
@@ -237,10 +306,6 @@ function RevenueDetailsPageContent() {
     revenue: true,
     sourceType: true,
   });
-
-  const { data: session } = useSession();
-  const isAdmin = session?.user?.role === "ADMIN" || (session?.user as any)?.userType === "ADMIN";
-  const isLeadOrAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "LEAD";
 
   const visibleColumnCount = useMemo(() => {
     return 1 /* checkbox */ + Object.values(visibleColumns).filter(Boolean).length + 1 /* Thao tác */;
@@ -352,6 +417,8 @@ function RevenueDetailsPageContent() {
     startDate: startDate || undefined,
     endDate: endDate || undefined,
     includeArchived: includeArchived || undefined,
+    teamId: teamFilter !== "ALL" ? teamFilter : undefined,
+    operatorId: operatorFilter !== "ALL" ? operatorFilter : undefined,
   });
 
   // Handle Excel/CSV file upload
@@ -576,7 +643,16 @@ function RevenueDetailsPageContent() {
         (originFilter === "AUTO" && isAuto) ||
         (originFilter === "MANUAL" && !isAuto);
 
-      return matchSearch && matchSource && matchMinRev && matchMinViews && matchOrigin;
+      const matchTeam =
+        teamFilter === "ALL" ||
+        r.account?.assignedUser?.teamId === teamFilter;
+
+      const matchOperator =
+        operatorFilter === "ALL" ||
+        r.account?.assignedUser?.id === operatorFilter ||
+        r.account?.assignedUserId === operatorFilter;
+
+      return matchSearch && matchSource && matchMinRev && matchMinViews && matchOrigin && matchTeam && matchOperator;
     });
 
     filtered.sort((a: any, b: any) => {
@@ -606,7 +682,7 @@ function RevenueDetailsPageContent() {
     });
 
     return filtered;
-  }, [records, search, sourceTypeFilter, minRevenue, minViews, originFilter, sortConfig]);
+  }, [records, search, sourceTypeFilter, minRevenue, minViews, originFilter, sortConfig, teamFilter, operatorFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedRecords.length / pageSize));
   const paginatedRecords = useMemo(() => {
@@ -765,23 +841,30 @@ function RevenueDetailsPageContent() {
   // Total active filters count across all inputs
   const activeFiltersCount =
     (search ? 1 : 0) +
+    (teamFilter !== "ALL" ? 1 : 0) +
+    (operatorFilter !== "ALL" ? 1 : 0) +
     (sourceTypeFilter !== "ALL" ? 1 : 0) +
     (minRevenue ? 1 : 0) +
     (minViews ? 1 : 0) +
     (originFilter !== "ALL" ? 1 : 0) +
     (includeArchived ? 1 : 0);
 
-  // Filters count for Advanced Filter Popover
   const advancedFiltersCount =
+    (teamFilter !== "ALL" ? 1 : 0) +
+    (operatorFilter !== "ALL" ? 1 : 0) +
+    (sourceTypeFilter !== "ALL" ? 1 : 0) +
+    (originFilter !== "ALL" ? 1 : 0) +
     (minRevenue ? 1 : 0) +
     (minViews ? 1 : 0) +
-    (originFilter !== "ALL" ? 1 : 0) +
     (includeArchived ? 1 : 0);
 
   const clearAdvancedFilters = () => {
+    setTeamFilter("ALL");
+    setOperatorFilter("ALL");
+    setSourceTypeFilter("ALL");
+    setOriginFilter("ALL");
     setMinRevenue("");
     setMinViews("");
-    setOriginFilter("ALL");
     setIncludeArchived(false);
     setPage(1);
   };
@@ -789,6 +872,8 @@ function RevenueDetailsPageContent() {
   const clearAllFilters = () => {
     setSearch("");
     setSourceTypeFilter("ALL");
+    setTeamFilter("ALL");
+    setOperatorFilter("ALL");
     setStartDate(format(subDays(new Date(), 60), "yyyy-MM-dd"));
     setEndDate(format(new Date(), "yyyy-MM-dd"));
     setMinRevenue("");
@@ -858,7 +943,6 @@ function RevenueDetailsPageContent() {
 
   return (
     <div className="space-y-6 w-full pb-20">
-      <TeamScopeBanner className="mb-2" />
       {/* Header & Controls Section */}
       <div className="space-y-4">
         {/* Top Header */}
@@ -1252,57 +1336,107 @@ function RevenueDetailsPageContent() {
 
             {/* Right: Tất cả nguồn thu + Bộ lọc nâng cao + Sắp xếp + Cột hiển thị */}
             <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap justify-start">
-              {/* Source Type Filter */}
-              <div className="relative shrink-0">
-                <Select
-                  value={sourceTypeFilter}
-                  onValueChange={(val) => {
-                    setSourceTypeFilter(val === "ALL" ? "ALL" : resolveRevenueSourceKey(val));
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger
-                    className={`w-44 sm:w-56 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${sourceTypeFilter !== "ALL"
-                      ? "pr-8 border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/25 text-amber-700 dark:text-amber-300 [&_svg]:hidden"
-                      : ""
-                      }`}
+              {/* Leader & Admin: Group Selector on main toolbar; Staff: Source Type Filter */}
+              {isLeadOrAdmin ? (
+                <div className="relative shrink-0">
+                  <Select
+                    value={teamFilter}
+                    onValueChange={handleTeamChange}
                   >
-                    <SelectValue placeholder="Tất cả nguồn thu" />
-                  </SelectTrigger>
-                  <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-80">
-                    <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nguồn thu</SelectItem>
-                    {REVENUE_SOURCE_OPTIONS.map((opt) => (
-                      <SelectItem
-                        key={opt.value}
-                        value={opt.value}
-                        className="text-xs font-normal cursor-pointer"
-                      >
-                        {opt.label}
+                    <SelectTrigger
+                      className={`w-44 sm:w-56 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${
+                        teamFilter !== "ALL"
+                          ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden font-medium"
+                          : ""
+                      }`}
+                    >
+                      <SelectValue placeholder="Tất cả đội nhóm">
+                        {selectedTeamName}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-80 z-[200]">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
+                        Tất cả đội nhóm ({allTeams.length} nhóm)
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {sourceTypeFilter !== "ALL" && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          setSourceTypeFilter("ALL");
-                          setPage(1);
-                        }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                        aria-label="Xóa chọn nguồn thu"
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Xóa chọn nguồn thu</TooltipContent>
-                  </Tooltip>
-                )}
-              </div>
+                      {allTeams.map((t: any) => (
+                        <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {teamFilter !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleTeamChange("ALL");
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn đội nhóm"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn đội nhóm</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              ) : (
+                <div className="relative shrink-0">
+                  <Select
+                    value={sourceTypeFilter}
+                    onValueChange={(val) => {
+                      setSourceTypeFilter(val === "ALL" ? "ALL" : resolveRevenueSourceKey(val));
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger
+                      className={`w-44 sm:w-56 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${sourceTypeFilter !== "ALL"
+                        ? "pr-8 border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/25 text-amber-700 dark:text-amber-300 [&_svg]:hidden"
+                        : ""
+                        }`}
+                    >
+                      <SelectValue placeholder="Tất cả nguồn thu" />
+                    </SelectTrigger>
+                    <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-80">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nguồn thu</SelectItem>
+                      {REVENUE_SOURCE_OPTIONS.map((opt) => (
+                        <SelectItem
+                          key={opt.value}
+                          value={opt.value}
+                          className="text-xs font-normal cursor-pointer"
+                        >
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {sourceTypeFilter !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setSourceTypeFilter("ALL");
+                            setPage(1);
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn nguồn thu"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn nguồn thu</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              )}
 
               {/* Advanced Filter Popover */}
               <Popover>
@@ -1337,8 +1471,15 @@ function RevenueDetailsPageContent() {
                     )}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-72 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-3.5">
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                <PopoverContent
+                  align="end"
+                  side="bottom"
+                  sideOffset={6}
+                  collisionPadding={16}
+                  avoidCollisions={true}
+                  className="w-80 p-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl flex flex-col max-h-[min(380px,calc(100vh-220px),var(--radix-popover-content-available-height,380px))] overflow-hidden"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 p-4 pb-3 shrink-0 bg-white dark:bg-slate-900">
                     <h4 className="text-xs font-bold text-slate-900 dark:text-white">Bộ lọc chi tiết</h4>
                     {advancedFiltersCount > 0 && (
                       <button
@@ -1350,58 +1491,325 @@ function RevenueDetailsPageContent() {
                     )}
                   </div>
 
-                  {/* Doanh thu & Views tối thiểu */}
-                  <div className="space-y-2.5">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  <div className="p-4 pt-3 overflow-y-auto space-y-3 flex-1 overscroll-contain">
+                    {/* Team Selector inside advanced filter for leader & admin */}
+                    {isLeadOrAdmin && allTeams.length > 0 && (
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                          Đội nhóm
+                        </label>
+                        <div className="relative">
+                          <Select
+                            value={teamFilter}
+                            onValueChange={handleTeamChange}
+                          >
+                            <SelectTrigger
+                              className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                                teamFilter !== "ALL"
+                                  ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                                  : ""
+                              }`}
+                            >
+                              <SelectValue placeholder="Tất cả đội nhóm">
+                                {selectedTeamName}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl max-h-60 z-[200]">
+                              <SelectItem value="ALL" className="text-xs cursor-pointer">
+                                Tất cả đội nhóm ({allTeams.length} nhóm)
+                              </SelectItem>
+                              {allTeams.map((t: any) => (
+                                <SelectItem key={t.id} value={t.id} className="text-xs cursor-pointer">
+                                  {t.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {teamFilter !== "ALL" && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    handleTeamChange("ALL");
+                                  }}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                  aria-label="Xóa chọn đội nhóm"
+                                >
+                                  <X className="w-2.5 h-2.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Xóa chọn đội nhóm</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Operator (Nhân sự) filter with avatar + username */}
+                    {isLeadOrAdmin && (
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                          Nhân sự phụ trách
+                        </label>
+                        <div className="relative">
+                          <Select
+                            value={operatorFilter}
+                            onValueChange={(val) => {
+                              setOperatorFilter(val);
+                              setPage(1);
+                            }}
+                          >
+                            <SelectTrigger
+                              className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                                operatorFilter !== "ALL"
+                                  ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                                  : ""
+                              }`}
+                            >
+                              <SelectValue placeholder="Tất cả nhân sự" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl max-h-60 z-[200]">
+                              <SelectItem value="ALL" className="text-xs cursor-pointer">
+                                Tất cả nhân sự ({filteredStaffUsers.length})
+                              </SelectItem>
+                              {filteredStaffUsers.map((u: any) => (
+                                <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                                  <div className="flex items-center gap-2">
+                                    {u.avatar ? (
+                                      <img
+                                        src={u.avatar}
+                                        alt={u.name || u.username}
+                                        className="w-4 h-4 rounded-full object-cover shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white font-bold text-[8px] flex items-center justify-center shrink-0 uppercase">
+                                        {(u.fullName || u.name || u.username || "U").slice(0, 2)}
+                                      </div>
+                                    )}
+                                    <span className="truncate">{u.fullName || u.name || u.username}</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {operatorFilter !== "ALL" && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    setOperatorFilter("ALL");
+                                    setPage(1);
+                                  }}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                  aria-label="Xóa chọn nhân sự"
+                                >
+                                  <X className="w-2.5 h-2.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Xóa chọn nhân sự</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Source Type Filter inside advanced filter */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Nguồn thu
+                      </label>
+                      <div className="relative">
+                        <Select
+                          value={sourceTypeFilter}
+                          onValueChange={(val) => {
+                            setSourceTypeFilter(val === "ALL" ? "ALL" : resolveRevenueSourceKey(val));
+                            setPage(1);
+                          }}
+                        >
+                          <SelectTrigger
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                              sourceTypeFilter !== "ALL"
+                                ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                                : ""
+                            }`}
+                          >
+                            <SelectValue placeholder="Tất cả nguồn thu">
+                              {sourceTypeFilter !== "ALL" ? formatRevenueSourceLabel(sourceTypeFilter) : undefined}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl max-h-60 z-[200]">
+                            <SelectItem value="ALL" className="text-xs cursor-pointer">Tất cả nguồn thu</SelectItem>
+                            {REVENUE_SOURCE_OPTIONS.map((opt) => (
+                              <SelectItem
+                                key={opt.value}
+                                value={opt.value}
+                                className="text-xs cursor-pointer"
+                              >
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {sourceTypeFilter !== "ALL" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setSourceTypeFilter("ALL");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa chọn nguồn thu"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa chọn nguồn thu</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Origin Filter */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
                         Cách thêm bản ghi
                       </label>
-                      <Select
-                        value={originFilter}
-                        onValueChange={(val) => {
-                          setOriginFilter(val as "ALL" | "MANUAL" | "AUTO");
-                          setPage(1);
-                        }}
-                      >
-                        <SelectTrigger className="w-full h-8.5 text-xs font-normal bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 cursor-pointer">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl">
-                          <SelectItem value="ALL" className="text-xs cursor-pointer">Tất cả</SelectItem>
-                          <SelectItem value="MANUAL" className="text-xs cursor-pointer">Thêm thủ công</SelectItem>
-                          <SelectItem value="AUTO" className="text-xs cursor-pointer">Đồng bộ tự động</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="relative">
+                        <Select
+                          value={originFilter}
+                          onValueChange={(val) => {
+                            setOriginFilter(val as "ALL" | "MANUAL" | "AUTO");
+                            setPage(1);
+                          }}
+                        >
+                          <SelectTrigger
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${
+                              originFilter !== "ALL"
+                                ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                                : ""
+                            }`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl z-[200]">
+                            <SelectItem value="ALL" className="text-xs cursor-pointer">Tất cả</SelectItem>
+                            <SelectItem value="MANUAL" className="text-xs cursor-pointer">Thêm thủ công</SelectItem>
+                            <SelectItem value="AUTO" className="text-xs cursor-pointer">Đồng bộ tự động</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {originFilter !== "ALL" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setOriginFilter("ALL");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa chọn cách thêm"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa chọn cách thêm</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+
+                    {/* Minimum Revenue */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
                         Doanh thu ($) ≥
                       </label>
-                      <Input
-                        type="number"
-                        placeholder="e.g. 10"
-                        value={minRevenue}
-                        onChange={(e) => {
-                          setMinRevenue(e.target.value);
-                          setPage(1);
-                        }}
-                        className="h-8.5 text-xs font-normal bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
-                      />
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          placeholder="e.g. 10"
+                          value={minRevenue}
+                          onChange={(e) => {
+                            setMinRevenue(e.target.value);
+                            setPage(1);
+                          }}
+                          className={`h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors ${
+                            minRevenue
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300"
+                              : ""
+                          }`}
+                        />
+                        {minRevenue && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMinRevenue("");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa lọc doanh thu"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa lọc doanh thu</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+
+                    {/* Minimum Views */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
                         Views ≥
                       </label>
-                      <Input
-                        type="number"
-                        placeholder="e.g. 5000"
-                        value={minViews}
-                        onChange={(e) => {
-                          setMinViews(e.target.value);
-                          setPage(1);
-                        }}
-                        className="h-8.5 text-xs font-normal bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
-                      />
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          placeholder="e.g. 5000"
+                          value={minViews}
+                          onChange={(e) => {
+                            setMinViews(e.target.value);
+                            setPage(1);
+                          }}
+                          className={`h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors ${
+                            minViews
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300"
+                              : ""
+                          }`}
+                        />
+                        {minViews && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMinViews("");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa lọc views"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa lọc views</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
                       <label className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer select-none">
@@ -1576,6 +1984,34 @@ function RevenueDetailsPageContent() {
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                  </Tooltip>
+                </span>
+              )}
+              {teamFilter !== "ALL" && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
+                  <span>Đội nhóm: {allTeams.find((t: any) => t.id === teamFilter)?.name || "Đã chọn"}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => handleTeamChange("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa lọc đội nhóm</TooltipContent>
+                  </Tooltip>
+                </span>
+              )}
+              {operatorFilter !== "ALL" && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
+                  <span>
+                    Nhân sự: {staffList.find((u: any) => u.id === operatorFilter)?.fullName || staffList.find((u: any) => u.id === operatorFilter)?.username || "Đã chọn"}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setOperatorFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa lọc nhân sự</TooltipContent>
                   </Tooltip>
                 </span>
               )}
@@ -1846,12 +2282,28 @@ function RevenueDetailsPageContent() {
                         {/* Staff */}
                         {visibleColumns.assignedUser && (
                           <td style={getColumnStyle("assignedUser")} className="px-4 py-3.5 text-slate-600 dark:text-slate-400 overflow-hidden">
-                            <span className="truncate block" title={item.account?.assignedUser?.fullName || item.account?.assignedUser?.name || item.account?.assignedUser?.username || undefined}>
-                              {item.account?.assignedUser?.fullName ||
-                                item.account?.assignedUser?.name ||
-                                item.account?.assignedUser?.username ||
-                                "Chưa gán"}
-                            </span>
+                            {item.account?.assignedUser ? (
+                              <div className="flex items-center gap-2 min-w-0">
+                                {item.account.assignedUser.avatar ? (
+                                  <img
+                                    src={item.account.assignedUser.avatar}
+                                    alt={item.account.assignedUser.fullName || item.account.assignedUser.username || "U"}
+                                    className="w-5 h-5 rounded-full object-cover shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white font-bold text-[9px] flex items-center justify-center shrink-0 uppercase select-none">
+                                    {(item.account.assignedUser.fullName || item.account.assignedUser.name || item.account.assignedUser.username || "U").slice(0, 2)}
+                                  </div>
+                                )}
+                                <span className="truncate block" title={item.account?.assignedUser?.fullName || item.account?.assignedUser?.name || item.account?.assignedUser?.username || undefined}>
+                                  {item.account?.assignedUser?.fullName ||
+                                    item.account?.assignedUser?.name ||
+                                    item.account?.assignedUser?.username}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic">Chưa gán</span>
+                            )}
                           </td>
                         )}
 

@@ -259,6 +259,10 @@ export const userRouter = router({
         email: true,
         avatar: true,
         role: true,
+        teamId: true,
+        team: {
+          select: { id: true, name: true, color: true },
+        },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -270,6 +274,9 @@ export const userRouter = router({
       email: u.email,
       avatar: u.avatar,
       role: u.role,
+      teamId: u.teamId || u.team?.id || null,
+      teamName: u.team?.name || null,
+      team: u.team,
     }));
   }),
 

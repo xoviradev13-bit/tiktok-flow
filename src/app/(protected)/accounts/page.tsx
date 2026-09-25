@@ -563,8 +563,10 @@ function AccountsPageContent() {
 
   const { data: session } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
+  const isLead = (session?.user as any)?.role === "LEAD";
   const isLeadOrAdmin =
     isAdmin || (session?.user as any)?.role === "LEAD";
+
 
   // SaaS URL Query State Synchronization
   const { updateUrlParams } = useUrlParams();
@@ -596,6 +598,9 @@ function AccountsPageContent() {
 
   const initialAssigned = searchParams?.get("user") || searchParams?.get("assigned") || "ALL";
   const [assignedFilter, setAssignedFilter] = useState(initialAssigned);
+
+  const initialTeam = searchParams?.get("team") || "ALL";
+  const [teamFilter, setTeamFilter] = useState(initialTeam);
 
   // Advanced filters
   const initialWarning = (searchParams?.get("warn") || searchParams?.get("warning") || "ALL") as "ALL" | "HAS_WARNING" | "NO_WARNING";
@@ -653,6 +658,7 @@ function AccountsPageContent() {
         sync: syncFilter,
         country: countryFilter,
         user: assignedFilter,
+        team: teamFilter,
         warn: warningFilter,
         gpm: gpmFilter,
         minV: minViews,
@@ -671,6 +677,7 @@ function AccountsPageContent() {
         sync: "ALL",
         country: "ALL",
         user: "ALL",
+        team: "ALL",
         warn: "ALL",
         gpm: "ALL",
         minV: "",
@@ -690,6 +697,7 @@ function AccountsPageContent() {
     syncFilter,
     countryFilter,
     assignedFilter,
+    teamFilter,
     warningFilter,
     gpmFilter,
     minViews,
@@ -820,6 +828,48 @@ function AccountsPageContent() {
   });
 
   const { data: users = [] } = trpc.user.listStaff.useQuery();
+  const { data: teamsData } = trpc.admin.listTeams.useQuery(undefined, { enabled: isLeadOrAdmin });
+  const allTeams = useMemo(() => {
+    if (!teamsData) return [];
+    if (Array.isArray(teamsData.teamsDetails) && teamsData.teamsDetails.length > 0) {
+      return teamsData.teamsDetails.map((t: any, i: number) => ({
+        id: String(t.id || t.name || `team-${i}`),
+        name: String(t.name || t.teamName || t.id || `Nhóm ${i + 1}`),
+      }));
+    }
+    if (Array.isArray(teamsData.teams)) {
+      return teamsData.teams.map((t: any, i: number) => {
+        if (typeof t === "string") return { id: t, name: t };
+        return {
+          id: String(t.id || t.name || `team-${i}`),
+          name: String(t.name || t.id || `Nhóm ${i + 1}`),
+        };
+      });
+    }
+    return [];
+  }, [teamsData]);
+
+  const selectedTeamName = useMemo(() => {
+    if (teamFilter === "ALL") return undefined;
+    const found = allTeams.find((t: any) => t.id === teamFilter || t.name === teamFilter);
+    return found ? found.name : undefined;
+  }, [allTeams, teamFilter]);
+
+  const filteredStaffUsers = useMemo(() => {
+    if (!isLeadOrAdmin || teamFilter === "ALL") return users;
+    return users.filter((u: any) => u.teamId === teamFilter);
+  }, [users, teamFilter, isLeadOrAdmin]);
+
+  const handleTeamChange = (newTeam: string) => {
+    setTeamFilter(newTeam);
+    setPage(1);
+    if (newTeam !== "ALL" && assignedFilter !== "ALL") {
+      const match = users.some((u: any) => u.id === assignedFilter && u.teamId === newTeam);
+      if (!match) {
+        setAssignedFilter("ALL");
+      }
+    }
+  };
   const { data: accountLogs = [], isLoading: isLogsLoading } = trpc.accounts.getLogs.useQuery(
     { accountId: selectedAccount?.id || "" },
     { enabled: isLogModalOpen && !!selectedAccount?.id }
@@ -1335,6 +1385,7 @@ function AccountsPageContent() {
         syncFilter === "ALL" ||
         (syncFilter === "SYNC_ISSUES" ? hasAccountSyncIssue(acc) : !hasAccountSyncIssue(acc));
       const matchCountry = countryFilter === "ALL" || normalizeCountry(acc.country) === countryFilter;
+      const matchTeam = !isLeadOrAdmin || teamFilter === "ALL" || acc.assignedUser?.teamId === teamFilter;
       const matchAssigned = !isLeadOrAdmin || assignedFilter === "ALL" || acc.assignedUserId === assignedFilter;
 
       // Advanced filters
@@ -1360,6 +1411,7 @@ function AccountsPageContent() {
         matchOnline &&
         matchSync &&
         matchCountry &&
+        matchTeam &&
         matchAssigned &&
         matchWarning &&
         matchGpm &&
@@ -1407,6 +1459,7 @@ function AccountsPageContent() {
     syncFilter,
     countryFilter,
     assignedFilter,
+    teamFilter,
     warningFilter,
     gpmFilter,
     minViews,
@@ -1449,6 +1502,7 @@ function AccountsPageContent() {
 
   // Active filter count
   const activeAdvancedCount =
+    (isLeadOrAdmin && statusFilter !== "ALL" ? 1 : 0) +
     (onlineFilter !== "ALL" ? 1 : 0) +
     (syncFilter !== "ALL" ? 1 : 0) +
     (countryFilter !== "ALL" ? 1 : 0) +
@@ -1459,11 +1513,13 @@ function AccountsPageContent() {
 
   const totalActiveFiltersCount =
     (search ? 1 : 0) +
-    (statusFilter !== "ALL" ? 1 : 0) +
+    (!isLeadOrAdmin && statusFilter !== "ALL" ? 1 : 0) +
+    (isLeadOrAdmin && teamFilter !== "ALL" ? 1 : 0) +
     (assignedFilter !== "ALL" ? 1 : 0) +
     activeAdvancedCount;
 
   const clearAdvancedFilters = () => {
+    if (isLeadOrAdmin) setStatusFilter("ALL");
     setOnlineFilter("ALL");
     setSyncFilter("ALL");
     setCountryFilter("ALL");
@@ -1478,6 +1534,7 @@ function AccountsPageContent() {
     setSearch("");
     setStatusFilter("ALL");
     setAssignedFilter("ALL");
+    setTeamFilter("ALL");
     clearAdvancedFilters();
   };
 
@@ -1547,7 +1604,6 @@ function AccountsPageContent() {
 
   return (
     <div className="space-y-6 pb-20">
-      <TeamScopeBanner className="mb-2" />
       {/* Header & Controls Section */}
       <div className="space-y-4">
         {/* Top Header */}
@@ -1857,8 +1913,58 @@ function AccountsPageContent() {
                 )}
               </div>
 
-              {/* Status Fast Filter (Fleet mode only) */}
-              {!viewTrash && (
+              {/* Leader & Admin Team Filter: Replaces Status filter on toolbar */}
+              {isLeadOrAdmin && (
+                <div className="relative shrink-0">
+                  <Select
+                    value={teamFilter}
+                    onValueChange={handleTeamChange}
+                  >
+                    <SelectTrigger
+                      className={`w-40 sm:w-44 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate transition-colors ${teamFilter !== "ALL"
+                        ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden font-medium"
+                        : ""
+                        }`}
+                    >
+                      <SelectValue placeholder="Đội nhóm">
+                        {selectedTeamName}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
+                        Tất cả đội nhóm ({allTeams.length} nhóm)
+                      </SelectItem>
+                      {allTeams.map((t: any) => (
+                        <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {teamFilter !== "ALL" && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleTeamChange("ALL");
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                          aria-label="Xóa chọn đội nhóm"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Xóa chọn đội nhóm</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              )}
+
+              {/* Status Fast Filter (For staff only in Fleet mode) */}
+              {!isLeadOrAdmin && !viewTrash && (
                 <div className="relative shrink-0">
                   <Select
                     value={statusFilter}
@@ -1927,7 +2033,7 @@ function AccountsPageContent() {
                     </SelectTrigger>
                     <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
                       <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nhân sự</SelectItem>
-                      {users.map((u: any) => (
+                      {filteredStaffUsers.map((u: any) => (
                         <SelectItem key={u.id} value={u.id} className="text-xs font-normal cursor-pointer">
                           <div className="flex items-center gap-2">
                             {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
@@ -1993,8 +2099,15 @@ function AccountsPageContent() {
                     )}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-72 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-3.5">
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                <PopoverContent
+                  align="end"
+                  side="bottom"
+                  sideOffset={6}
+                  collisionPadding={16}
+                  avoidCollisions={true}
+                  className="w-72 sm:w-80 p-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl flex flex-col max-h-[min(380px,calc(100vh-220px),var(--radix-popover-content-available-height,380px))] overflow-hidden"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 p-4 pb-3 shrink-0 bg-white dark:bg-slate-900">
                     <h4 className="text-xs font-bold text-slate-900 dark:text-white">Bộ lọc chi tiết</h4>
                     {activeAdvancedCount > 0 && (
                       <button
@@ -2005,6 +2118,63 @@ function AccountsPageContent() {
                       </button>
                     )}
                   </div>
+
+                  <div className="p-4 pt-3 overflow-y-auto space-y-3.5 flex-1 overscroll-contain">
+
+                  {/* Trạng thái tài khoản (Khi là Leader hoặc Admin) */}
+                  {isLeadOrAdmin && (
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Trạng thái tài khoản
+                      </label>
+                      <div className="relative">
+                        <Select
+                          value={statusFilter}
+                          onValueChange={(val) => {
+                            setStatusFilter(val);
+                            setPage(1);
+                          }}
+                        >
+                          <SelectTrigger
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${statusFilter !== "ALL"
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
+                              }`}
+                          >
+                            <SelectValue placeholder="Tất cả trạng thái" />
+                          </SelectTrigger>
+                          <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
+                            <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
+                            <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
+                            <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
+                            <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
+                            <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {statusFilter !== "ALL" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setStatusFilter("ALL");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa chọn trạng thái"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Trạng thái mở Profile GPM (Online / Offline) */}
                   <div className="space-y-1">
@@ -2280,39 +2450,88 @@ function AccountsPageContent() {
                   </div>
 
                   {/* Lượt xem tối thiểu */}
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
                       Lượt xem tối thiểu (Views)
                     </label>
-                    <Input
-                      type="number"
-                      placeholder="e.g. 10000"
-                      value={minViews}
-                      onChange={(e) => {
-                        setMinViews(e.target.value);
-                        setPage(1);
-                      }}
-                      className="h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
-                    />
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        placeholder="e.g. 10000"
+                        value={minViews}
+                        onChange={(e) => {
+                          setMinViews(e.target.value);
+                          setPage(1);
+                        }}
+                        className={`h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors ${
+                          minViews
+                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300"
+                            : ""
+                        }`}
+                      />
+                      {minViews && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMinViews("");
+                                setPage(1);
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                              aria-label="Xóa lọc views"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Xóa lọc views</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
 
                   {/* Doanh thu tối thiểu */}
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
                       Doanh thu tối thiểu ($)
                     </label>
-                    <Input
-                      type="number"
-                      placeholder="e.g. 50"
-                      value={minRevenue}
-                      onChange={(e) => {
-                        setMinRevenue(e.target.value);
-                        setPage(1);
-                      }}
-                      className="h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
-                    />
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        placeholder="e.g. 50"
+                        value={minRevenue}
+                        onChange={(e) => {
+                          setMinRevenue(e.target.value);
+                          setPage(1);
+                        }}
+                        className={`h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors ${
+                          minRevenue
+                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300"
+                            : ""
+                        }`}
+                      />
+                      {minRevenue && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMinRevenue("");
+                                setPage(1);
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                              aria-label="Xóa lọc doanh thu"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Xóa lọc doanh thu</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
-                </PopoverContent>
+                </div>
+              </PopoverContent>
               </Popover>
             </div>
 
@@ -2523,6 +2742,19 @@ function AccountsPageContent() {
                   </Tooltip>
                 </span>
               )}
+              {isLead && teamFilter !== "ALL" && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
+                  <span>Đội nhóm: {allTeams.find((t: any) => t.id === teamFilter)?.name || teamFilter}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => handleTeamChange("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Xóa bộ lọc đội nhóm</TooltipContent>
+                  </Tooltip>
+                </span>
+              )}
               {statusFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
                   <span>Trạng thái: {statusFilter}</span>
@@ -2539,11 +2771,10 @@ function AccountsPageContent() {
               {onlineFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
                   <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${
-                      onlineFilter === "ONLINE"
-                        ? "bg-emerald-500 shadow-xs shadow-emerald-500/50"
-                        : "bg-slate-400 dark:bg-slate-500"
-                    }`}
+                    className={`w-2 h-2 rounded-full shrink-0 ${onlineFilter === "ONLINE"
+                      ? "bg-emerald-500 shadow-xs shadow-emerald-500/50"
+                      : "bg-slate-400 dark:bg-slate-500"
+                      }`}
                   />
                   <span>
                     {onlineFilter === "ONLINE"
@@ -2563,11 +2794,10 @@ function AccountsPageContent() {
               {syncFilter !== "ALL" && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
                   <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${
-                      syncFilter === "SYNC_ISSUES"
-                        ? "bg-rose-500 shadow-xs shadow-rose-500/50"
-                        : "bg-emerald-500"
-                    }`}
+                    className={`w-2 h-2 rounded-full shrink-0 ${syncFilter === "SYNC_ISSUES"
+                      ? "bg-rose-500 shadow-xs shadow-rose-500/50"
+                      : "bg-emerald-500"
+                      }`}
                   />
                   <span>
                     {syncFilter === "SYNC_ISSUES"

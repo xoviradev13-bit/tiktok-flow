@@ -364,7 +364,7 @@ export default function DayDetailModal({
                           ) : (
                             <div className="px-3 py-1.5 text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1.5 italic">
                               <Shield className="w-3.5 h-3.5 shrink-0" />
-                              <span>Chỉ Admin mới được duyệt công</span>
+                              <span>Chỉ Admin/Lead mới được duyệt công</span>
                             </div>
                           )}
                           <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />

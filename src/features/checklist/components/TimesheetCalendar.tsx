@@ -55,6 +55,10 @@ interface TimesheetCalendarProps {
   onSelectDate: (dateStr: string) => void;
   onNavigateDate?: (dateStr: string) => void;
   isLoading?: boolean;
+  activeRules?: {
+    fullDayThreshold?: number;
+    halfDayThreshold?: number;
+  };
 }
 
 export default function TimesheetCalendar({
@@ -67,7 +71,10 @@ export default function TimesheetCalendar({
   onSelectDate,
   onNavigateDate,
   isLoading,
+  activeRules,
 }: TimesheetCalendarProps) {
+  const fullDayThreshold = activeRules?.fullDayThreshold ?? 85;
+  const halfDayThreshold = activeRules?.halfDayThreshold ?? 50;
   const [isQuickDateOpen, setIsQuickDateOpen] = useState(false);
   const [quickMode, setQuickMode] = useState<'today' | 'yesterday' | 'custom' | null>('today');
 
@@ -379,29 +386,52 @@ export default function TimesheetCalendar({
             </div>
           </div>
 
-          {/* Right: Staff Info Badge */}
-          <div className="flex items-center gap-3 self-start md:self-auto">
+          {/* Right: Staff Info Badge & Color Legend */}
+          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
             {/* Staff Profile Badge */}
             {isSingleUser && currentUserObj ? (
-              <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-pink-500/10 via-rose-500/5 to-purple-500/10 dark:from-pink-950/40 dark:via-rose-950/20 dark:to-purple-950/30 border border-pink-200/80 dark:border-pink-800/60 shadow-2xs">
-                <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-pink-500 to-rose-400 text-white flex items-center justify-center text-xs font-black shadow-xs shrink-0">
-                  {(currentUserObj.fullName || currentUserObj.username || "U").charAt(0).toUpperCase()}
-                </div>
-                <div className="flex flex-col min-w-0 pr-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-pink-600 dark:text-pink-400 leading-none">
-                    Nhân sự
-                  </span>
-                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[160px] mt-0.5 leading-tight">
-                    {currentUserObj.fullName || currentUserObj.username}
-                  </span>
-                </div>
+              <div className="flex items-center gap-2 px-3 h-9 rounded-2xl bg-gradient-to-r from-pink-500/10 via-rose-500/5 to-purple-500/10 dark:from-pink-950/40 dark:via-rose-950/20 dark:to-purple-950/30 border border-pink-200/80 dark:border-pink-800/60 shadow-2xs shrink-0">
+                {currentUserObj.avatar ? (
+                  <img
+                    src={currentUserObj.avatar}
+                    alt={currentUserObj.fullName || currentUserObj.username}
+                    className="w-5.5 h-5.5 rounded-lg object-cover shrink-0"
+                  />
+                ) : (
+                  <div className="w-5.5 h-5.5 rounded-lg bg-gradient-to-tr from-pink-500 to-rose-400 text-white flex items-center justify-center text-[10px] font-black shadow-xs shrink-0">
+                    {(currentUserObj.fullName || currentUserObj.username || "U").slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <span className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[160px]">
+                  {currentUserObj.fullName || currentUserObj.username}
+                </span>
               </div>
             ) : (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 shadow-2xs">
+              <div className="flex items-center gap-2 px-3 h-9 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 shadow-2xs shrink-0">
                 <Users className="w-4 h-4 text-cyan-500 shrink-0" />
                 <span>Toàn bộ nhân sự ({staffList.length})</span>
               </div>
             )}
+
+            {/* Color Legend Badge */}
+            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 px-3 h-9 rounded-2xl border border-slate-200/80 dark:border-slate-800 shrink-0">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                <span>1 công (&ge;{fullDayThreshold}%)</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                <span>0.5 công ({halfDayThreshold}-{Math.max(0, fullDayThreshold - 1)}%)</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
+                <span>0 công (&lt;{halfDayThreshold}%)</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700 shrink-0" />
+                <span>Nghỉ / Chưa có ca</span>
+              </span>
+            </div>
           </div>
         </div>
 

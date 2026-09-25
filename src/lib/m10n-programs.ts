@@ -157,7 +157,7 @@ export function matchesRevenueSourceFilter(
   const keys = new Set(revenueSourceFilterKeys(filter).map((k) => k.toUpperCase()));
   const rowKey = resolveRevenueSourceKey(rowSourceType).toUpperCase();
   const raw = String(rowSourceType || "").toUpperCase();
-  return keys.has(rowKey) || keys.has(raw) || keys.has(filter.toUpperCase());
+  return keys.has(rowKey) || keys.has(raw);
 }
 
 /** Options for "Nguồn thu" dropdowns (filter + edit). */

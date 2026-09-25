@@ -49,13 +49,14 @@ export const revenueRouter = router({
           days: z.number().optional().default(28),
           startDate: z.string().optional(),
           endDate: z.string().optional(),
+          teamId: z.string().optional().nullable(),
         })
         .optional()
     )
     .query(async ({ ctx, input }) => {
-      // Legacy days=0 (Toàn Bộ) → 365 (Studio daily data capped at 365 days)
+      // Legacy days=0 (Toàn Bộ) → 28
       const rawDays = input?.days ?? 28;
-      const days = rawDays === 0 ? 365 : rawDays;
+      const days = rawDays === 0 ? 28 : rawDays;
       const startDate = input?.startDate;
       const endDate = input?.endDate;
       const isCustomRange = Boolean(startDate && endDate);
@@ -65,7 +66,17 @@ export const revenueRouter = router({
       if (scope.isStaff) {
         whereAccount.assignedUserId = ctx.session.user.id;
       } else if (scope.isLead) {
-        whereAccount.assignedUserId = { in: scope.memberUserIds };
+        if (input?.teamId && input.teamId !== "ALL") {
+          if (scope.teamIds.includes(input.teamId)) {
+            whereAccount.assignedUser = { teamId: input.teamId };
+          } else {
+            whereAccount.assignedUserId = { in: [] };
+          }
+        } else {
+          whereAccount.assignedUserId = { in: scope.memberUserIds };
+        }
+      } else if (input?.teamId && input.teamId !== "ALL") {
+        whereAccount.assignedUser = { teamId: input.teamId };
       }
 
       const accounts = await ctx.prisma.tiktokAccount.findMany({
@@ -545,6 +556,8 @@ export const revenueRouter = router({
         startDate: z.string().optional(),
         endDate: z.string().optional(),
         includeArchived: z.boolean().optional().default(false),
+        teamId: z.string().optional().nullable(),
+        operatorId: z.string().optional().nullable(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
@@ -560,8 +573,23 @@ export const revenueRouter = router({
       if (scope.isStaff) {
         whereAccount.assignedUserId = ctx.session.user.id;
       } else if (scope.isLead) {
-        whereAccount.assignedUserId = { in: scope.memberUserIds };
+        if (input?.teamId && input.teamId !== "ALL") {
+          if (scope.teamIds.includes(input.teamId)) {
+            whereAccount.assignedUser = { ...whereAccount.assignedUser, teamId: input.teamId };
+          } else {
+            whereAccount.assignedUserId = { in: [] };
+          }
+        } else {
+          whereAccount.assignedUserId = { in: scope.memberUserIds };
+        }
+      } else if (input?.teamId && input.teamId !== "ALL") {
+        whereAccount.assignedUser = { ...whereAccount.assignedUser, teamId: input.teamId };
       }
+
+      if (input?.operatorId && input.operatorId !== "ALL") {
+        whereAccount.assignedUserId = input.operatorId;
+      }
+
       if (input?.accountId && input.accountId !== "ALL") {
         whereAccount.id = input.accountId;
       }
@@ -599,6 +627,23 @@ export const revenueRouter = router({
         where.date = { ...where.date, lte: parseDateOnly(input.endDate) };
       }
 
+      const assignedUserSelect = {
+        id: true,
+        fullName: true,
+        name: true,
+        username: true,
+        avatar: true,
+        role: true,
+        teamId: true,
+        team: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
+      };
+
       const [records, accountsWithAnalytics] = await Promise.all([
         dbClient.dailyRevenue.findMany({
           where,
@@ -610,12 +655,7 @@ export const revenueRouter = router({
                 country: true,
                 deletedAt: true,
                 assignedUser: {
-                  select: {
-                    id: true,
-                    fullName: true,
-                    name: true,
-                    username: true,
-                  },
+                  select: assignedUserSelect,
                 },
               },
             },
@@ -630,12 +670,7 @@ export const revenueRouter = router({
             country: true,
             deletedAt: true,
             assignedUser: {
-              select: {
-                id: true,
-                fullName: true,
-                name: true,
-                username: true,
-              },
+              select: assignedUserSelect,
             },
             analytics: true,
           },

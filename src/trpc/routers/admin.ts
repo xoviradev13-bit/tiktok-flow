@@ -274,7 +274,10 @@ export const adminRouter = router({
     const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
     const where: any = { deletedAt: null };
     if (scope.isLead) {
-      where.id = { in: scope.memberUserIds };
+      where.OR = [
+        { id: { in: scope.memberUserIds } },
+        { teamId: null, role: { not: "ADMIN" } },
+      ];
     }
 
     const users = await ctx.prisma.user.findMany({

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Calendar as CalendarIcon,
   Download,
@@ -161,7 +161,19 @@ export default function AnalyticsFilterToolbar({
   const handleTeamChange = (id: string | null) => {
     if (setTeamId) setTeamId(id);
     if (setGroupId) setGroupId(id);
+    if (id && id !== "ALL" && operatorId && filterOptions?.operators) {
+      const op = filterOptions.operators.find((o: any) => o.id === operatorId);
+      if (op && (op as any).teamId && (op as any).teamId !== id) {
+        setOperatorId(null);
+      }
+    }
   };
+
+  const displayedOperators = useMemo(() => {
+    if (!filterOptions?.operators) return [];
+    if (!effectiveTeamId || effectiveTeamId === "ALL") return filterOptions.operators;
+    return filterOptions.operators.filter((op: any) => op.teamId === effectiveTeamId);
+  }, [filterOptions?.operators, effectiveTeamId]);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
     if (startDate && endDate) {
@@ -217,11 +229,10 @@ export default function AnalyticsFilterToolbar({
                   setStartDate(undefined);
                   setEndDate(undefined);
                 }}
-                className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                  active
-                    ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
+                className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${active
+                  ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
               >
                 {btn.label}
               </button>
@@ -233,11 +244,10 @@ export default function AnalyticsFilterToolbar({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
-                  period === "CUSTOM"
-                    ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
+                className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${period === "CUSTOM"
+                  ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  }`}
               >
                 <CalendarIcon className="w-3.5 h-3.5" />
                 <span>
@@ -375,17 +385,16 @@ export default function AnalyticsFilterToolbar({
               onValueChange={(val) => handleTeamChange(val === "ALL" ? null : val)}
             >
               <SelectTrigger
-                className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${
-                  effectiveTeamId && effectiveTeamId !== "ALL"
-                    ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
-                    : ""
-                }`}
+                className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${effectiveTeamId && effectiveTeamId !== "ALL"
+                  ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
+                  : ""
+                  }`}
               >
-                <SelectValue placeholder="Tất Cả Đội Nhóm (Teams)" />
+                <SelectValue placeholder="Tất Cả Đội Nhóm" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
                 <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
-                  Tất Cả Đội Nhóm (Teams)
+                  Tất Cả Đội Nhóm
                 </SelectItem>
                 {(filterOptions.teams || []).map((t) => (
                   <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">
@@ -424,11 +433,10 @@ export default function AnalyticsFilterToolbar({
               onValueChange={(val) => setOperatorId(val === "ALL" ? null : val)}
             >
               <SelectTrigger
-                className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${
-                  operatorId && operatorId !== "ALL"
-                    ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
-                    : ""
-                }`}
+                className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${operatorId && operatorId !== "ALL"
+                  ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
+                  : ""
+                  }`}
               >
                 <SelectValue placeholder="Tất Cả Nhân Sự" />
               </SelectTrigger>
@@ -436,7 +444,7 @@ export default function AnalyticsFilterToolbar({
                 <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
                   Tất Cả Nhân Sự
                 </SelectItem>
-                {filterOptions.operators.map((op) => (
+                {displayedOperators.map((op: any) => (
                   <SelectItem key={op.id} value={op.id} className="text-xs font-normal cursor-pointer">
                     {op.fullName} ({op.role})
                   </SelectItem>
@@ -472,11 +480,10 @@ export default function AnalyticsFilterToolbar({
             onValueChange={(val) => setCountry(val === "ALL" ? null : val)}
           >
             <SelectTrigger
-              className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${
-                country && country !== "ALL"
-                  ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
-                  : ""
-              }`}
+              className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${country && country !== "ALL"
+                ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
+                : ""
+                }`}
             >
               <SelectValue placeholder="Mọi Thị Trường" />
             </SelectTrigger>
@@ -526,11 +533,10 @@ export default function AnalyticsFilterToolbar({
             onValueChange={(val) => setStatus(val === "ALL" ? null : val)}
           >
             <SelectTrigger
-              className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${
-                status && status !== "ALL"
-                  ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
-                  : ""
-              }`}
+              className={`h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-none font-normal text-xs cursor-pointer transition-colors ${status && status !== "ALL"
+                ? "pr-7 border border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 font-medium [&_svg]:hidden"
+                : ""
+                }`}
             >
               <SelectValue placeholder="Mọi Trạng Thái" />
             </SelectTrigger>

@@ -280,6 +280,7 @@ export const checklistRouter = router({
           startDate: z.string().optional(), // YYYY-MM-DD
           endDate: z.string().optional(), // YYYY-MM-DD
           userId: z.string().optional(), // "ALL" or specific user
+          teamId: z.string().optional(), // "ALL" or specific team
           search: z.string().optional(),
           scoreFilter: z.enum(["ALL", "FULL", "HALF", "ZERO"]).optional(),
         })
@@ -324,6 +325,10 @@ export const checklistRouter = router({
         whereClause.userId = input.userId;
       }
 
+      if (input?.teamId && input.teamId !== "ALL") {
+        whereClause.user = { teamId: input.teamId };
+      }
+
       if (input?.scoreFilter && input.scoreFilter !== "ALL") {
         if (input.scoreFilter === "FULL") whereClause.workdayScore = 1.0;
         else if (input.scoreFilter === "HALF") whereClause.workdayScore = 0.5;
@@ -344,6 +349,8 @@ export const checklistRouter = router({
               email: true,
               role: true,
               avatar: true,
+              teamId: true,
+              team: { select: { id: true, name: true, color: true } },
             },
           },
           items: {

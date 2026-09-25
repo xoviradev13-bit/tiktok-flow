@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useUrlParams } from "@/hooks/useUrlState";
+import { useSession } from "next-auth/react";
 import {
   DollarSign,
   BarChart3,
@@ -12,6 +13,7 @@ import {
   TrendingUp,
   Layers,
   Calendar as CalendarIcon,
+  X,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -29,18 +31,58 @@ import { trpc } from "@/lib/trpc";
 import { RevenuePageSkeleton } from "@/components/skeletons/PageSkeletons";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { format, subDays } from "date-fns";
 import { useCurrency } from "@/contexts/CurrencyContext";
-import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
 
 function RevenuePageContent() {
+  const { data: session } = useSession();
+  const isLeadOrAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "LEAD";
+
   // SaaS URL Query State Synchronization
   const { searchParams, updateUrlParams } = useUrlParams();
 
+  const paramTeam = searchParams?.get("team") || "ALL";
+  const [teamFilter, setTeamFilter] = useState(paramTeam);
+
+  const { data: teamsData } = trpc.admin.listTeams.useQuery(undefined, {
+    enabled: isLeadOrAdmin,
+  });
+  const allTeams = useMemo(() => {
+    if (!teamsData) return [];
+    if (Array.isArray(teamsData.teamsDetails) && teamsData.teamsDetails.length > 0) {
+      return teamsData.teamsDetails.map((t: any, i: number) => ({
+        id: String(t.id || t.name || `team-${i}`),
+        name: String(t.name || t.teamName || t.id || `Nhóm ${i + 1}`),
+      }));
+    }
+    if (Array.isArray(teamsData.teams)) {
+      return teamsData.teams.map((t: any, i: number) => {
+        if (typeof t === "string") return { id: t, name: t };
+        return {
+          id: String(t.id || t.name || `team-${i}`),
+          name: String(t.name || t.id || `Nhóm ${i + 1}`),
+        };
+      });
+    }
+    return [];
+  }, [teamsData]);
+
+  const selectedTeamName = useMemo(() => {
+    if (teamFilter === "ALL") return undefined;
+    const found = allTeams.find((t: any) => t.id === teamFilter || t.name === teamFilter);
+    return found ? found.name : undefined;
+  }, [allTeams, teamFilter]);
+
   const paramPreset = searchParams?.get("preset");
-  // Legacy preset=0 (Toàn Bộ) → 365 (Studio daily data capped at 365 days)
   const parsedPreset =
     paramPreset === "custom"
       ? "custom"
@@ -51,7 +93,7 @@ function RevenuePageContent() {
     parsedPreset === "custom"
       ? "custom"
       : parsedPreset === 0 || !Number.isFinite(parsedPreset)
-        ? 365
+        ? 28
         : (parsedPreset as number);
   const [activePreset, setActivePreset] = useState<number | "custom">(initialPreset);
 
@@ -84,14 +126,16 @@ function RevenuePageContent() {
         from: startDate,
         to: endDate,
         metric: chartMetric,
+        team: teamFilter,
       },
       {
         from: "",
         to: "",
         metric: "REVENUE",
+        team: "ALL",
       }
     );
-  }, [activePreset, startDate, endDate, chartMetric, updateUrlParams]);
+  }, [activePreset, startDate, endDate, chartMetric, teamFilter, updateUrlParams]);
 
   const utils = trpc.useUtils();
 
@@ -103,10 +147,12 @@ function RevenuePageContent() {
     return () => window.removeEventListener("refreshData", handleRefresh);
   }, [utils]);
 
-  const queryInput =
-    activePreset === "custom" && startDate && endDate
+  const queryInput = {
+    ...(activePreset === "custom" && startDate && endDate
       ? { startDate, endDate, days: undefined }
-      : { days: typeof activePreset === "number" ? activePreset : 28 };
+      : { days: typeof activePreset === "number" ? activePreset : 28 }),
+    teamId: teamFilter === "ALL" ? undefined : teamFilter,
+  };
 
   const { data: overview, isLoading: loading } = trpc.revenue.getOverview.useQuery(queryInput);
 
@@ -147,6 +193,7 @@ function RevenuePageContent() {
         return "Tùy chọn";
       }
     }
+    if (activePreset === 365) return "365 Ngày (1 năm)";
     if (activePreset === 30) return "Tháng Này (30 ngày)";
     return `${activePreset} ngày`;
   };
@@ -157,7 +204,6 @@ function RevenuePageContent() {
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
-      <TeamScopeBanner className="mb-2" />
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0">
@@ -172,8 +218,58 @@ function RevenuePageContent() {
           </p>
         </div>
 
-        {/* Action button: Details Redirect */}
-        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+        {/* Action button: Details Redirect & Team selector */}
+        <div className="flex items-center gap-2.5 shrink-0 flex-wrap sm:flex-nowrap self-start sm:self-auto">
+          {isLeadOrAdmin && allTeams.length > 0 && (
+            <div className="relative w-44 sm:w-48">
+              <Select
+                value={teamFilter}
+                onValueChange={(val) => setTeamFilter(val)}
+              >
+                <SelectTrigger
+                  className={`w-full h-10 text-xs font-normal rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 cursor-pointer [&>span]:truncate whitespace-nowrap transition-colors ${
+                    teamFilter !== "ALL"
+                      ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden font-medium"
+                      : ""
+                  }`}
+                >
+                  <SelectValue placeholder="Tất cả đội nhóm">
+                    {selectedTeamName}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl max-h-72">
+                  <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
+                    Tất cả đội nhóm ({allTeams.length} nhóm)
+                  </SelectItem>
+                  {allTeams.map((t: any) => (
+                    <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {teamFilter !== "ALL" && (
+                <UITooltip>
+                  <UITooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setTeamFilter("ALL");
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                      aria-label="Xóa chọn đội nhóm"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </UITooltipTrigger>
+                  <UITooltipContent side="top">Xóa chọn đội nhóm</UITooltipContent>
+                </UITooltip>
+              )}
+            </div>
+          )}
+
           <UITooltip>
             <UITooltipTrigger asChild>
               <Link
