@@ -13,13 +13,23 @@ import {
   Flame,
   Crown,
   Calendar,
+  Shield,
+  Layers,
+  Users,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { Pagination } from "@/components/ui/pagination";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { LeaderboardPageSkeleton } from "@/components/skeletons/PageSkeletons";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { UserAccountsHoverCard } from "@/components/user/UserAccountsHoverCard";
 import { trpc } from "@/lib/trpc";
 
 function LeaderboardPageContent() {
@@ -31,6 +41,9 @@ function LeaderboardPageContent() {
   const initialPeriod = validPeriods.includes(paramPeriod) ? paramPeriod : "THIS_MONTH";
   const [period, setPeriod] = useState<"TODAY" | "THIS_WEEK" | "THIS_MONTH" | "ALL_TIME">(initialPeriod);
 
+  const initialTeam = searchParams?.get("teamId") || "ALL";
+  const [teamFilter, setTeamFilter] = useState<string>(initialTeam);
+
   const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
   const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 10;
   const [page, setPage] = useState(initialPage);
@@ -41,16 +54,18 @@ function LeaderboardPageContent() {
     updateUrlParams(
       {
         period: period,
+        teamId: teamFilter,
         p: page,
         ps: pageSize,
       },
       {
         period: "THIS_MONTH",
+        teamId: "ALL",
         p: 1,
         ps: 10,
       }
     );
-  }, [period, page, pageSize, updateUrlParams]);
+  }, [period, teamFilter, page, pageSize, updateUrlParams]);
 
   const utils = trpc.useUtils();
 
@@ -64,7 +79,11 @@ function LeaderboardPageContent() {
 
   const { data: leaderboard = [], isLoading: loading } = trpc.leaderboard.getRanking.useQuery({
     period,
+    teamId: teamFilter,
   });
+
+  const { data: teamsData } = trpc.admin.listTeams.useQuery();
+  const allTeams = teamsData?.teamsDetails || [];
 
   const top1 = leaderboard[0];
   const top2 = leaderboard[1];
@@ -84,39 +103,71 @@ function LeaderboardPageContent() {
 
   return (
     <div className="space-y-8 animate-fadeIn">
-      <TeamScopeBanner className="mb-2" />
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
             <Trophy className="w-6 h-6 text-yellow-500 shrink-0" />
-            <span className="truncate">Bảng Xếp Hạng Nhân Sự (Leaderboard & KPI)</span>
+            <span className="truncate">Bảng Xếp Hạng Nhân Sự</span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
             Vinh danh nhân viên có doanh thu cao nhất, số ngày công tích lũy và hiệu suất RPM vượt trội.
           </p>
         </div>
 
-        {/* Period Filter Buttons */}
-        <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 rounded-xl shadow-sm flex-wrap sm:flex-nowrap overflow-x-auto max-w-full">
-          {[
-            { key: "TODAY" as const, label: "Hôm Nay" },
-            { key: "THIS_WEEK" as const, label: "Tuần Này" },
-            { key: "THIS_MONTH" as const, label: "Tháng Này" },
-            { key: "ALL_TIME" as const, label: "Toàn Thời Gian" },
-          ].map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setPeriod(item.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                period === item.key
+        {/* Filter Controls: Team Select + Period Filter Buttons */}
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          {/* Team Filter Dropdown */}
+          <Select
+            value={teamFilter}
+            onValueChange={(val) => {
+              setTeamFilter(val);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger
+              className={`h-9 w-auto min-w-[170px] px-3 rounded-xl border text-xs font-bold transition-all shadow-xs cursor-pointer ${teamFilter !== "ALL"
+                ? "bg-gradient-to-r from-yellow-500 to-amber-600 text-slate-950 border-yellow-500/30 shadow-md shadow-yellow-500/20"
+                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                }`}
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                <Users className={`w-3.5 h-3.5 shrink-0 ${teamFilter !== "ALL" ? "text-slate-950" : "text-slate-500 dark:text-slate-400"}`} />
+                <SelectValue placeholder="Tất cả thành viên" />
+              </div>
+            </SelectTrigger>
+            <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+              <SelectItem value="ALL" className="font-semibold text-xs cursor-pointer">
+                Tất cả thành viên
+              </SelectItem>
+              {allTeams.map((team: any) => (
+                <SelectItem key={team.id} value={team.id} className="font-semibold text-xs cursor-pointer">
+                  {team.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Period Filter Buttons */}
+          <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 rounded-xl shadow-xs flex-wrap sm:flex-nowrap overflow-x-auto max-w-full">
+            {[
+              { key: "TODAY" as const, label: "Hôm Nay" },
+              { key: "THIS_WEEK" as const, label: "Tuần Này" },
+              { key: "THIS_MONTH" as const, label: "Tháng Này" },
+              { key: "ALL_TIME" as const, label: "Toàn Thời Gian" },
+            ].map((item) => (
+              <button
+                key={item.key}
+                onClick={() => setPeriod(item.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${period === item.key
                   ? "bg-gradient-to-r from-yellow-500 to-amber-600 text-slate-950 shadow-md shadow-yellow-500/20"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
+                  }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -132,8 +183,11 @@ function LeaderboardPageContent() {
               <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
                 {top2.fullName}
               </h3>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {top2.accountsCount} accounts | {top2.totalWorkdays} ngày công
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center justify-center gap-1.5 flex-wrap">
+                <span>{top2.accountsCount} accounts | {top2.totalWorkdays} ngày công</span>
+                {top2.teamName && (
+                  <span className="text-pink-600 dark:text-pink-400 font-semibold">• {top2.teamName}</span>
+                )}
               </div>
               <div className="mt-4 text-2xl font-black text-amber-600 dark:text-amber-300">
                 ${Number(top2.periodRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -156,8 +210,11 @@ function LeaderboardPageContent() {
               <h3 className="font-black text-slate-900 dark:text-white text-lg">
                 {top1.fullName}
               </h3>
-              <div className="text-xs text-yellow-700 dark:text-yellow-200/80 mt-0.5">
-                {top1.accountsCount} accounts | {top1.totalWorkdays} ngày công
+              <div className="text-xs text-yellow-700 dark:text-yellow-200/80 mt-0.5 flex items-center justify-center gap-1.5 flex-wrap">
+                <span>{top1.accountsCount} accounts | {top1.totalWorkdays} ngày công</span>
+                {top1.teamName && (
+                  <span className="font-bold text-amber-800 dark:text-yellow-300">• {top1.teamName}</span>
+                )}
               </div>
               <div className="mt-4 text-3xl font-black text-amber-600 dark:text-yellow-400">
                 ${Number(top1.periodRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -177,8 +234,11 @@ function LeaderboardPageContent() {
               <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
                 {top3.fullName}
               </h3>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {top3.accountsCount} accounts | {top3.totalWorkdays} ngày công
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center justify-center gap-1.5 flex-wrap">
+                <span>{top3.accountsCount} accounts | {top3.totalWorkdays} ngày công</span>
+                {top3.teamName && (
+                  <span className="text-pink-600 dark:text-pink-400 font-semibold">• {top3.teamName}</span>
+                )}
               </div>
               <div className="mt-4 text-2xl font-black text-amber-600 dark:text-amber-300">
                 ${Number(top3.periodRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -193,7 +253,7 @@ function LeaderboardPageContent() {
 
       {/* Full Leaderboard Table */}
       {loading ? (
-        <DataTableSkeleton columnCount={8} rowCount={pageSize} />
+        <DataTableSkeleton columnCount={10} rowCount={pageSize} />
       ) : (
         <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm dark:shadow-xl overflow-hidden relative z-0 isolate">
           <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -217,23 +277,25 @@ function LeaderboardPageContent() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 min-w-[850px]">
+            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300 min-w-[950px]">
               <thead className="bg-slate-50/95 dark:bg-slate-950/95 text-slate-600 dark:text-slate-300 font-semibold text-xs border-b border-slate-200 dark:border-slate-800 normal-case">
                 <tr>
                   <th className="sticky left-0 z-20 bg-slate-50 dark:bg-slate-950 px-5 py-3.5 w-16 min-w-[64px] max-w-[64px]">Hạng</th>
                   <th className="sticky left-16 z-20 bg-slate-50 dark:bg-slate-950 px-4 py-3.5 min-w-[200px] border-r border-slate-200/80 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">Nhân viên</th>
-                  <th className="px-4 py-3.5">Số acc phụ trách</th>
-                  <th className="px-4 py-3.5">Ngày công tích lũy</th>
-                  <th className="px-4 py-3.5">Tỷ lệ đạt KPI</th>
-                  <th className="px-4 py-3.5">RPM trung bình</th>
-                  <th className="px-4 py-3.5">Doanh thu / acc</th>
-                  <th className="px-5 py-3.5 text-right">Tổng doanh thu</th>
+                  <th className="px-4 py-3.5 min-w-[130px] whitespace-nowrap">Vai trò</th>
+                  <th className="px-4 py-3.5 min-w-[150px] whitespace-nowrap">Đội nhóm</th>
+                  <th className="px-4 py-3.5 whitespace-nowrap">Số acc phụ trách</th>
+                  <th className="px-4 py-3.5 whitespace-nowrap">Ngày công tích lũy</th>
+                  <th className="px-4 py-3.5 whitespace-nowrap">Tỷ lệ đạt KPI</th>
+                  <th className="px-4 py-3.5 whitespace-nowrap">RPM trung bình</th>
+                  <th className="px-4 py-3.5 whitespace-nowrap">Doanh thu / acc</th>
+                  <th className="px-5 py-3.5 text-right whitespace-nowrap">Tổng doanh thu</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
                 {leaderboard.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">
+                    <td colSpan={10} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">
                       Chưa có dữ liệu xếp hạng trong kỳ này.
                     </td>
                   </tr>
@@ -243,53 +305,85 @@ function LeaderboardPageContent() {
                     .map((user) => (
                       <tr
                         key={user.userId}
-                        className={`group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${
-                          user.rank === 1
-                            ? "bg-yellow-50/50 dark:bg-yellow-950/10 font-bold"
-                            : user.rank === 2
+                        className={`group hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${user.rank === 1
+                          ? "bg-yellow-50/50 dark:bg-yellow-950/10 font-bold"
+                          : user.rank === 2
                             ? "bg-slate-50/50 dark:bg-slate-800/20"
                             : ""
-                        }`}
+                          }`}
                       >
-                        <td className={`sticky left-0 z-10 px-5 py-3.5 whitespace-nowrap w-16 min-w-[64px] max-w-[64px] transition-colors ${
-                          user.rank === 1
-                            ? "bg-yellow-50 dark:bg-[#1a1708]"
-                            : user.rank === 2
+                        <td className={`sticky left-0 z-10 px-5 py-3.5 whitespace-nowrap w-16 min-w-[64px] max-w-[64px] transition-colors ${user.rank === 1
+                          ? "bg-yellow-50 dark:bg-[#1a1708]"
+                          : user.rank === 2
                             ? "bg-slate-50 dark:bg-[#111622]"
                             : "bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800"
-                        }`}>
+                          }`}>
                           <span
-                            className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-black text-xs ${
-                              user.rank === 1
-                                ? "bg-yellow-500 text-slate-950 shadow-sm"
-                                : user.rank === 2
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-black text-xs ${user.rank === 1
+                              ? "bg-yellow-500 text-slate-950 shadow-sm"
+                              : user.rank === 2
                                 ? "bg-slate-300 text-slate-950"
                                 : user.rank === 3
-                                ? "bg-amber-600 text-white"
-                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
-                            }`}
+                                  ? "bg-amber-600 text-white"
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+                              }`}
                           >
                             {user.rank}
                           </span>
                         </td>
 
-                        <td className={`sticky left-16 z-10 px-4 py-3.5 whitespace-nowrap min-w-[200px] border-r border-slate-200/80 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] transition-colors ${
-                          user.rank === 1
-                            ? "bg-yellow-50 dark:bg-[#1a1708]"
-                            : user.rank === 2
+                        <td className={`sticky left-16 z-10 px-4 py-3.5 whitespace-nowrap min-w-[200px] border-r border-slate-200/80 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] transition-colors ${user.rank === 1
+                          ? "bg-yellow-50 dark:bg-[#1a1708]"
+                          : user.rank === 2
                             ? "bg-slate-50 dark:bg-[#111622]"
                             : "bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800"
-                        }`}>
+                          }`}>
                           <div className="font-extrabold text-slate-900 dark:text-white">
                             {user.fullName}
                           </div>
                           <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-                            @{user.username} ({user.role})
+                            @{user.username}
                           </div>
                         </td>
 
-                        <td className="px-4 py-3.5 whitespace-nowrap font-semibold text-slate-800 dark:text-slate-200">
-                          {user.accountsCount} accounts
+                        {/* Vai trò */}
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <span
+                            className={`h-7.5 inline-flex items-center gap-1.5 px-2.5 rounded-xl text-xs font-bold ${user.role === "ADMIN"
+                              ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                              : user.role === "LEAD"
+                                ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20"
+                                : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20"
+                              }`}
+                          >
+                            <Shield className="w-3 h-3" />
+                            <span>{user.role === "ADMIN" ? "Quản trị viên" : user.role === "LEAD" ? "Trưởng nhóm" : "Nhân viên"}</span>
+                          </span>
+                        </td>
+
+                        {/* Đội nhóm */}
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          {user.teamName ? (
+                            <span
+                              title={user.teamName}
+                              className="inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-xl text-xs font-semibold bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800 max-w-[150px]"
+                            >
+                              <Layers className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                              <span className="truncate max-w-[105px]">{user.teamName}</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic text-xs">Chưa gán nhóm</span>
+                          )}
+                        </td>
+
+                        {/* Số acc phụ trách with UserAccountsHoverCard */}
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <UserAccountsHoverCard
+                            userId={user.userId}
+                            userName={user.fullName}
+                            accountsCount={user.accountsCount}
+                            accounts={(user as any).accounts || []}
+                          />
                         </td>
 
                         <td className="px-4 py-3.5 whitespace-nowrap">

@@ -84,10 +84,29 @@ async function onTeamDeleted(prisma: any, teamId: string, leaderId: string | nul
   }
 }
 
-async function fetchTeamsData(prisma: any, fallbackUserId?: string) {
+async function fetchTeamsData(prisma: any, currentUser?: any) {
   let dbTeams: any[] = [];
+  const userRole = String(currentUser?.role || "").toUpperCase();
+  const isAdmin = userRole === "ADMIN";
+  const isLead = userRole === "LEAD";
+
+  let where: any = {};
+  if (isLead && currentUser?.id) {
+    where = {
+      OR: [
+        { leaderId: currentUser.id },
+        ...(currentUser.teamId ? [{ id: currentUser.teamId }] : []),
+      ],
+    };
+  } else if (!isAdmin && currentUser?.id) {
+    where = {
+      id: currentUser.teamId || "__none__",
+    };
+  }
+
   try {
     dbTeams = await prisma.team.findMany({
+      where,
       include: {
         leader: {
           select: {
@@ -121,6 +140,20 @@ async function fetchTeamsData(prisma: any, fallbackUserId?: string) {
             avatar: true,
             role: true,
             isActive: true,
+            tiktokAccounts: {
+              where: { deletedAt: null },
+              select: {
+                id: true,
+                username: true,
+                country: true,
+                status: true,
+                totalRevenue: true,
+                totalViews: true,
+                totalFollowers: true,
+              },
+              take: 30,
+              orderBy: { totalRevenue: "desc" },
+            },
             _count: {
               select: { tiktokAccounts: true },
             },
@@ -137,13 +170,13 @@ async function fetchTeamsData(prisma: any, fallbackUserId?: string) {
     console.warn("[fetchTeamsData] query error:", e);
   }
 
-  if (dbTeams.length === 0 && fallbackUserId) {
+  if (dbTeams.length === 0 && currentUser?.id && isAdmin) {
     const defaultNames = ["Team US #1", "Team EU #1", "Team VN #1"];
     for (const name of defaultNames) {
       try {
         const created = await prisma.team.upsert({
           where: { name },
-          create: { name, createdById: fallbackUserId },
+          create: { name, createdById: currentUser.id },
           update: {},
           include: {
             leader: { select: { id: true, name: true, fullName: true, username: true, email: true, avatar: true, role: true } },
@@ -158,6 +191,20 @@ async function fetchTeamsData(prisma: any, fallbackUserId?: string) {
                 avatar: true,
                 role: true,
                 isActive: true,
+                tiktokAccounts: {
+                  where: { deletedAt: null },
+                  select: {
+                    id: true,
+                    username: true,
+                    country: true,
+                    status: true,
+                    totalRevenue: true,
+                    totalViews: true,
+                    totalFollowers: true,
+                  },
+                  take: 30,
+                  orderBy: { totalRevenue: "desc" },
+                },
                 _count: { select: { tiktokAccounts: true } },
               },
             },
@@ -200,6 +247,7 @@ async function fetchTeamsData(prisma: any, fallbackUserId?: string) {
         : null,
       membersCount: t._count?.members || 0,
       totalAccounts,
+      accounts: t.members?.flatMap((m: any) => m.tiktokAccounts || []) || [],
       members: (t.members || []).map((m: any) => ({
         id: m.id,
         name: m.name || m.fullName || m.username || m.email,
@@ -209,6 +257,7 @@ async function fetchTeamsData(prisma: any, fallbackUserId?: string) {
         role: m.role,
         isActive: m.isActive,
         accountsCount: m._count?.tiktokAccounts || 0,
+        accounts: m.tiktokAccounts || [],
       })),
     };
   });
@@ -253,6 +302,20 @@ export const adminRouter = router({
         team: {
           select: { id: true, name: true, color: true },
         },
+        tiktokAccounts: {
+          where: { deletedAt: null },
+          select: {
+            id: true,
+            username: true,
+            country: true,
+            status: true,
+            totalRevenue: true,
+            totalViews: true,
+            totalFollowers: true,
+          },
+          take: 30,
+          orderBy: { totalRevenue: "desc" },
+        },
         _count: {
           select: {
             tiktokAccounts: true,
@@ -267,6 +330,7 @@ export const adminRouter = router({
       ...u,
       fullName: u.name || [u.firstName, u.lastName].filter(Boolean).join(" ") || u.username || u.email,
       accountsCount: u._count.tiktokAccounts,
+      accounts: u.tiktokAccounts || [],
       checklistsCount: u._count.dailyChecklists,
       teamName: u.team?.name || null,
       teamId: u.teamId || u.team?.id || null,
@@ -275,9 +339,9 @@ export const adminRouter = router({
     }));
   }),
 
-  // List all Teams with Leader, Creator, Members, and Account Stats (ADMIN)
-  listTeams: adminProcedure.query(async ({ ctx }) => {
-    return fetchTeamsData(ctx.prisma, ctx.session.user.id);
+  // List all Teams with Leader, Creator, Members, and Account Stats (PROTECTED)
+  listTeams: protectedProcedure.query(async ({ ctx }) => {
+    return fetchTeamsData(ctx.prisma, ctx.session.user);
   }),
 
   // Create a new Team in Team table (ADMIN)
@@ -333,8 +397,8 @@ export const adminRouter = router({
     }),
 
 
-  // Update Team details (ADMIN)
-  updateTeam: adminProcedure
+  // Update Team details (ADMIN or TEAM LEADER for their led team)
+  updateTeam: protectedProcedure
     .input(
       z.object({
         id: z.string(),
@@ -346,6 +410,39 @@ export const adminRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const currentUserId = ctx.session.user.id;
+      const userRole = String((ctx.session.user as any)?.role || "").toUpperCase();
+      const isAdmin = userRole === "ADMIN";
+      const isLead = userRole === "LEAD";
+
+      if (!isAdmin && !isLead) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn không có quyền sửa thông tin đội nhóm.",
+        });
+      }
+
+      const oldTeam = await ctx.prisma.team.findUnique({
+        where: { id: input.id },
+        select: { leaderId: true },
+      });
+
+      if (!oldTeam) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Đội nhóm không tồn tại.",
+        });
+      }
+
+      if (!isAdmin && oldTeam.leaderId !== currentUserId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn chỉ có thể sửa thông tin đội nhóm do bạn quản lý.",
+        });
+      }
+
+      const finalLeaderId = isAdmin ? (input.leaderId || null) : oldTeam.leaderId;
+
       const cleanName = input.name.trim();
       const existing = await ctx.prisma.team.findFirst({
         where: { name: cleanName, id: { not: input.id } },
@@ -358,18 +455,13 @@ export const adminRouter = router({
         });
       }
 
-      const oldTeam = await ctx.prisma.team.findUnique({
-        where: { id: input.id },
-        select: { leaderId: true },
-      });
-
       const team = await ctx.prisma.team.update({
         where: { id: input.id },
         data: {
           name: cleanName,
           description: input.description,
           color: input.color,
-          leaderId: input.leaderId || null,
+          leaderId: finalLeaderId,
         },
       });
 
@@ -389,11 +481,13 @@ export const adminRouter = router({
       }
 
       // Auto-sync leader roles (promote new, demote old if not leading other teams)
-      await syncTeamLeaderRoles(ctx.prisma, {
-        teamId: team.id,
-        newLeaderId: input.leaderId || null,
-        oldLeaderId: oldTeam?.leaderId || null,
-      });
+      if (isAdmin) {
+        await syncTeamLeaderRoles(ctx.prisma, {
+          teamId: team.id,
+          newLeaderId: input.leaderId || null,
+          oldLeaderId: oldTeam?.leaderId || null,
+        });
+      }
 
       return team;
     }),
@@ -579,7 +673,7 @@ export const adminRouter = router({
         permissions: {
           canManage: isAdmin || isLeader,
           canTransfer: isAdmin || isLeader,
-          canDelete: isAdmin,
+          canDelete: isAdmin || isLeader,
         },
       };
     }),
@@ -634,7 +728,8 @@ export const adminRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const currentUserId = ctx.session.user.id;
-      const isAdmin = ctx.session.user.role === "ADMIN";
+      const userRole = String((ctx.session.user as any)?.role || "").toUpperCase();
+      const isAdmin = userRole === "ADMIN";
 
       const team = await ctx.prisma.team.findUnique({
         where: { id: input.teamId },
@@ -648,7 +743,9 @@ export const adminRouter = router({
         });
       }
 
-      if (!isAdmin && team.leaderId !== currentUserId) {
+      const isSelf = input.userId === currentUserId;
+      const isLeader = team.leaderId === currentUserId;
+      if (!isAdmin && !isLeader && !isSelf) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message:
@@ -670,6 +767,56 @@ export const adminRouter = router({
       });
 
       return { success: true };
+    }),
+
+  // Bulk remove team members in single batch (ADMIN or TEAM LEADER)
+  bulkRemoveTeamMembers: protectedProcedure
+    .input(
+      z.object({
+        teamId: z.string(),
+        userIds: z.array(z.string()).min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const currentUserId = ctx.session.user.id;
+      const userRole = String((ctx.session.user as any)?.role || "").toUpperCase();
+      const isAdmin = userRole === "ADMIN";
+
+      const team = await ctx.prisma.team.findUnique({
+        where: { id: input.teamId },
+        select: { id: true, leaderId: true },
+      });
+
+      if (!team) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Đội nhóm không tồn tại.",
+        });
+      }
+
+      const isLeader = team.leaderId === currentUserId;
+      if (!isAdmin && !isLeader) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Chỉ Quản trị viên hoặc Trưởng nhóm mới có quyền xóa thành viên khỏi đội.",
+        });
+      }
+
+      // Filter out leader to prevent deleting leader
+      const validUserIds = input.userIds.filter((id) => id !== team.leaderId);
+      if (validUserIds.length === 0) {
+        return { success: true, count: 0 };
+      }
+
+      const res = await ctx.prisma.user.updateMany({
+        where: {
+          id: { in: validUserIds },
+        },
+        data: { teamId: null },
+      });
+
+      return { success: true, count: res.count };
     }),
 
   // Transfer Team Leadership to a new leader (ADMIN or CURRENT TEAM LEADER)
@@ -837,8 +984,8 @@ export const adminRouter = router({
       }));
     }),
 
-  // Delete a Team from Team table (ADMIN)
-  deleteTeam: adminProcedure
+  // Delete a Team from Team table (ADMIN or CURRENT TEAM LEADER)
+  deleteTeam: protectedProcedure
     .input(
       z.object({
         name: z.string().optional(),
@@ -846,6 +993,9 @@ export const adminRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const currentUserId = ctx.session.user.id;
+      const isAdmin = ctx.session.user.role === "ADMIN";
+
       if (!input.name && !input.id) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -861,6 +1011,13 @@ export const adminRouter = router({
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Không tìm thấy đội nhóm cần xóa.",
+        });
+      }
+
+      if (!isAdmin && team.leaderId !== currentUserId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Chỉ Quản trị viên hoặc Trưởng nhóm mới có quyền xóa đội nhóm.",
         });
       }
 
@@ -882,8 +1039,8 @@ export const adminRouter = router({
     }),
 
 
-  // Update user's Team assignment in Team table (ADMIN)
-  updateUserTeam: adminProcedure
+  // Update user's Team assignment in Team table (ADMIN or TEAM LEADER for their led team)
+  updateUserTeam: protectedProcedure
     .input(
       z.object({
         userId: z.string(),
@@ -891,6 +1048,18 @@ export const adminRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const currentUserId = ctx.session.user.id;
+      const userRole = String((ctx.session.user as any)?.role || "").toUpperCase();
+      const isAdmin = userRole === "ADMIN";
+      const isLead = userRole === "LEAD";
+
+      if (!isAdmin && !isLead) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Chỉ Quản trị viên hoặc Trưởng nhóm mới có quyền phân công thành viên.",
+        });
+      }
+
       let targetTeamId: string | null = null;
       const targetName = (input.teamName || "").trim();
 
@@ -900,11 +1069,38 @@ export const adminRouter = router({
         });
 
         if (!team) {
+          if (!isAdmin) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Chỉ Quản trị viên mới có quyền tạo mới đội nhóm.",
+            });
+          }
           team = await ctx.prisma.team.create({
             data: { name: targetName },
           });
         }
+
+        if (!isAdmin && team.leaderId !== currentUserId) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Bạn chỉ có thể thêm thành viên vào đội nhóm do bạn quản lý.",
+          });
+        }
+
         targetTeamId = team.id;
+      } else {
+        if (!isAdmin) {
+          const targetUser = await ctx.prisma.user.findUnique({
+            where: { id: input.userId },
+            select: { teamId: true, team: { select: { leaderId: true } } },
+          });
+          if (!targetUser || targetUser.team?.leaderId !== currentUserId) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Bạn chỉ có thể xóa thành viên khỏi đội nhóm do bạn quản lý.",
+            });
+          }
+        }
       }
 
       const updated = await ctx.prisma.user.update({

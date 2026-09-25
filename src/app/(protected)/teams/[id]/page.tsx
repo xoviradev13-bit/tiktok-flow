@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef, Suspense } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { useUrlParams } from "@/hooks/useUrlState";
 import {
   Users,
   ArrowLeft,
@@ -37,13 +38,18 @@ import {
   Sparkles,
   ArrowRightLeft,
   Flame,
-  Globe,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  LogOut,
 } from "lucide-react";
+import * as XLSX from "xlsx";
+import { UserAccountsHoverCard } from "@/components/user/UserAccountsHoverCard";
 import { trpc } from "@/lib/trpc";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTableColumnResize } from "@/hooks/useTableColumnResize";
 import { TeamDetailSkeleton } from "@/components/skeletons/PageSkeletons";
-import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
+import { Pagination } from "@/components/ui/pagination";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Tooltip,
@@ -125,11 +131,13 @@ function TeamDetailContent() {
   const teamId = params?.id as string;
   const { data: session } = useSession();
   const queryClient = useQueryClient();
-  const { confirm } = useConfirmDialog();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const { formatAmount } = useCurrency();
 
   const userRole = session?.user?.role || "STAFF";
   const isAdmin = userRole === "ADMIN";
+  const isLead = userRole === "LEAD";
+  const canViewTeamsList = isAdmin || isLead;
 
   // Queries
   const utils = trpc.useUtils();
@@ -177,6 +185,29 @@ function TeamDetailContent() {
     },
   });
 
+  const bulkRemoveMembersMutation = trpc.admin.bulkRemoveTeamMembers.useMutation({
+    onSuccess: (res) => {
+      toast.success(`Đã xóa ${res.count} thành viên khỏi đội nhóm!`);
+      setSelectedMemberIds([]);
+      utils.admin.getTeamDetail.invalidate({ id: teamId });
+      utils.admin.listTeams.invalidate();
+      utils.admin.listUsers.invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Lỗi khi xóa thành viên hàng loạt");
+    },
+  });
+
+  const deleteTeamMutation = trpc.admin.deleteTeam.useMutation({
+    onSuccess: () => {
+      toast.success("Đã xóa đội nhóm thành công!");
+      router.push("/teams");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Lỗi khi xóa đội nhóm");
+    },
+  });
+
   const transferLeaderMutation = trpc.admin.transferTeamLeader.useMutation({
     onSuccess: () => {
       toast.success("Đã chuyển giao quyền Trưởng nhóm thành công!");
@@ -216,15 +247,57 @@ function TeamDetailContent() {
   const [editDesc, setEditDesc] = useState("");
   const [editColor, setEditColor] = useState("pink");
 
+  // SaaS URL Query State Synchronization
+  const { searchParams, updateUrlParams } = useUrlParams();
+
+  const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
+  const initialRole = searchParams?.get("role") || "ALL";
+  const initialStatus = searchParams?.get("status") || "ALL";
+  const initialFleet = searchParams?.get("fleet") || "ALL";
+  const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
+  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 10;
+  const initialSortKey = searchParams?.get("sort") || searchParams?.get("sortKey") || "role";
+  const initialSortDir = (searchParams?.get("dir") || searchParams?.get("sortDir") || "asc") as "asc" | "desc";
+
   // Table filters & sorting
-  const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState<string>("ALL");
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
-  const [fleetFilter, setFleetFilter] = useState<string>("ALL");
+  const [search, setSearch] = useState(initialSearch);
+  const [roleFilter, setRoleFilter] = useState<string>(initialRole);
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatus);
+  const [fleetFilter, setFleetFilter] = useState<string>(initialFleet);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
 
-  const [sortKey, setSortKey] = useState<string>("role");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [sortKey, setSortKey] = useState<string>(initialSortKey);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">(initialSortDir);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(initialPage);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+
+  // Auto sync active filter and pagination state to URL
+  useEffect(() => {
+    updateUrlParams(
+      {
+        q: search,
+        role: roleFilter,
+        status: statusFilter,
+        fleet: fleetFilter,
+        p: currentPage,
+        ps: pageSize,
+        sort: sortKey,
+        dir: sortDirection,
+      },
+      {
+        q: "",
+        role: "ALL",
+        status: "ALL",
+        fleet: "ALL",
+        p: 1,
+        ps: 10,
+        sort: "role",
+        dir: "asc",
+      }
+    );
+  }, [search, roleFilter, statusFilter, fleetFilter, currentPage, pageSize, sortKey, sortDirection, updateUrlParams]);
 
   // Sync edit modal when opening
   useEffect(() => {
@@ -239,15 +312,54 @@ function TeamDetailContent() {
   const tableRef = useRef<HTMLDivElement>(null);
   const { getColumnStyle, getTableVars, renderResizeHandle } =
     useTableColumnResize({
-      tableId: "team_members_v1",
+      tableId: "team_members_v2",
       columns: TEAM_MEMBERS_COLUMN_CONFIG,
       tableRef,
-      extraWidth: 60, // Selection checkbox
+      extraWidth: 48, // Selection checkbox
     });
 
   // Filtered and sorted members
   const members = teamDetail?.members || [];
-  const canManage = !!teamDetail?.permissions.canManage;
+  const isLeader =
+    (teamDetail?.team?.leader?.id && teamDetail.team.leader.id === session?.user?.id) ||
+    ((session?.user as any)?.role === "LEAD" && teamDetail?.team?.leader?.id === session?.user?.id);
+  const canManage = Boolean(teamDetail?.permissions?.canManage || isAdmin || isLeader);
+
+  // Reset page when filter changes (skip first render so URL param page is preserved)
+  const isFirstFilterRender = useRef(true);
+  useEffect(() => {
+    if (isFirstFilterRender.current) {
+      isFirstFilterRender.current = false;
+      return;
+    }
+    setCurrentPage(1);
+  }, [search, roleFilter, statusFilter, fleetFilter]);
+
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    roleFilter !== "ALL" ||
+    statusFilter !== "ALL" ||
+    fleetFilter !== "ALL";
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setRoleFilter("ALL");
+    setStatusFilter("ALL");
+    setFleetFilter("ALL");
+  };
+
+  const renderSortIndicator = (key: string) => {
+    if (sortKey !== key) {
+      return (
+        <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-60 group-hover:opacity-100 transition-opacity shrink-0" />
+      );
+    }
+    return sortDirection === "desc" ? (
+      <ArrowDown className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+    ) : (
+      <ArrowUp className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+    );
+  };
 
   const filteredMembers = useMemo(() => {
     return members
@@ -300,16 +412,33 @@ function TeamDetailContent() {
       });
   }, [members, search, roleFilter, statusFilter, fleetFilter, sortKey, sortDirection]);
 
-  // Bulk selection handlers
+  // Paginated members slice
+  const totalItems = filteredMembers.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const paginatedMembers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredMembers.slice(start, start + pageSize);
+  }, [filteredMembers, currentPage, pageSize]);
+
+  const nonLeaderMembers = useMemo(
+    () => paginatedMembers.filter((m) => !m.isLeader),
+    [paginatedMembers]
+  );
+
   const isAllSelected =
-    filteredMembers.length > 0 &&
-    filteredMembers.every((m) => selectedMemberIds.includes(m.id));
+    nonLeaderMembers.length > 0 &&
+    nonLeaderMembers.every((m) => selectedMemberIds.includes(m.id));
 
   const toggleSelectAll = () => {
     if (isAllSelected) {
-      setSelectedMemberIds([]);
+      const pageIds = new Set(nonLeaderMembers.map((m) => m.id));
+      setSelectedMemberIds((prev) => prev.filter((id) => !pageIds.has(id)));
     } else {
-      setSelectedMemberIds(filteredMembers.map((m) => m.id));
+      const newIds = new Set([
+        ...selectedMemberIds,
+        ...nonLeaderMembers.map((m) => m.id),
+      ]);
+      setSelectedMemberIds(Array.from(newIds));
     }
   };
 
@@ -340,11 +469,40 @@ function TeamDetailContent() {
 
     if (!ok) return;
 
-    for (const uId of nonLeaderIds) {
-      await removeMemberMutation.mutateAsync({ teamId, userId: uId });
+    try {
+      await bulkRemoveMembersMutation.mutateAsync({
+        teamId,
+        userIds: nonLeaderIds,
+      });
+    } catch {
+      // Handled by onError in bulkRemoveMembersMutation
     }
-    setSelectedMemberIds([]);
-    toast.success(`Đã xóa ${nonLeaderIds.length} thành viên khỏi đội.`);
+  };
+
+  const handleDeleteTeam = async () => {
+    const ok = await confirm({
+      title: "Xác nhận xóa đội nhóm",
+      description: `Bạn có chắc chắn muốn xóa vĩnh viễn đội nhóm "${teamDetail?.team.name}"? Tất cả thành viên sẽ trở về trạng thái chưa phân đội.`,
+      confirmLabel: "Xóa vĩnh viễn",
+      variant: "danger",
+    });
+
+    if (ok) {
+      deleteTeamMutation.mutate({ id: teamId });
+    }
+  };
+
+  const handleLeaveTeam = async (member: any) => {
+    const ok = await confirm({
+      title: "Rời khỏi đội nhóm",
+      description: `Bạn có chắc chắn muốn rời khỏi đội nhóm "${teamDetail?.team.name}"?`,
+      confirmLabel: "Rời nhóm",
+      variant: "danger",
+    });
+
+    if (ok) {
+      removeMemberMutation.mutate({ teamId, userId: member.id });
+    }
   };
 
   const handleSingleRemoveMember = async (member: any) => {
@@ -392,55 +550,34 @@ function TeamDetailContent() {
     }
   };
 
-  const handleExportCsv = () => {
+  const handleExportExcel = () => {
     if (!filteredMembers.length) {
       toast.warning("Không có dữ liệu thành viên để xuất.");
       return;
     }
 
-    const headers = [
-      "Họ và tên",
-      "Username",
-      "Email",
-      "Vai trò",
-      "Là Trưởng nhóm",
-      "Trạng thái",
-      "Máy tính liên kết",
-      "Số tài khoản TikTok",
-      "Doanh thu ($)",
-      "Tổng lượt xem",
-      "Ngày tham gia",
-    ];
+    const rows = filteredMembers.map((m, idx) => ({
+      "STT": idx + 1,
+      "Họ và tên": m.fullName || m.name || "",
+      "Username": m.username || "",
+      "Email": m.email || "",
+      "Vai trò": m.role,
+      "Là Trưởng nhóm": m.isLeader ? "Có" : "Không",
+      "Trạng thái": m.isActive ? "Đang hoạt động" : "Đã khóa",
+      "Thiết bị GPM/Máy": m.boundMachineName || "Chưa liên kết",
+      "Số kênh TikTok": m.accountsCount,
+      "Doanh thu ($)": m.totalRevenue,
+      "Tổng lượt xem": m.totalViews,
+      "Ngày tham gia": format(new Date(m.createdAt), "dd/MM/yyyy"),
+    }));
 
-    const rows = filteredMembers.map((m) => [
-      `"${m.fullName || m.name || ""}"`,
-      `"${m.username || ""}"`,
-      `"${m.email || ""}"`,
-      `"${m.role}"`,
-      m.isLeader ? "Có" : "Không",
-      m.isActive ? "Đang hoạt động" : "Đã khóa",
-      `"${m.boundMachineName || "Chưa liên kết"}"`,
-      m.accountsCount,
-      m.totalRevenue,
-      m.totalViews,
-      format(new Date(m.createdAt), "dd/MM/yyyy"),
-    ]);
-
-    const csvContent =
-      "data:text/csv;charset=utf-8,\uFEFF" +
-      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute(
-      "download",
-      `team-${teamDetail?.team.name.toLowerCase().replace(/\s+/g, "-")}-roster.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success("Xuất danh sách thành viên thành công!");
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, "Thanh_Vien");
+    const dateStr = format(new Date(), "yyyyMMdd");
+    const safeName = (teamDetail?.team.name || "team").replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1E00-\u1EFF]/g, "_");
+    XLSX.writeFile(wb, `Danh_Sach_Thanh_Vien_${safeName}_${dateStr}.xlsx`);
+    toast.success("Xuất danh sách thành viên ra file Excel thành công!");
   };
 
   if (isLoading) {
@@ -459,12 +596,21 @@ function TeamDetailContent() {
         <p className="text-sm text-slate-500 max-w-md">
           {error?.message || "Đội nhóm không tồn tại hoặc bạn không có quyền truy cập."}
         </p>
-        <Link
-          href="/teams"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 transition-all"
-        >
-          <ArrowLeft className="w-4 h-4" /> Quay lại danh sách Đội Nhóm
-        </Link>
+        {canViewTeamsList ? (
+          <Link
+            href="/teams"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 transition-all"
+          >
+            <ArrowLeft className="w-4 h-4" /> Quay lại danh sách Đội Nhóm
+          </Link>
+        ) : (
+          <Link
+            href="/accounts"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 transition-all"
+          >
+            <ArrowLeft className="w-4 h-4" /> Quay lại Dàn Account
+          </Link>
+        )}
       </div>
     );
   }
@@ -473,196 +619,190 @@ function TeamDetailContent() {
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-300">
-      <TeamScopeBanner
-        customMessage="Bạn đang xem và quản lý trực tiếp các thành viên và dàn kênh thuộc đội nhóm của mình."
-        className="mb-2"
-      />
-      {/* 1. Breadcrumbs & Top Navigation */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <Link
-            href="/teams"
-            className="hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5 transition-colors font-medium"
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Đội Nhóm (Teams)</span>
-          </Link>
-          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-          <span className="font-bold text-slate-900 dark:text-white truncate max-w-[200px]">
-            {team.name}
-          </span>
-        </div>
+      {/* Header Section (Unified Style from users/[id]) */}
+      <div className="bg-transparent pb-2 border-b border-slate-200/80 dark:border-slate-800/80">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          {/* Back & Team Profile Info */}
+          <div className="flex items-center gap-4 min-w-0">
+            {canViewTeamsList && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href="/teams"
+                    className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all shadow-sm shrink-0 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  Quay lại danh sách Đội Nhóm
+                </TooltipContent>
+              </Tooltip>
+            )}
 
-        <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => refetch()}
-                disabled={isRefetching}
-                className="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <RefreshCw
-                  className={`w-3.5 h-3.5 ${isRefetching ? "animate-spin text-pink-500" : ""}`}
-                />
-                <span className="hidden sm:inline">Làm Mới</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Cập nhật dữ liệu đội nhóm</TooltipContent>
-          </Tooltip>
-
-          <button
-            type="button"
-            onClick={handleExportCsv}
-            className="h-9 px-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Xuất Roster</span>
-          </button>
-
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => setIsEditModalOpen(true)}
-              className="h-9 px-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
-            >
-              <Pencil className="w-3.5 h-3.5 text-slate-500" />
-              <span>Sửa Team</span>
-            </button>
-          )}
-
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => setIsAddMemberModalOpen(true)}
-              className="h-9 px-4 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-md shadow-pink-600/20 active:scale-95 transition-all text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>Thêm Thành Viên</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* 2. Hero Header Card */}
-      <div className="relative overflow-hidden rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-6 sm:p-8 shadow-sm">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-pink-500/10 via-purple-500/5 to-transparent rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
-
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          {/* Team Brand & Details */}
-          <div className="space-y-3 min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${getColorClass(
-                  team.color
-                )}`}
-              >
-                Team Workspace
-              </span>
-              <span className="text-xs text-slate-400 font-medium">
-                Khởi tạo ngày {format(new Date(team.createdAt), "dd/MM/yyyy")}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3">
+            {/* Avatar & Names */}
+            <div className="flex items-center gap-3.5 min-w-0">
               <div
-                className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl text-white shadow-lg ${
+                className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl text-white shadow-md shrink-0 ${
                   team.color === "blue"
-                    ? "bg-gradient-to-br from-blue-500 to-cyan-600 shadow-blue-500/30"
+                    ? "bg-gradient-to-br from-blue-500 to-cyan-600 shadow-blue-500/20"
                     : team.color === "emerald"
-                    ? "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/30"
+                    ? "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20"
                     : team.color === "amber"
-                    ? "bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/30"
+                    ? "bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/20"
                     : team.color === "purple"
-                    ? "bg-gradient-to-br from-purple-500 to-indigo-600 shadow-purple-500/30"
-                    : "bg-gradient-to-br from-pink-500 to-rose-600 shadow-pink-500/30"
+                    ? "bg-gradient-to-br from-purple-500 to-indigo-600 shadow-purple-500/20"
+                    : "bg-gradient-to-br from-pink-500 to-rose-600 shadow-pink-500/20"
                 }`}
               >
-                {team.name.charAt(0).toUpperCase()}
+                {team.name.slice(0, 2).toUpperCase()}
               </div>
 
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                  <span>{team.name}</span>
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2 max-w-2xl">
-                  {team.description || "Không có mô tả chi tiết cho đội nhóm này."}
-                </p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight truncate">
+                    {team.name}
+                  </h1>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-md text-xs font-black uppercase tracking-wider border ${getColorClass(
+                      team.color
+                    )}`}
+                  >
+                    Team Workspace
+                  </span>
+                  {team.leader ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50">
+                      <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span>Trưởng Nhóm: {team.leader.fullName || team.leader.name}</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                      <span>Chưa có Trưởng nhóm</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400 mt-1 flex-wrap">
+                  {team.description ? (
+                    <>
+                      <span className="truncate max-w-md">{team.description}</span>
+                      <span>•</span>
+                    </>
+                  ) : null}
+                  <span>Khởi tạo: {format(new Date(team.createdAt), "dd/MM/yyyy")}</span>
+                  {team.leader?.email && (
+                    <>
+                      <span>•</span>
+                      <span>{team.leader.email}</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Team Leader Banner */}
-          <div className="shrink-0 flex items-center gap-4 bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 lg:min-w-[340px]">
-            {team.leader ? (
-              <div className="flex items-center justify-between w-full gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="relative shrink-0">
-                    {team.leader.avatar ? (
-                      <img
-                        src={team.leader.avatar}
-                        alt={team.leader.name || "Leader"}
-                        className="w-11 h-11 rounded-2xl object-cover border-2 border-amber-500 shadow-sm"
-                      />
-                    ) : (
-                      <div className="w-11 h-11 rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40 flex items-center justify-center font-bold text-sm">
-                        {team.leader.name?.charAt(0).toUpperCase() || "L"}
-                      </div>
-                    )}
-                    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center shadow-xs">
-                      <Crown className="w-3 h-3 fill-slate-950" />
-                    </span>
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-black text-slate-900 dark:text-white truncate">
-                        {team.leader.fullName || team.leader.name || team.leader.username}
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[10px] font-black uppercase bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                        Leader
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                      {team.leader.email}
-                    </p>
-                  </div>
-                </div>
-
-                {canManage && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTransferTargetUserId("");
-                      setIsTransferModalOpen(true);
-                    }}
-                    className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1 transition-colors shrink-0 cursor-pointer shadow-2xs"
-                  >
-                    <ArrowRightLeft className="w-3 h-3 text-amber-500" />
-                    <span className="hidden sm:inline">Chuyển Giao</span>
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center justify-between w-full gap-3">
-                <div className="flex items-center gap-2.5 text-xs text-amber-600 dark:text-amber-400 font-semibold">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>Đội nhóm chưa có Trưởng nhóm!</span>
-                </div>
-                {canManage && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTransferTargetUserId("");
-                      setIsTransferModalOpen(true);
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all shadow-sm shrink-0 cursor-pointer"
-                  >
-                    Bổ nhiệm Leader
-                  </button>
-                )}
-              </div>
+          {/* Actions Toolbar */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(true)}
+                className="h-9 px-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                <span>Sửa Đội Nhóm</span>
+              </button>
             )}
+
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setIsAddMemberModalOpen(true)}
+                className="h-9 px-4 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-md shadow-pink-600/20 active:scale-95 transition-all text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Thêm Thành Viên</span>
+              </button>
+            )}
+
+            {/* More dropdown button next to Thêm thành viên */}
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="h-9 w-9 flex items-center justify-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shadow-xs"
+                      aria-label="Tùy chọn khác"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Tùy chọn khác</TooltipContent>
+              </Tooltip>
+
+              <DropdownMenuContent
+                align="end"
+                className="w-56 bg-white dark:bg-slate-900 border-0 rounded-2xl shadow-2xl p-1.5 ring-1 ring-black/5 dark:ring-white/10 text-xs"
+              >
+                <DropdownMenuItem
+                  onClick={handleExportExcel}
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Xuất Excel (.xlsx)</span>
+                </DropdownMenuItem>
+
+                {canManage && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setTransferTargetUserId("");
+                      setIsTransferModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-normal text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
+                  >
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                    <span>Chuyển Giao Trưởng Nhóm</span>
+                  </DropdownMenuItem>
+                )}
+
+                {canManage && (
+                  <>
+                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                    <DropdownMenuItem
+                      onClick={handleDeleteTeam}
+                      className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Xóa Đội Nhóm</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+
+                {/* Option for regular member to leave team */}
+                {members.some(
+                  (m) => m.id === session?.user?.id && !m.isLeader
+                ) && (
+                  <>
+                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                    <DropdownMenuItem
+                      onClick={() => {
+                        const me = members.find(
+                          (m) => m.id === session?.user?.id
+                        );
+                        if (me) handleLeaveTeam(me);
+                      }}
+                      className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Rời Khỏi Nhóm</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -752,112 +892,290 @@ function TeamDetailContent() {
 
       {/* 4. Filter Toolbar & Member Roster Controls */}
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          {/* Search box */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Search box with fixed/responsive width */}
+          <div className="relative w-full sm:w-72">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               placeholder="Tìm theo tên nhân sự, username, email..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-9 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 transition-colors"
+              className="w-full pl-9 pr-9 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500 transition-colors font-normal"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 p-0.5 rounded-full hover:bg-black/10 dark:hover:bg-white/15 transition-colors cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
-          {/* Filter dropdowns */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Filter dropdowns inline: moved to right with font-normal and hover clear circle replacing arrow down */}
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
             {/* Filter Role */}
-            <Select value={roleFilter} onValueChange={setRoleFilter}>
-              <SelectTrigger className="h-8.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-semibold">
-                <SelectValue placeholder="Tất Cả Vai Trò" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Tất Cả Vai Trò</SelectItem>
-                <SelectItem value="LEADER">Trưởng Nhóm (Leader)</SelectItem>
-                <SelectItem value="LEAD">Vai Trò Lead</SelectItem>
-                <SelectItem value="STAFF">Nhân Viên (Staff)</SelectItem>
-                <SelectItem value="ADMIN">Quản Trị Viên (Admin)</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="relative inline-flex items-center">
+              <Select
+                value={roleFilter}
+                onValueChange={(val) => {
+                  setRoleFilter(val);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger
+                  className={`h-9 w-auto min-w-[135px] text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors cursor-pointer ${
+                    roleFilter !== "ALL"
+                      ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                      : ""
+                  }`}
+                >
+                  <SelectValue placeholder="Tất Cả Vai Trò" />
+                </SelectTrigger>
+                <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                  <SelectItem value="ALL" className="font-normal text-xs cursor-pointer">Tất Cả Vai Trò</SelectItem>
+                  <SelectItem value="LEADER" className="font-normal text-xs cursor-pointer">Trưởng Nhóm (Leader)</SelectItem>
+                  <SelectItem value="LEAD" className="font-normal text-xs cursor-pointer">Vai Trò Lead</SelectItem>
+                  <SelectItem value="STAFF" className="font-normal text-xs cursor-pointer">Nhân Viên (Staff)</SelectItem>
+                  <SelectItem value="ADMIN" className="font-normal text-xs cursor-pointer">Quản Trị Viên (Admin)</SelectItem>
+                </SelectContent>
+              </Select>
+              {roleFilter !== "ALL" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setRoleFilter("ALL");
+                        setCurrentPage(1);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                      aria-label="Xóa chọn vai trò"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa chọn vai trò</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
 
             {/* Filter Status */}
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-8.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-semibold">
-                <SelectValue placeholder="Trạng Thái Hoạt Động" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Tất Cả Trạng Thái</SelectItem>
-                <SelectItem value="ACTIVE">Đang Hoạt Động</SelectItem>
-                <SelectItem value="INACTIVE">Đã Bị Khóa</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="relative inline-flex items-center">
+              <Select
+                value={statusFilter}
+                onValueChange={(val) => {
+                  setStatusFilter(val);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger
+                  className={`h-9 w-auto min-w-[145px] text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors cursor-pointer ${
+                    statusFilter !== "ALL"
+                      ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                      : ""
+                  }`}
+                >
+                  <SelectValue placeholder="Trạng Thái Hoạt Động" />
+                </SelectTrigger>
+                <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                  <SelectItem value="ALL" className="font-normal text-xs cursor-pointer">Tất Cả Trạng Thái</SelectItem>
+                  <SelectItem value="ACTIVE" className="font-normal text-xs cursor-pointer">Đang Hoạt Động</SelectItem>
+                  <SelectItem value="INACTIVE" className="font-normal text-xs cursor-pointer">Đã Bị Khóa</SelectItem>
+                </SelectContent>
+              </Select>
+              {statusFilter !== "ALL" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setStatusFilter("ALL");
+                        setCurrentPage(1);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                      aria-label="Xóa chọn trạng thái"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
 
             {/* Filter Fleet */}
-            <Select value={fleetFilter} onValueChange={setFleetFilter}>
-              <SelectTrigger className="h-8.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs font-semibold">
-                <SelectValue placeholder="Dàn Kênh TikTok" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Tất Cả Tài Khoản</SelectItem>
-                <SelectItem value="HAS_ACCOUNTS">Đang Phụ Trách Kênh</SelectItem>
-                <SelectItem value="NO_ACCOUNTS">Chưa Có Kênh</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="relative inline-flex items-center">
+              <Select
+                value={fleetFilter}
+                onValueChange={(val) => {
+                  setFleetFilter(val);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger
+                  className={`h-9 w-auto min-w-[140px] text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors cursor-pointer ${
+                    fleetFilter !== "ALL"
+                      ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                      : ""
+                  }`}
+                >
+                  <SelectValue placeholder="Số acc phụ trách" />
+                </SelectTrigger>
+                <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                  <SelectItem value="ALL" className="font-normal text-xs cursor-pointer">Tất Cả Tài Khoản</SelectItem>
+                  <SelectItem value="HAS_ACCOUNTS" className="font-normal text-xs cursor-pointer">Đang Phụ Trách Kênh</SelectItem>
+                  <SelectItem value="NO_ACCOUNTS" className="font-normal text-xs cursor-pointer">Chưa Có Kênh</SelectItem>
+                </SelectContent>
+              </Select>
+              {fleetFilter !== "ALL" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setFleetFilter("ALL");
+                        setCurrentPage(1);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                      aria-label="Xóa chọn tài khoản"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa chọn tài khoản</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Selection actions ribbon */}
-        {selectedMemberIds.length > 0 && (
-          <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-pink-500/10 border border-pink-500/20 animate-in fade-in">
-            <div className="flex items-center gap-2 text-xs font-bold text-pink-700 dark:text-pink-300">
-              <CheckCircle className="w-4 h-4 text-pink-500" />
-              <span>Đã chọn {selectedMemberIds.length} nhân sự</span>
-            </div>
+        {/* Active Filter Chips with Xóa tất cả (exact accounts page style) */}
+        {hasActiveFilters && (
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+            {search && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <span>Tìm: {search}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                </Tooltip>
+              </span>
+            )}
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setSelectedMemberIds([])}
-                className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors"
-              >
-                Bỏ chọn
-              </button>
-              {canManage && (
+            {roleFilter !== "ALL" && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
+                <span>
+                  Vai trò:{" "}
+                  {roleFilter === "LEADER"
+                    ? "Trưởng Nhóm"
+                    : roleFilter === "LEAD"
+                    ? "Lead"
+                    : roleFilter === "STAFF"
+                    ? "Staff"
+                    : "Admin"}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setRoleFilter("ALL")}
+                      className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                </Tooltip>
+              </span>
+            )}
+
+            {statusFilter !== "ALL" && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
+                <span>
+                  Trạng thái: {statusFilter === "ACTIVE" ? "Đang hoạt động" : "Bị khóa"}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter("ALL")}
+                      className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                </Tooltip>
+              </span>
+            )}
+
+            {fleetFilter !== "ALL" && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">
+                <span>
+                  Số acc: {fleetFilter === "HAS_ACCOUNTS" ? "Đang có kênh" : "Chưa có kênh"}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setFleetFilter("ALL")}
+                      className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Xóa bộ lọc</TooltipContent>
+                </Tooltip>
+              </span>
+            )}
+
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={handleBulkRemoveMembers}
-                  className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-xs cursor-pointer transition-all flex items-center gap-1.5"
+                  onClick={clearAllFilters}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer ml-1"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Xóa khỏi Đội</span>
+                  Xóa tất cả
                 </button>
-              )}
-            </div>
+              </TooltipTrigger>
+              <TooltipContent side="top">Xóa tất cả bộ lọc đang áp dụng</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </div>
 
       {/* 5. Members Table */}
-      <div
-        className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs"
-        style={getTableVars()}
-      >
-        <div ref={tableRef} className="overflow-x-auto relative">
-          <table className="w-full text-left border-collapse text-xs">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs relative z-0 isolate">
+        <div ref={tableRef} style={getTableVars()} className="overflow-x-auto relative">
+          <table
+            className="text-left text-xs border-collapse table-fixed"
+            style={{
+              width: "max(100%, var(--resize-table-min-width))",
+              minWidth: "var(--resize-table-min-width)",
+            }}
+          >
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 font-bold text-slate-600 dark:text-slate-400 select-none">
-                {/* Select All */}
-                <th className="w-12 px-3 py-3.5 text-center">
+                {/* Select All - Sticky Left 0 */}
+                <th className="w-12 px-3 py-3.5 text-center sticky left-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs select-none border-b border-slate-200 dark:border-slate-800">
                   <Checkbox
                     checked={isAllSelected}
                     onCheckedChange={toggleSelectAll}
@@ -865,10 +1183,10 @@ function TeamDetailContent() {
                   />
                 </th>
 
-                {/* Member */}
+                {/* Member - Sticky Left 12 */}
                 <th
                   style={getColumnStyle("member")}
-                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white"
+                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white sticky left-12 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-r border-slate-200/80 dark:border-slate-800/80 shadow-[2px_0_5px_rgba(0,0,0,0.03)] border-b border-slate-200 dark:border-slate-800"
                   onClick={() => {
                     if (sortKey === "fullName") {
                       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -880,6 +1198,7 @@ function TeamDetailContent() {
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Thành Viên</span>
+                    {renderSortIndicator("fullName")}
                   </div>
                   {renderResizeHandle("member")}
                 </th>
@@ -887,7 +1206,7 @@ function TeamDetailContent() {
                 {/* Role */}
                 <th
                   style={getColumnStyle("role")}
-                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white"
+                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white border-b border-slate-200 dark:border-slate-800"
                   onClick={() => {
                     if (sortKey === "role") {
                       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -899,6 +1218,7 @@ function TeamDetailContent() {
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Vai Trò</span>
+                    {renderSortIndicator("role")}
                   </div>
                   {renderResizeHandle("role")}
                 </th>
@@ -906,7 +1226,7 @@ function TeamDetailContent() {
                 {/* Status */}
                 <th
                   style={getColumnStyle("status")}
-                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white"
+                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white border-b border-slate-200 dark:border-slate-800"
                   onClick={() => {
                     if (sortKey === "isActive") {
                       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -918,12 +1238,13 @@ function TeamDetailContent() {
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Trạng Thái</span>
+                    {renderSortIndicator("isActive")}
                   </div>
                   {renderResizeHandle("status")}
                 </th>
 
                 {/* Machine */}
-                <th style={getColumnStyle("machine")} className="relative px-3 py-3.5">
+                <th style={getColumnStyle("machine")} className="relative px-3 py-3.5 border-b border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-1.5">
                     <span>Thiết Bị GPM / Máy</span>
                   </div>
@@ -933,7 +1254,7 @@ function TeamDetailContent() {
                 {/* Accounts Count */}
                 <th
                   style={getColumnStyle("accounts")}
-                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white"
+                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white border-b border-slate-200 dark:border-slate-800"
                   onClick={() => {
                     if (sortKey === "accountsCount") {
                       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -944,7 +1265,8 @@ function TeamDetailContent() {
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Dàn Kênh</span>
+                    <span>Số acc phụ trách</span>
+                    {renderSortIndicator("accountsCount")}
                   </div>
                   {renderResizeHandle("accounts")}
                 </th>
@@ -952,7 +1274,7 @@ function TeamDetailContent() {
                 {/* Revenue */}
                 <th
                   style={getColumnStyle("revenue")}
-                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white"
+                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white border-b border-slate-200 dark:border-slate-800"
                   onClick={() => {
                     if (sortKey === "totalRevenue") {
                       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -964,6 +1286,7 @@ function TeamDetailContent() {
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Doanh Thu</span>
+                    {renderSortIndicator("totalRevenue")}
                   </div>
                   {renderResizeHandle("revenue")}
                 </th>
@@ -971,7 +1294,7 @@ function TeamDetailContent() {
                 {/* Views */}
                 <th
                   style={getColumnStyle("views")}
-                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white"
+                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white border-b border-slate-200 dark:border-slate-800"
                   onClick={() => {
                     if (sortKey === "totalViews") {
                       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -983,6 +1306,7 @@ function TeamDetailContent() {
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Lượt Xem</span>
+                    {renderSortIndicator("totalViews")}
                   </div>
                   {renderResizeHandle("views")}
                 </th>
@@ -990,7 +1314,7 @@ function TeamDetailContent() {
                 {/* Joined At */}
                 <th
                   style={getColumnStyle("createdAt")}
-                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white"
+                  className="relative px-3 py-3.5 cursor-pointer hover:text-slate-900 dark:hover:text-white border-b border-slate-200 dark:border-slate-800"
                   onClick={() => {
                     if (sortKey === "createdAt") {
                       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -1002,14 +1326,15 @@ function TeamDetailContent() {
                 >
                   <div className="flex items-center gap-1.5">
                     <span>Ngày Vào</span>
+                    {renderSortIndicator("createdAt")}
                   </div>
                   {renderResizeHandle("createdAt")}
                 </th>
 
-                {/* Actions */}
+                {/* Actions - Sticky Right 0 */}
                 <th
                   style={getColumnStyle("actions")}
-                  className="px-3 py-3.5 text-right"
+                  className="px-3 py-3.5 text-center sticky right-0 z-20 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs border-l border-slate-200/80 dark:border-slate-800/80 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] border-b border-slate-200 dark:border-slate-800"
                 >
                   Thao Tác
                 </th>
@@ -1040,7 +1365,7 @@ function TeamDetailContent() {
                   </td>
                 </tr>
               ) : (
-                filteredMembers.map((member) => {
+                paginatedMembers.map((member) => {
                   const isSelected = selectedMemberIds.includes(member.id);
 
                   return (
@@ -1050,17 +1375,21 @@ function TeamDetailContent() {
                         isSelected ? "bg-pink-500/5 dark:bg-pink-500/10" : ""
                       }`}
                     >
-                      {/* Select Checkbox */}
-                      <td className="px-3 py-3 text-center">
+                      {/* Select Checkbox - Sticky Left 0 */}
+                      <td className="w-12 px-3 py-3 text-center sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 transition-colors border-b border-slate-100 dark:border-slate-800/80">
                         <Checkbox
                           checked={isSelected}
+                          disabled={member.isLeader}
                           onCheckedChange={() => toggleSelectMember(member.id)}
                           aria-label={`Chọn ${member.fullName}`}
                         />
                       </td>
 
-                      {/* Member Info */}
-                      <td style={getColumnStyle("member")} className="px-3 py-3">
+                      {/* Member Info - Sticky Left 12 (Redundant badge removed) */}
+                      <td
+                        style={getColumnStyle("member")}
+                        className="px-3 py-3 sticky left-12 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-r border-slate-200/80 dark:border-slate-800/80 shadow-[2px_0_5px_rgba(0,0,0,0.03)] transition-colors border-b border-slate-100 dark:border-slate-800/80"
+                      >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="relative shrink-0">
                             {member.avatar ? (
@@ -1089,11 +1418,6 @@ function TeamDetailContent() {
                               >
                                 {member.fullName}
                               </Link>
-                              {member.isLeader && (
-                                <span className="px-1.5 py-0.2 rounded text-[10px] font-black uppercase bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                                  Trưởng Nhóm
-                                </span>
-                              )}
                             </div>
                             <div className="text-[11px] text-slate-400 truncate">
                               @{member.username || member.email}
@@ -1102,15 +1426,15 @@ function TeamDetailContent() {
                         </div>
                       </td>
 
-                      {/* Role */}
-                      <td style={getColumnStyle("role")} className="px-3 py-3">
+                      {/* Role Badge - matching users page height */}
+                      <td style={getColumnStyle("role")} className="px-3 py-3 border-b border-slate-100 dark:border-slate-800/80">
                         <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase ${
+                          className={`h-7.5 inline-flex items-center gap-1.5 px-2.5 rounded-xl text-xs font-bold ${
                             member.role === "ADMIN"
                               ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
-                              : member.role === "LEAD"
-                              ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20"
-                              : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                              : member.role === "LEAD" || member.isLeader
+                              ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20"
+                              : "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20"
                           }`}
                         >
                           <Shield className="w-3 h-3" />
@@ -1118,10 +1442,10 @@ function TeamDetailContent() {
                         </span>
                       </td>
 
-                      {/* Status */}
-                      <td style={getColumnStyle("status")} className="px-3 py-3">
+                      {/* Status - matching users page height */}
+                      <td style={getColumnStyle("status")} className="px-3 py-3 border-b border-slate-100 dark:border-slate-800/80">
                         <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          className={`h-7.5 inline-flex items-center gap-1.5 px-2.5 rounded-xl text-xs font-bold ${
                             member.isActive
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                               : "bg-slate-200 dark:bg-slate-800 text-slate-500 border border-slate-300 dark:border-slate-700"
@@ -1137,7 +1461,7 @@ function TeamDetailContent() {
                       </td>
 
                       {/* Machine Binding */}
-                      <td style={getColumnStyle("machine")} className="px-3 py-3">
+                      <td style={getColumnStyle("machine")} className="px-3 py-3 border-b border-slate-100 dark:border-slate-800/80">
                         {member.boundMachineName ? (
                           <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
                             <Laptop className="w-3.5 h-3.5 text-blue-500 shrink-0" />
@@ -1152,77 +1476,66 @@ function TeamDetailContent() {
                         )}
                       </td>
 
-                      {/* Accounts Fleet */}
-                      <td style={getColumnStyle("accounts")} className="px-3 py-3">
-                        {member.accountsCount > 0 ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Link
-                                href={`/accounts?operatorId=${member.id}`}
-                                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors"
-                              >
-                                <Video className="w-3 h-3 text-pink-500" />
-                                <span>{member.accountsCount} kênh</span>
-                              </Link>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs text-xs">
-                              <p className="font-bold mb-1">Các kênh phụ trách:</p>
-                              <ul className="list-disc pl-4 space-y-0.5">
-                                {member.accounts.slice(0, 5).map((a) => (
-                                  <li key={a.id} className="truncate">
-                                    @{a.username} ({a.country}) - {a.status}
-                                  </li>
-                                ))}
-                                {member.accountsCount > 5 && (
-                                  <li className="text-slate-400 italic">
-                                    + {member.accountsCount - 5} kênh khác...
-                                  </li>
-                                )}
-                              </ul>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          <span className="text-slate-400 text-xs">0 kênh</span>
-                        )}
+                      {/* Accounts Fleet - with HoverCard popover */}
+                      <td style={getColumnStyle("accounts")} className="px-3 py-3 border-b border-slate-100 dark:border-slate-800/80">
+                        <UserAccountsHoverCard
+                          userId={member.id}
+                          userName={member.fullName || member.name}
+                          accountsCount={member.accountsCount ?? 0}
+                          accounts={member.accounts || []}
+                        />
                       </td>
 
                       {/* Revenue */}
-                      <td style={getColumnStyle("revenue")} className="px-3 py-3">
+                      <td style={getColumnStyle("revenue")} className="px-3 py-3 border-b border-slate-100 dark:border-slate-800/80">
                         <span className="font-bold text-emerald-600 dark:text-emerald-400">
                           {formatAmount(member.totalRevenue)}
                         </span>
                       </td>
 
                       {/* Views */}
-                      <td style={getColumnStyle("views")} className="px-3 py-3">
+                      <td style={getColumnStyle("views")} className="px-3 py-3 border-b border-slate-100 dark:border-slate-800/80">
                         <span className="font-semibold text-slate-700 dark:text-slate-300">
                           {member.totalViews.toLocaleString()}
                         </span>
                       </td>
 
                       {/* Created At */}
-                      <td style={getColumnStyle("createdAt")} className="px-3 py-3 text-slate-400">
+                      <td style={getColumnStyle("createdAt")} className="px-3 py-3 text-slate-400 border-b border-slate-100 dark:border-slate-800/80">
                         {format(new Date(member.createdAt), "dd/MM/yyyy")}
                       </td>
 
-                      {/* Actions Dropdown */}
-                      <td style={getColumnStyle("actions")} className="px-3 py-3 text-right">
+                      {/* Actions Dropdown - Sticky Right 0 & borderless popover */}
+                      <td
+                        style={getColumnStyle("actions")}
+                        className="px-3 py-3 text-center sticky right-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 border-l border-slate-200/80 dark:border-slate-800/80 shadow-[-2px_0_5px_rgba(0,0,0,0.03)] transition-colors border-b border-slate-100 dark:border-slate-800/80"
+                      >
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-                            >
-                              <MoreHorizontal className="w-4 h-4" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-48 text-xs">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="w-7 h-7 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer inline-flex items-center justify-center"
+                                  aria-label="Thao tác"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">Thao tác</TooltipContent>
+                          </Tooltip>
+
+                          <DropdownMenuContent
+                            align="end"
+                            className="w-52 bg-white dark:bg-slate-900 border-0 rounded-2xl shadow-2xl p-1.5 ring-1 ring-black/5 dark:ring-white/10 text-xs"
+                          >
                             <DropdownMenuItem asChild>
                               <Link
                                 href={`/users/${member.id}`}
-                                className="flex items-center gap-2 cursor-pointer"
+                                className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
                               >
-                                <UserCog className="w-3.5 h-3.5 text-slate-500" />
+                                <UserCog className="w-3.5 h-3.5 text-slate-400" />
                                 <span>Xem Chi Tiết Nhân Sự</span>
                               </Link>
                             </DropdownMenuItem>
@@ -1230,7 +1543,7 @@ function TeamDetailContent() {
                             <DropdownMenuItem asChild>
                               <Link
                                 href={`/accounts?operatorId=${member.id}`}
-                                className="flex items-center gap-2 cursor-pointer"
+                                className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
                               >
                                 <Video className="w-3.5 h-3.5 text-pink-500" />
                                 <span>Xem Dàn Kênh TikTok</span>
@@ -1239,13 +1552,13 @@ function TeamDetailContent() {
 
                             {canManage && !member.isLeader && (
                               <>
-                                <DropdownMenuSeparator />
+                                <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                                 <DropdownMenuItem
                                   onClick={() => {
                                     setTransferTargetUserId(member.id);
                                     setIsTransferModalOpen(true);
                                   }}
-                                  className="flex items-center gap-2 text-amber-600 dark:text-amber-400 cursor-pointer font-medium"
+                                  className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
                                 >
                                   <Crown className="w-3.5 h-3.5" />
                                   <span>Giao Quyền Trưởng Nhóm</span>
@@ -1253,10 +1566,24 @@ function TeamDetailContent() {
 
                                 <DropdownMenuItem
                                   onClick={() => handleSingleRemoveMember(member)}
-                                  className="flex items-center gap-2 text-rose-600 dark:text-rose-400 cursor-pointer font-medium"
+                                  className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                   <span>Xóa Khỏi Đội Nhóm</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
+
+                            {/* Option for regular member to leave team in row */}
+                            {session?.user?.id === member.id && !member.isLeader && (
+                              <>
+                                <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                <DropdownMenuItem
+                                  onClick={() => handleLeaveTeam(member)}
+                                  className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                                >
+                                  <LogOut className="w-3.5 h-3.5" />
+                                  <span>Rời Khỏi Nhóm</span>
                                 </DropdownMenuItem>
                               </>
                             )}
@@ -1270,7 +1597,51 @@ function TeamDetailContent() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {totalItems > 0 && (
+          <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              pageSize={pageSize}
+              pageSizeOptions={[5, 10, 20, 50]}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="nhân sự"
+            />
+          </div>
+        )}
       </div>
+
+      {/* Floating Bottom Bulk Action Bar (matching accounts page style) */}
+      {selectedMemberIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-5 py-3 shadow-2xl shadow-slate-900/10 dark:shadow-black/60 ring-1 ring-slate-100 dark:ring-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-200">
+          <span className="text-xs font-bold text-slate-900 dark:text-white whitespace-nowrap">
+            Đã chọn {selectedMemberIds.length} nhân sự
+          </span>
+          <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block" />
+          <button
+            type="button"
+            onClick={() => setSelectedMemberIds([])}
+            className="text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+          >
+            Bỏ chọn
+          </button>
+
+          {canManage && (
+            <button
+              type="button"
+              onClick={handleBulkRemoveMembers}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Xóa khỏi Đội ({selectedMemberIds.length})</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 6. Modal: Add Members to Team */}
       <Dialog open={isAddMemberModalOpen} onOpenChange={setIsAddMemberModalOpen}>
@@ -1411,7 +1782,7 @@ function TeamDetailContent() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2.5">
                 Chọn Trưởng Nhóm Mới
               </label>
               <Select
@@ -1478,10 +1849,10 @@ function TeamDetailContent() {
                 color: editColor,
               });
             }}
-            className="space-y-4 pt-2"
+            className="space-y-5 pt-2"
           >
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2.5">
                 Tên Đội Nhóm (Team Name) *
               </label>
               <input
@@ -1494,7 +1865,7 @@ function TeamDetailContent() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2.5">
                 Mô Tả Đội Nhóm
               </label>
               <textarea
@@ -1507,7 +1878,7 @@ function TeamDetailContent() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2.5">
                 Nhãn Màu Sắc
               </label>
               <div className="flex flex-wrap items-center gap-2">
@@ -1548,6 +1919,9 @@ function TeamDetailContent() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Confirmation Dialog Component */}
+      {confirmDialog}
     </div>
   );
 }

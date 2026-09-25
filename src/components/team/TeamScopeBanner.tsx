@@ -28,7 +28,7 @@ export function TeamScopeBanner({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl bg-gradient-to-r from-amber-500/10 via-pink-500/10 to-purple-500/10 border border-amber-500/30 dark:border-amber-500/20 p-3.5 sm:p-4 shadow-xs transition-all ${className}`}
+      className={`relative overflow-hidden rounded-2xl bg-gradient-to-r from-amber-500/10 via-pink-500/10 to-purple-500/10 border border-amber-500/30 dark:border-amber-500/20 -mt-2 sm:-mt-3 py-2.5 px-3.5 sm:py-3 sm:px-4 shadow-xs transition-all ${className}`}
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -37,16 +37,16 @@ export function TeamScopeBanner({
           </div>
 
           <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap pb-2">
               <span className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                Phạm Vi Trưởng Nhóm: {teamName}
+                Nhóm: {teamName}
               </span>
               <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-800 dark:text-amber-300">
                 <ShieldCheck className="w-3 h-3" />
                 Dữ Liệu Đội Nhóm
               </span>
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 line-clamp-1">
+            <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-1">
               {customMessage ||
                 `Dữ liệu và quyền thao tác trên trang này được tự động giới hạn trong phạm vi các thành viên và dàn kênh thuộc ${teamName}.`}
             </p>

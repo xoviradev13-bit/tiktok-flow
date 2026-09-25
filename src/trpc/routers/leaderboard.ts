@@ -9,6 +9,7 @@ export const leaderboardRouter = router({
     .input(
       z.object({
         period: z.enum(["TODAY", "THIS_WEEK", "THIS_MONTH", "ALL_TIME"]).default("THIS_MONTH"),
+        teamId: z.string().optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
@@ -36,8 +37,11 @@ export const leaderboardRouter = router({
         isActive: true,
         deletedAt: null,
       };
-      if (scope.isLead) {
-        userWhere.id = { in: scope.memberUserIds };
+
+      if (input?.teamId && input.teamId !== "ALL") {
+        userWhere.teamId = input.teamId;
+      } else if (!input?.teamId && scope.isLead && scope.ledTeam?.id) {
+        userWhere.teamId = scope.ledTeam.id;
       }
 
       // Fetch all active operators
@@ -51,9 +55,19 @@ export const leaderboardRouter = router({
           lastName: true,
           avatar: true,
           role: true,
+          teamId: true,
+          team: {
+            select: {
+              id: true,
+              name: true,
+              color: true,
+            },
+          },
           tiktokAccounts: {
             select: {
               id: true,
+              username: true,
+              country: true,
               totalRevenue: true,
               totalViews: true,
               analytics: {
@@ -153,8 +167,12 @@ export const leaderboardRouter = router({
             "Operator",
           avatar: u.avatar,
           role: u.role,
+          teamId: u.teamId || u.team?.id || null,
+          teamName: u.team?.name || null,
+          teamColor: u.team?.color || null,
           accountCount: accountsCount,
           accountsCount: accountsCount,
+          accounts: u.tiktokAccounts,
           totalCompleted,
           completionRate,
           avgCompletionRate: completionRate,

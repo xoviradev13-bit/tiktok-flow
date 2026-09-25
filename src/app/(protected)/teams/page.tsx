@@ -34,6 +34,8 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
+import { Pagination } from "@/components/ui/pagination";
+import { UserAccountsHoverCard } from "@/components/user/UserAccountsHoverCard";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Popover,
@@ -175,13 +177,16 @@ function TeamsManagementContent() {
 
   useEffect(() => {
     if (status !== "loading") {
+      const userTeamId = ledTeamId || (session?.user as any)?.teamId;
       if (!isAdmin && !isLead) {
-        router.replace("/accounts");
-      } else if (isLead && ledTeamId) {
-        router.replace(`/teams/${ledTeamId}`);
+        if (userTeamId) {
+          router.replace(`/teams/${userTeamId}`);
+        } else {
+          router.replace("/accounts");
+        }
       }
     }
-  }, [status, isAdmin, isLead, ledTeamId, router]);
+  }, [status, isAdmin, isLead, ledTeamId, session, router]);
 
   const currentSortOption = useMemo(() => {
     return TEAM_SORT_OPTIONS.find((opt) => opt.key === sortConfig.key) || { key: sortConfig.key, label: "Mặc định" };
@@ -272,8 +277,8 @@ function TeamsManagementContent() {
   }, [utils]);
 
   // Queries
-  const { data: teamsData, isLoading: loading } = trpc.admin.listTeams.useQuery(undefined, { enabled: isAdmin });
-  const { data: allUsers = [], isLoading: loadingUsers } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
+  const { data: teamsData, isLoading: loading } = trpc.admin.listTeams.useQuery(undefined, { enabled: isAdmin || isLead });
+  const { data: allUsers = [], isLoading: loadingUsers } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin || isLead });
 
   const teams = useMemo(() => {
     return teamsData?.teamsDetails || [];
@@ -582,6 +587,20 @@ function TeamsManagementContent() {
     return filtered;
   }, [teams, search, sortConfig]);
 
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, sortConfig]);
+
+  const totalPages = Math.ceil(filteredAndSortedTeams.length / pageSize) || 1;
+  const paginatedTeams = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredAndSortedTeams.slice(start, start + pageSize);
+  }, [filteredAndSortedTeams, page, pageSize]);
+
   // Bulk selection helpers
   const allFilteredIds = useMemo(
     () => filteredAndSortedTeams.map((g: any) => g.id),
@@ -649,7 +668,7 @@ function TeamsManagementContent() {
     }
   };
 
-  if (status === "loading" || !isAdmin) {
+  if (status === "loading") {
     return <DataTableSkeleton />;
   }
 
@@ -661,7 +680,7 @@ function TeamsManagementContent() {
           <div className="min-w-0">
             <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5 min-w-0">
               <Layers className="w-7 h-7 text-pink-500 shrink-0" />
-              <span className="truncate">Quản Lý Đội Nhóm (Teams)</span>
+              <span className="truncate">Quản Lý Đội Nhóm</span>
               {loading ? (
                 <span className="inline-block w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse align-middle shrink-0" />
               ) : (
@@ -669,25 +688,29 @@ function TeamsManagementContent() {
               )}
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-              Quản trị cơ cấu nhóm, chỉ định Trưởng nhóm (Leader) và theo dõi thành viên & dàn tài khoản TikTok phụ trách.
+              {isAdmin
+                ? "Quản trị cơ cấu nhóm, chỉ định Trưởng nhóm (Leader) và theo dõi thành viên & dàn tài khoản TikTok phụ trách."
+                : "Quản lý thành viên, theo dõi dàn tài khoản và hiệu suất các đội nhóm bạn đang phụ trách."}
             </p>
           </div>
 
           <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0 flex-wrap">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  href="/users"
-                  className="h-10 flex items-center gap-2 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <Users className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span className="truncate">Xem Danh Sách Nhân Sự</span>
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs font-semibold">
-                Xem danh sách tất cả thành viên trong tổ chức
-              </TooltipContent>
-            </Tooltip>
+            {isAdmin && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href="/users"
+                    className="h-10 flex items-center gap-2 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Users className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span className="truncate">Xem Danh Sách Nhân Sự</span>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs font-semibold">
+                  Xem danh sách tất cả thành viên trong tổ chức
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             {isAdmin && (
               <Tooltip>
@@ -1050,12 +1073,13 @@ function TeamsManagementContent() {
       ) : viewMode === "grid" ? (
         /* Teams Grid View */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-4">
-          {filteredAndSortedTeams.map((group: any) => {
+          {paginatedTeams.map((group: any) => {
             const isSelected = selectedTeamIds.includes(group.id);
             const members = group.members || [];
             const displayMembers = members.slice(0, 4);
             const remainingMembers = members.slice(4);
             const hasMore = remainingMembers.length > 0;
+            const canManageGroup = isAdmin || group.leader?.id === (session?.user as any)?.id;
 
             const accentGradient =
               group.color === "cyan"
@@ -1106,7 +1130,7 @@ function TeamsManagementContent() {
                     </div>
                   </div>
 
-                  {isAdmin && (
+                  {canManageGroup && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
@@ -1134,17 +1158,21 @@ function TeamsManagementContent() {
                           <Pencil className="w-3.5 h-3.5 text-slate-400" />
                           <span>Chỉnh sửa đội nhóm</span>
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setTeamToDelete(group);
-                            setIsDeleteOpen(true);
-                          }}
-                          className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                          <span>Xóa đội nhóm</span>
-                        </DropdownMenuItem>
+                        {isAdmin && (
+                          <>
+                            <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setTeamToDelete(group);
+                                setIsDeleteOpen(true);
+                              }}
+                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                              <span>Xóa đội nhóm</span>
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
@@ -1158,52 +1186,74 @@ function TeamsManagementContent() {
                       {group.description || <span className="italic text-slate-400/80">Không có mô tả</span>}
                     </p>
 
-                    {/* Leader Box — inline Select dropdown */}
+                    {/* Leader Box — inline Select dropdown for Admin, clean status badge for Leader */}
                     <div>
-                      <Select
-                        value={group.leader?.id || "UNASSIGNED"}
-                        onValueChange={(val) => {
-                          updateTeamMutation.mutate({
-                            id: group.id,
-                            name: group.name,
-                            description: group.description,
-                            color: group.color || "pink",
-                            leaderId: val === "UNASSIGNED" ? null : val,
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                          <SelectValue>
-                            {group.leader ? (
-                              <span className="flex items-center gap-2">
-                                <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0 uppercase">
-                                  {group.leader.name.slice(0, 2)}
-                                </div>
-                                <span className="flex items-center gap-1 font-semibold text-amber-900 dark:text-amber-200">
-                                  <Crown className="w-3 h-3 text-amber-500 shrink-0" />
-                                  {group.leader.name}
+                      {isAdmin ? (
+                        <Select
+                          value={group.leader?.id || "UNASSIGNED"}
+                          onValueChange={(val) => {
+                            updateTeamMutation.mutate({
+                              id: group.id,
+                              name: group.name,
+                              description: group.description,
+                              color: group.color || "pink",
+                              leaderId: val === "UNASSIGNED" ? null : val,
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
+                            <SelectValue>
+                              {group.leader ? (
+                                <span className="flex items-center gap-2">
+                                  <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0 uppercase">
+                                    {group.leader.name.slice(0, 2)}
+                                  </div>
+                                  <span className="flex items-center gap-1 font-semibold text-amber-900 dark:text-amber-200">
+                                    <Crown className="w-3 h-3 text-amber-500 shrink-0" />
+                                    {group.leader.name}
+                                  </span>
                                 </span>
-                              </span>
-                            ) : (
-                              <span className="flex items-center gap-1.5 text-slate-400">
-                                <Crown className="w-3.5 h-3.5 opacity-40" />
-                                Chưa có Trưởng nhóm
-                              </span>
-                            )}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent className="rounded-2xl">
-                          <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">-- Không có leader --</SelectItem>
-                          {allUsers.map((u: any) => (
-                            <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                              <div className="flex items-center gap-2">
-                                {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
-                                <span>{u.name || u.fullName}</span>
+                              ) : (
+                                <span className="flex items-center gap-1.5 text-slate-400">
+                                  <Crown className="w-3.5 h-3.5 opacity-40" />
+                                  Chưa có Trưởng nhóm
+                                </span>
+                              )}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent className="rounded-2xl">
+                            <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">-- Không có leader --</SelectItem>
+                            {allUsers.map((u: any) => (
+                              <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                                <div className="flex items-center gap-2">
+                                  {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                                  <span>{u.name || u.fullName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="w-full h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                          {group.leader ? (
+                            <span className="flex items-center gap-2 min-w-0">
+                              <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0 uppercase">
+                                {group.leader.name.slice(0, 2)}
                               </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                              <span className="flex items-center gap-1 font-semibold text-amber-900 dark:text-amber-200 truncate">
+                                <Crown className="w-3 h-3 text-amber-500 shrink-0" />
+                                {group.leader.name}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5 text-slate-400 italic">
+                              <Crown className="w-3.5 h-3.5 opacity-40" />
+                              Chưa có Trưởng nhóm
+                            </span>
+                          )}
+                          <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-md shrink-0">Leader</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Members Avatar Row */}
@@ -1214,7 +1264,7 @@ function TeamsManagementContent() {
 
                       {members.length === 0 ? (
                         <div className="flex items-center gap-2 py-1">
-                          {isAdmin && (
+                          {canManageGroup && (
                             <Popover>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1258,7 +1308,7 @@ function TeamsManagementContent() {
                                           </div>
                                           <div className="min-w-0">
                                             <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
-                                            <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.groupName}` : " · Chưa có đội"}</div>
+                                            <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.teamName}` : " · Chưa có đội"}</div>
                                           </div>
                                         </button>
                                       ))}
@@ -1299,7 +1349,7 @@ function TeamsManagementContent() {
                                   </TooltipContent>
                                 </Tooltip>
                                 {/* Red X remove button on avatar hover — with tooltip at bottom left */}
-                                {isAdmin && (
+                                {canManageGroup && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <button
@@ -1308,7 +1358,7 @@ function TeamsManagementContent() {
                                         onClick={(e) => {
                                           e.preventDefault();
                                           setMemberPendingId(member.id);
-                                          removeMemberMutation.mutate({ userId: member.id, groupName: null });
+                                          removeMemberMutation.mutate({ userId: member.id, teamName: null });
                                         }}
                                         className="absolute -bottom-1 -left-1 w-4 h-4 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 text-white flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-all z-30 hover:bg-rose-600 cursor-pointer shadow-sm disabled:opacity-40"
                                       >
@@ -1324,7 +1374,7 @@ function TeamsManagementContent() {
                             ))}
 
                             {/* + Add member avatar-circle button — placed inside -space-x-2 for seamless overlap */}
-                            {isAdmin && (
+                            {canManageGroup && (
                               <Popover>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1368,7 +1418,7 @@ function TeamsManagementContent() {
                                             </div>
                                             <div className="min-w-0">
                                               <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
-                                              <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.groupName}` : " · Chưa có đội"}</div>
+                                              <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.teamName}` : " · Chưa có đội"}</div>
                                             </div>
                                           </button>
                                         ))}
@@ -1426,8 +1476,12 @@ function TeamsManagementContent() {
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
                     <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
                       <div className="text-xs text-slate-400">Accounts</div>
-                      <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
-                        {group.totalAccounts} <span className="text-xs font-normal text-slate-400">accs</span>
+                      <div className="mt-0.5">
+                        <UserAccountsHoverCard
+                          accountsCount={group.totalAccounts ?? 0}
+                          accounts={group.accounts || []}
+                          userName={group.name}
+                        />
                       </div>
                     </div>
                     <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
@@ -1448,7 +1502,7 @@ function TeamsManagementContent() {
                     <span>Xem dàn tài khoản</span>
                     <ArrowRight className="w-3 h-3" />
                   </Link>
-                  {isAdmin && (
+                  {(isAdmin || group.leader?.id === session?.user?.id) && (
                     <button
                       type="button"
                       onClick={() => handleOpenEdit(group)}
@@ -1487,11 +1541,9 @@ function TeamsManagementContent() {
                         {isAllSelected ? (
                           <CheckSquare className="w-4 h-4 text-pink-500" />
                         ) : isSomeSelected ? (
-                          <div className="w-4 h-4 rounded border-2 border-pink-500 bg-pink-500/20 flex items-center justify-center">
-                            <div className="w-2 h-0.5 bg-pink-500" />
-                          </div>
+                          <CheckSquare className="w-4 h-4 text-pink-400 opacity-60" />
                         ) : (
-                          <Square className="w-4 h-4" />
+                          <Square className="w-4 h-4 text-slate-300 dark:text-slate-600" />
                         )}
                       </button>
                     </th>
@@ -1582,7 +1634,7 @@ function TeamsManagementContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                {filteredAndSortedTeams.length === 0 ? (
+                {paginatedTeams.length === 0 ? (
                   <tr>
                     <td
                       colSpan={visibleColumnCount}
@@ -1593,7 +1645,7 @@ function TeamsManagementContent() {
                     </td>
                   </tr>
                 ) : (
-                  filteredAndSortedTeams.map((group: any, idx: number) => {
+                  paginatedTeams.map((group: any, idx: number) => {
                     const isSelected = selectedTeamIds.includes(group.id);
                     const rowBgClass = isSelected
                       ? "bg-pink-50 dark:bg-pink-950/90"
@@ -1602,6 +1654,7 @@ function TeamsManagementContent() {
                     const displayMembers = members.slice(0, 3);
                     const remainingMembers = members.slice(3);
                     const hasMore = remainingMembers.length > 0;
+                    const canManageGroup = isAdmin || group.leader?.id === (session?.user as any)?.id;
 
                     return (
                       <tr
@@ -1664,42 +1717,55 @@ function TeamsManagementContent() {
 
                         {visibleColumns.leader && (
                           <td style={getColumnStyle("leader")} className="py-4 px-4 align-middle overflow-hidden">
-                            <Select
-                              value={group.leader?.id || "UNASSIGNED"}
-                              onValueChange={(val) => {
-                                updateTeamMutation.mutate({
-                                  id: group.id,
-                                  name: group.name,
-                                  description: group.description,
-                                  color: group.color || "pink",
-                                  leaderId: val === "UNASSIGNED" ? null : val,
-                                });
-                              }}
-                            >
-                              <SelectTrigger className="h-8 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer w-full min-w-0">
-                                <SelectValue>
-                                  {group.leader ? (
-                                    <span className="flex items-center gap-1.5 min-w-0">
-                                      <Crown className="w-3 h-3 text-amber-500 shrink-0" />
-                                      <span className="truncate">{group.leader.name}</span>
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-400 italic">Chưa có Leader</span>
-                                  )}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent className="rounded-2xl">
-                                <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">-- Không có leader --</SelectItem>
-                                {allUsers.map((u: any) => (
-                                  <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                                    <div className="flex items-center gap-2">
-                                      {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
-                                      <span>{u.name || u.fullName}</span>
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            {isAdmin ? (
+                              <Select
+                                value={group.leader?.id || "UNASSIGNED"}
+                                onValueChange={(val) => {
+                                  updateTeamMutation.mutate({
+                                    id: group.id,
+                                    name: group.name,
+                                    description: group.description,
+                                    color: group.color || "pink",
+                                    leaderId: val === "UNASSIGNED" ? null : val,
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-8 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer w-full min-w-0">
+                                  <SelectValue>
+                                    {group.leader ? (
+                                      <span className="flex items-center gap-1.5 min-w-0">
+                                        <Crown className="w-3 h-3 text-amber-500 shrink-0" />
+                                        <span className="truncate">{group.leader.name}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400 italic">Chưa có Leader</span>
+                                    )}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent className="rounded-2xl">
+                                  <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">-- Không có leader --</SelectItem>
+                                  {allUsers.map((u: any) => (
+                                    <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                                      <div className="flex items-center gap-2">
+                                        {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                                        <span>{u.name || u.fullName}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                {group.leader ? (
+                                  <>
+                                    <Crown className="w-3 h-3 text-amber-500 shrink-0" />
+                                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{group.leader.name}</span>
+                                  </>
+                                ) : (
+                                  <span className="text-slate-400 italic">Chưa có Leader</span>
+                                )}
+                              </div>
+                            )}
                           </td>
                         )}
 
@@ -1707,7 +1773,7 @@ function TeamsManagementContent() {
                           <td style={getColumnStyle("members")} className="py-4 px-4 align-middle overflow-hidden">
                             {members.length === 0 ? (
                               <div className="flex items-center gap-2">
-                                {isAdmin && (
+                                {canManageGroup && (
                                   <Popover>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -1751,7 +1817,7 @@ function TeamsManagementContent() {
                                                 </div>
                                                 <div className="min-w-0">
                                                   <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
-                                                  <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.groupName}` : " · Chưa có đội"}</div>
+                                                  <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.teamName}` : " · Chưa có đội"}</div>
                                                 </div>
                                               </button>
                                             ))}
@@ -1791,7 +1857,7 @@ function TeamsManagementContent() {
                                           </div>
                                         </TooltipContent>
                                       </Tooltip>
-                                      {isAdmin && (
+                                      {canManageGroup && (
                                         <Tooltip>
                                           <TooltipTrigger asChild>
                                             <button
@@ -1800,7 +1866,7 @@ function TeamsManagementContent() {
                                               onClick={(e) => {
                                                 e.preventDefault();
                                                 setMemberPendingId(member.id);
-                                                removeMemberMutation.mutate({ userId: member.id, groupName: null });
+                                                removeMemberMutation.mutate({ userId: member.id, teamName: null });
                                               }}
                                               className="absolute -bottom-1 -left-1 w-3.5 h-3.5 rounded-full bg-rose-500 ring-1 ring-white dark:ring-slate-900 text-white flex items-center justify-center opacity-0 group-hover/avatar:opacity-100 transition-all z-30 hover:bg-rose-600 cursor-pointer shadow-sm disabled:opacity-40"
                                             >
@@ -1816,7 +1882,7 @@ function TeamsManagementContent() {
                                   ))}
 
                                   {/* Table Add button inside avatar stack */}
-                                  {isAdmin && (
+                                  {canManageGroup && (
                                     <Popover>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
@@ -1860,7 +1926,7 @@ function TeamsManagementContent() {
                                                   </div>
                                                   <div className="min-w-0">
                                                     <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name}</div>
-                                                    <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.groupName}` : " · Chưa có đội"}</div>
+                                                    <div className="text-[10px] text-slate-400 truncate">@{u.username}{u.teamName ? ` · ${u.teamName}` : " · Chưa có đội"}</div>
                                                   </div>
                                                 </button>
                                               ))}
@@ -1902,10 +1968,11 @@ function TeamsManagementContent() {
 
                         {visibleColumns.totalAccounts && (
                           <td style={getColumnStyle("totalAccounts")} className="py-4 px-4 align-middle font-bold text-slate-800 dark:text-slate-200 overflow-hidden">
-                            <span className="truncate block">
-                              {group.totalAccounts}{" "}
-                              <span className="text-slate-400 text-xs font-normal">accounts</span>
-                            </span>
+                            <UserAccountsHoverCard
+                              accountsCount={group.totalAccounts ?? 0}
+                              accounts={group.accounts || []}
+                              userName={group.name}
+                            />
                           </td>
                         )}
 
@@ -1914,7 +1981,7 @@ function TeamsManagementContent() {
                             style={getColumnStyle("actions")}
                             className={`py-4 px-6 text-center align-middle whitespace-nowrap sticky right-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]`}
                           >
-                            {isAdmin ? (
+                            {canManageGroup ? (
                               <DropdownMenu>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1947,17 +2014,21 @@ function TeamsManagementContent() {
                                     <Pencil className="w-3.5 h-3.5 text-slate-400" />
                                     <span>Chỉnh sửa đội nhóm</span>
                                   </DropdownMenuItem>
-                                  <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
-                                  <DropdownMenuItem
-                                    onClick={() => {
-                                      setTeamToDelete(group);
-                                      setIsDeleteOpen(true);
-                                    }}
-                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                    <span>Xóa đội nhóm</span>
-                                  </DropdownMenuItem>
+                                  {isAdmin && (
+                                    <>
+                                      <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setTeamToDelete(group);
+                                          setIsDeleteOpen(true);
+                                        }}
+                                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                        <span>Xóa đội nhóm</span>
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             ) : (
@@ -1973,744 +2044,793 @@ function TeamsManagementContent() {
             </table>
           </div>
         </div>
-      )}
+      )
+      }
+
+      {/* Pagination Controls */}
+      {
+        filteredAndSortedTeams.length > 0 && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              totalItems={filteredAndSortedTeams.length}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              pageSizeOptions={[6, 12, 24, 48]}
+              itemLabel="đội nhóm"
+            />
+          </div>
+        )
+      }
 
       {/* Floating Bulk Action Bar */}
-      {isAdmin && selectedTeamIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-slate-900/95 border border-slate-700/80 text-white px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-4 animate-in slide-in-from-bottom-5">
-          <div className="flex items-center gap-2 text-xs font-bold border-r border-slate-700 pr-3">
-            <Layers className="w-4 h-4 text-pink-400" />
-            <span>Đã chọn <strong className="text-pink-400 font-extrabold">{selectedTeamIds.length}</strong> nhóm</span>
+      {
+        isAdmin && selectedTeamIds.length > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-slate-900/95 border border-slate-700/80 text-white px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-4 animate-in slide-in-from-bottom-5">
+            <div className="flex items-center gap-2 text-xs font-bold border-r border-slate-700 pr-3">
+              <Layers className="w-4 h-4 text-pink-400" />
+              <span>Đã chọn <strong className="text-pink-400 font-extrabold">{selectedTeamIds.length}</strong> nhóm</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Bulk Assign Leader */}
+              <button
+                onClick={() => setIsBulkAssignLeaderOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
+              >
+                <Crown className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Gán Leader</span>
+              </button>
+
+              {/* Bulk Change Color */}
+              <button
+                onClick={() => setIsBulkColorOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
+              >
+                <Palette className="w-3.5 h-3.5 text-pink-400" />
+                <span>Đổi Màu</span>
+              </button>
+
+              {/* Bulk Delete */}
+              <button
+                onClick={() => setIsBulkDeleteOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <span>Xóa Hàng Loạt</span>
+              </button>
+            </div>
+
+            {/* Clear Selection */}
+            <button
+              onClick={() => setSelectedTeamIds([])}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer ml-1"
+              title="Bỏ chọn tất cả"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-
-          <div className="flex items-center gap-2">
-            {/* Bulk Assign Leader */}
-            <button
-              onClick={() => setIsBulkAssignLeaderOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
-            >
-              <Crown className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Gán Leader</span>
-            </button>
-
-            {/* Bulk Change Color */}
-            <button
-              onClick={() => setIsBulkColorOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
-            >
-              <Palette className="w-3.5 h-3.5 text-pink-400" />
-              <span>Đổi Màu</span>
-            </button>
-
-            {/* Bulk Delete */}
-            <button
-              onClick={() => setIsBulkDeleteOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-              <span>Xóa Hàng Loạt</span>
-            </button>
-          </div>
-
-          {/* Clear Selection */}
-          <button
-            onClick={() => setSelectedTeamIds([])}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer ml-1"
-            title="Bỏ chọn tất cả"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal: Create Group */}
-      {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Plus className="w-4 h-4 text-pink-500" />
-                Tạo Nhóm / Team Mới
-              </h3>
-              <button
-                onClick={() => setIsCreateOpen(false)}
-                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateGroup} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Tên Nhóm *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Team US #1, Team Affiliate..."
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Mô Tả Nhóm (Tùy chọn)
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Mô tả mục tiêu, khu vực hoạt động của nhóm..."
-                  value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none min-h-[72px]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Màu Sắc Nhãn Nhóm
-                </label>
-                <div className="flex items-center gap-2">
-                  {COLOR_OPTIONS.map((c) => (
-                    <button
-                      key={c.value}
-                      type="button"
-                      onClick={() => setNewColor(c.value)}
-                      className={`w-7 h-7 rounded-full ${c.class} transition-transform cursor-pointer ${newColor === c.value
-                        ? "ring-2 ring-offset-2 ring-pink-500 scale-110"
-                        : "opacity-80 hover:opacity-100"
-                        }`}
-                      title={c.label}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Chỉ Định Trưởng Nhóm (Leader) — Tự động cấp quyền LEAD
-                </label>
-                <Select
-                  value={newLeaderId || "UNASSIGNED"}
-                  onValueChange={(val) => setNewLeaderId(val === "UNASSIGNED" ? "" : val)}
-                >
-                  <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
-                    <SelectValue placeholder="-- Chưa chỉ định leader --">
-                      {(() => {
-                        const leader = allUsers.find((u: any) => u.id === newLeaderId);
-                        return leader ? (
-                          <div className="flex items-center gap-2 min-w-0">
-                            {renderUserAvatar(leader, "w-4 h-4 text-[8px]")}
-                            <span className="truncate">{leader.fullName || leader.name}</span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400">-- Chưa chỉ định leader --</span>
-                        );
-                      })()}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent className="rounded-2xl max-h-56">
-                    <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
-                      -- Chưa chỉ định leader --
-                    </SelectItem>
-                    {allUsers.map((u: any) => (
-                      <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                        <div className="flex items-center gap-2">
-                          {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
-                          <span>{u.fullName || u.name} ({u.role})</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Member Management in Create Modal */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Thành Viên Nhóm ({newMemberIds.length})
-                </label>
-
-                {/* Member chips */}
-                <div className="min-h-[44px] p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-wrap items-center gap-1.5 mb-2">
-                  {newMemberIds.length === 0 ? (
-                    <span className="text-xs text-slate-400 italic px-1">Chưa chọn thành viên nào</span>
-                  ) : (
-                    newMemberIds.map((userId) => {
-                      const u = allUsers.find((x: any) => x.id === userId);
-                      if (!u) return null;
-                      return (
-                        <span
-                          key={userId}
-                          className="inline-flex items-center gap-1.5 pl-1.5 pr-1.5 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-800 dark:text-slate-200 shadow-2xs"
-                        >
-                          <span className="w-5 h-5 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center uppercase shrink-0">
-                            {u.name?.slice(0, 2) || "U"}
-                          </span>
-                          <span className="max-w-[110px] truncate">{u.name || u.fullName}</span>
-                          <button
-                            type="button"
-                            onClick={() => setNewMemberIds((prev) => prev.filter((id) => id !== userId))}
-                            className="w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer transition-colors shrink-0 shadow-2xs"
-                            title={`Xóa ${u.name}`}
-                          >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
-                        </span>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* Add member popover */}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="w-full py-2 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-pink-400 dark:hover:border-pink-500 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 flex items-center justify-center gap-1.5 transition-colors cursor-pointer bg-slate-50/50 dark:bg-slate-950/50"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Thêm Thành Viên Vào Nhóm</span>
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-72 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
-                    <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
-                      <UserPlus className="w-3.5 h-3.5 text-pink-500" />
-                      Chọn thành viên thêm vào
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="Tìm theo tên hoặc username..."
-                      value={createMemberSearch}
-                      onChange={(e) => setCreateMemberSearch(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
-                    />
-                    <div className="max-h-48 overflow-y-auto space-y-0.5">
-                      {allUsers
-                        .filter((u: any) => !newMemberIds.includes(u.id))
-                        .filter((u: any) => {
-                          if (!createMemberSearch.trim()) return true;
-                          const q = createMemberSearch.toLowerCase();
-                          return (
-                            (u.name && u.name.toLowerCase().includes(q)) ||
-                            (u.fullName && u.fullName.toLowerCase().includes(q)) ||
-                            (u.username && u.username.toLowerCase().includes(q))
-                          );
-                        })
-                        .map((u: any) => (
-                          <button
-                            key={u.id}
-                            type="button"
-                            onClick={() => {
-                              setNewMemberIds((prev) => [...prev, u.id]);
-                            }}
-                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left"
-                          >
-                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold flex items-center justify-center uppercase shrink-0">
-                              {u.name?.slice(0, 2)}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
-                              <div className="text-[10px] text-slate-400 truncate">
-                                @{u.username} {u.teamName ? `· Nhóm: ${u.groupName}` : "· Chưa có đội"}
-                              </div>
-                            </div>
-                            <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
-                          </button>
-                        ))}
-                      {allUsers.filter((u: any) => !newMemberIds.includes(u.id)).length === 0 && (
-                        <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả nhân sự đã được chọn</div>
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+      {
+        isCreateOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-pink-500" />
+                  Tạo Nhóm / Team Mới
+                </h3>
                 <button
-                  type="button"
                   onClick={() => setIsCreateOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
                 >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={createTeamMutation.isPending}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
-                >
-                  {createTeamMutation.isPending ? "Đang tạo..." : "Tạo Nhóm"}
+                  ✕
                 </button>
               </div>
-            </form>
+
+              <form onSubmit={handleCreateGroup} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Tên Nhóm *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Team US #1, Team Affiliate..."
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Mô Tả Nhóm (Tùy chọn)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Mô tả mục tiêu, khu vực hoạt động của nhóm..."
+                    value={newDesc}
+                    onChange={(e) => setNewDesc(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none min-h-[72px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Màu Sắc Nhãn Nhóm
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {COLOR_OPTIONS.map((c) => (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => setNewColor(c.value)}
+                        className={`w-7 h-7 rounded-full ${c.class} transition-transform cursor-pointer ${newColor === c.value
+                          ? "ring-2 ring-offset-2 ring-pink-500 scale-110"
+                          : "opacity-80 hover:opacity-100"
+                          }`}
+                        title={c.label}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Chỉ Định Trưởng Nhóm (Leader) — Tự động cấp quyền LEAD
+                  </label>
+                  <Select
+                    value={newLeaderId || "UNASSIGNED"}
+                    onValueChange={(val) => setNewLeaderId(val === "UNASSIGNED" ? "" : val)}
+                  >
+                    <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
+                      <SelectValue placeholder="-- Chưa chỉ định leader --">
+                        {(() => {
+                          const leader = allUsers.find((u: any) => u.id === newLeaderId);
+                          return leader ? (
+                            <div className="flex items-center gap-2 min-w-0">
+                              {renderUserAvatar(leader, "w-4 h-4 text-[8px]")}
+                              <span className="truncate">{leader.fullName || leader.name}</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">-- Chưa chỉ định leader --</span>
+                          );
+                        })()}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl max-h-56">
+                      <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
+                        -- Chưa chỉ định leader --
+                      </SelectItem>
+                      {allUsers.map((u: any) => (
+                        <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                          <div className="flex items-center gap-2">
+                            {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                            <span>{u.fullName || u.name} ({u.role})</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Member Management in Create Modal */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Thành Viên Nhóm ({newMemberIds.length})
+                  </label>
+
+                  {/* Member chips */}
+                  <div className="min-h-[44px] p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-wrap items-center gap-1.5 mb-2">
+                    {newMemberIds.length === 0 ? (
+                      <span className="text-xs text-slate-400 italic px-1">Chưa chọn thành viên nào</span>
+                    ) : (
+                      newMemberIds.map((userId) => {
+                        const u = allUsers.find((x: any) => x.id === userId);
+                        if (!u) return null;
+                        return (
+                          <span
+                            key={userId}
+                            className="inline-flex items-center gap-1.5 pl-1.5 pr-1.5 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-800 dark:text-slate-200 shadow-2xs"
+                          >
+                            <span className="w-5 h-5 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center uppercase shrink-0">
+                              {u.name?.slice(0, 2) || "U"}
+                            </span>
+                            <span className="max-w-[110px] truncate">{u.name || u.fullName}</span>
+                            <button
+                              type="button"
+                              onClick={() => setNewMemberIds((prev) => prev.filter((id) => id !== userId))}
+                              className="w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer transition-colors shrink-0 shadow-2xs"
+                              title={`Xóa ${u.name}`}
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </span>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Add member popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="w-full py-2 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-pink-400 dark:hover:border-pink-500 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 flex items-center justify-center gap-1.5 transition-colors cursor-pointer bg-slate-50/50 dark:bg-slate-950/50"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Thêm Thành Viên Vào Nhóm</span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-72 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
+                        <UserPlus className="w-3.5 h-3.5 text-pink-500" />
+                        Chọn thành viên thêm vào
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Tìm theo tên hoặc username..."
+                        value={createMemberSearch}
+                        onChange={(e) => setCreateMemberSearch(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
+                      />
+                      <div className="max-h-48 overflow-y-auto space-y-0.5">
+                        {allUsers
+                          .filter((u: any) => !newMemberIds.includes(u.id))
+                          .filter((u: any) => {
+                            if (!createMemberSearch.trim()) return true;
+                            const q = createMemberSearch.toLowerCase();
+                            return (
+                              (u.name && u.name.toLowerCase().includes(q)) ||
+                              (u.fullName && u.fullName.toLowerCase().includes(q)) ||
+                              (u.username && u.username.toLowerCase().includes(q))
+                            );
+                          })
+                          .map((u: any) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => {
+                                setNewMemberIds((prev) => [...prev, u.id]);
+                              }}
+                              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left"
+                            >
+                              <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold flex items-center justify-center uppercase shrink-0">
+                                {u.name?.slice(0, 2)}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
+                                <div className="text-[10px] text-slate-400 truncate">
+                                  @{u.username} {u.teamName ? `· Nhóm: ${u.teamName}` : "· Chưa có đội"}
+                                </div>
+                              </div>
+                              <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                            </button>
+                          ))}
+                        {allUsers.filter((u: any) => !newMemberIds.includes(u.id)).length === 0 && (
+                          <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả nhân sự đã được chọn</div>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={createTeamMutation.isPending}
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
+                  >
+                    {createTeamMutation.isPending ? "Đang tạo..." : "Tạo Nhóm"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal: Edit Group */}
-      {isEditOpen && editingTeam && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Pencil className="w-4 h-4 text-pink-500" />
-                Chỉnh Sửa Nhóm {editingTeam.name}
-              </h3>
-              <button
-                onClick={() => setIsEditOpen(false)}
-                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEdit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Tên Nhóm *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Mô Tả Nhóm
-                </label>
-                <textarea
-                  rows={3}
-                  value={editDesc}
-                  onChange={(e) => setEditDesc(e.target.value)}
-                  placeholder="Nhập mô tả hoạt động hoặc mục tiêu của nhóm..."
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none min-h-[72px]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Màu Sắc Nhãn Nhóm
-                </label>
-                <div className="flex items-center gap-2">
-                  {COLOR_OPTIONS.map((c) => (
-                    <button
-                      key={c.value}
-                      type="button"
-                      onClick={() => setEditColor(c.value)}
-                      className={`w-7 h-7 rounded-full ${c.class} transition-transform cursor-pointer ${editColor === c.value
-                        ? "ring-2 ring-offset-2 ring-pink-500 scale-110"
-                        : "opacity-80 hover:opacity-100"
-                        }`}
-                      title={c.label}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Chỉ Định Trưởng Nhóm (Leader) — Tự động cấp quyền LEAD
-                </label>
-                <Select
-                  value={editLeaderId || "UNASSIGNED"}
-                  onValueChange={(val) => setEditLeaderId(val === "UNASSIGNED" ? "" : val)}
+      {
+        isEditOpen && editingTeam && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-pink-500" />
+                  Chỉnh Sửa Nhóm {editingTeam.name}
+                </h3>
+                <button
+                  onClick={() => setIsEditOpen(false)}
+                  className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
                 >
-                  <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
-                    <SelectValue placeholder="-- Chưa chỉ định leader --">
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEdit} className="space-y-5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2.5">
+                    Tên Nhóm *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2.5">
+                    Mô Tả Nhóm
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    placeholder="Nhập mô tả hoạt động hoặc mục tiêu của nhóm..."
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none min-h-[72px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2.5">
+                    Màu Sắc Nhãn Nhóm
+                  </label>
+                  <div className="flex items-center gap-2.5">
+                    {COLOR_OPTIONS.map((c) => (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => setEditColor(c.value)}
+                        className={`w-7 h-7 rounded-full ${c.class} transition-transform cursor-pointer ${editColor === c.value
+                          ? "ring-2 ring-offset-2 ring-pink-500 scale-110"
+                          : "opacity-80 hover:opacity-100"
+                          }`}
+                        title={c.label}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2.5">
+                    {isAdmin ? "Chỉ Định Trưởng Nhóm (Leader) — Tự động cấp quyền LEAD" : "Trưởng Nhóm (Leader)"}
+                  </label>
+                  {isAdmin ? (
+                    <Select
+                      value={editLeaderId || "UNASSIGNED"}
+                      onValueChange={(val) => setEditLeaderId(val === "UNASSIGNED" ? "" : val)}
+                    >
+                      <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
+                        <SelectValue placeholder="-- Chưa chỉ định leader --">
+                          {(() => {
+                            const leader = allUsers.find((u: any) => u.id === editLeaderId);
+                            return leader ? (
+                              <div className="flex items-center gap-2 min-w-0">
+                                {renderUserAvatar(leader, "w-4 h-4 text-[8px]")}
+                                <span className="truncate">{leader.fullName || leader.name}</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">-- Chưa chỉ định leader --</span>
+                            );
+                          })()}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="rounded-2xl max-h-56">
+                        <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
+                          -- Chưa chỉ định leader --
+                        </SelectItem>
+                        {allUsers.map((u: any) => (
+                          <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                            <div className="flex items-center gap-2">
+                              {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
+                              <span>{u.fullName || u.name} ({u.role})</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white flex items-center gap-2">
                       {(() => {
-                        const leader = allUsers.find((u: any) => u.id === editLeaderId);
+                        const leader = allUsers.find((u: any) => u.id === editLeaderId) || editingTeam?.leader;
                         return leader ? (
                           <div className="flex items-center gap-2 min-w-0">
                             {renderUserAvatar(leader, "w-4 h-4 text-[8px]")}
-                            <span className="truncate">{leader.fullName || leader.name}</span>
+                            <span className="truncate font-semibold">{leader.fullName || leader.name}</span>
                           </div>
                         ) : (
-                          <span className="text-slate-400">-- Chưa chỉ định leader --</span>
+                          <span className="text-slate-400 italic">-- Chưa chỉ định leader --</span>
                         );
                       })()}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent className="rounded-2xl max-h-56">
-                    <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
-                      -- Chưa chỉ định leader --
-                    </SelectItem>
-                    {allUsers.map((u: any) => (
-                      <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                        <div className="flex items-center gap-2">
-                          {renderUserAvatar(u, "w-4 h-4 text-[8px]")}
-                          <span>{u.fullName || u.name} ({u.role})</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Member Management in Edit Modal */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Thành Viên Nhóm ({editMemberIds.length})
-                </label>
-
-                {/* Member chips */}
-                <div className="min-h-[44px] p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-wrap items-center gap-1.5 mb-2">
-                  {editMemberIds.length === 0 ? (
-                    <span className="text-xs text-slate-400 italic px-1">Chưa có thành viên nào trong nhóm</span>
-                  ) : (
-                    editMemberIds.map((userId) => {
-                      const u = allUsers.find((x: any) => x.id === userId) || editingTeam.members?.find((x: any) => x.id === userId);
-                      if (!u) return null;
-                      return (
-                        <span
-                          key={userId}
-                          className="inline-flex items-center gap-1.5 pl-1.5 pr-1.5 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-800 dark:text-slate-200 shadow-2xs"
-                        >
-                          <span className="w-5 h-5 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center uppercase shrink-0">
-                            {u.name?.slice(0, 2) || "U"}
-                          </span>
-                          <span className="max-w-[110px] truncate">{u.name || u.fullName}</span>
-                          <button
-                            type="button"
-                            onClick={() => setEditMemberIds((prev) => prev.filter((id) => id !== userId))}
-                            className="w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer transition-colors shrink-0 shadow-2xs"
-                            title={`Xóa ${u.name}`}
-                          >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
-                        </span>
-                      );
-                    })
+                    </div>
                   )}
                 </div>
 
-                {/* Add member popover */}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="w-full py-2 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-pink-400 dark:hover:border-pink-500 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 flex items-center justify-center gap-1.5 transition-colors cursor-pointer bg-slate-50/50 dark:bg-slate-950/50"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Thêm Thành Viên Vào Nhóm</span>
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-72 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
-                    <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
-                      <UserPlus className="w-3.5 h-3.5 text-pink-500" />
-                      Chọn thành viên thêm vào
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="Tìm theo tên hoặc username..."
-                      value={editMemberSearch}
-                      onChange={(e) => setEditMemberSearch(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
-                    />
-                    <div className="max-h-48 overflow-y-auto space-y-0.5">
-                      {allUsers
-                        .filter((u: any) => !editMemberIds.includes(u.id))
-                        .filter((u: any) => {
-                          if (!editMemberSearch.trim()) return true;
-                          const q = editMemberSearch.toLowerCase();
-                          return (
-                            (u.name && u.name.toLowerCase().includes(q)) ||
-                            (u.fullName && u.fullName.toLowerCase().includes(q)) ||
-                            (u.username && u.username.toLowerCase().includes(q))
-                          );
-                        })
-                        .map((u: any) => (
-                          <button
-                            key={u.id}
-                            type="button"
-                            onClick={() => {
-                              setEditMemberIds((prev) => [...prev, u.id]);
-                            }}
-                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left"
-                          >
-                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold flex items-center justify-center uppercase shrink-0">
-                              {u.name?.slice(0, 2)}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
-                              <div className="text-[10px] text-slate-400 truncate">
-                                @{u.username} {u.teamName ? `· Nhóm: ${u.groupName}` : "· Chưa có đội"}
-                              </div>
-                            </div>
-                            <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
-                          </button>
-                        ))}
-                      {allUsers.filter((u: any) => !editMemberIds.includes(u.id)).length === 0 && (
-                        <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả nhân sự đã trong nhóm</div>
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
+                {/* Member Management in Edit Modal */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Thành Viên Nhóm ({editMemberIds.length})
+                  </label>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsEditOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={updateTeamMutation.isPending}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
-                >
-                  {updateTeamMutation.isPending ? "Đang lưu..." : "Lưu Thay Đổi"}
-                </button>
-              </div>
-            </form>
+                  {/* Member chips */}
+                  <div className="min-h-[44px] p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-wrap items-center gap-1.5 mb-2">
+                    {editMemberIds.length === 0 ? (
+                      <span className="text-xs text-slate-400 italic px-1">Chưa có thành viên nào trong nhóm</span>
+                    ) : (
+                      editMemberIds.map((userId) => {
+                        const u = allUsers.find((x: any) => x.id === userId) || editingTeam.members?.find((x: any) => x.id === userId);
+                        if (!u) return null;
+                        return (
+                          <span
+                            key={userId}
+                            className="inline-flex items-center gap-1.5 pl-1.5 pr-1.5 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-800 dark:text-slate-200 shadow-2xs"
+                          >
+                            <span className="w-5 h-5 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[9px] font-bold flex items-center justify-center uppercase shrink-0">
+                              {u.name?.slice(0, 2) || "U"}
+                            </span>
+                            <span className="max-w-[110px] truncate">{u.name || u.fullName}</span>
+                            <button
+                              type="button"
+                              onClick={() => setEditMemberIds((prev) => prev.filter((id) => id !== userId))}
+                              className="w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer transition-colors shrink-0 shadow-2xs"
+                              title={`Xóa ${u.name}`}
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </span>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Add member popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="w-full py-2 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-pink-400 dark:hover:border-pink-500 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 flex items-center justify-center gap-1.5 transition-colors cursor-pointer bg-slate-50/50 dark:bg-slate-950/50"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Thêm Thành Viên Vào Nhóm</span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-72 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white pb-1 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
+                        <UserPlus className="w-3.5 h-3.5 text-pink-500" />
+                        Chọn thành viên thêm vào
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Tìm theo tên hoặc username..."
+                        value={editMemberSearch}
+                        onChange={(e) => setEditMemberSearch(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
+                      />
+                      <div className="max-h-48 overflow-y-auto space-y-0.5">
+                        {allUsers
+                          .filter((u: any) => !editMemberIds.includes(u.id))
+                          .filter((u: any) => {
+                            if (!editMemberSearch.trim()) return true;
+                            const q = editMemberSearch.toLowerCase();
+                            return (
+                              (u.name && u.name.toLowerCase().includes(q)) ||
+                              (u.fullName && u.fullName.toLowerCase().includes(q)) ||
+                              (u.username && u.username.toLowerCase().includes(q))
+                            );
+                          })
+                          .map((u: any) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => {
+                                setEditMemberIds((prev) => [...prev, u.id]);
+                              }}
+                              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left"
+                            >
+                              <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-rose-500 text-white text-[10px] font-bold flex items-center justify-center uppercase shrink-0">
+                                {u.name?.slice(0, 2)}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{u.name || u.fullName}</div>
+                                <div className="text-[10px] text-slate-400 truncate">
+                                  @{u.username} {u.teamName ? `· Nhóm: ${u.teamName}` : "· Chưa có đội"}
+                                </div>
+                              </div>
+                              <Plus className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                            </button>
+                          ))}
+                        {allUsers.filter((u: any) => !editMemberIds.includes(u.id)).length === 0 && (
+                          <div className="text-xs text-slate-400 italic py-2 text-center">Tất cả nhân sự đã trong nhóm</div>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={updateTeamMutation.isPending}
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
+                  >
+                    {updateTeamMutation.isPending ? "Đang lưu..." : "Lưu Thay Đổi"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Modal: Confirm Delete Single Group */}
-      {isDeleteOpen && teamToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Xác nhận xóa nhóm
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bạn có chắc muốn xóa nhóm <strong className="text-slate-800 dark:text-slate-200">{teamToDelete.name}</strong>?
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
-              <div><span className="font-semibold">Số thành viên:</span> {teamToDelete.membersCount} nhân sự</div>
-              <div><span className="font-semibold">Tài khoản liên đới:</span> {teamToDelete.totalAccounts} accounts</div>
-              <p className="text-xs text-amber-600 dark:text-amber-400 pt-1">
-                ⚠️ Các thành viên trong nhóm này sẽ được chuyển về trạng thái Chưa phân nhóm.
-              </p>
-            </div>
-
-            <div className="flex justify-end gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsDeleteOpen(false);
-                  setTeamToDelete(null);
-                }}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                disabled={deleteTeamMutation.isPending}
-                onClick={() => {
-                  deleteTeamMutation.mutate({ id: teamToDelete.id });
-                }}
-                className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{deleteTeamMutation.isPending ? "Đang xóa..." : "Xác nhận xóa"}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Bulk Assign Leader */}
-      {isBulkAssignLeaderOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Crown className="w-4 h-4 text-cyan-500" />
-                Chỉ Định Leader Cho {selectedTeamIds.length} Nhóm
-              </h3>
-              <button
-                onClick={() => setIsBulkAssignLeaderOpen(false)}
-                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Chọn Trưởng Nhóm (Leader)
-                </label>
-                <Select
-                  value={bulkLeaderId || "UNASSIGNED"}
-                  onValueChange={(val) => setBulkLeaderId(val === "UNASSIGNED" ? "" : val)}
-                >
-                  <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
-                    <SelectValue placeholder="-- Chưa chỉ định leader --" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-2xl max-h-56">
-                    <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
-                      -- Bỏ chỉ định leader --
-                    </SelectItem>
-                    {allUsers.map((u: any) => (
-                      <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
-                        {u.fullName || u.name} ({u.role})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsBulkAssignLeaderOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="button"
-                  disabled={bulkAssignTeamLeaderMutation.isPending}
-                  onClick={() => {
-                    bulkAssignTeamLeaderMutation.mutate({
-                      teamIds: selectedTeamIds,
-                      leaderId: bulkLeaderId || null,
-                    });
-                  }}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md shadow-cyan-600/30 cursor-pointer disabled:opacity-60"
-                >
-                  {bulkAssignTeamLeaderMutation.isPending ? "Đang gán..." : "Áp Dụng Cho Tất Cả"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Bulk Change Color */}
-      {isBulkColorOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Palette className="w-4 h-4 text-pink-500" />
-                Đổi Màu Nhãn Cho {selectedTeamIds.length} Đội Nhóm
-              </h3>
-              <button
-                onClick={() => setIsBulkColorOpen(false)}
-                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Chọn Màu Mới
-                </label>
-                <div className="flex items-center gap-3">
-                  {COLOR_OPTIONS.map((c) => (
-                    <button
-                      key={c.value}
-                      type="button"
-                      onClick={() => setBulkColorVal(c.value)}
-                      className={`w-8 h-8 rounded-full ${c.class} transition-transform cursor-pointer ${bulkColorVal === c.value
-                        ? "ring-2 ring-offset-2 ring-pink-500 scale-115"
-                        : "opacity-80 hover:opacity-100"
-                        }`}
-                      title={c.label}
-                    />
-                  ))}
+      {
+        isDeleteOpen && teamToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Xác nhận xóa nhóm
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Bạn có chắc muốn xóa nhóm <strong className="text-slate-800 dark:text-slate-200">{teamToDelete.name}</strong>?
+                  </p>
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
+                <div><span className="font-semibold">Số thành viên:</span> {teamToDelete.membersCount} nhân sự</div>
+                <div><span className="font-semibold">Tài khoản liên đới:</span> {teamToDelete.totalAccounts} accounts</div>
+                <p className="text-xs text-amber-600 dark:text-amber-400 pt-1">
+                  ⚠️ Các thành viên trong nhóm này sẽ được chuyển về trạng thái Chưa phân nhóm.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsBulkColorOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  onClick={() => {
+                    setIsDeleteOpen(false);
+                    setTeamToDelete(null);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="button"
-                  disabled={bulkChangeColorMutation.isPending}
+                  disabled={deleteTeamMutation.isPending}
                   onClick={() => {
-                    bulkChangeColorMutation.mutate({
-                      teamIds: selectedTeamIds,
-                      color: bulkColorVal,
-                    });
+                    deleteTeamMutation.mutate({ id: teamToDelete.id });
                   }}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
+                  className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
                 >
-                  {bulkChangeColorMutation.isPending ? "Đang đổi..." : "Áp Dụng"}
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{deleteTeamMutation.isPending ? "Đang xóa..." : "Xác nhận xóa"}</span>
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
-      {/* Modal: Bulk Delete Confirm */}
-      {isBulkDeleteOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Xác nhận xóa hàng loạt
+      {/* Modal: Bulk Assign Leader */}
+      {
+        isBulkAssignLeaderOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Crown className="w-4 h-4 text-cyan-500" />
+                  Chỉ Định Leader Cho {selectedTeamIds.length} Nhóm
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bạn có chắc muốn xóa <strong className="text-rose-500">{selectedTeamIds.length}</strong> đội nhóm đã chọn?
-                </p>
+                <button
+                  onClick={() => setIsBulkAssignLeaderOpen(false)}
+                  className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
               </div>
-            </div>
 
-            <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
-              <p className="text-amber-600 dark:text-amber-400">
-                ⚠️ Tất cả nhân sự trong các đội này sẽ được chuyển về trạng thái Chưa phân đội. Hành động này không thể hoàn tác.
-              </p>
-            </div>
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Chọn Trưởng Nhóm (Leader)
+                  </label>
+                  <Select
+                    value={bulkLeaderId || "UNASSIGNED"}
+                    onValueChange={(val) => setBulkLeaderId(val === "UNASSIGNED" ? "" : val)}
+                  >
+                    <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
+                      <SelectValue placeholder="-- Chưa chỉ định leader --" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl max-h-56">
+                      <SelectItem value="UNASSIGNED" className="text-xs text-slate-400 cursor-pointer">
+                        -- Bỏ chỉ định leader --
+                      </SelectItem>
+                      {allUsers.map((u: any) => (
+                        <SelectItem key={u.id} value={u.id} className="text-xs cursor-pointer">
+                          {u.fullName || u.name} ({u.role})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="flex justify-end gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsBulkDeleteOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                disabled={bulkDeleteTeamsMutation.isPending}
-                onClick={() => {
-                  bulkDeleteTeamsMutation.mutate({
-                    teamIds: selectedTeamIds,
-                  });
-                }}
-                className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{bulkDeleteTeamsMutation.isPending ? "Đang xóa..." : `Xóa ${selectedTeamIds.length} đội nhóm`}</span>
-              </button>
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkAssignLeaderOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkAssignTeamLeaderMutation.isPending}
+                    onClick={() => {
+                      bulkAssignTeamLeaderMutation.mutate({
+                        teamIds: selectedTeamIds,
+                        leaderId: bulkLeaderId || null,
+                      });
+                    }}
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md shadow-cyan-600/30 cursor-pointer disabled:opacity-60"
+                  >
+                    {bulkAssignTeamLeaderMutation.isPending ? "Đang gán..." : "Áp Dụng Cho Tất Cả"}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+
+      {/* Modal: Bulk Change Color */}
+      {
+        isBulkColorOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-pink-500" />
+                  Đổi Màu Nhãn Cho {selectedTeamIds.length} Đội Nhóm
+                </h3>
+                <button
+                  onClick={() => setIsBulkColorOpen(false)}
+                  className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                    Chọn Màu Mới
+                  </label>
+                  <div className="flex items-center gap-3">
+                    {COLOR_OPTIONS.map((c) => (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => setBulkColorVal(c.value)}
+                        className={`w-8 h-8 rounded-full ${c.class} transition-transform cursor-pointer ${bulkColorVal === c.value
+                          ? "ring-2 ring-offset-2 ring-pink-500 scale-115"
+                          : "opacity-80 hover:opacity-100"
+                          }`}
+                        title={c.label}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkColorOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkChangeColorMutation.isPending}
+                    onClick={() => {
+                      bulkChangeColorMutation.mutate({
+                        teamIds: selectedTeamIds,
+                        color: bulkColorVal,
+                      });
+                    }}
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
+                  >
+                    {bulkChangeColorMutation.isPending ? "Đang đổi..." : "Áp Dụng"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Modal: Bulk Delete Confirm */}
+      {
+        isBulkDeleteOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Xác nhận xóa hàng loạt
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Bạn có chắc muốn xóa <strong className="text-rose-500">{selectedTeamIds.length}</strong> đội nhóm đã chọn?
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
+                <p className="text-amber-600 dark:text-amber-400">
+                  ⚠️ Tất cả nhân sự trong các đội này sẽ được chuyển về trạng thái Chưa phân đội. Hành động này không thể hoàn tác.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkDeleteOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkDeleteTeamsMutation.isPending}
+                  onClick={() => {
+                    bulkDeleteTeamsMutation.mutate({
+                      teamIds: selectedTeamIds,
+                    });
+                  }}
+                  className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{bulkDeleteTeamsMutation.isPending ? "Đang xóa..." : `Xóa ${selectedTeamIds.length} đội nhóm`}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+    </div >
   );
 }
 

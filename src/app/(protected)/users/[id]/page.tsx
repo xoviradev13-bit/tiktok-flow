@@ -507,6 +507,7 @@ function UserDetailPageContent() {
     if (days === -1 && customStartDate && customEndDate) {
       return `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")}–${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`;
     }
+    if (days === 30) return "Tháng này";
     return `${days}d`;
   }, [days, customStartDate, customEndDate]);
 
@@ -514,6 +515,7 @@ function UserDetailPageContent() {
     if (days === -1 && customStartDate && customEndDate) {
       return `${format(new Date(customStartDate + "T00:00:00"), "dd/MM/yy")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM/yy")}`;
     }
+    if (days === 30) return "Tháng này (30 ngày qua)";
     return `${days} ngày qua`;
   }, [days, customStartDate, customEndDate]);
 
@@ -1336,6 +1338,7 @@ function UserDetailPageContent() {
               {[
                 { value: 7, label: "7 Ngày" },
                 { value: 28, label: "28 Ngày" },
+                { value: 30, label: "Tháng này" },
                 { value: 60, label: "60 Ngày" },
                 { value: 365, label: "365 Ngày" },
               ].map((p) => (

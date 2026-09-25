@@ -52,6 +52,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { Pagination } from "@/components/ui/pagination";
+import { UserAccountsHoverCard } from "@/components/user/UserAccountsHoverCard";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { UsersPageSkeleton } from "@/components/skeletons/PageSkeletons";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -2146,12 +2147,12 @@ function UsersManagementContent() {
 
                     {/* Card Footer: Accounts assigned & Fleet link */}
                     <div className="mt-auto px-4 py-3 bg-slate-50/80 dark:bg-slate-950/50 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                          {u.accountsCount ?? 0}
-                        </span>
-                        <span className="text-xs text-slate-400">acc phụ trách</span>
-                      </div>
+                      <UserAccountsHoverCard
+                        userId={u.id}
+                        userName={u.fullName || u.name}
+                        accountsCount={u.accountsCount ?? 0}
+                        accounts={u.accounts || []}
+                      />
 
                       <Link
                         href={`/users/${u.id}`}
@@ -2434,9 +2435,12 @@ function UsersManagementContent() {
                           {/* Accounts Count */}
                           {visibleColumns.accountsCount && (
                             <td style={getColumnStyle("accountsCount")} className="py-3 px-4 overflow-hidden">
-                              <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs max-w-full truncate">
-                                {u.accountsCount} tài khoản
-                              </span>
+                              <UserAccountsHoverCard
+                                userId={u.id}
+                                userName={u.fullName || u.name}
+                                accountsCount={u.accountsCount ?? 0}
+                                accounts={u.accounts || []}
+                              />
                             </td>
                           )}
 

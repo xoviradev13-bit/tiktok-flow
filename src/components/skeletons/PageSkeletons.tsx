@@ -489,10 +489,13 @@ export function LeaderboardPageSkeleton() {
           <SkeletonBox className="h-8 w-72 rounded-xl" />
           <SkeletonLine className="h-4 w-96 max-w-full" />
         </div>
-        <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 rounded-xl">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <SkeletonBox key={i} className="h-7 w-20 rounded-lg" />
-          ))}
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <SkeletonBox className="h-9 w-44 rounded-xl" />
+          <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 rounded-xl">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <SkeletonBox key={i} className="h-7 w-20 rounded-lg" />
+            ))}
+          </div>
         </div>
       </div>
 

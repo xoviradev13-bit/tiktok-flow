@@ -104,13 +104,23 @@ export default function Sidebar() {
       group: "HỆ THỐNG & CẤU HÌNH",
       items: [
         { href: "/users", label: "Nhân Sự & Phân Quyền", icon: UserCog, adminOnly: true },
-        {
-          href: isLead && ledTeam?.id ? `/teams/${ledTeam.id}` : "/teams",
-          label: isLead ? `Đội Nhóm: ${ledTeam?.name || "Team"}` : "Quản Lý Đội Nhóm (Teams)",
-          icon: Layers,
-          adminOnly: true,
-          leadAllowed: true,
-        },
+        ...(isAdmin || isLead || (session?.user as any)?.teamId
+          ? [
+              {
+                href:
+                  isAdmin || isLead
+                    ? "/teams"
+                    : `/teams/${(session?.user as any).teamId}`,
+                label:
+                  isAdmin || isLead
+                    ? "Quản Lý Đội Nhóm"
+                    : (session?.user as any)?.teamName
+                      ? `Đội Nhóm: ${(session?.user as any).teamName}`
+                      : "Đội Nhóm Của Tôi",
+                icon: Layers,
+              },
+            ]
+          : []),
         { href: "/logs", label: "Nhật Ký Hoạt Động", icon: Activity },
         { href: "/settings", label: "Cài Đặt & Cá Nhân", icon: Settings },
       ],
@@ -164,23 +174,20 @@ export default function Sidebar() {
 
       {/* Main Sidebar (Desktop fixed with dynamic width + Mobile sliding drawer) */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 bg-white dark:bg-slate-900/95 backdrop-blur-xl border-r border-slate-200 dark:border-slate-800/90 flex flex-col transition-all duration-300 ease-in-out lg:translate-x-0 ${
-          isCollapsed ? "lg:w-20" : "lg:w-64"
-        } w-72 ${mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"}`}
+        className={`fixed top-0 bottom-0 left-0 z-50 bg-white dark:bg-slate-900/95 backdrop-blur-xl border-r border-slate-200 dark:border-slate-800/90 flex flex-col transition-all duration-300 ease-in-out lg:translate-x-0 ${isCollapsed ? "lg:w-20" : "lg:w-64"
+          } w-72 ${mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"}`}
       >
         {/* Brand Header & Collapse Toggle */}
         <div
-          className={`h-16 px-4 flex items-center border-b border-slate-200 dark:border-slate-800/80 shrink-0 transition-all justify-between ${
-            isCollapsed ? "lg:justify-center" : "lg:justify-between"
-          }`}
+          className={`h-16 px-4 flex items-center border-b border-slate-200 dark:border-slate-800/80 shrink-0 transition-all justify-between ${isCollapsed ? "lg:justify-center" : "lg:justify-between"
+            }`}
         >
           {/* Logo & Brand Name */}
           <Link
             href="/"
             onClick={() => setMobileOpen(false)}
-            className={`flex items-center gap-3 group overflow-hidden ${
-              isCollapsed ? "lg:justify-center" : ""
-            }`}
+            className={`flex items-center gap-3 group overflow-hidden ${isCollapsed ? "lg:justify-center" : ""
+              }`}
           >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-lg shadow-pink-500/20 group-hover:scale-105 transition-transform shrink-0">
               <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
@@ -227,9 +234,8 @@ export default function Sidebar() {
 
         {/* Navigation Menu (Scrollable) */}
         <div
-          className={`flex-1 overflow-y-auto pt-0 pb-3 space-y-5 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 px-3.5 ${
-            isCollapsed ? "lg:px-2" : "lg:px-3.5"
-          }`}
+          className={`flex-1 overflow-y-auto pt-0 pb-3 space-y-5 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 px-3.5 ${isCollapsed ? "lg:px-2" : "lg:px-3.5"
+            }`}
         >
           {/* Collapsed Expand Quick Button inside the list on Desktop */}
           {isCollapsed && (
@@ -254,9 +260,8 @@ export default function Sidebar() {
           {filteredNavGroups.map((group, gIdx) => (
             <div key={gIdx} className={`space-y-1.5 ${gIdx === 0 && !isCollapsed ? "pt-2.5" : ""}`}>
               <div
-                className={`px-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate ${
-                  isCollapsed ? "lg:hidden" : "block"
-                }`}
+                className={`px-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate ${isCollapsed ? "lg:hidden" : "block"
+                  }`}
               >
                 {group.group}
               </div>
@@ -270,25 +275,21 @@ export default function Sidebar() {
                       key={item.href}
                       href={item.href}
                       onClick={() => setMobileOpen(false)}
-                      className={`group flex items-center rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                        isActive
-                          ? "bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-lg shadow-pink-600/30 font-bold"
-                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/70"
-                      } justify-between px-3 py-2.5 ${
-                        isCollapsed ? "lg:h-10 lg:w-10 lg:mx-auto lg:justify-center lg:p-0" : ""
-                      }`}
+                      className={`group flex items-center rounded-xl text-xs font-semibold transition-all cursor-pointer ${isActive
+                        ? "bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-lg shadow-pink-600/30 font-bold"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800/70"
+                        } justify-between px-3 py-2.5 ${isCollapsed ? "lg:h-10 lg:w-10 lg:mx-auto lg:justify-center lg:p-0" : ""
+                        }`}
                     >
                       <div
-                        className={`flex items-center gap-3 ${
-                          isCollapsed ? "lg:justify-center" : ""
-                        }`}
+                        className={`flex items-center gap-3 ${isCollapsed ? "lg:justify-center" : ""
+                          }`}
                       >
                         <Icon
-                          className={`w-4 h-4 transition-transform group-hover:scale-110 shrink-0 ${
-                            isActive
-                              ? "text-white"
-                              : "text-slate-500 group-hover:text-pink-600 dark:text-slate-400 dark:group-hover:text-pink-400"
-                          }`}
+                          className={`w-4 h-4 transition-transform group-hover:scale-110 shrink-0 ${isActive
+                            ? "text-white"
+                            : "text-slate-500 group-hover:text-pink-600 dark:text-slate-400 dark:group-hover:text-pink-400"
+                            }`}
                         />
                         <span className={`truncate ${isCollapsed ? "lg:hidden" : "inline"}`}>
                           {item.label}
@@ -297,9 +298,8 @@ export default function Sidebar() {
 
                       {item.badge && (
                         <span
-                          className={`text-xs font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 ${
-                            isCollapsed ? "lg:hidden" : "inline"
-                          }`}
+                          className={`text-xs font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 ${isCollapsed ? "lg:hidden" : "inline"
+                            }`}
                         >
                           {item.badge}
                         </span>
@@ -307,9 +307,8 @@ export default function Sidebar() {
 
                       {item.isExternal && (
                         <ExternalLink
-                          className={`w-3.5 h-3.5 opacity-40 shrink-0 group-hover:opacity-90 transition-opacity ml-auto ${
-                            isCollapsed ? "lg:hidden" : "inline"
-                          }`}
+                          className={`w-3.5 h-3.5 opacity-40 shrink-0 group-hover:opacity-90 transition-opacity ml-auto ${isCollapsed ? "lg:hidden" : "inline"
+                            }`}
                         />
                       )}
                     </Link>
@@ -342,28 +341,25 @@ export default function Sidebar() {
 
         {/* Sidebar Footer: GPM Status, User Profile & Logout Button */}
         <div
-          className={`border-t border-slate-200 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-950/50 shrink-0 space-y-2.5 transition-all p-3.5 ${
-            isCollapsed ? "lg:p-2" : "lg:p-3.5"
-          }`}
+          className={`border-t border-slate-200 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-950/50 shrink-0 space-y-2.5 transition-all p-3.5 ${isCollapsed ? "lg:p-2" : "lg:p-3.5"
+            }`}
         >
           {/* GPM Status Badge: Full on mobile, compact on collapsed desktop */}
           <div className={`flex items-center justify-between px-2 text-xs ${isCollapsed ? "lg:hidden" : "flex"}`}>
             <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
               <span
-                className={`w-2 h-2 rounded-full ${
-                  gpmOnline
-                    ? "bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500"
-                    : "bg-slate-400 dark:bg-slate-600"
-                }`}
+                className={`w-2 h-2 rounded-full ${gpmOnline
+                  ? "bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500"
+                  : "bg-slate-400 dark:bg-slate-600"
+                  }`}
               />
               <span>GPMLogin API{gpmPort ? ` (${gpmPort})` : ""}</span>
             </div>
             <span
-              className={`text-xs font-semibold ${
-                gpmOnline
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-slate-400 dark:text-slate-500"
-              }`}
+              className={`text-xs font-semibold ${gpmOnline
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-slate-400 dark:text-slate-500"
+                }`}
             >
               {gpmOnline ? "Online" : "Offline"}
             </span>
@@ -375,11 +371,10 @@ export default function Sidebar() {
                 <TooltipTrigger asChild>
                   <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-default">
                     <span
-                      className={`w-2.5 h-2.5 rounded-full ${
-                        gpmOnline
-                          ? "bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500"
-                          : "bg-slate-400 dark:bg-slate-600"
-                      }`}
+                      className={`w-2.5 h-2.5 rounded-full ${gpmOnline
+                        ? "bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500"
+                        : "bg-slate-400 dark:bg-slate-600"
+                        }`}
                     />
                   </div>
                 </TooltipTrigger>
@@ -395,9 +390,8 @@ export default function Sidebar() {
           <Link
             href="/settings"
             onClick={() => setMobileOpen(false)}
-            className={`items-center gap-2.5 p-2 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 hover:border-pink-500/40 hover:bg-pink-50/10 dark:hover:bg-slate-800/80 shadow-xs transition-all cursor-pointer group ${
-              isCollapsed ? "flex lg:hidden" : "flex"
-            }`}
+            className={`items-center gap-2.5 p-2 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 hover:border-pink-500/40 hover:bg-pink-50/10 dark:hover:bg-slate-800/80 shadow-xs transition-all cursor-pointer group ${isCollapsed ? "flex lg:hidden" : "flex"
+              }`}
           >
             <div className="relative shrink-0">
               {session?.user?.image ? (
@@ -473,9 +467,8 @@ export default function Sidebar() {
           {/* Bug Report Button */}
           <button
             onClick={() => setIsBugModalOpen(true)}
-            className={`w-full items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50/50 dark:hover:bg-slate-850 border border-transparent hover:border-pink-500/20 transition-all cursor-pointer ${
-              isCollapsed ? "flex lg:hidden" : "flex"
-            }`}
+            className={`w-full items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50/50 dark:hover:bg-slate-850 border border-transparent hover:border-pink-500/20 transition-all cursor-pointer ${isCollapsed ? "flex lg:hidden" : "flex"
+              }`}
           >
             <Bug className="w-4 h-4 shrink-0 text-pink-500" />
             <span>Báo Cáo Sự Cố</span>
@@ -503,9 +496,8 @@ export default function Sidebar() {
           {/* Logout Button: Full on mobile, compact icon on collapsed desktop */}
           <button
             onClick={handleLogout}
-            className={`w-full items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 border border-transparent hover:border-rose-200 dark:hover:border-rose-900/50 transition-all cursor-pointer ${
-              isCollapsed ? "flex lg:hidden" : "flex"
-            }`}
+            className={`w-full items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 border border-transparent hover:border-rose-200 dark:hover:border-rose-900/50 transition-all cursor-pointer ${isCollapsed ? "flex lg:hidden" : "flex"
+              }`}
           >
             <LogOut className="w-4 h-4 shrink-0 text-rose-500" />
             <span>Đăng Xuất</span>
