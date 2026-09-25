@@ -4,7 +4,7 @@ const defaultOpenGraph: Metadata['openGraph'] = {
   type: 'website',
   title: 'TIKTOKFLOW',
   description: 'Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.',
-  url: 'https://tiktokflow.com/',
+  url: 'https://tiktokflow.site/',
   siteName: 'TIKTOKFLOW',
   images: [
     {

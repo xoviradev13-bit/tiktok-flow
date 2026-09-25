@@ -55,7 +55,7 @@ export const metadata: Metadata = {
   },
 
   openGraph: mergeOpenGraph({
-    title: "TIKTOKFLOW – TikTok Fleet Automation & Creator Rewards Operations",
+    title: "TIKTOKFLOW – TikTok Account Management & Operations Automation System",
     description:
       "Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
     siteName: "TIKTOKFLOW",
@@ -67,7 +67,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     site: "@tiktokflow",
     creator: "@tiktokflow",
-    title: "TIKTOKFLOW – TikTok Fleet Automation & Creator Rewards Operations",
+    title: "TIKTOKFLOW – TikTok Account Management & Operations Automation System",
     description:
       "Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
     images: ["/images/og-image.png"],
