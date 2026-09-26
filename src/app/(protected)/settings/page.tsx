@@ -1052,7 +1052,7 @@ function SettingsPageContent() {
                   <div>
                     <div className="text-xs font-bold text-slate-400 uppercase">Nhóm Trực Thuộc</div>
                     <div className="mt-0.5 text-xs font-black text-slate-800 dark:text-slate-200">
-                      {userProfile?.group?.name || "Chưa phân nhóm"}
+                      {userProfile?.team?.name || (userProfile as any)?.group?.name || "Chưa phân nhóm"}
                     </div>
                   </div>
                 </div>

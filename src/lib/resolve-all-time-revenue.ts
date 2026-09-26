@@ -60,11 +60,62 @@ export function resolveAllTimeRevenue(account: AccountRevenueSource): number {
   return num(sr.totalRevenue ?? account.totalRevenue);
 }
 
+export function getStartOfMonthDateStr(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}-01`;
+}
+
+export function getTodayDateStr(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Resolve Month-To-Date (MTD) revenue: from day 01 of the current month to today.
+ */
+export function resolveThisMonthRevenue(
+  account: AccountRevenueSource,
+  mergedDailySum = 0
+): number {
+  const startOfMonthStr = getStartOfMonthDateStr();
+  const todayStr = getTodayDateStr();
+
+  let daily = mergedDailySum;
+  if (daily <= 0) {
+    daily = sumDailyRevenueBreakdown(account, startOfMonthStr, todayStr);
+    const drList = (account as any).dailyRevenues;
+    if (Array.isArray(drList)) {
+      let drSum = 0;
+      for (const dr of drList) {
+        if (!dr?.date) continue;
+        const dStr =
+          typeof dr.date === "string"
+            ? dr.date.split("T")[0]
+            : new Date(dr.date).toISOString().split("T")[0];
+        if (dStr >= startOfMonthStr && dStr <= todayStr) {
+          drSum += num(dr.revenue);
+        }
+      }
+      if (drSum > daily) {
+        daily = drSum;
+      }
+    }
+  }
+
+  return Math.round(daily * 100) / 100;
+}
+
 /** Period windows as shown in tooltips / KPI cards. */
 export function getAccountRevenuePeriods(account: AccountRevenueSource): {
   revenue7d: number;
   revenue28d: number;
   revenue30d: number;
+  revenueThisMonth: number;
   revenue60d: number;
   revenue365d: number;
   totalRevenue: number;
@@ -102,10 +153,13 @@ export function getAccountRevenuePeriods(account: AccountRevenueSource): {
     );
   }
 
+  const revenueThisMonth = resolveThisMonthRevenue(account);
+
   return {
     revenue7d: num(sr.revenue7d ?? analytics.revenue7d),
     revenue28d: num(sr.revenue28d ?? analytics.revenue28d),
     revenue30d: rev30,
+    revenueThisMonth,
     revenue60d: num(sr.revenue60d ?? analytics.revenue60d),
     revenue365d: num(sr.revenue365d ?? analytics.revenue365d),
     totalRevenue: resolveAllTimeRevenue(account),
@@ -136,6 +190,7 @@ export function sumDailyRevenueBreakdown(
 
 /**
  * Resolve revenue for a rolling window of `days` (0 = all-time).
+ * When days === 30, it resolves Month-To-Date (from day 01 to today).
  * `mergedDailySum` should already be the deduped sum of DailyRevenue rows
  * + dailyRevenueBreakdown for that window (caller handles dedupe).
  */
@@ -150,17 +205,21 @@ export function resolvePeriodRevenue(
   let preset = 0;
   if (days === 7) preset = periods.revenue7d;
   else if (days === 28) preset = periods.revenue28d;
-  else if (days === 30) preset = periods.revenue30d;
+  else if (days === 30) preset = periods.revenueThisMonth;
   else if (days === 60) preset = periods.revenue60d;
   else if (days === 365) preset = periods.revenue365d;
 
   // When caller didn't merge dailies, fall back to breakdown-only for the window.
   let daily = mergedDailySum;
   if (daily <= 0) {
-    const past = new Date();
-    past.setUTCHours(0, 0, 0, 0);
-    past.setUTCDate(past.getUTCDate() - days);
-    daily = sumDailyRevenueBreakdown(account, past.toISOString().split("T")[0]);
+    if (days === 30) {
+      daily = periods.revenueThisMonth;
+    } else {
+      const past = new Date();
+      past.setUTCHours(0, 0, 0, 0);
+      past.setUTCDate(past.getUTCDate() - days);
+      daily = sumDailyRevenueBreakdown(account, past.toISOString().split("T")[0]);
+    }
   }
 
   return Math.max(daily, preset);

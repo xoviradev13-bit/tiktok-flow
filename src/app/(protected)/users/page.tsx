@@ -218,10 +218,9 @@ function UsersManagementContent() {
 
   const initialPageSize = useMemo(() => {
     const ps = searchParams?.get("ps") || searchParams?.get("pageSize");
-    const fallback = initialViewMode === "grid" ? 12 : 10;
-    const num = ps ? parseInt(ps, 10) : fallback;
-    return isNaN(num) || num < 1 ? fallback : num;
-  }, [searchParams, initialViewMode]);
+    const num = ps ? parseInt(ps, 10) : 25;
+    return isNaN(num) || num < 1 || ![25, 50, 100, 200].includes(num) ? 25 : num;
+  }, [searchParams]);
 
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
@@ -246,7 +245,7 @@ function UsersManagementContent() {
       {
         v: "grid",
         p: 1,
-        ps: viewMode === "grid" ? 12 : 10,
+        ps: 25,
         q: "",
         role: "ALL",
         group: "ALL",
@@ -274,9 +273,6 @@ function UsersManagementContent() {
 
   const handleViewModeChange = (mode: "grid" | "list") => {
     setViewMode(mode);
-    const defaultSize = mode === "grid" ? 12 : 10;
-    setPageSize(defaultSize);
-    setPage(1);
   };
 
   const handlePageChange = (newPage: number) => {
@@ -474,7 +470,7 @@ function UsersManagementContent() {
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
       const snapshot = snapshotUserTeamQueries(queryClient);
-      optimisticallyUpdateUserTeam(queryClient, vars.userId, vars.teamName || vars.groupName || null);
+      optimisticallyUpdateUserTeam(queryClient, vars.userId, vars.teamName || (vars as any).groupName || null);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
@@ -852,7 +848,7 @@ function UsersManagementContent() {
     createBulkInvitesMutation.mutate({
       emails: allEmails,
       role: inviteRole,
-      groupName: inviteGroup || null,
+      teamName: inviteGroup || null,
     });
   };
 
@@ -909,6 +905,7 @@ function UsersManagementContent() {
       key,
       desc: prev.key === key ? !prev.desc : false,
     }));
+    setPage(1);
   };
 
   // Filtered & Sorted users
@@ -943,29 +940,45 @@ function UsersManagementContent() {
 
     // Sorting
     filtered.sort((a: any, b: any) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
+      const isDesc = sortConfig.desc;
 
       if (sortConfig.key === "isActive") {
-        aVal = a.isActive ? 1 : 0;
-        bVal = b.isActive ? 1 : 0;
-      } else if (sortConfig.key === "accountsCount") {
-        aVal = a.accountsCount || 0;
-        bVal = b.accountsCount || 0;
-      } else if (sortConfig.key === "groupName") {
-        aVal = a.groupName || "";
-        bVal = b.groupName || "";
-      } else if (sortConfig.key === "createdAt") {
-        aVal = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        bVal = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      } else {
-        aVal = (aVal || "").toString().toLowerCase();
-        bVal = (bVal || "").toString().toLowerCase();
+        const actA = a.isActive ?? true ? 1 : 0;
+        const actB = b.isActive ?? true ? 1 : 0;
+        return isDesc ? actB - actA : actA - actB;
       }
 
-      if (aVal < bVal) return sortConfig.desc ? 1 : -1;
-      if (aVal > bVal) return sortConfig.desc ? -1 : 1;
-      return 0;
+      if (sortConfig.key === "accountsCount") {
+        const numA = Number(a.accountsCount || 0);
+        const numB = Number(b.accountsCount || 0);
+        return isDesc ? numB - numA : numA - numB;
+      }
+
+      if (sortConfig.key === "createdAt") {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (!timeA && !timeB) return 0;
+        if (!timeA) return 1;
+        if (!timeB) return -1;
+        return isDesc ? timeB - timeA : timeA - timeB;
+      }
+
+      let valA = a[sortConfig.key];
+      let valB = b[sortConfig.key];
+      if (sortConfig.key === "fullName") {
+        valA = a.fullName || a.name || "";
+        valB = b.fullName || b.name || "";
+      }
+
+      const strA = (valA != null ? String(valA) : "").trim();
+      const strB = (valB != null ? String(valB) : "").trim();
+
+      if (!strA && !strB) return 0;
+      if (!strA) return 1; // Empty/unassigned values always at bottom
+      if (!strB) return -1;
+
+      const cmp = strA.localeCompare(strB, "vi", { numeric: true, sensitivity: "base" });
+      return isDesc ? -cmp : cmp;
     });
 
     return filtered;
@@ -2116,7 +2129,7 @@ function UsersManagementContent() {
                             const targetGroup = val === "NONE" ? null : val;
                             updateUserGroupMutation.mutate({
                               userId: u.id,
-                              groupName: targetGroup,
+                              teamName: targetGroup,
                             });
                           }}
                         >
@@ -2173,6 +2186,7 @@ function UsersManagementContent() {
                 currentPage={page}
                 totalPages={totalPages}
                 pageSize={pageSize}
+                pageSizeOptions={[25, 50, 100, 200]}
                 totalItems={filteredAndSortedUsers.length}
                 onPageChange={handlePageChange}
                 onPageSizeChange={handlePageSizeChange}
@@ -2403,7 +2417,7 @@ function UsersManagementContent() {
                                   const targetGroup = val === "NONE" ? null : val;
                                   updateUserGroupMutation.mutate({
                                     userId: u.id,
-                                    groupName: targetGroup,
+                                    teamName: targetGroup,
                                   });
                                 }}
                               >
@@ -2613,6 +2627,7 @@ function UsersManagementContent() {
                 currentPage={page}
                 totalPages={totalPages}
                 pageSize={pageSize}
+                pageSizeOptions={[25, 50, 100, 200]}
                 totalItems={filteredAndSortedUsers.length}
                 onPageChange={handlePageChange}
                 onPageSizeChange={handlePageSizeChange}

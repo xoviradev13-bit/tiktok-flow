@@ -409,6 +409,12 @@ export const userRouter = router({
           const d = new Date(c.date);
           return d >= rangeStart! && d <= rangeEnd!;
         });
+      } else if (days === 30) {
+        const now = new Date();
+        const startOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0));
+        filteredChecklists = user.dailyChecklists.filter(
+          (c) => new Date(c.date) >= startOfMonth
+        );
       } else if (days > 0) {
         const pastDate = new Date();
         pastDate.setDate(pastDate.getDate() - days);
@@ -460,6 +466,12 @@ export const userRouter = router({
           pastDate.setUTCHours(0, 0, 0, 0);
           pastStr = rangeStartStr;
           endStr = rangeEndStr;
+        } else if (days === 30) {
+          // Tháng này: Từ ngày 01 đến hôm nay
+          const now = new Date();
+          pastDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0));
+          pastStr = pastDate.toISOString().split("T")[0];
+          endStr = now.toISOString().split("T")[0];
         } else {
           pastDate = new Date();
           pastDate.setUTCHours(0, 0, 0, 0);
@@ -472,8 +484,8 @@ export const userRouter = router({
             ? await ctx.prisma.dailyRevenue.findMany({
                 where: {
                   accountId: { in: accountIds },
-                  date: hasCustomRange && rangeEnd
-                    ? { gte: pastDate, lte: rangeEnd }
+                  date: (hasCustomRange && rangeEnd) || endStr
+                    ? { gte: pastDate, lte: hasCustomRange && rangeEnd ? rangeEnd : new Date(endStr! + "T23:59:59.999Z") }
                     : { gte: pastDate },
                 },
                 select: { accountId: true, date: true, revenue: true, views: true },
@@ -531,7 +543,8 @@ export const userRouter = router({
           let presetViews = 0;
           if (!hasCustomRange) {
             if (days === 7) presetViews = Number(sv.views7d ?? 0) || 0;
-            else if (days === 28 || days === 30) presetViews = Number(sv.views28d ?? 0) || 0;
+            else if (days === 28) presetViews = Number(sv.views28d ?? 0) || 0;
+            else if (days === 30) presetViews = entry.views;
             else if (days === 60) presetViews = Number(sv.views60d ?? 0) || 0;
             else if (days === 365) presetViews = Number(sv.views365d ?? 0) || 0;
           }

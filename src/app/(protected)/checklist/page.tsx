@@ -1256,7 +1256,7 @@ function ChecklistPageContent() {
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-xs font-semibold z-50">
                     {isMonthCycleMode
-                      ? `Tính từ 16 tháng trước - 15 tháng này (${cycleRangeLabel})`
+                      ? `Tính từ 16 tháng này - 15 tháng sau (${cycleRangeLabel})`
                       : `Dữ liệu tính từ ${currentRangeLabel}`}
                   </TooltipContent>
                 </Tooltip>
@@ -1350,38 +1350,32 @@ function ChecklistPageContent() {
               /* Charts or Table Range: Range presets */
               <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
                 {[
-                  { id: "7d", label: "7 Ngày", action: () => applyRangePreset(7, "7d") },
-                  { id: "28d", label: "28 Ngày", action: () => applyRangePreset(28, "28d") },
-                  { id: "month", label: "Tháng Này", action: applyThisMonth },
-                  { id: "60d", label: "60 Ngày", action: () => applyRangePreset(60, "60d") },
-                  { id: "365d", label: "365 Ngày", action: () => applyRangePreset(365, "365d") },
+                  { id: "7d", label: "7 Ngày", desc: "7 ngày gần nhất", action: () => applyRangePreset(7, "7d") },
+                  { id: "28d", label: "28 Ngày", desc: "28 ngày gần nhất", action: () => applyRangePreset(28, "28d") },
+                  { id: "month", label: "Tháng Này", desc: `Tháng này (Kỳ 16 tháng này - 15 tháng sau: ${cycleRangeLabel})`, action: applyThisMonth },
+                  { id: "60d", label: "60 Ngày", desc: "60 ngày gần nhất", action: () => applyRangePreset(60, "60d") },
+                  { id: "365d", label: "365 Ngày", desc: "Năm nay (365 ngày gần nhất)", action: () => applyRangePreset(365, "365d") },
                 ].map((p) => {
                   const isActive = activeRangePreset === p.id;
-                  const buttonElement = (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={p.action}
-                      className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isActive
-                        ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                        }`}
-                    >
-                      {p.label}
-                    </button>
+                  return (
+                    <Tooltip key={p.id}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={p.action}
+                          className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isActive
+                            ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                        >
+                          {p.label}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs font-semibold z-50">
+                        {p.desc}
+                      </TooltipContent>
+                    </Tooltip>
                   );
-                  if (p.id === "month") {
-                    return (
-                      <Tooltip key={p.id}>
-                        <TooltipTrigger asChild>{buttonElement}</TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs font-semibold z-50">
-                          Tính từ 16 - 15 tháng sau ({cycleRangeLabel})
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  }
-
-                  return buttonElement;
                 })}
 
                 {/* Custom Range Popover Tab Button */}
@@ -1397,22 +1391,29 @@ function ChecklistPageContent() {
                     setIsRangePickerOpen(open);
                   }}
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${activeRangePreset === "custom"
-                        ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                        }`}
-                    >
-                      <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
-                      <span>
-                        {activeRangePreset === "custom"
-                          ? `${format(new Date(startDateStr + "T00:00:00"), "dd/MM")} - ${format(new Date(endDateStr + "T00:00:00"), "dd/MM/yy")}`
-                          : "Tùy chọn"}
-                      </span>
-                    </button>
-                  </PopoverTrigger>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${activeRangePreset === "custom"
+                            ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                        >
+                          <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
+                          <span>
+                            {activeRangePreset === "custom"
+                              ? `${format(new Date(startDateStr + "T00:00:00"), "dd/MM")} - ${format(new Date(endDateStr + "T00:00:00"), "dd/MM/yy")}`
+                              : "Tùy chọn"}
+                          </span>
+                        </button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs font-semibold z-50">
+                      Tùy chọn khoảng ngày chấm công
+                    </TooltipContent>
+                  </Tooltip>
                   <PopoverContent
                     side="bottom"
                     sideOffset={6}
@@ -1490,45 +1491,67 @@ function ChecklistPageContent() {
             ) : (
               /* Table Daily: Single day pills */
               <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-slate-200 dark:border-slate-800 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setDateStr(todayStr)}
-                  className={`h-8 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyToday
-                    ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                    }`}
-                >
-                  Hôm nay
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDateStr(yesterdayStr)}
-                  className={`h-8 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyYesterday
-                    ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                    }`}
-                >
-                  Hôm qua
-                </button>
-
-                {/* Custom Date Popover Tab Button */}
-                <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
-                  <PopoverTrigger asChild>
+                <Tooltip>
+                  <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${isDailyCustom
+                      onClick={() => setDateStr(todayStr)}
+                      className={`h-8 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyToday
                         ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                         }`}
                     >
-                      <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
-                      <span>
-                        {isDailyCustom
-                          ? format(new Date(dateStr + "T00:00:00"), "dd/MM/yyyy")
-                          : "Tùy chọn"}
-                      </span>
+                      Hôm nay
                     </button>
-                  </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs font-semibold z-50">
+                    Hôm nay
+                  </TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setDateStr(yesterdayStr)}
+                      className={`h-8 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${isDailyYesterday
+                        ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                    >
+                      Hôm qua
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs font-semibold z-50">
+                    Hôm qua
+                  </TooltipContent>
+                </Tooltip>
+
+                {/* Custom Date Popover Tab Button */}
+                <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={`h-8 px-2.5 sm:px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${isDailyCustom
+                            ? "bg-amber-500 text-slate-950 shadow-xs font-bold"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                        >
+                          <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
+                          <span>
+                            {isDailyCustom
+                              ? format(new Date(dateStr + "T00:00:00"), "dd/MM/yyyy")
+                              : "Tùy chọn"}
+                          </span>
+                        </button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs font-semibold z-50">
+                      Chọn ngày chấm công tùy chọn
+                    </TooltipContent>
+                  </Tooltip>
                   <PopoverContent
                     side="bottom"
                     sideOffset={6}

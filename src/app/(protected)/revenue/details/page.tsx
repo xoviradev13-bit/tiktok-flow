@@ -373,8 +373,12 @@ function RevenueDetailsPageContent() {
 
   const applyPresetRange = (days: number) => {
     const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - days);
+    let start = new Date();
+    if (days === 30) {
+      start = new Date(end.getFullYear(), end.getMonth(), 1);
+    } else {
+      start.setDate(start.getDate() - days);
+    }
     setStartDate(format(start, "yyyy-MM-dd"));
     setEndDate(format(end, "yyyy-MM-dd"));
     setPage(1);
@@ -382,8 +386,11 @@ function RevenueDetailsPageContent() {
 
   const getActivePreset = () => {
     if (!startDate || !endDate) return -1;
-    const todayStr = format(new Date(), "yyyy-MM-dd");
+    const now = new Date();
+    const todayStr = format(now, "yyyy-MM-dd");
+    const startOfMonthStr = format(new Date(now.getFullYear(), now.getMonth(), 1), "yyyy-MM-dd");
     if (endDate === todayStr) {
+      if (startDate === startOfMonthStr) return 30;
       const end = new Date();
       const start = new Date(startDate + "T00:00:00");
       const diffDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
@@ -393,7 +400,6 @@ function RevenueDetailsPageContent() {
       if (diffDays === 60) return 60;
       if (Math.abs(diffDays - 7) <= 1) return 7;
       if (Math.abs(diffDays - 28) <= 1 && diffDays < 29) return 28;
-      if (Math.abs(diffDays - 30) <= 1 && diffDays >= 29 && diffDays <= 31) return 30;
       if (Math.abs(diffDays - 60) <= 1) return 60;
     }
     return -1;
@@ -610,6 +616,7 @@ function RevenueDetailsPageContent() {
       key,
       desc: prev.key === key ? !prev.desc : false,
     }));
+    setPage(1);
   };
 
   // Filtered and sorted
@@ -656,29 +663,45 @@ function RevenueDetailsPageContent() {
     });
 
     filtered.sort((a: any, b: any) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
+      const isDesc = sortConfig.desc;
 
-      if (sortConfig.key === "accountUsername") {
-        aVal = (a.account?.username || "").toLowerCase();
-        bVal = (b.account?.username || "").toLowerCase();
-      } else if (sortConfig.key === "assignedUser") {
-        aVal = (a.account?.assignedUser?.fullName || a.account?.assignedUser?.name || "").toLowerCase();
-        bVal = (b.account?.assignedUser?.fullName || b.account?.assignedUser?.name || "").toLowerCase();
-      } else if (sortConfig.key === "date") {
-        aVal = new Date(a.date).getTime();
-        bVal = new Date(b.date).getTime();
-      } else if (sortConfig.key === "views" || sortConfig.key === "revenue" || sortConfig.key === "rpm") {
-        aVal = Number(aVal || 0);
-        bVal = Number(bVal || 0);
-      } else {
-        aVal = (aVal || "").toString().toLowerCase();
-        bVal = (bVal || "").toString().toLowerCase();
+      if (sortConfig.key === "views" || sortConfig.key === "revenue" || sortConfig.key === "rpm") {
+        const numA = Number(a[sortConfig.key] || 0);
+        const numB = Number(b[sortConfig.key] || 0);
+        return isDesc ? numB - numA : numA - numB;
       }
 
-      if (aVal < bVal) return sortConfig.desc ? 1 : -1;
-      if (aVal > bVal) return sortConfig.desc ? -1 : 1;
-      return 0;
+      if (sortConfig.key === "date") {
+        const timeA = a.date ? new Date(a.date).getTime() : 0;
+        const timeB = b.date ? new Date(b.date).getTime() : 0;
+        if (!timeA && !timeB) return 0;
+        if (!timeA) return 1;
+        if (!timeB) return -1;
+        return isDesc ? timeB - timeA : timeA - timeB;
+      }
+
+      let valA = a[sortConfig.key];
+      let valB = b[sortConfig.key];
+      if (sortConfig.key === "accountUsername") {
+        valA = a.account?.username || "";
+        valB = b.account?.username || "";
+      } else if (sortConfig.key === "assignedUser") {
+        valA = a.account?.assignedUser?.fullName || a.account?.assignedUser?.name || a.account?.assignedUser?.username || "";
+        valB = b.account?.assignedUser?.fullName || b.account?.assignedUser?.name || b.account?.assignedUser?.username || "";
+      } else if (sortConfig.key === "sourceType") {
+        valA = formatRevenueSourceLabel(a.sourceType);
+        valB = formatRevenueSourceLabel(b.sourceType);
+      }
+
+      const strA = (valA != null ? String(valA) : "").trim();
+      const strB = (valB != null ? String(valB) : "").trim();
+
+      if (!strA && !strB) return 0;
+      if (!strA) return 1; // Empty values always at bottom
+      if (!strB) return -1;
+
+      const cmp = strA.localeCompare(strB, "vi", { numeric: true, sensitivity: "base" });
+      return isDesc ? -cmp : cmp;
     });
 
     return filtered;
@@ -1184,45 +1207,58 @@ function RevenueDetailsPageContent() {
               {/* Quick Presets Chips + Tùy chọn */}
               <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0">
                 {[
-                  { value: 7, label: "7 Ngày" },
-                  { value: 28, label: "28 Ngày" },
-                  { value: 30, label: "Tháng Này" },
-                  { value: 60, label: "60 Ngày" },
+                  { value: 7, label: "7 Ngày", desc: "7 ngày gần nhất" },
+                  { value: 28, label: "28 Ngày", desc: "28 ngày gần nhất" },
+                  { value: 30, label: "Tháng Này", desc: "Tháng này (từ ngày 01 đến hôm nay)" },
+                  { value: 60, label: "60 Ngày", desc: "60 ngày gần nhất" },
                 ].map((p) => {
                   const active = getActivePreset() === p.value;
                   return (
-                    <button
-                      key={p.value}
-                      type="button"
-                      onClick={() => applyPresetRange(p.value)}
-                      className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${active
-                        ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                        }`}
-                    >
-                      {p.label}
-                    </button>
+                    <Tooltip key={p.value}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => applyPresetRange(p.value)}
+                          className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${active
+                            ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                        >
+                          {p.label}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        {p.desc}
+                      </TooltipContent>
+                    </Tooltip>
                   );
                 })}
 
                 {/* Tùy chọn Popover */}
                 <Popover open={isRangePickerOpen} onOpenChange={setIsRangePickerOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${getActivePreset() === -1
-                        ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                        }`}
-                    >
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>
-                        {getActivePreset() === -1 && startDate && endDate
-                          ? `${format(new Date(startDate + "T00:00:00"), "dd/MM")} - ${format(new Date(endDate + "T00:00:00"), "dd/MM")}`
-                          : "Tùy chọn"}
-                      </span>
-                    </button>
-                  </PopoverTrigger>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${getActivePreset() === -1
+                            ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>
+                            {getActivePreset() === -1 && startDate && endDate
+                              ? `${format(new Date(startDate + "T00:00:00"), "dd/MM")} - ${format(new Date(endDate + "T00:00:00"), "dd/MM")}`
+                              : "Tùy chọn"}
+                          </span>
+                        </button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      Tùy chọn khoảng thời gian (tối đa 60 ngày)
+                    </TooltipContent>
+                  </Tooltip>
                   <PopoverContent
                     side="bottom"
                     sideOffset={6}
@@ -2405,6 +2441,7 @@ function RevenueDetailsPageContent() {
               currentPage={page}
               totalPages={totalPages}
               pageSize={pageSize}
+              pageSizeOptions={[25, 50, 100, 200]}
               totalItems={filteredAndSortedRecords.length}
               onPageChange={setPage}
               onPageSizeChange={(newSize) => {

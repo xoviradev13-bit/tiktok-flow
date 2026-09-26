@@ -9,7 +9,7 @@ import {
   resolveRevenueSourceKey,
   revenueSourceFilterKeys,
 } from "@/lib/m10n-programs";
-import { resolvePeriodRevenue } from "@/lib/resolve-all-time-revenue";
+import { resolvePeriodRevenue, resolveThisMonthRevenue } from "@/lib/resolve-all-time-revenue";
 import { resolveUserScope } from "@/lib/lead-scoping";
 
 function parseDateOnly(dateStr: string): Date {
@@ -47,6 +47,7 @@ export const revenueRouter = router({
       z
         .object({
           days: z.number().optional().default(28),
+          period: z.enum(["THIS_WEEK", "THIS_MONTH", "CUSTOM"]).optional(),
           startDate: z.string().optional(),
           endDate: z.string().optional(),
           teamId: z.string().optional().nullable(),
@@ -54,12 +55,46 @@ export const revenueRouter = router({
         .optional()
     )
     .query(async ({ ctx, input }) => {
-      // Legacy days=0 (Toàn Bộ) → 28
-      const rawDays = input?.days ?? 28;
-      const days = rawDays === 0 ? 28 : rawDays;
-      const startDate = input?.startDate;
-      const endDate = input?.endDate;
-      const isCustomRange = Boolean(startDate && endDate);
+      const now = new Date();
+      let period = input?.period;
+      let startDate = input?.startDate;
+      let endDate = input?.endDate;
+
+      if (!period) {
+        if (startDate && endDate) {
+          period = "CUSTOM";
+        } else if (input?.days === 7) {
+          period = "THIS_WEEK";
+        } else {
+          period = "THIS_MONTH";
+        }
+      }
+
+      if (period === "THIS_WEEK") {
+        // Monday to Sunday of current week
+        const currentDay = now.getDay(); // 0 is Sun, 1 is Mon, ..., 6 is Sat
+        const distanceToMonday = (currentDay + 6) % 7;
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - distanceToMonday);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        startDate = formatDateKey(monday);
+        endDate = formatDateKey(sunday);
+      } else if (period === "THIS_MONTH") {
+        // From 01 of current month till current day
+        startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+        endDate = formatDateKey(now);
+      } else if (period === "CUSTOM") {
+        // Limit up to 60 days ago
+        const min60 = new Date(now);
+        min60.setDate(now.getDate() - 59);
+        const min60Str = formatDateKey(min60);
+        const maxStr = formatDateKey(now);
+
+        if (!startDate || startDate < min60Str) startDate = min60Str;
+        if (!endDate || endDate > maxStr) endDate = maxStr;
+        if (startDate > endDate) startDate = endDate;
+      }
 
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       const whereAccount: any = {};
@@ -96,17 +131,11 @@ export const revenueRouter = router({
         accountId: { in: accountIds },
       };
 
-      let pastDateStr = "";
-      if (isCustomRange && startDate && endDate) {
+      if (startDate && endDate) {
         const start = parseDateOnly(startDate);
         const end = parseDateOnly(endDate);
         end.setUTCHours(23, 59, 59, 999);
         whereDaily.date = { gte: start, lte: end };
-      } else if (days > 0) {
-        const pastDate = new Date();
-        pastDate.setDate(pastDate.getDate() - days);
-        whereDaily.date = { gte: pastDate };
-        pastDateStr = pastDate.toISOString().split("T")[0];
       }
 
       const dailyRecords = await ctx.prisma.dailyRevenue.findMany({
@@ -149,10 +178,8 @@ export const revenueRouter = router({
           if (!item.date) continue;
           const dateStr = item.date;
           // Filter by date range
-          if (isCustomRange && startDate && endDate) {
+          if (startDate && endDate) {
             if (dateStr < startDate || dateStr > endDate) continue;
-          } else if (days > 0 && pastDateStr) {
-            if (dateStr < pastDateStr) continue;
           }
 
           breakdownRecordsCount++;
@@ -177,10 +204,8 @@ export const revenueRouter = router({
         for (const item of viewsBd) {
           if (!item?.date) continue;
           const dateStr = String(item.date);
-          if (isCustomRange && startDate && endDate) {
+          if (startDate && endDate) {
             if (dateStr < startDate || dateStr > endDate) continue;
-          } else if (days > 0 && pastDateStr) {
-            if (dateStr < pastDateStr) continue;
           }
           const key = `${acc.id}_${dateStr}`;
           // Prefer DailyRevenue.views when that row already has views > 0.
@@ -195,8 +220,8 @@ export const revenueRouter = router({
         }
       }
 
-      // If custom date range is provided, fill missing days in range so chart is continuous
-      if (isCustomRange && startDate && endDate) {
+      // Fill missing days in range so chart is continuous
+      if (startDate && endDate) {
         const start = parseDateOnly(startDate);
         const end = parseDateOnly(endDate);
         const curr = new Date(start);
@@ -217,68 +242,21 @@ export const revenueRouter = router({
           rpm: d.views > 0 ? Math.round(((d.revenue * 1000) / d.views) * 100) / 100 : 0,
         }));
 
-      // Direct analytics period totals for matching preset days (7d, 28d, 60d, 365d, all)
       let analyticsPeriodRev = 0;
       let analyticsPeriodViews = 0;
       let hasAnalyticsPreset = false;
 
-      if (!isCustomRange) {
-        if (days === 7) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + Number((a.analytics?.sumRevenue as any)?.revenue7d ?? (a.analytics as any)?.revenue7d ?? 0), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => {
-            const v = insightViewsContribution(
-              a.analytics as any,
-              0,
-              (sum) => Number(sum?.views7d ?? (a.analytics as any)?.views7d ?? 0)
-            );
-            return s + (v ?? 0);
-          }, 0);
-          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
-        } else if (days === 28) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + Number((a.analytics?.sumRevenue as any)?.revenue28d ?? (a.analytics as any)?.revenue28d ?? 0), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => {
-            const v = insightViewsContribution(
-              a.analytics as any,
-              0,
-              (sum) => Number(sum?.views28d ?? (a.analytics as any)?.views28d ?? 0)
-            );
-            return s + (v ?? 0);
-          }, 0);
-          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
-        } else if (days === 30) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + resolvePeriodRevenue(a as any, 30), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => {
-            const v = insightViewsContribution(
-              a.analytics as any,
-              0,
-              (sum) => Number(sum?.views30d ?? sum?.views28d ?? (a.analytics as any)?.views30d ?? (a.analytics as any)?.views28d ?? 0)
-            );
-            return s + (v ?? 0);
-          }, 0);
-          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
-        } else if (days === 60) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + Number((a.analytics?.sumRevenue as any)?.revenue60d ?? (a.analytics as any)?.revenue60d ?? 0), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => {
-            const v = insightViewsContribution(
-              a.analytics as any,
-              0,
-              (sum) => Number(sum?.views60d ?? (a.analytics as any)?.views60d ?? 0)
-            );
-            return s + (v ?? 0);
-          }, 0);
-          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
-        } else if (days === 365) {
-          analyticsPeriodRev = accounts.reduce((s, a) => s + Number((a.analytics?.sumRevenue as any)?.revenue365d ?? (a.analytics as any)?.revenue365d ?? 0), 0);
-          analyticsPeriodViews = accounts.reduce((s, a) => {
-            const v = insightViewsContribution(
-              a.analytics as any,
-              0,
-              (sum) => Number(sum?.views365d ?? (a.analytics as any)?.views365d ?? 0)
-            );
-            return s + (v ?? 0);
-          }, 0);
-          hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
-        }
+      if (period === "THIS_MONTH") {
+        analyticsPeriodRev = accounts.reduce((s, a) => s + resolveThisMonthRevenue(a as any), 0);
+        analyticsPeriodViews = accounts.reduce((s, a) => {
+          const v = insightViewsContribution(
+            a.analytics as any,
+            0,
+            (sum) => Number(sum?.views30d ?? sum?.views28d ?? (a.analytics as any)?.views30d ?? (a.analytics as any)?.views28d ?? 0)
+          );
+          return s + (v ?? 0);
+        }, 0);
+        hasAnalyticsPreset = analyticsPeriodRev > 0 || analyticsPeriodViews > 0;
       }
 
       const totalRevenue = hasAnalyticsPreset
@@ -292,7 +270,8 @@ export const revenueRouter = router({
       const totalRecords = dailyRecords.length + breakdownRecordsCount;
 
       return {
-        days: isCustomRange ? 0 : days,
+        period,
+        days: period === "THIS_WEEK" ? 7 : period === "THIS_MONTH" ? 30 : 0,
         startDate: startDate || null,
         endDate: endDate || null,
         totalRevenue: Math.round(totalRevenue * 100) / 100,

@@ -658,7 +658,7 @@ function GpmHubPageContent() {
                 totalPages={Math.max(1, Math.ceil(filteredAccounts.length / pageSize))}
                 totalItems={filteredAccounts.length}
                 pageSize={pageSize}
-                pageSizeOptions={[10, 25, 50]}
+                pageSizeOptions={[25, 50, 100, 200]}
                 onPageSizeChange={(size) => {
                   setPageSize(size);
                   setPage(1);

@@ -515,7 +515,7 @@ function UserDetailPageContent() {
     if (days === -1 && customStartDate && customEndDate) {
       return `${format(new Date(customStartDate + "T00:00:00"), "dd/MM/yy")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM/yy")}`;
     }
-    if (days === 30) return "Tháng này (30 ngày qua)";
+    if (days === 30) return "Tháng này (Từ 01 đến nay)";
     return `${days} ngày qua`;
   }, [days, customStartDate, customEndDate]);
 
@@ -949,36 +949,61 @@ function UserDetailPageContent() {
 
     // Sorting
     filtered.sort((a: any, b: any) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
+      const isDesc = sortConfig.desc;
 
       if (sortConfig.key === "totalRevenue") {
-        aVal = Number(a.displayRevenue ?? a.analytics?.totalRevenue ?? a.totalRevenue ?? 0);
-        bVal = Number(b.displayRevenue ?? b.analytics?.totalRevenue ?? b.totalRevenue ?? 0);
-      } else if (
+        const revA = Number(a.displayRevenue ?? a.analytics?.totalRevenue ?? a.totalRevenue ?? 0);
+        const revB = Number(b.displayRevenue ?? b.analytics?.totalRevenue ?? b.totalRevenue ?? 0);
+        return isDesc ? revB - revA : revA - revB;
+      }
+
+      if (
         sortConfig.key === "totalViews" ||
         sortConfig.key === "totalFollowers" ||
         sortConfig.key === "totalVideos"
       ) {
-        aVal = Number(aVal || 0);
-        bVal = Number(bVal || 0);
-      } else if (sortConfig.key === "isOnline") {
-        aVal = a.isOnline ? 1 : 0;
-        bVal = b.isOnline ? 1 : 0;
-      } else if (sortConfig.key === "lastSyncedAt") {
-        aVal = a.lastSyncedAt ? new Date(a.lastSyncedAt).getTime() : 0;
-        bVal = b.lastSyncedAt ? new Date(b.lastSyncedAt).getTime() : 0;
-      } else if (sortConfig.key === "country") {
-        aVal = normalizeCountry(a.country);
-        bVal = normalizeCountry(b.country);
-      } else {
-        aVal = (aVal || "").toString().toLowerCase();
-        bVal = (bVal || "").toString().toLowerCase();
+        const numA = Number(a[sortConfig.key] || 0);
+        const numB = Number(b[sortConfig.key] || 0);
+        return isDesc ? numB - numA : numA - numB;
       }
 
-      if (aVal < bVal) return sortConfig.desc ? 1 : -1;
-      if (aVal > bVal) return sortConfig.desc ? -1 : 1;
-      return 0;
+      if (sortConfig.key === "isOnline") {
+        const onA = a.isOnline ? 1 : 0;
+        const onB = b.isOnline ? 1 : 0;
+        return isDesc ? onB - onA : onA - onB;
+      }
+
+      if (sortConfig.key === "lastSyncedAt") {
+        const timeA = a.lastSyncedAt ? new Date(a.lastSyncedAt).getTime() : 0;
+        const timeB = b.lastSyncedAt ? new Date(b.lastSyncedAt).getTime() : 0;
+        if (!timeA && !timeB) return 0;
+        if (!timeA) return 1;
+        if (!timeB) return -1;
+        return isDesc ? timeB - timeA : timeA - timeB;
+      }
+
+      if (sortConfig.key === "country") {
+        const cA = (normalizeCountry(a.country) || "").trim();
+        const cB = (normalizeCountry(b.country) || "").trim();
+        if (!cA && !cB) return 0;
+        if (!cA) return 1;
+        if (!cB) return -1;
+        const cmp = cA.localeCompare(cB, "vi", { numeric: true, sensitivity: "base" });
+        return isDesc ? -cmp : cmp;
+      }
+
+      // String fields: gpmProfileName, groupName, username, status
+      const valA = a[sortConfig.key];
+      const valB = b[sortConfig.key];
+      const strA = (valA != null ? String(valA) : "").trim();
+      const strB = (valB != null ? String(valB) : "").trim();
+
+      if (!strA && !strB) return 0;
+      if (!strA) return 1; // Empty values always at bottom
+      if (!strB) return -1;
+
+      const cmp = strA.localeCompare(strB, "vi", { numeric: true, sensitivity: "base" });
+      return isDesc ? -cmp : cmp;
     });
 
     return filtered;
@@ -1336,41 +1361,54 @@ function UserDetailPageContent() {
           {activeTab !== "requests" && (
             <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 self-start sm:self-auto overflow-x-auto">
               {[
-                { value: 7, label: "7 Ngày" },
-                { value: 28, label: "28 Ngày" },
-                { value: 30, label: "Tháng này" },
-                { value: 60, label: "60 Ngày" },
-                { value: 365, label: "365 Ngày" },
+                { value: 7, label: "7 Ngày", desc: "7 ngày gần nhất" },
+                { value: 28, label: "28 Ngày", desc: "28 ngày gần nhất" },
+                { value: 30, label: "Tháng này", desc: "Tháng này (từ ngày 01 đến hôm nay)" },
+                { value: 60, label: "60 Ngày", desc: "60 ngày gần nhất" },
+                { value: 365, label: "365 Ngày", desc: "Năm nay (365 ngày gần nhất)" },
               ].map((p) => (
-                <button
-                  key={p.value}
-                  onClick={() => setDays(p.value)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap ${days === p.value
-                      ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                    }`}
-                >
-                  {p.label}
-                </button>
+                <Tooltip key={p.value}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setDays(p.value)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap ${days === p.value
+                          ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                    >
+                      {p.label}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    {p.desc}
+                  </TooltipContent>
+                </Tooltip>
               ))}
 
               <Popover open={isRangePickerOpen} onOpenChange={setIsRangePickerOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${days === -1
-                        ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                      }`}
-                  >
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>
-                      {days === -1 && customStartDate && customEndDate
-                        ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
-                        : "Tùy chọn"}
-                    </span>
-                  </button>
-                </PopoverTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={`px-2.5 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${days === -1
+                            ? "bg-amber-500 text-slate-950 shadow-xs font-medium"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                          }`}
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>
+                          {days === -1 && customStartDate && customEndDate
+                            ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
+                            : "Tùy chọn"}
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    Tùy chọn khoảng thời gian (tối đa {MAX_CUSTOM_RANGE_DAYS} ngày)
+                  </TooltipContent>
+                </Tooltip>
                 <PopoverContent
                   side="bottom"
                   sideOffset={6}
@@ -2296,23 +2334,23 @@ function UserDetailPageContent() {
                                         <span>Lượt Xem TikTok Studio</span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">7 ngày:</span>
+                                        <span className="text-slate-400">7 ngày gần nhất:</span>
                                         <span className="font-semibold text-cyan-300">{p.views7d.toLocaleString()}</span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">28 ngày:</span>
+                                        <span className="text-slate-400">28 ngày gần nhất:</span>
                                         <span className="font-semibold text-purple-300">{p.views28d.toLocaleString()}</span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">60 ngày:</span>
+                                        <span className="text-slate-400">60 ngày gần nhất:</span>
                                         <span className="font-semibold text-indigo-300">{p.views60d.toLocaleString()}</span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">365 ngày:</span>
+                                        <span className="text-slate-400">365 ngày gần nhất:</span>
                                         <span className="font-semibold text-amber-300">{p.views365d.toLocaleString()}</span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                        <span className="text-slate-300">Toàn bộ:</span>
+                                        <span className="text-slate-300">Toàn bộ (All-time):</span>
                                         <span className="text-cyan-300">{p.totalViews.toLocaleString()}</span>
                                       </div>
                                     </>
@@ -2352,37 +2390,37 @@ function UserDetailPageContent() {
                                         Doanh Thu TikTok Studio
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">7 ngày:</span>
+                                        <span className="text-slate-400">7 ngày gần nhất:</span>
                                         <span className="font-semibold text-cyan-300">
                                           {formatAmount(p.revenue7d, (acc as any).country)}
                                         </span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">28 ngày:</span>
+                                        <span className="text-slate-400">28 ngày gần nhất:</span>
                                         <span className="font-semibold text-purple-300">
                                           {formatAmount(p.revenue28d, (acc as any).country)}
                                         </span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">30 ngày:</span>
+                                        <span className="text-slate-400">Tháng này:</span>
                                         <span className="font-semibold text-pink-400">
-                                          {formatAmount(p.revenue30d, (acc as any).country)}
+                                          {formatAmount(p.revenueThisMonth, (acc as any).country)}
                                         </span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">60 ngày:</span>
+                                        <span className="text-slate-400">60 ngày gần nhất:</span>
                                         <span className="font-semibold text-indigo-300">
                                           {formatAmount(p.revenue60d, (acc as any).country)}
                                         </span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">365 ngày:</span>
+                                        <span className="text-slate-400">365 ngày gần nhất:</span>
                                         <span className="font-semibold text-amber-300">
                                           {formatAmount(p.revenue365d, (acc as any).country)}
                                         </span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                        <span className="text-slate-300">Toàn bộ:</span>
+                                        <span className="text-slate-300">Toàn bộ (All-time):</span>
                                         <span className="text-emerald-400">
                                           {formatAmount(p.totalRevenue, (acc as any).country)}
                                         </span>

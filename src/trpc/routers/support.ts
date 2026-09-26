@@ -567,7 +567,7 @@ export const supportRouter = router({
     .input(
       z.object({
         page: z.number().min(1).default(1),
-        pageSize: z.number().min(5).max(100).default(20),
+        pageSize: z.number().min(1).max(200).default(25),
         logType: z.string().optional(),
         search: z.string().optional(),
         accountId: z.string().optional(),

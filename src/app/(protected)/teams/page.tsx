@@ -148,23 +148,42 @@ function TeamsManagementContent() {
     desc: initialSortDesc,
   });
 
+  const initialPage = useMemo(() => {
+    const p = searchParams?.get("p") || searchParams?.get("page");
+    const num = p ? parseInt(p, 10) : 1;
+    return isNaN(num) || num < 1 ? 1 : num;
+  }, [searchParams]);
+
+  const initialPageSize = useMemo(() => {
+    const ps = searchParams?.get("ps") || searchParams?.get("pageSize");
+    const num = ps ? parseInt(ps, 10) : 25;
+    return isNaN(num) || num < 1 || ![25, 50, 100, 200].includes(num) ? 25 : num;
+  }, [searchParams]);
+
+  const [page, setPage] = useState(initialPage);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+
   // SaaS URL sync: automatically keep URL in sync without reloading
   useEffect(() => {
     updateUrlParams(
       {
         v: viewMode,
+        p: page,
+        ps: pageSize,
         q: search,
         sort: sortConfig.key,
         dir: sortConfig.desc ? "desc" : "asc",
       },
       {
         v: "grid",
+        p: 1,
+        ps: 25,
         q: "",
         sort: "createdAt",
         dir: "desc",
       }
     );
-  }, [viewMode, search, sortConfig, updateUrlParams]);
+  }, [viewMode, page, pageSize, search, sortConfig, updateUrlParams]);
 
   const handleViewModeChange = (mode: "grid" | "list") => {
     setViewMode(mode);
@@ -568,28 +587,35 @@ function TeamsManagementContent() {
     });
 
     filtered.sort((a: any, b: any) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
+      const isDesc = sortConfig.desc;
 
-      if (sortConfig.key === "createdAt") {
-        aVal = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        bVal = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      } else if (typeof aVal === "string") {
-        aVal = aVal.toLowerCase();
-        bVal = (bVal || "").toString().toLowerCase();
+      if (sortConfig.key === "membersCount" || sortConfig.key === "totalAccounts") {
+        const numA = Number(a[sortConfig.key] || 0);
+        const numB = Number(b[sortConfig.key] || 0);
+        return isDesc ? numB - numA : numA - numB;
       }
 
-      if (aVal < bVal) return sortConfig.desc ? 1 : -1;
-      if (aVal > bVal) return sortConfig.desc ? -1 : 1;
-      return 0;
+      if (sortConfig.key === "createdAt") {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (!timeA && !timeB) return 0;
+        if (!timeA) return 1;
+        if (!timeB) return -1;
+        return isDesc ? timeB - timeA : timeA - timeB;
+      }
+
+      const strA = (a.name != null ? String(a.name) : "").trim();
+      const strB = (b.name != null ? String(b.name) : "").trim();
+      if (!strA && !strB) return 0;
+      if (!strA) return 1;
+      if (!strB) return -1;
+
+      const cmp = strA.localeCompare(strB, "vi", { numeric: true, sensitivity: "base" });
+      return isDesc ? -cmp : cmp;
     });
 
     return filtered;
   }, [teams, search, sortConfig]);
-
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(12);
 
   useEffect(() => {
     setPage(1);
@@ -868,7 +894,7 @@ function TeamsManagementContent() {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={() => setViewMode("grid")}
+                      onClick={() => handleViewModeChange("grid")}
                       className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "grid"
                         ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
                         : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
@@ -886,7 +912,7 @@ function TeamsManagementContent() {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={() => setViewMode("list")}
+                      onClick={() => handleViewModeChange("list")}
                       className={`flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === "list"
                         ? "bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 shadow-xs font-bold"
                         : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
@@ -2058,7 +2084,7 @@ function TeamsManagementContent() {
               totalItems={filteredAndSortedTeams.length}
               onPageChange={setPage}
               onPageSizeChange={setPageSize}
-              pageSizeOptions={[6, 12, 24, 48]}
+              pageSizeOptions={[25, 50, 100, 200]}
               itemLabel="đội nhóm"
             />
           </div>

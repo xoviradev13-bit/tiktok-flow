@@ -9,9 +9,12 @@
 import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { calculateWorkdayScore, getScoringConfig } from "@/lib/scoring-engine";
 import { isAccountOnline, getOnlineCutoffDate } from "@/lib/account-status";
-import { resolveAllTimeRevenue, resolvePeriodRevenue } from "@/lib/resolve-all-time-revenue";
+import {
+  resolveAllTimeRevenue,
+  resolvePeriodRevenue,
+  resolveThisMonthRevenue,
+} from "@/lib/resolve-all-time-revenue";
 import { Prisma } from "@/generated/prisma/client";
 import {
   AccountPurgeSnapshot,
@@ -271,10 +274,12 @@ export const accountsRouter = router({
         0
       );
 
-      const totalFleetRevenue30d = accounts.reduce(
-        (sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 30),
+      const totalFleetRevenueThisMonth = accounts.reduce(
+        (sum: number, acc: any) => sum + resolveThisMonthRevenue(acc),
         0
       );
+
+      const totalFleetRevenue30d = totalFleetRevenueThisMonth;
 
       const totalFleetRevenue60d = accounts.reduce(
         (sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 60),
@@ -330,7 +335,8 @@ export const accountsRouter = router({
           totalRevenue: Math.round(totalFleetRevenue * 100) / 100,
           totalRevenue7d: Math.round(totalFleetRevenue7d * 100) / 100,
           totalRevenue28d: Math.round(totalFleetRevenue28d * 100) / 100,
-          totalRevenue30d: Math.round(totalFleetRevenue30d * 100) / 100,
+          totalRevenue30d: Math.round(totalFleetRevenueThisMonth * 100) / 100,
+          totalRevenueThisMonth: Math.round(totalFleetRevenueThisMonth * 100) / 100,
           totalRevenue60d: Math.round(totalFleetRevenue60d * 100) / 100,
           totalRevenue365d: Math.round(totalFleetRevenue365d * 100) / 100,
           trashCount,
@@ -1266,7 +1272,7 @@ export const accountsRouter = router({
 
   // 12. Get Account Logs
   getLogs: protectedProcedure
-    .input(z.object({ accountId: z.string(), limit: z.number().default(50) }))
+    .input(z.object({ accountId: z.string(), limit: z.number().max(200).default(100) }))
     .query(async ({ ctx, input }) => {
       const logs = await ctx.prisma.accountLog.findMany({
         where: { accountId: input.accountId },

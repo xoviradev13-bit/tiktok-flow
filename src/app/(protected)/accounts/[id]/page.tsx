@@ -978,6 +978,13 @@ function AccountDetailPageContent() {
       return records;
     }
 
+    if (range === "30d") {
+      const now = new Date();
+      const startOfMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      return records.filter((r) => r.date >= startOfMonthStr && r.date <= todayStr);
+    }
+
     const daysMap = { "7d": 7, "28d": 28, "30d": 30, "60d": 60, "365d": 365 } as const;
     const days = daysMap[range];
     const cutoff = new Date();
@@ -1692,42 +1699,55 @@ function AccountDetailPageContent() {
 
                 <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0 overflow-x-auto max-w-full scrollbar-none">
                   {[
-                    { id: "7d", label: "7 Ngày" },
-                    { id: "28d", label: "28 Ngày" },
-                    { id: "30d", label: "Tháng Này" },
-                    { id: "60d", label: "60 Ngày" },
-                    { id: "365d", label: "365 Ngày" },
+                    { id: "7d", label: "7 Ngày", desc: "7 ngày gần nhất" },
+                    { id: "28d", label: "28 Ngày", desc: "28 ngày gần nhất" },
+                    { id: "30d", label: "Tháng Này", desc: "Tháng này (từ ngày 01 đến hôm nay)" },
+                    { id: "60d", label: "60 Ngày", desc: "60 ngày gần nhất" },
+                    { id: "365d", label: "365 Ngày", desc: "Năm nay (365 ngày gần nhất)" },
                   ].map((range) => (
-                    <button
-                      key={range.id}
-                      onClick={() => setSelectedTimeRange(range.id as any)}
-                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${selectedTimeRange === range.id
-                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                        }`}
-                    >
-                      {range.label}
-                    </button>
+                    <Tooltip key={range.id}>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => setSelectedTimeRange(range.id as any)}
+                          className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${selectedTimeRange === range.id
+                            ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                        >
+                          {range.label}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        {range.desc}
+                      </TooltipContent>
+                    </Tooltip>
                   ))}
 
                   {/* Custom Date Range Popover */}
                   <Popover open={isRangePickerOpen} onOpenChange={setIsRangePickerOpen}>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${selectedTimeRange === "custom"
-                          ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                          }`}
-                      >
-                        <Calendar className="w-3.5 h-3.5" />
-                        <span>
-                          {selectedTimeRange === "custom" && customStartDate && customEndDate
-                            ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
-                            : "Tùy chọn"}
-                        </span>
-                      </button>
-                    </PopoverTrigger>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${selectedTimeRange === "custom"
+                              ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                              }`}
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>
+                              {selectedTimeRange === "custom" && customStartDate && customEndDate
+                                ? `${format(new Date(customStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(customEndDate + "T00:00:00"), "dd/MM")}`
+                                : "Tùy chọn"}
+                            </span>
+                          </button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        Tùy chọn khoảng thời gian (tối đa {MAX_LOOKBACK_DAYS} ngày)
+                      </TooltipContent>
+                    </Tooltip>
                     <PopoverContent
                       side="bottom"
                       sideOffset={6}
@@ -1882,9 +1902,9 @@ function AccountDetailPageContent() {
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-3 text-center">
-                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tháng Này (30 Ngày)</div>
+                  <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">Tháng Này</div>
                   <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                    {formatAmount(revenuePeriods.revenue30d, account?.country)}
+                    {formatAmount(revenuePeriods.revenueThisMonth, account?.country)}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {formatInsightViews(
@@ -1951,7 +1971,7 @@ function AccountDetailPageContent() {
                         : selectedTimeRange === "28d"
                           ? "28 ngày qua"
                           : selectedTimeRange === "30d"
-                            ? "30 ngày qua (Tháng này)"
+                            ? "Tháng này (Từ 01 đến nay)"
                             : selectedTimeRange === "60d"
                               ? "60 ngày qua"
                               : selectedTimeRange === "365d"
@@ -2853,42 +2873,55 @@ function AccountDetailPageContent() {
               {/* History Date Filter Toolbar */}
               <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0 overflow-x-auto max-w-full scrollbar-none">
                 {[
-                  { id: "7d", label: "7 Ngày" },
-                  { id: "28d", label: "28 Ngày" },
-                  { id: "30d", label: "Tháng Này" },
-                  { id: "60d", label: "60 Ngày" },
-                  { id: "365d", label: "365 Ngày" },
+                  { id: "7d", label: "7 Ngày", desc: "7 ngày gần nhất" },
+                  { id: "28d", label: "28 Ngày", desc: "28 ngày gần nhất" },
+                  { id: "30d", label: "Tháng Này", desc: "Tháng này (từ ngày 01 đến hôm nay)" },
+                  { id: "60d", label: "60 Ngày", desc: "60 ngày gần nhất" },
+                  { id: "365d", label: "365 Ngày", desc: "Năm nay (365 ngày gần nhất)" },
                 ].map((range) => (
-                  <button
-                    key={range.id}
-                    onClick={() => setHistoryTimeRange(range.id as any)}
-                    className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${historyTimeRange === range.id
-                      ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                      }`}
-                  >
-                    {range.label}
-                  </button>
+                  <Tooltip key={range.id}>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setHistoryTimeRange(range.id as any)}
+                        className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${historyTimeRange === range.id
+                          ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                          }`}
+                      >
+                        {range.label}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      {range.desc}
+                    </TooltipContent>
+                  </Tooltip>
                 ))}
 
                 {/* Custom Date Range Popover */}
                 <Popover open={isHistoryRangePickerOpen} onOpenChange={setIsHistoryRangePickerOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${historyTimeRange === "custom"
-                        ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                        }`}
-                    >
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>
-                        {historyTimeRange === "custom" && historyStartDate && historyEndDate
-                          ? `${format(new Date(historyStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(historyEndDate + "T00:00:00"), "dd/MM")}`
-                          : "Tùy chọn"}
-                      </span>
-                    </button>
-                  </PopoverTrigger>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${historyTimeRange === "custom"
+                            ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                            }`}
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>
+                            {historyTimeRange === "custom" && historyStartDate && historyEndDate
+                              ? `${format(new Date(historyStartDate + "T00:00:00"), "dd/MM")} - ${format(new Date(historyEndDate + "T00:00:00"), "dd/MM")}`
+                              : "Tùy chọn"}
+                          </span>
+                        </button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      Tùy chọn khoảng thời gian (tối đa {MAX_LOOKBACK_DAYS} ngày)
+                    </TooltipContent>
+                  </Tooltip>
                   <PopoverContent
                     side="bottom"
                     sideOffset={6}

@@ -1,7 +1,11 @@
 import { router, protectedProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { insightViewsContribution } from "@/lib/insights-ui";
-import { resolveAllTimeRevenue, resolvePeriodRevenue } from "@/lib/resolve-all-time-revenue";
+import {
+  resolveAllTimeRevenue,
+  resolvePeriodRevenue,
+  resolveThisMonthRevenue,
+} from "@/lib/resolve-all-time-revenue";
 import { resolveUserScope } from "@/lib/lead-scoping";
 
 function parseDateOnly(dateStr: string): Date {
@@ -189,12 +193,20 @@ export const analyticsRouter = router({
         const duration = currEnd.getTime() - currStart.getTime();
         prevEnd = new Date(currStart.getTime() - 1);
         prevStart = new Date(prevEnd.getTime() - duration);
+      } else if (effectivePeriod === "30D") {
+        // "Tháng Này" (MTD): from 01 of current month to now
+        currStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+        // Previous period comparison: same period in previous month
+        prevStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 0, 0, 0, 0));
+        const daysElapsed = Math.floor((now.getTime() - currStart.getTime()) / (24 * 60 * 60 * 1000));
+        prevEnd = new Date(prevStart);
+        prevEnd.setUTCDate(prevStart.getUTCDate() + daysElapsed);
+        prevEnd.setUTCHours(23, 59, 59, 999);
       } else {
         const daysMap: Record<string, number> = {
           "7D": 7,
           "14D": 14,
           "28D": 28,
-          "30D": 30,
           "60D": 60,
           "90D": 90,
           "365D": 365,
@@ -488,15 +500,8 @@ export const analyticsRouter = router({
         }, 0);
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
       } else if (effectivePeriod === "30D") {
-        presetRev = accounts.reduce((s, a) => s + resolvePeriodRevenue(a as any, 30), 0);
-        presetViews = accounts.reduce((s, a) => {
-          const v = insightViewsContribution(
-            (a as any).analytics,
-            0,
-            (sum) => Number(sum?.views30d ?? sum?.views28d ?? (a as any).analytics?.views30d ?? (a as any).analytics?.views28d ?? 0)
-          );
-          return s + (v ?? 0);
-        }, 0);
+        presetRev = currTotalRev;
+        presetViews = currTotalViews;
         hasPresetMetrics = presetRev > 0 || presetViews > 0;
       } else if (effectivePeriod === "60D") {
         presetRev = accounts.reduce((s, a) => s + Number((a as any).analytics?.sumRevenue?.revenue60d ?? (a as any).analytics?.revenue60d ?? 0), 0);
@@ -769,13 +774,21 @@ export const analyticsRouter = router({
               0,
               (sum) => Number(sum?.views7d ?? (a as any).analytics?.views7d ?? 0)
             ) ?? 0;
-        } else if (effectivePeriod === "28D" || effectivePeriod === "30D") {
+        } else if (effectivePeriod === "28D") {
           directRev = Number((a as any).analytics?.sumRevenue?.revenue28d ?? (a as any).analytics?.revenue28d ?? 0);
           directViews =
             insightViewsContribution(
               (a as any).analytics,
               0,
               (sum) => Number(sum?.views28d ?? (a as any).analytics?.views28d ?? 0)
+            ) ?? 0;
+        } else if (effectivePeriod === "30D") {
+          directRev = resolveThisMonthRevenue(a as any);
+          directViews =
+            insightViewsContribution(
+              (a as any).analytics,
+              0,
+              (sum) => Number(sum?.views30d ?? sum?.views28d ?? (a as any).analytics?.views30d ?? (a as any).analytics?.views28d ?? 0)
             ) ?? 0;
         } else if (effectivePeriod === "60D") {
           directRev = Number((a as any).analytics?.sumRevenue?.revenue60d ?? (a as any).analytics?.revenue60d ?? 0);

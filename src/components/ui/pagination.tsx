@@ -44,7 +44,7 @@ export function Pagination({
   totalPages: customTotalPages,
   totalItems,
   pageSize = 25,
-  pageSizeOptions = [5, 10, 25, 50],
+  pageSizeOptions = [25, 50, 100, 200],
   onPageSizeChange,
   hasNextPage,
   hasPreviousPage,
@@ -55,6 +55,15 @@ export function Pagination({
   showItemCount = true,
   showPageNumbers = true,
 }: PaginationProps) {
+  // Auto-normalize legacy/stale page sizes (e.g. 10, 12) to the default valid option (e.g. 25)
+  React.useEffect(() => {
+    if (pageSize && pageSizeOptions.length > 0 && !pageSizeOptions.includes(pageSize)) {
+      onPageSizeChange?.(pageSizeOptions[0]);
+    }
+  }, [pageSize, pageSizeOptions, onPageSizeChange]);
+
+  const effectivePageSizeOptions = pageSizeOptions;
+
   const calculatedTotalPages =
     customTotalPages ??
     (totalItems !== undefined ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1);
@@ -133,7 +142,7 @@ export function Pagination({
       {/* Right side: Page Size Selector + Page Navigation Buttons */}
       <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 sm:gap-4">
         {/* Page Size Selector */}
-        {onPageSizeChange && pageSizeOptions.length > 0 && (
+        {onPageSizeChange && effectivePageSizeOptions.length > 0 && (
           <div className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-400">
             <span className="hidden md:inline whitespace-nowrap">Per page:</span>
             <Select
@@ -149,7 +158,7 @@ export function Pagination({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent align="end" className="w-24 min-w-[5rem]">
-                {pageSizeOptions.map((opt) => (
+                {effectivePageSizeOptions.map((opt) => (
                   <SelectItem key={opt} value={String(opt)} className="text-sm">
                     {opt}
                   </SelectItem>

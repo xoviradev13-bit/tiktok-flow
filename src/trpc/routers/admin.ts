@@ -151,7 +151,7 @@ async function fetchTeamsData(prisma: any, currentUser?: any) {
                 totalViews: true,
                 totalFollowers: true,
               },
-              take: 30,
+              take: 200,
               orderBy: { totalRevenue: "desc" },
             },
             _count: {
@@ -202,7 +202,7 @@ async function fetchTeamsData(prisma: any, currentUser?: any) {
                     totalViews: true,
                     totalFollowers: true,
                   },
-                  take: 30,
+                  take: 200,
                   orderBy: { totalRevenue: "desc" },
                 },
                 _count: { select: { tiktokAccounts: true } },
@@ -316,7 +316,7 @@ export const adminRouter = router({
             totalViews: true,
             totalFollowers: true,
           },
-          take: 30,
+          take: 200,
           orderBy: { totalRevenue: "desc" },
         },
         _count: {

@@ -12,7 +12,7 @@ import {
   Sparkles,
   Flame,
   Crown,
-  Calendar,
+  Calendar as CalendarIcon,
   Shield,
   Layers,
   Users,
@@ -31,17 +31,61 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { format, subDays, startOfDay } from "date-fns";
+import type { DateRange } from "react-day-picker";
 import { UserAccountsHoverCard } from "@/components/user/UserAccountsHoverCard";
 import { trpc } from "@/lib/trpc";
+
+type PeriodType = "TODAY" | "THIS_WEEK" | "THIS_MONTH" | "THIS_YEAR" | "CUSTOM";
+
+const MAX_LOOKBACK_DAYS = 365;
+const getToday = () => startOfDay(new Date());
+const getMinSelectableDate = () => subDays(getToday(), MAX_LOOKBACK_DAYS);
+
+const clampDateToLookback = (date: Date) => {
+  const today = getToday();
+  const min = getMinSelectableDate();
+  const d = startOfDay(date);
+  if (d < min) return min;
+  if (d > today) return today;
+  return d;
+};
+
+const clampRangeToLookback = (range: DateRange | undefined): DateRange | undefined => {
+  if (!range?.from) return range;
+  const from = clampDateToLookback(range.from);
+  if (!range.to) return { from, to: undefined };
+  const to = clampDateToLookback(range.to);
+  return from.getTime() <= to.getTime() ? { from, to } : { from: to, to: from };
+};
 
 function LeaderboardPageContent() {
   // SaaS URL Query State Synchronization
   const { searchParams, updateUrlParams } = useUrlParams();
 
-  const validPeriods = ["TODAY", "THIS_WEEK", "THIS_MONTH", "ALL_TIME"] as const;
-  const paramPeriod = searchParams?.get("period") as any;
-  const initialPeriod = validPeriods.includes(paramPeriod) ? paramPeriod : "THIS_MONTH";
-  const [period, setPeriod] = useState<"TODAY" | "THIS_WEEK" | "THIS_MONTH" | "ALL_TIME">(initialPeriod);
+  const validPeriods = ["TODAY", "THIS_WEEK", "THIS_MONTH", "THIS_YEAR", "CUSTOM"] as const;
+  const rawParamPeriod = searchParams?.get("period");
+  const paramPeriod = rawParamPeriod === "ALL_TIME" ? "THIS_YEAR" : (rawParamPeriod as any);
+  const initialPeriod: PeriodType = validPeriods.includes(paramPeriod) ? paramPeriod : "THIS_MONTH";
+  const [period, setPeriod] = useState<PeriodType>(initialPeriod);
+
+  const initialFrom = searchParams?.get("from") || undefined;
+  const initialTo = searchParams?.get("to") || undefined;
+  const [startDate, setStartDate] = useState<string | undefined>(initialFrom);
+  const [endDate, setEndDate] = useState<string | undefined>(initialTo);
+
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+    if (initialFrom) {
+      return {
+        from: new Date(initialFrom + "T00:00:00"),
+        to: initialTo ? new Date(initialTo + "T00:00:00") : undefined,
+      };
+    }
+    return undefined;
+  });
 
   const initialTeam = searchParams?.get("teamId") || "ALL";
   const [teamFilter, setTeamFilter] = useState<string>(initialTeam);
@@ -59,6 +103,8 @@ function LeaderboardPageContent() {
     updateUrlParams(
       {
         period: period,
+        from: period === "CUSTOM" ? startDate : undefined,
+        to: period === "CUSTOM" ? endDate : undefined,
         teamId: teamFilter,
         q: searchQuery,
         p: page,
@@ -66,13 +112,15 @@ function LeaderboardPageContent() {
       },
       {
         period: "THIS_MONTH",
+        from: undefined,
+        to: undefined,
         teamId: "ALL",
         q: "",
         p: 1,
         ps: 10,
       }
     );
-  }, [period, teamFilter, searchQuery, page, pageSize, updateUrlParams]);
+  }, [period, startDate, endDate, teamFilter, searchQuery, page, pageSize, updateUrlParams]);
 
   const utils = trpc.useUtils();
 
@@ -86,6 +134,8 @@ function LeaderboardPageContent() {
 
   const { data: leaderboard = [], isLoading: loading } = trpc.leaderboard.getRanking.useQuery({
     period,
+    startDate,
+    endDate,
     teamId: teamFilter,
   });
 
@@ -168,22 +218,127 @@ function LeaderboardPageContent() {
           {/* Period Filter Buttons */}
           <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 rounded-xl shadow-xs flex-wrap sm:flex-nowrap overflow-x-auto max-w-full">
             {[
-              { key: "TODAY" as const, label: "Hôm Nay" },
-              { key: "THIS_WEEK" as const, label: "Tuần Này" },
-              { key: "THIS_MONTH" as const, label: "Tháng Này" },
-              { key: "ALL_TIME" as const, label: "Toàn Thời Gian" },
+              { key: "TODAY" as const, label: "Hôm Nay", tooltip: "Hôm nay (00:00 - 23:59)" },
+              { key: "THIS_WEEK" as const, label: "Tuần Này", tooltip: "Tuần này (Từ Thứ 2 đến Chủ nhật)" },
+              { key: "THIS_MONTH" as const, label: "Tháng Này", tooltip: "Tháng này (Từ ngày 01 đến hôm nay)" },
+              { key: "THIS_YEAR" as const, label: "Năm Nay", tooltip: "Năm nay (365 ngày gần nhất)" },
             ].map((item) => (
-              <button
-                key={item.key}
-                onClick={() => setPeriod(item.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${period === item.key
-                  ? "bg-gradient-to-r from-yellow-500 to-amber-600 text-slate-950 shadow-md shadow-yellow-500/20"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-              >
-                {item.label}
-              </button>
+              <Tooltip key={item.key}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPeriod(item.key);
+                      setStartDate(undefined);
+                      setEndDate(undefined);
+                      setPage(1);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${period === item.key
+                      ? "bg-gradient-to-r from-yellow-500 to-amber-600 text-slate-950 shadow-md shadow-yellow-500/20"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                  >
+                    {item.label}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {item.tooltip}
+                </TooltipContent>
+              </Tooltip>
             ))}
+
+            {/* Custom Date Range Popover */}
+            <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${period === "CUSTOM"
+                        ? "bg-gradient-to-r from-yellow-500 to-amber-600 text-slate-950 shadow-md shadow-yellow-500/20"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                    >
+                      <CalendarIcon className="w-3.5 h-3.5" />
+                      <span>
+                        {period === "CUSTOM" && startDate && endDate
+                          ? `${format(new Date(startDate + "T00:00:00"), "dd/MM")} - ${format(new Date(endDate + "T00:00:00"), "dd/MM")}`
+                          : "Tùy chọn"}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  Tùy chọn khoảng thời gian (tối đa 365 ngày)
+                </TooltipContent>
+              </Tooltip>
+              <PopoverContent
+                side="bottom"
+                sideOffset={6}
+                align="end"
+                className="w-[325px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50"
+              >
+                <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                      Chọn khoảng ngày thống kê
+                    </span>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Giới hạn trong 365 ngày gần nhất
+                    </p>
+                  </div>
+                  {dateRange?.from && (
+                    <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 whitespace-nowrap shrink-0">
+                      {format(dateRange.from, "dd/MM/yy")} - {dateRange.to ? format(dateRange.to, "dd/MM/yy") : "..."}
+                    </span>
+                  )}
+                </div>
+
+                <div className="w-full py-0.5">
+                  <CalendarPicker
+                    mode="range"
+                    selected={dateRange}
+                    onSelect={(range) => setDateRange(clampRangeToLookback(range))}
+                    disabled={(date) => {
+                      const d = startOfDay(date);
+                      return d > getToday() || d < getMinSelectableDate();
+                    }}
+                    numberOfMonths={1}
+                    className="w-full p-0"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsCalendarOpen(false)}
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!dateRange?.from}
+                    onClick={() => {
+                      const clamped = clampRangeToLookback(dateRange);
+                      if (clamped?.from) {
+                        const s = format(clamped.from, "yyyy-MM-dd");
+                        const e = clamped.to ? format(clamped.to, "yyyy-MM-dd") : s;
+                        setDateRange(clamped.to ? clamped : { from: clamped.from, to: clamped.from });
+                        setStartDate(s);
+                        setEndDate(e);
+                        setPeriod("CUSTOM");
+                        setPage(1);
+                      }
+                      setIsCalendarOpen(false);
+                    }}
+                    className="px-4 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 disabled:opacity-50 rounded-lg shadow-sm cursor-pointer transition-all"
+                  >
+                    Áp dụng
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       </div>
@@ -475,7 +630,7 @@ function LeaderboardPageContent() {
                 totalPages={Math.max(1, Math.ceil(filteredLeaderboard.length / pageSize))}
                 totalItems={filteredLeaderboard.length}
                 pageSize={pageSize}
-                pageSizeOptions={[10, 25, 50]}
+                pageSizeOptions={[25, 50, 100, 200]}
                 onPageSizeChange={(size) => {
                   setPageSize(size);
                   setPage(1);

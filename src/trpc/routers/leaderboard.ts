@@ -3,14 +3,35 @@ import { z } from "zod";
 import { resolveAllTimeRevenue } from "@/lib/resolve-all-time-revenue";
 import { resolveUserScope } from "@/lib/lead-scoping";
 
+function formatDateOnly(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseDateOnlyUtc(str: string, endOfDay = false): Date {
+  const [y, m, d] = str.split("-").map(Number);
+  if (endOfDay) {
+    return new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999));
+  }
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
+}
+
 export const leaderboardRouter = router({
   // 1. Leaderboard Ranking
   getRanking: protectedProcedure
     .input(
-      z.object({
-        period: z.enum(["TODAY", "THIS_WEEK", "THIS_MONTH", "ALL_TIME"]).default("THIS_MONTH"),
-        teamId: z.string().optional(),
-      }).optional()
+      z
+        .object({
+          period: z
+            .enum(["TODAY", "THIS_WEEK", "THIS_MONTH", "THIS_YEAR", "ALL_TIME", "CUSTOM"])
+            .default("THIS_MONTH"),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          teamId: z.string().optional(),
+        })
+        .optional()
     )
     .query(async ({ ctx, input }) => {
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
@@ -18,20 +39,71 @@ export const leaderboardRouter = router({
       const now = new Date();
 
       let startDate: Date | undefined;
+      let endDate: Date | undefined;
+      let startDateStr: string | undefined;
+      let endDateStr: string | undefined;
+
       if (period === "TODAY") {
-        startDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+        startDateStr = formatDateOnly(now);
+        endDateStr = startDateStr;
+        startDate = parseDateOnlyUtc(startDateStr, false);
+        endDate = parseDateOnlyUtc(endDateStr, true);
       } else if (period === "THIS_WEEK") {
-        const day = now.getDay() || 7;
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - day + 1);
-        startDate.setHours(0, 0, 0, 0);
+        // Monday to Sunday of the current week
+        const currentDay = now.getDay(); // 0 is Sun, 1 is Mon, ..., 6 is Sat
+        const distanceToMonday = (currentDay + 6) % 7;
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - distanceToMonday);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+
+        startDateStr = formatDateOnly(monday);
+        endDateStr = formatDateOnly(sunday);
+        startDate = parseDateOnlyUtc(startDateStr, false);
+        endDate = parseDateOnlyUtc(endDateStr, true);
       } else if (period === "THIS_MONTH") {
-        startDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+        // Month-To-Date (from 01 to current date)
+        startDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+        endDateStr = formatDateOnly(now);
+        startDate = parseDateOnlyUtc(startDateStr, false);
+        endDate = parseDateOnlyUtc(endDateStr, true);
+      } else if (period === "THIS_YEAR" || period === "ALL_TIME") {
+        // "Năm Nay": 365 days nearest up to today
+        const past365 = new Date(now);
+        past365.setDate(now.getDate() - 365);
+        startDateStr = formatDateOnly(past365);
+        endDateStr = formatDateOnly(now);
+        startDate = parseDateOnlyUtc(startDateStr, false);
+        endDate = parseDateOnlyUtc(endDateStr, true);
+      } else if (period === "CUSTOM") {
+        // Custom range constrained to nearest 365 days (max lookback)
+        const past365 = new Date(now);
+        past365.setDate(now.getDate() - 365);
+        const minDateStr = formatDateOnly(past365);
+        const maxDateStr = formatDateOnly(now);
+
+        let sStr = input?.startDate || minDateStr;
+        let eStr = input?.endDate || maxDateStr;
+
+        if (sStr < minDateStr) sStr = minDateStr;
+        if (sStr > maxDateStr) sStr = maxDateStr;
+        if (eStr < minDateStr) eStr = minDateStr;
+        if (eStr > maxDateStr) eStr = maxDateStr;
+        if (sStr > eStr) {
+          const tmp = sStr;
+          sStr = eStr;
+          eStr = tmp;
+        }
+
+        startDateStr = sStr;
+        endDateStr = eStr;
+        startDate = parseDateOnlyUtc(startDateStr, false);
+        endDate = parseDateOnlyUtc(endDateStr, true);
       }
 
-      const startDateStr = startDate
-        ? startDate.toISOString().split("T")[0]
-        : undefined;
+      const dateFilter: any = {};
+      if (startDate) dateFilter.gte = startDate;
+      if (endDate) dateFilter.lte = endDate;
 
       const userWhere: any = {
         isActive: true,
@@ -71,13 +143,14 @@ export const leaderboardRouter = router({
               analytics: {
                 select: {
                   sumRevenue: true,
+                  sumViews: true,
                   postRewards: true,
                   rawSnapshot: true,
                   dailyRevenueBreakdown: true,
                 },
               },
               dailyRevenues: {
-                where: startDate ? { date: { gte: startDate } } : undefined,
+                where: Object.keys(dateFilter).length > 0 ? { date: dateFilter } : undefined,
                 select: {
                   date: true,
                   views: true,
@@ -88,7 +161,7 @@ export const leaderboardRouter = router({
             },
           },
           dailyChecklists: {
-            where: startDate ? { date: { gte: startDate } } : undefined,
+            where: Object.keys(dateFilter).length > 0 ? { date: dateFilter } : undefined,
             select: {
               completedCount: true,
               totalAssigned: true,
@@ -118,11 +191,15 @@ export const leaderboardRouter = router({
         for (const a of u.tiktokAccounts) {
           if (startDate && startDateStr) {
             const keys = new Set<string>();
+            let accountRev = 0;
+            let accountVw = 0;
             for (const dr of a.dailyRevenues) {
               const dStr = dr.date.toISOString().split("T")[0];
-              keys.add(dStr);
-              periodRevenue += Number(dr.revenue || 0);
-              periodViews += Number(dr.views || 0);
+              if (dStr >= startDateStr && (!endDateStr || dStr <= endDateStr)) {
+                keys.add(dStr);
+                accountRev += Number(dr.revenue || 0);
+                accountVw += Number(dr.views || 0);
+              }
             }
             // Merge analytics daily breakdown for days not in DailyRevenue
             const breakdown =
@@ -132,12 +209,26 @@ export const leaderboardRouter = router({
                 if (!item?.date) continue;
                 const dStr = String(item.date);
                 if (dStr < startDateStr) continue;
+                if (endDateStr && dStr > endDateStr) continue;
                 if (keys.has(dStr)) continue;
                 keys.add(dStr);
-                periodRevenue += Number(item.revenue || 0);
-                periodViews += Number(item.views || 0);
+                accountRev += Number(item.revenue || 0);
+                accountVw += Number(item.views || 0);
               }
             }
+
+            // If period is THIS_YEAR or ALL_TIME (365d), also check native 365d preset
+            if (period === "THIS_YEAR" || period === "ALL_TIME") {
+              const sr = (a.analytics?.sumRevenue ?? {}) as Record<string, unknown>;
+              const analytics = (a.analytics ?? {}) as Record<string, unknown>;
+              const r365 = Number(sr.revenue365d ?? analytics.revenue365d ?? 0);
+              const v365 = Number((a.analytics as any)?.sumViews?.views365d ?? analytics.views365d ?? 0);
+              accountRev = Math.max(accountRev, r365);
+              accountVw = Math.max(accountVw, v365);
+            }
+
+            periodRevenue += accountRev;
+            periodViews += accountVw;
           } else {
             periodRevenue += resolveAllTimeRevenue(a as any);
             periodViews += Number(a.totalViews || 0);

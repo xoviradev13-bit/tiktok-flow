@@ -48,6 +48,7 @@ export type ListStats =
       totalRevenue7d?: number;
       totalRevenue28d?: number;
       totalRevenue30d: number;
+      totalRevenueThisMonth?: number;
       totalRevenue60d?: number;
       totalRevenue365d?: number;
       trashCount: number | null;

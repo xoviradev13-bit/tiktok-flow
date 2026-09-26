@@ -190,12 +190,12 @@ export default function AnalyticsFilterToolbar({
 
   const isStaff = filterOptions?.userRole === "STAFF";
 
-  const presetButtons: Array<{ key: PeriodType; label: string }> = [
-    { key: "7D", label: "7 Ngày" },
-    { key: "28D", label: "28 Ngày" },
-    { key: "30D", label: "Tháng Này" },
-    { key: "60D", label: "60 Ngày" },
-    { key: "365D", label: "365 Ngày" },
+  const presetButtons: Array<{ key: PeriodType; label: string; tooltip: string }> = [
+    { key: "7D", label: "7 Ngày", tooltip: "7 ngày gần nhất" },
+    { key: "28D", label: "28 Ngày", tooltip: "28 ngày gần nhất" },
+    { key: "30D", label: "Tháng Này", tooltip: "Tháng này (Từ ngày 01 đến hôm nay)" },
+    { key: "60D", label: "60 Ngày", tooltip: "60 ngày gần nhất" },
+    { key: "365D", label: "365 Ngày", tooltip: "Năm nay (365 ngày gần nhất)" },
   ];
 
   const hasActiveFilters = Boolean(
@@ -221,42 +221,55 @@ export default function AnalyticsFilterToolbar({
           {presetButtons.map((btn) => {
             const active = period === btn.key;
             return (
-              <button
-                key={btn.key}
-                type="button"
-                onClick={() => {
-                  setPeriod(btn.key);
-                  setStartDate(undefined);
-                  setEndDate(undefined);
-                }}
-                className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${active
-                  ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-              >
-                {btn.label}
-              </button>
+              <Tooltip key={btn.key}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPeriod(btn.key);
+                      setStartDate(undefined);
+                      setEndDate(undefined);
+                    }}
+                    className={`px-3 py-1 rounded-lg text-xs font-normal transition-all cursor-pointer whitespace-nowrap shrink-0 ${active
+                      ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                  >
+                    {btn.label}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {btn.tooltip}
+                </TooltipContent>
+              </Tooltip>
             );
           })}
 
           {/* Custom Date Popover */}
           <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${period === "CUSTOM"
-                  ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-              >
-                <CalendarIcon className="w-3.5 h-3.5" />
-                <span>
-                  {period === "CUSTOM" && startDate && endDate
-                    ? `${format(new Date(startDate), "dd/MM")} - ${format(new Date(endDate), "dd/MM")}`
-                    : "Tùy chọn"}
-                </span>
-              </button>
-            </PopoverTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={`px-3 py-1 rounded-lg text-xs font-normal transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${period === "CUSTOM"
+                      ? "bg-amber-500 text-slate-950 shadow-sm font-medium"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      }`}
+                  >
+                    <CalendarIcon className="w-3.5 h-3.5" />
+                    <span>
+                      {period === "CUSTOM" && startDate && endDate
+                        ? `${format(new Date(startDate), "dd/MM")} - ${format(new Date(endDate), "dd/MM")}`
+                        : "Tùy chọn"}
+                    </span>
+                  </button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                Tùy chọn khoảng thời gian (tối đa 365 ngày)
+              </TooltipContent>
+            </Tooltip>
             <PopoverContent
               side="bottom"
               sideOffset={6}

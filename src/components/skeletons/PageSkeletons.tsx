@@ -495,6 +495,7 @@ export function LeaderboardPageSkeleton() {
             {Array.from({ length: 4 }).map((_, i) => (
               <SkeletonBox key={i} className="h-7 w-20 rounded-lg" />
             ))}
+            <SkeletonBox className="h-7 w-24 rounded-lg" />
           </div>
         </div>
       </div>

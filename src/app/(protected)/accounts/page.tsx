@@ -93,6 +93,7 @@ import {
   getAccountRevenuePeriods,
   resolveAllTimeRevenue,
   resolvePeriodRevenue,
+  resolveThisMonthRevenue,
 } from "@/lib/resolve-all-time-revenue";
 import { getAccountViewsPeriods } from "@/lib/daily-views-breakdown";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
@@ -384,23 +385,23 @@ function ViewsPeriodTooltipContent({ account }: { account: any }) {
         <span>Lượt Xem TikTok Studio</span>
       </div>
       <div className="flex justify-between gap-4 text-[11px]">
-        <span className="text-slate-400">7 ngày:</span>
+        <span className="text-slate-400">7 ngày gần nhất:</span>
         <span className="font-semibold text-cyan-300">{p.views7d.toLocaleString()}</span>
       </div>
       <div className="flex justify-between gap-4 text-[11px]">
-        <span className="text-slate-400">28 ngày:</span>
+        <span className="text-slate-400">28 ngày gần nhất:</span>
         <span className="font-semibold text-purple-300">{p.views28d.toLocaleString()}</span>
       </div>
       <div className="flex justify-between gap-4 text-[11px]">
-        <span className="text-slate-400">60 ngày:</span>
+        <span className="text-slate-400">60 ngày gần nhất:</span>
         <span className="font-semibold text-indigo-300">{p.views60d.toLocaleString()}</span>
       </div>
       <div className="flex justify-between gap-4 text-[11px]">
-        <span className="text-slate-400">365 ngày:</span>
+        <span className="text-slate-400">365 ngày gần nhất:</span>
         <span className="font-semibold text-amber-300">{p.views365d.toLocaleString()}</span>
       </div>
       <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-        <span className="text-slate-300">Toàn bộ:</span>
+        <span className="text-slate-300">Toàn bộ (All-time):</span>
         <span className="text-cyan-300">{p.totalViews.toLocaleString()}</span>
       </div>
     </>
@@ -637,10 +638,9 @@ function AccountsPageContent() {
 
   const initialPageSize = useMemo(() => {
     const ps = searchParams?.get("ps") || searchParams?.get("pageSize");
-    const fallback = initialViewMode === "grid" ? 12 : 10;
-    const num = ps ? parseInt(ps, 10) : fallback;
-    return isNaN(num) || num < 1 ? fallback : num;
-  }, [searchParams, initialViewMode]);
+    const num = ps ? parseInt(ps, 10) : 25;
+    return isNaN(num) || num < 1 || ![25, 50, 100, 200].includes(num) ? 25 : num;
+  }, [searchParams]);
 
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
@@ -670,7 +670,7 @@ function AccountsPageContent() {
       {
         v: "grid",
         p: 1,
-        ps: viewMode === "grid" ? 12 : 10,
+        ps: 25,
         q: "",
         status: "ALL",
         online: "ALL",
@@ -709,9 +709,6 @@ function AccountsPageContent() {
 
   const handleViewModeChange = (mode: "grid" | "list") => {
     setViewMode(mode);
-    const defaultSize = mode === "grid" ? 12 : 10;
-    setPageSize(defaultSize);
-    setPage(1);
   };
 
   const handlePageChange = (newPage: number) => {
@@ -893,6 +890,12 @@ function AccountsPageContent() {
       typeof fs?.totalRevenue30d === "number"
         ? fs.totalRevenue30d
         : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 30), 0);
+    const rThisMonth =
+      typeof fs?.totalRevenueThisMonth === "number"
+        ? fs.totalRevenueThisMonth
+        : typeof fs?.totalRevenue30d === "number"
+          ? fs.totalRevenue30d
+          : accounts.reduce((sum: number, acc: any) => sum + resolveThisMonthRevenue(acc), 0);
     const r60 =
       typeof fs?.totalRevenue60d === "number"
         ? fs.totalRevenue60d
@@ -910,12 +913,14 @@ function AccountsPageContent() {
       revenue7d: r7,
       revenue28d: r28,
       revenue30d: r30,
+      revenueThisMonth: rThisMonth,
       revenue60d: r60,
       revenue365d: r365,
       allTime,
     };
   }, [fleetStats, accounts]);
 
+  const fleetRevenueThisMonth = fleetRevenuePeriods.revenueThisMonth;
   const fleetRevenue30d = fleetRevenuePeriods.revenue30d;
   const fleetRevenueAllTime = fleetRevenuePeriods.allTime;
 
@@ -1350,6 +1355,7 @@ function AccountsPageContent() {
       key,
       desc: prev.key === key ? !prev.desc : false,
     }));
+    setPage(1);
   };
 
   // Filtered & Sorted accounts
@@ -1422,32 +1428,82 @@ function AccountsPageContent() {
 
     // Sorting
     filtered.sort((a: any, b: any) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
+      const isDesc = sortConfig.desc;
 
       if (sortConfig.key === "assignedUser") {
-        aVal = a.assignedUser?.name || a.assignedUser?.username || "";
-        bVal = b.assignedUser?.name || b.assignedUser?.username || "";
-      } else if (sortConfig.key === "alertsCount") {
-        aVal = a.alerts?.length || 0;
-        bVal = b.alerts?.length || 0;
-      } else if (sortConfig.key === "totalRevenue") {
-        aVal = resolveAllTimeRevenue(a as any);
-        bVal = resolveAllTimeRevenue(b as any);
-      } else if (sortConfig.key === "totalViews" || sortConfig.key === "totalFollowers" || sortConfig.key === "totalVideos") {
-        aVal = Number(aVal || 0);
-        bVal = Number(bVal || 0);
-      } else if (sortConfig.key === "updatedAt" || (sortConfig.key as string) === "lastSyncedAt") {
-        aVal = a.lastSyncedAt ? new Date(a.lastSyncedAt).getTime() : 0;
-        bVal = b.lastSyncedAt ? new Date(b.lastSyncedAt).getTime() : 0;
-      } else {
-        aVal = (aVal || "").toString().toLowerCase();
-        bVal = (bVal || "").toString().toLowerCase();
+        const strA = (getAssigneeLabel(a) || "").trim();
+        const strB = (getAssigneeLabel(b) || "").trim();
+        const emptyA = !a.assignedUserId || strA === "-- Chưa gán --" || !strA;
+        const emptyB = !b.assignedUserId || strB === "-- Chưa gán --" || !strB;
+        if (emptyA && emptyB) return 0;
+        if (emptyA) return 1;
+        if (emptyB) return -1;
+        const cmp = strA.localeCompare(strB, "vi", { numeric: true, sensitivity: "base" });
+        return isDesc ? -cmp : cmp;
       }
 
-      if (aVal < bVal) return sortConfig.desc ? 1 : -1;
-      if (aVal > bVal) return sortConfig.desc ? -1 : 1;
-      return 0;
+      if (sortConfig.key === "alertsCount") {
+        const countA = a.alerts?.length || 0;
+        const countB = b.alerts?.length || 0;
+        return isDesc ? countB - countA : countA - countB;
+      }
+
+      if (sortConfig.key === "totalRevenue") {
+        const revA = resolveAllTimeRevenue(a as any);
+        const revB = resolveAllTimeRevenue(b as any);
+        return isDesc ? revB - revA : revA - revB;
+      }
+
+      if (
+        sortConfig.key === "totalViews" ||
+        sortConfig.key === "totalFollowers" ||
+        sortConfig.key === "totalVideos"
+      ) {
+        const numA = Number(a[sortConfig.key] || 0);
+        const numB = Number(b[sortConfig.key] || 0);
+        return isDesc ? numB - numA : numA - numB;
+      }
+
+      if (sortConfig.key === "updatedAt") {
+        const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        if (!timeA && !timeB) return 0;
+        if (!timeA) return 1;
+        if (!timeB) return -1;
+        return isDesc ? timeB - timeA : timeA - timeB;
+      }
+
+      if ((sortConfig.key as string) === "lastSyncedAt") {
+        const timeA = a.lastSyncedAt ? new Date(a.lastSyncedAt).getTime() : 0;
+        const timeB = b.lastSyncedAt ? new Date(b.lastSyncedAt).getTime() : 0;
+        if (!timeA && !timeB) return 0;
+        if (!timeA) return 1;
+        if (!timeB) return -1;
+        return isDesc ? timeB - timeA : timeA - timeB;
+      }
+
+      if (sortConfig.key === "country") {
+        const cA = (normalizeCountry(a.country) || "").trim();
+        const cB = (normalizeCountry(b.country) || "").trim();
+        if (!cA && !cB) return 0;
+        if (!cA) return 1;
+        if (!cB) return -1;
+        const cmp = cA.localeCompare(cB, "vi", { numeric: true, sensitivity: "base" });
+        return isDesc ? -cmp : cmp;
+      }
+
+      // String fields: gpmProfileName, groupName, gpmProfileId, username, status
+      const valA = a[sortConfig.key];
+      const valB = b[sortConfig.key];
+      const strA = (valA != null ? String(valA) : "").trim();
+      const strB = (valB != null ? String(valB) : "").trim();
+
+      if (!strA && !strB) return 0;
+      if (!strA) return 1; // Empty values always at the end
+      if (!strB) return -1;
+
+      const cmp = strA.localeCompare(strB, "vi", { numeric: true, sensitivity: "base" });
+      return isDesc ? -cmp : cmp;
     });
 
     return filtered;
@@ -1806,7 +1862,7 @@ function AccountsPageContent() {
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
               <div className="text-xs font-semibold text-pink-600 dark:text-pink-400 flex items-center justify-between gap-1 min-w-0">
-                <span className="truncate whitespace-nowrap" title="Doanh Thu Toàn Dàn (30 ngày)">
+                <span className="truncate whitespace-nowrap" title="Doanh Thu Toàn Dàn (Tháng Này)">
                   Doanh Thu Toàn Dàn
                 </span>
                 <Tooltip>
@@ -1814,7 +1870,7 @@ function AccountsPageContent() {
                     <button
                       type="button"
                       className="text-pink-400 hover:text-pink-600 dark:hover:text-pink-300 transition-colors p-0.5 rounded cursor-help shrink-0"
-                      aria-label="Thông tin doanh thu 30 ngày"
+                      aria-label="Thông tin doanh thu tháng này"
                     >
                       <Info className="w-3.5 h-3.5" />
                     </button>
@@ -1825,38 +1881,38 @@ function AccountsPageContent() {
                   >
                     <div className="font-bold text-pink-400 border-b border-slate-700/80 pb-1 flex items-center gap-1.5">
                       <Info className="w-3.5 h-3.5 text-pink-400" />
-                      <span>Doanh Thu Toàn Dàn (30 Ngày)</span>
+                      <span>Doanh Thu Toàn Dàn (Tháng Này)</span>
                     </div>
                     <p className="text-[11px] text-slate-300 leading-relaxed">
-                      Số tiền hiển thị là tổng doanh thu trong <strong>30 ngày gần nhất</strong> được tổng hợp từ toàn bộ tài khoản TikTok trong hệ thống.
+                      Số tiền hiển thị là tổng doanh thu từ <strong>ngày 01 tháng này đến hiện tại</strong> được tổng hợp từ toàn bộ tài khoản TikTok trong hệ thống.
                     </p>
                     <div className="pt-1.5 mt-1 border-t border-slate-800 space-y-1 text-[11px]">
                       <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">7 ngày:</span>
+                        <span className="text-slate-400">7 ngày gần nhất:</span>
                         <span className="font-semibold text-cyan-300">
                           ${fleetRevenuePeriods.revenue7d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
                       <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">28 ngày:</span>
+                        <span className="text-slate-400">28 ngày gần nhất:</span>
                         <span className="font-semibold text-purple-300">
                           ${fleetRevenuePeriods.revenue28d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
                       <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">Tổng 30 ngày:</span>
+                        <span className="text-slate-400">Tháng này:</span>
                         <span className="font-bold text-pink-400">
-                          ${fleetRevenuePeriods.revenue30d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          ${fleetRevenueThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
                       <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">60 ngày:</span>
+                        <span className="text-slate-400">60 ngày gần nhất:</span>
                         <span className="font-semibold text-indigo-300">
                           ${fleetRevenuePeriods.revenue60d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
                       <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">365 ngày:</span>
+                        <span className="text-slate-400">365 ngày gần nhất:</span>
                         <span className="font-semibold text-amber-300">
                           ${fleetRevenuePeriods.revenue365d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
@@ -1874,7 +1930,7 @@ function AccountsPageContent() {
                 </Tooltip>
               </div>
               <div className="text-xl font-black text-pink-600 dark:text-pink-400 mt-1">
-                ${fleetRevenue30d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${fleetRevenueThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
           </div>
@@ -3367,27 +3423,27 @@ function AccountsPageContent() {
                                       <span>Doanh Thu TikTok Studio</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">7 ngày:</span>
+                                      <span className="text-slate-400">7 ngày gần nhất:</span>
                                       <span className="font-semibold text-cyan-300">{formatAmount(p.revenue7d, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">28 ngày:</span>
+                                      <span className="text-slate-400">28 ngày gần nhất:</span>
                                       <span className="font-semibold text-purple-300">{formatAmount(p.revenue28d, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">30 ngày:</span>
-                                      <span className="font-semibold text-pink-400">{formatAmount(p.revenue30d, (acc as any).country)}</span>
+                                      <span className="text-slate-400">Tháng này:</span>
+                                      <span className="font-semibold text-pink-400">{formatAmount(p.revenueThisMonth, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">60 ngày:</span>
+                                      <span className="text-slate-400">60 ngày gần nhất:</span>
                                       <span className="font-semibold text-indigo-300">{formatAmount(p.revenue60d, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">365 ngày:</span>
+                                      <span className="text-slate-400">365 ngày gần nhất:</span>
                                       <span className="font-semibold text-amber-300">{formatAmount(p.revenue365d, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                      <span className="text-slate-300">Toàn bộ:</span>
+                                      <span className="text-slate-300">Toàn bộ (All-time):</span>
                                       <span className="text-emerald-400">{formatAmount(p.totalRevenue, (acc as any).country)}</span>
                                     </div>
                                   </>
@@ -4143,27 +4199,27 @@ function AccountsPageContent() {
                                             Doanh Thu TikTok Studio
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">7 ngày:</span>
+                                            <span className="text-slate-400">7 ngày gần nhất:</span>
                                             <span className="font-semibold text-cyan-300">{formatAmount(p.revenue7d, (acc as any).country)}</span>
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">28 ngày:</span>
+                                            <span className="text-slate-400">28 ngày gần nhất:</span>
                                             <span className="font-semibold text-purple-300">{formatAmount(p.revenue28d, (acc as any).country)}</span>
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">30 ngày:</span>
-                                            <span className="font-semibold text-pink-400">{formatAmount(p.revenue30d, (acc as any).country)}</span>
+                                            <span className="text-slate-400">Tháng này:</span>
+                                            <span className="font-semibold text-pink-400">{formatAmount(p.revenueThisMonth, (acc as any).country)}</span>
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">60 ngày:</span>
+                                            <span className="text-slate-400">60 ngày gần nhất:</span>
                                             <span className="font-semibold text-indigo-300">{formatAmount(p.revenue60d, (acc as any).country)}</span>
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">365 ngày:</span>
+                                            <span className="text-slate-400">365 ngày gần nhất:</span>
                                             <span className="font-semibold text-amber-300">{formatAmount(p.revenue365d, (acc as any).country)}</span>
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                            <span className="text-slate-300">Toàn bộ:</span>
+                                            <span className="text-slate-300">Toàn bộ (All-time):</span>
                                             <span className="text-emerald-400">{formatAmount(p.totalRevenue, (acc as any).country)}</span>
                                           </div>
                                         </>
@@ -4491,6 +4547,7 @@ function AccountsPageContent() {
               currentPage={page}
               totalPages={totalPages}
               pageSize={pageSize}
+              pageSizeOptions={[25, 50, 100, 200]}
               totalItems={filteredAndSortedAccounts.length}
               onPageChange={setPage}
               onPageSizeChange={(newSize) => {
