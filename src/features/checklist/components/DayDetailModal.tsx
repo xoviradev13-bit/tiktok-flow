@@ -640,8 +640,8 @@ export default function DayDetailModal({
                                       </TooltipTrigger>
                                       <TooltipContent side="top" className="text-xs font-normal">
                                         {hasMessages
-                                          ? `${msgCount} tin nhắn trao đổi (Nhấn để mở)`
-                                          : "Chưa có trao đổi nào (Nhấn để gửi tin)"}
+                                          ? `${msgCount} bình luận (Nhấn để mở)`
+                                          : "Chưa có bình luận nào (Nhấn để gửi)"}
                                       </TooltipContent>
                                     </Tooltip>
                                   );

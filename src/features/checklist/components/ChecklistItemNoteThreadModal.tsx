@@ -354,15 +354,13 @@ export default function ChecklistItemNoteThreadModal({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="cursor-pointer shrink-0 transition-transform hover:scale-105 active:scale-95">
-                      <Avatar className={`w-8 h-8 rounded-full border shadow-2xs ${
-                        isOwn ? "border-pink-200 dark:border-pink-900/60" : "border-slate-200/80 dark:border-slate-700"
-                      }`}>
+                      <Avatar className={`w-8 h-8 rounded-full border shadow-2xs ${isOwn ? "border-pink-200 dark:border-pink-900/60" : "border-slate-200/80 dark:border-slate-700"
+                        }`}>
                         {userAvatar && <AvatarImage src={userAvatar} alt={displayName} className="object-cover" />}
-                        <AvatarFallback className={`text-xs font-bold ${
-                          isOwn
+                        <AvatarFallback className={`text-xs font-bold ${isOwn
                             ? "bg-pink-100 dark:bg-pink-950/70 text-pink-700 dark:text-pink-300"
                             : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                        }`}>
+                          }`}>
                           {fallbackInitial || <UserIcon className="w-3.5 h-3.5" />}
                         </AvatarFallback>
                       </Avatar>
@@ -386,8 +384,8 @@ export default function ChecklistItemNoteThreadModal({
                   <div className={`flex flex-col max-w-[80%] sm:max-w-[75%] ${isMe ? "items-end" : "items-start"}`}>
                     <div
                       className={`rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-xs whitespace-pre-wrap ${isMe
-                          ? "bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-pink-500/10"
-                          : "bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80 shadow-slate-200/50 dark:shadow-none"
+                        ? "bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-pink-500/10"
+                        : "bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80 shadow-slate-200/50 dark:shadow-none"
                         }`}
                     >
                       {isMe ? (

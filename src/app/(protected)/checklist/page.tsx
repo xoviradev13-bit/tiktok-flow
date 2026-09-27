@@ -2056,7 +2056,7 @@ function ChecklistPageContent() {
                                           <th className="py-2.5 px-4 text-center whitespace-nowrap">Đã sync GPM</th>
                                           <th className="py-2.5 px-4 text-center w-36 min-w-[130px] whitespace-nowrap">Trạng thái KPI</th>
                                           <th className="py-2.5 px-4 min-w-[220px]">Giờ đăng & tiêu đề video mới nhất</th>
-                                          <th className="py-2.5 px-4 text-center w-28 whitespace-nowrap">Trao đổi</th>
+                                          <th className="py-2.5 px-4 text-center w-28 whitespace-nowrap">Bình luận</th>
                                           <th className="py-2.5 px-4 text-right min-w-[100px] whitespace-nowrap">
                                             Thao tác
                                           </th>
@@ -2292,8 +2292,8 @@ function ChecklistPageContent() {
                                                       </TooltipTrigger>
                                                       <TooltipContent side="top" className="text-xs font-normal">
                                                         {hasMessages
-                                                          ? `${msgCount} tin nhắn trao đổi (Nhấn để mở)`
-                                                          : "Chưa có trao đổi nào (Nhấn để gửi tin)"}
+                                                          ? `${msgCount} bình luận (Nhấn để mở)`
+                                                          : "Chưa có bình luận nào (Nhấn để gửi)"}
                                                       </TooltipContent>
                                                     </Tooltip>
                                                   );
