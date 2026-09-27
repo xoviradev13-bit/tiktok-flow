@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Sparkles,
   FileEdit,
+  MessageSquare,
   Play,
   Check,
   Square,
@@ -56,6 +57,7 @@ import TimesheetCalendar from "@/features/checklist/components/TimesheetCalendar
 import TimesheetCharts from "@/features/checklist/components/TimesheetCharts";
 import DayDetailModal from "@/features/checklist/components/DayDetailModal";
 import VideoCrossCheckModal from "@/features/checklist/components/VideoCrossCheckModal";
+import ChecklistItemNoteThreadModal from "@/features/checklist/components/ChecklistItemNoteThreadModal";
 import { SyncStatusBadge, getAccountSyncDiagnostic, hasAccountSyncIssue } from "@/components/common/SyncStatusBadge";
 import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
 import { TeamScopeBanner } from "@/components/team/TeamScopeBanner";
@@ -259,7 +261,6 @@ function ChecklistPageContent() {
     staffName: string;
     canEdit: boolean;
   } | null>(null);
-  const [noteInputText, setNoteInputText] = useState<string>("");
 
   // Video Cross-Check Modal State
   const [crossCheckItem, setCrossCheckItem] = useState<{
@@ -589,23 +590,6 @@ function ChecklistPageContent() {
         }
       );
     }
-  };
-
-  const handleSaveNoteModal = () => {
-    if (!noteModalItem) return;
-    updateNotesMutation.mutate(
-      {
-        itemId: noteModalItem.id,
-        notes: noteInputText.trim() || null,
-      },
-      {
-        onSuccess: () => {
-          showToast("✅ Đã cập nhật ghi chú vận hành thành công!", "success");
-          setNoteModalItem(null);
-        },
-        onError: (err) => showToast(err.message || "Lỗi khi lưu ghi chú", "error"),
-      }
-    );
   };
 
   const handleToggleItemField = (item: any, field: "isPosted" | "isSynced" | "isCompleted") => {
@@ -1836,7 +1820,7 @@ function ChecklistPageContent() {
                   <th className="py-3.5 px-2 w-28 text-center">Đã sync GPM</th>
                   <th className="py-3.5 px-3 w-44">Tiến độ</th>
                   <th className="py-3.5 px-3 w-40 text-center">Kết quả chấm công</th>
-                  <th className="py-3.5 px-2 w-28 text-center">Chi tiết</th>
+                  <th className="py-3.5 px-2 w-36 min-w-[130px] text-center whitespace-nowrap">Chi tiết</th>
                   <th className="py-3.5 px-3 w-28 text-center whitespace-nowrap">Thao tác</th>
                 </tr>
               </thead>
@@ -1957,16 +1941,16 @@ function ChecklistPageContent() {
                         </td>
 
                         {/* Col 7: Accordion Expand Chi Tiết Button */}
-                        <td className="w-28 text-center px-2 py-3">
+                        <td className="w-36 min-w-[130px] text-center px-2 py-3 whitespace-nowrap">
                           <button
                             onClick={() => handleToggleRowExpand(chk.id)}
-                            className={`inline-flex items-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${isExpanded
+                            className={`inline-flex items-center justify-center gap-1.5 px-3.5 h-7.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs whitespace-nowrap shrink-0 ${isExpanded
                               ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
                               : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
                               }`}
                           >
-                            {isExpanded ? <Minus className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                            <span>{isExpanded ? "Thu gọn" : "Chi tiết"}</span>
+                            {isExpanded ? <Minus className="w-3.5 h-3.5 shrink-0" /> : <Plus className="w-3.5 h-3.5 shrink-0" />}
+                            <span className="whitespace-nowrap shrink-0">{isExpanded ? "Thu gọn" : "Chi tiết"}</span>
                           </button>
                         </td>
 
@@ -2072,7 +2056,7 @@ function ChecklistPageContent() {
                                           <th className="py-2.5 px-4 text-center whitespace-nowrap">Đã sync GPM</th>
                                           <th className="py-2.5 px-4 text-center w-36 min-w-[130px] whitespace-nowrap">Trạng thái KPI</th>
                                           <th className="py-2.5 px-4 min-w-[220px]">Giờ đăng & tiêu đề video mới nhất</th>
-                                          <th className="py-2.5 px-4 min-w-[220px]">Ghi chú vận hành</th>
+                                          <th className="py-2.5 px-4 text-center w-28 whitespace-nowrap">Trao đổi</th>
                                           <th className="py-2.5 px-4 text-right min-w-[100px] whitespace-nowrap">
                                             Thao tác
                                           </th>
@@ -2274,35 +2258,46 @@ function ChecklistPageContent() {
                                                 </div>
                                               </td>
 
-                                              {/* Operator Notes Input / Modal Trigger */}
-                                              <td className="py-3 px-4 min-w-[220px]">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    const canEdit = isAdmin || isLeadOrAdmin || chk.user.id === (session?.user as any)?.id;
-                                                    setNoteModalItem({
-                                                      id: item.id,
-                                                      accountUsername: item.account.username,
-                                                      country: item.account.country,
-                                                      notes: item.notes || "",
-                                                      dateFormatted,
-                                                      staffName: chk.user.fullName,
-                                                      canEdit,
-                                                    });
-                                                    setNoteInputText(item.notes || "");
-                                                  }}
-                                                  className="w-full text-left group/note flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200/80 dark:border-slate-800 transition-all cursor-pointer shadow-2xs hover:border-pink-300 dark:hover:border-pink-800"
-                                                >
-                                                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                    <FileEdit className="w-3.5 h-3.5 text-slate-400 group-hover/note:text-pink-500 shrink-0" />
-                                                    <span className={`text-xs truncate ${item.notes ? "text-slate-800 dark:text-slate-200 font-medium" : "text-slate-400 italic"}`}>
-                                                      {item.notes || "Nhập ghi chú vận hành, tiêu đề.."}
-                                                    </span>
-                                                  </div>
-                                                  <span className="text-xs text-pink-600 dark:text-pink-400 font-bold shrink-0 opacity-0 group-hover/note:opacity-100 transition-opacity">
-                                                    Sửa
-                                                  </span>
-                                                </button>
+                                              {/* Operator Notes / Thread Modal Trigger */}
+                                              <td className="py-3 px-4 text-center w-28 whitespace-nowrap">
+                                                {(() => {
+                                                  const msgCount = (item._count?.notesList ?? (item.notes?.trim() ? 1 : 0));
+                                                  const hasMessages = msgCount > 0;
+
+                                                  return (
+                                                    <Tooltip>
+                                                      <TooltipTrigger asChild>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => {
+                                                            setNoteModalItem({
+                                                              id: item.id,
+                                                              accountUsername: item.account.username,
+                                                              country: item.account.country,
+                                                              notes: item.notes || "",
+                                                              dateFormatted,
+                                                              staffName: chk.user.fullName,
+                                                              canEdit: true,
+                                                            });
+                                                          }}
+                                                          className={`inline-flex items-center justify-center gap-1.5 px-3 h-8 rounded-xl border transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 ${
+                                                            hasMessages
+                                                              ? "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border-pink-200/80 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/60 font-bold"
+                                                               : "bg-slate-50 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500 border-slate-200/80 dark:border-slate-800 hover:text-pink-600 hover:border-pink-300 dark:hover:border-pink-800 hover:bg-slate-100 dark:hover:bg-slate-800/60 font-medium"
+                                                          }`}
+                                                        >
+                                                          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                                                          <span className="text-xs">{msgCount}</span>
+                                                        </button>
+                                                      </TooltipTrigger>
+                                                      <TooltipContent side="top" className="text-xs font-normal">
+                                                        {hasMessages
+                                                          ? `${msgCount} tin nhắn trao đổi (Nhấn để mở)`
+                                                          : "Chưa có trao đổi nào (Nhấn để gửi tin)"}
+                                                      </TooltipContent>
+                                                    </Tooltip>
+                                                  );
+                                                })()}
                                               </td>
 
                                               {/* Quick Actions */}
@@ -2610,123 +2605,16 @@ function ChecklistPageContent() {
         </div>
       )}
 
-      {/* Edit Note Modal / Dialog */}
-      <Dialog open={!!noteModalItem} onOpenChange={(open) => !open && setNoteModalItem(null)}>
-        <DialogContent className="max-w-xl p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl">
-          <DialogHeader className="space-y-1">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-pink-50 dark:bg-pink-950/50 text-pink-600 dark:text-pink-400 flex items-center justify-center shrink-0 border border-pink-200 dark:border-pink-800 shadow-xs">
-                <FileEdit className="w-5 h-5" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-black text-slate-900 dark:text-white">
-                  Ghi Chú Vận Hành & KPI Kênh
-                </DialogTitle>
-                <DialogDescription className="text-xs text-slate-500 dark:text-slate-400">
-                  Tài khoản <strong className="text-slate-700 dark:text-slate-300">@{noteModalItem?.accountUsername}</strong> • Nhân sự: {noteModalItem?.staffName}
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <div className="space-y-4 my-2">
-            {!noteModalItem?.canEdit && (
-              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs font-semibold">
-                <Shield className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <span>Chế độ chỉ xem: Chỉ Quản trị viên (Admin), Lead hoặc nhân sự phụ trách mới có quyền chỉnh sửa ghi chú.</span>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                Nội dung ghi chú / Báo cáo vận hành:
-              </label>
-              <textarea
-                rows={6}
-                value={noteInputText}
-                onChange={(e) => setNoteInputText(e.target.value)}
-                readOnly={!noteModalItem?.canEdit}
-                disabled={!noteModalItem?.canEdit}
-                placeholder="Nhập ghi chú chi tiết, giải trình lỗi, tiêu đề video, lý do chưa đủ KPI..."
-                className={`w-full min-h-[140px] p-3.5 text-xs rounded-2xl border text-slate-900 dark:text-white placeholder:text-slate-400 resize-none leading-relaxed ${noteModalItem?.canEdit
-                  ? "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 focus:outline-none focus:border-pink-500"
-                  : "bg-slate-100/70 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 opacity-80 cursor-not-allowed"
-                  }`}
-              />
-            </div>
-
-            {/* Quick Preset Tags (Only when user can edit) */}
-            {noteModalItem?.canEdit && (
-              <div>
-                <div className="text-xs font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
-                  Gợi ý nhanh (Click để chèn):
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    "✅ Đã đăng video hôm nay",
-                    "🔄 Đã sync dữ liệu GPM",
-                    "⚠️ Lỗi checkpoint / Proxy",
-                    "🎬 Video đăng lúc 10:00 PM",
-                    "📌 Xin phép bù ca / Nửa công",
-                  ].map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => {
-                        setNoteInputText((prev) => (prev ? `${prev} • ${tag}` : tag));
-                      }}
-                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="flex items-center justify-between sm:justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-            {noteModalItem?.canEdit ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setNoteInputText("")}
-                  className="px-3 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                >
-                  Xóa ghi chú
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNoteModalItem(null)}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                  >
-                    Hủy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveNoteModal}
-                    disabled={updateNotesMutation.isPending}
-                    className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {updateNotesMutation.isPending ? "Đang lưu..." : "Lưu Ghi Chú"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="w-full flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setNoteModalItem(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                >
-                  Đóng
-                </button>
-              </div>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Checklist Item Note / Thread Modal */}
+      <ChecklistItemNoteThreadModal
+        isOpen={!!noteModalItem}
+        onClose={() => setNoteModalItem(null)}
+        itemId={noteModalItem?.id || null}
+        accountUsername={noteModalItem?.accountUsername}
+        country={noteModalItem?.country}
+        staffName={noteModalItem?.staffName}
+        dateFormatted={noteModalItem?.dateFormatted}
+      />
 
       {/* Video Cross-Check Modal */}
       <VideoCrossCheckModal
@@ -2763,10 +2651,6 @@ function ChecklistPageContent() {
           setSelectedDateForModal(null);
         }}
         onEditNote={(item, staffName) => {
-          const canEdit =
-            isAdmin ||
-            isLeadOrAdmin ||
-            item.userId === (session?.user as any)?.id;
           setNoteModalItem({
             id: item.id,
             accountUsername: item.account.username,
@@ -2777,9 +2661,8 @@ function ChecklistPageContent() {
               "dd/MM/yyyy"
             ),
             staffName,
-            canEdit,
+            canEdit: true,
           });
-          setNoteInputText(item.notes || "");
         }}
         onLaunchGpm={(gpmId) => startGpmMutation.mutate({ gpmProfileId: gpmId })}
         onSyncAccount={(accId) => syncAccountMutation.mutate({ accountId: accId })}

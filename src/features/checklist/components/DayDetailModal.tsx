@@ -20,6 +20,7 @@ import {
   Video,
   RefreshCw,
   FileEdit,
+  MessageSquare,
   ExternalLink,
   Play,
   Users,
@@ -612,27 +613,39 @@ export default function DayDetailModal({
                                   </Tooltip>
                                 )}
 
-                                {onEditNote && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          onEditNote(
-                                            item,
-                                            activeChecklist.user?.fullName
-                                          )
-                                        }
-                                        className="p-1.5 rounded-lg text-slate-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer"
-                                      >
-                                        <FileEdit className="w-3.5 h-3.5" />
-                                      </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" className="text-xs">
-                                      Sửa ghi chú
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
+                                {onEditNote && (() => {
+                                  const msgCount = (item._count?.notesList ?? (item.notes?.trim() ? 1 : 0));
+                                  const hasMessages = msgCount > 0;
+
+                                  return (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            onEditNote(
+                                              item,
+                                              activeChecklist.user?.fullName
+                                            )
+                                          }
+                                          className={`inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-lg border transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 ${
+                                            hasMessages
+                                              ? "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border-pink-200/80 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/60 font-bold"
+                                              : "bg-slate-50 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500 border-slate-200/80 dark:border-slate-800 hover:text-pink-600 hover:border-pink-300 dark:hover:border-pink-800 font-medium"
+                                          }`}
+                                        >
+                                          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                                          <span className="text-xs">{msgCount}</span>
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="text-xs font-normal">
+                                        {hasMessages
+                                          ? `${msgCount} tin nhắn trao đổi (Nhấn để mở)`
+                                          : "Chưa có trao đổi nào (Nhấn để gửi tin)"}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>

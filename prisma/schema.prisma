@@ -103,6 +103,7 @@ model User {
   assignmentHistories AccountAssignmentHistory[]
   deletedAccounts   TiktokAccount[]         @relation("AccountDeletedBy")
   dailyChecklists        DailyChecklist[]
+  checklistNotes         DailyChecklistItemNote[]
   sentInvitations        Invitation[]             @relation("SentInvitations")
   extensionToken           String?                  @unique @map("extension_token")
   extensionAccessEnabled   Boolean                  @default(true) @map("extension_access_enabled")
@@ -287,6 +288,7 @@ model DailyChecklistItem {
   isSynced    Boolean        @default(false)
   isCompleted Boolean        @default(false)
   notes       String?
+  notesList   DailyChecklistItemNote[]
   videosSnapshot Json?          // Snapshot of videos posted on this day [{ id, title, views, likes, postDate, ... }]
   videoSource    String?        // Provenance: "live" | "backfill" | "manual". Precedence: live > manual > backfill
   videoSyncedAt  DateTime?      // Last time videosSnapshot actually changed (not just any write)
@@ -298,6 +300,20 @@ model DailyChecklistItem {
   @@index([checklistId, isPosted])
   @@index([checklistId, isSynced])
   @@map("daily_checklist_items")
+}
+
+model DailyChecklistItemNote {
+  id        String             @id @default(cuid())
+  itemId    String             @map("item_id")
+  item      DailyChecklistItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  userId    String             @map("user_id")
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String             @db.Text
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  @@index([itemId])
+  @@index([userId])
+  @@map("daily_checklist_item_notes")
 }
 
 // 6. Daily Revenue & RPM Records

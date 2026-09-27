@@ -113,6 +113,9 @@ export const checklistRouter = router({
                   },
                 },
               },
+              _count: {
+                select: { notesList: true },
+              },
             },
             orderBy: { updatedAt: "asc" },
           },
@@ -445,6 +448,9 @@ export const checklistRouter = router({
                     select: { id: true, alertType: true, description: true, severity: true },
                   },
                 },
+              },
+              _count: {
+                select: { notesList: true },
               },
             },
             orderBy: { updatedAt: "asc" },
@@ -819,6 +825,167 @@ export const checklistRouter = router({
       return updated;
     }),
 
+  // 5b. Get Note Thread for a Checklist Item
+  getItemNotes: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const item = await ctx.prisma.dailyChecklistItem.findUnique({
+        where: { id: input.itemId },
+        include: {
+          checklist: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  fullName: true,
+                  avatar: true,
+                  role: true,
+                },
+              },
+            },
+          },
+          account: {
+            select: {
+              id: true,
+              username: true,
+              country: true,
+            },
+          },
+          notesList: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  fullName: true,
+                  avatar: true,
+                  role: true,
+                },
+              },
+            },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
+
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Checklist item không tồn tại",
+        });
+      }
+
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const isOwner = item.checklist.userId === ctx.session.user.id;
+      const isLeadOfOwner = scope.isLead && scope.memberUserIds.includes(item.checklist.userId);
+      const canPost = scope.isAdmin || isLeadOfOwner || isOwner;
+
+      // Handle legacy single-string note if notesList is empty
+      let messages = item.notesList;
+      if (messages.length === 0 && item.notes && item.notes.trim()) {
+        messages = [
+          {
+            id: `legacy-${item.id}`,
+            itemId: item.id,
+            userId: item.checklist.userId,
+            content: item.notes,
+            createdAt: item.checklist.date || new Date(),
+            user: item.checklist.user,
+          } as any,
+        ];
+      }
+
+      return {
+        item: {
+          id: item.id,
+          notes: item.notes,
+          account: item.account,
+          operator: item.checklist.user,
+          date: item.checklist.date,
+        },
+        messages,
+        canPost,
+      };
+    }),
+
+  // 5c. Post a Message to Checklist Item Note Thread
+  addNoteMessage: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        content: z.string().min(1, "Nội dung ghi chú không được để trống"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.prisma.dailyChecklistItem.findUnique({
+        where: { id: input.itemId },
+        include: {
+          checklist: true,
+          notesList: true,
+        },
+      });
+
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Checklist item không tồn tại",
+        });
+      }
+
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const isOwner = item.checklist.userId === ctx.session.user.id;
+      const isLeadOfOwner = scope.isLead && scope.memberUserIds.includes(item.checklist.userId);
+      const canPost = scope.isAdmin || isLeadOfOwner || isOwner;
+
+      if (!canPost) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Bạn không có quyền gửi tin nhắn / ghi chú vào mục này.",
+        });
+      }
+
+      // If this is the first message and there was an existing legacy note,
+      // preserve the legacy note as the first thread message
+      if (item.notesList.length === 0 && item.notes && item.notes.trim()) {
+        await ctx.prisma.dailyChecklistItemNote.create({
+          data: {
+            itemId: input.itemId,
+            userId: item.checklist.userId,
+            content: item.notes.trim(),
+            createdAt: item.checklist.date || new Date(),
+          },
+        });
+      }
+
+      const newNote = await ctx.prisma.dailyChecklistItemNote.create({
+        data: {
+          itemId: input.itemId,
+          userId: ctx.session.user.id,
+          content: input.content.trim(),
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              fullName: true,
+              avatar: true,
+              role: true,
+            },
+          },
+        },
+      });
+
+      // Update item.notes to reflect latest note in list views
+      await ctx.prisma.dailyChecklistItem.update({
+        where: { id: input.itemId },
+        data: { notes: input.content.trim() },
+      });
+
+      return newNote;
+    }),
+
   // 6. Auto-Scan & Check Attendance across ALL Staffs / Accounts (or specific user)
   autoScanAndCheck: protectedProcedure
     .input(
@@ -1127,7 +1294,7 @@ export const checklistRouter = router({
               rawVideos = parsed.videosList;
               lastSnapshotUpdated = parsed.updatedAt || null;
             }
-          } catch {}
+          } catch { }
         }
       }
 
@@ -1209,14 +1376,14 @@ export const checklistRouter = router({
         lastSnapshotUpdated,
         checklistItem: checklistItem
           ? {
-              id: checklistItem.id,
-              isPosted: checklistItem.isPosted,
-              isSynced: checklistItem.isSynced,
-              isCompleted: checklistItem.isCompleted,
-              notes: checklistItem.notes,
-              checklistId: checklistItem.checklistId,
-              operatorName: checklistItem.checklist?.user?.fullName || checklistItem.checklist?.user?.name || "—",
-            }
+            id: checklistItem.id,
+            isPosted: checklistItem.isPosted,
+            isSynced: checklistItem.isSynced,
+            isCompleted: checklistItem.isCompleted,
+            notes: checklistItem.notes,
+            checklistId: checklistItem.checklistId,
+            operatorName: checklistItem.checklist?.user?.fullName || checklistItem.checklist?.user?.name || "—",
+          }
           : null,
         targetDateVideos,
         otherRecentVideos,
