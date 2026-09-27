@@ -1,8 +1,9 @@
 import { router, protectedProcedure, leadProcedure, adminProcedure } from "@/trpc/init";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { calculateWorkdayScore, getCutoffTimeInfo, getScoringConfig, DEFAULT_SCORING_CONFIG, ScoringRuleConfig, getBusinessToday, finalizePendingChecklists, ensureDailyChecklistsForDate } from "@/lib/scoring-engine";
+import { calculateWorkdayScore, getCutoffTimeInfo, getScoringConfig, DEFAULT_SCORING_CONFIG, ScoringRuleConfig, getBusinessToday, finalizePendingChecklists, ensureDailyChecklistsForDate, getVnDateStr, getVideosOnDate } from "@/lib/scoring-engine";
 import { reconcileTodayChecklistForUser } from "@/lib/checklist-reconcile";
+import { backfillChecklistVideos } from "@/lib/checklist-video-backfill";
 import { smartSearchMatch } from "@/utils/search";
 import { resolveUserScope } from "@/lib/lead-scoping";
 
@@ -31,17 +32,30 @@ export const checklistRouter = router({
       const nowMs = Date.now();
       if (nowMs - lastCatchupCheckTime > CATCHUP_COOLDOWN_MS) {
         lastCatchupCheckTime = nowMs;
-        const { todayDateOnly, sevenDaysAgoDateOnly } = getBusinessToday();
+        const { todayDateOnly, sevenDaysAgoDateOnly, currentVnHour, currentVnMinute } = getBusinessToday();
         try {
-          const hasUnfinalizedPast = await ctx.prisma.dailyChecklist.findFirst({
+          const scoringConfig = await getScoringConfig(ctx.prisma);
+          const isPastCutoff =
+            currentVnHour > scoringConfig.cutOffHour ||
+            (currentVnHour === scoringConfig.cutOffHour &&
+              currentVnMinute >= scoringConfig.cutOffMinute);
+
+          const dateFilter: any = { gte: sevenDaysAgoDateOnly };
+          if (isPastCutoff) {
+            dateFilter.lte = todayDateOnly;
+          } else {
+            dateFilter.lt = todayDateOnly;
+          }
+
+          const hasUnfinalized = await ctx.prisma.dailyChecklist.findFirst({
             where: {
               isLocked: false,
-              date: { gte: sevenDaysAgoDateOnly, lt: todayDateOnly },
+              date: dateFilter,
             },
             select: { id: true },
           });
-          if (hasUnfinalizedPast) {
-            void finalizePendingChecklists(ctx.prisma, { includeToday: false }).catch((err) => {
+          if (hasUnfinalized) {
+            void finalizePendingChecklists(ctx.prisma, { includeToday: isPastCutoff }).catch((err) => {
               console.warn("[ChecklistRouter] Auto catch-up error:", err);
             });
           }
@@ -271,7 +285,61 @@ export const checklistRouter = router({
       return serializeBigInt(checklist);
     }),
 
-  // 2. Comprehensive Roll Call & Timesheet View (Single Date or Date Range for Staffs)
+  // 2. One-time 7-day backfill: creates missing DailyChecklist rows for the last 7 days
+  // and backfills video records from rawSnapshot.videosList into DailyChecklistItems.
+  // Called once per browser session (guarded by sessionStorage on the client) so that
+  // Calendar / Range views have data without the read query doing write side-effects.
+  ensureBackfill: protectedProcedure.mutation(async ({ ctx }) => {
+    const { todayDateOnly, todayStr } = getBusinessToday();
+    let totalCreated = 0;
+
+    // Phase 1: Ensure DailyChecklists and items exist for all 7 days
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(todayDateOnly.getTime() - i * 24 * 60 * 60 * 1000);
+      try {
+        const result = await ensureDailyChecklistsForDate(ctx.prisma, date);
+        totalCreated += result.createdCount;
+      } catch (err) {
+        // Non-fatal: log and continue so one bad date doesn't block the rest
+        console.warn(`[ensureBackfill] Error for day -${i}:`, err);
+      }
+    }
+
+    // Phase 2: Backfill videos from rawSnapshot across the 7-day window (including today)
+    try {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const targetUserFilter = scope.isStaff
+        ? { assignedUserId: ctx.session.user.id }
+        : { assignedUserId: { not: null } };
+
+      const accounts = await ctx.prisma.tiktokAccount.findMany({
+        where: {
+          ...targetUserFilter,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          analytics: {
+            select: { rawSnapshot: true },
+          },
+        },
+      });
+
+      for (const acc of accounts) {
+        const rawSnap = (acc.analytics as any)?.rawSnapshot;
+        const videosList = Array.isArray(rawSnap?.videosList) ? rawSnap.videosList : [];
+        if (videosList.length > 0) {
+          await backfillChecklistVideos(ctx.prisma, acc.id, videosList, todayStr, 7, { includeToday: true });
+        }
+      }
+    } catch (backfillErr) {
+      console.warn("[ensureBackfill] Error backfilling videos:", backfillErr);
+    }
+
+    return { ok: true, createdCount: totalCreated };
+  }),
+
+  // 3. Comprehensive Roll Call & Timesheet View (Single Date or Date Range for Staffs)
   getByDate: protectedProcedure
     .input(
       z
@@ -796,7 +864,8 @@ export const checklistRouter = router({
         include: {
           user: { select: { id: true, username: true, name: true } },
           items: {
-            include: { account: true },
+            // Include analytics so we can read rawSnapshot.videosList for video detection
+            include: { account: { include: { analytics: true } } },
           },
         },
       });
@@ -814,42 +883,45 @@ export const checklistRouter = router({
       let postedCount = 0;
       let syncedCount = 0;
 
-      const now = new Date();
-      const todayStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+      // Use targetDateStr (VN timezone, from frontend input) — not server UTC date.
+      // todayStart from new Date() can drift on UTC servers where VN midnight ≠ UTC midnight.
+      const targetVnDateStr = input?.date ?? getVnDateStr(new Date());
+      // UTC midnight representation of the VN date (how DailyRevenue rows are stored)
+      const targetDateForRevenue = whereClause.date as Date; // already set by parseDateOnly above
 
-      // Enqueue SyncQueue sweep for the targeted staff members so their Client Agents sweep local GPM
-      for (const checklist of targetChecklists) {
-        try {
-          await ctx.prisma.syncQueue.create({
-            data: {
-              requestedById: ctx.session.user.id,
-              status: "PENDING",
-              targetScope: checklist.userId,
-              requestedAt: new Date(),
-            },
-          });
-        } catch { }
-      }
-
+      // NOTE: This procedure only reads the current DB state and recalculates scores.
+      // It does NOT trigger a GPM sync. Ensure Client Agent has synced before calling.
       for (const checklist of targetChecklists) {
         for (const item of checklist.items) {
           totalAccountsScanned++;
           scannedCount++;
 
-          // Check if account has been synced today by Client Agent or Extension
+          // ── Sync check: was the account synced on the target date? ──────────
+          // Compare lastSyncedAt against UTC midnight of the VN date (same epoch as DB dates).
           const isSyncedToday = Boolean(
-            item.account.lastSyncedAt && new Date(item.account.lastSyncedAt) >= todayStart
+            item.account.lastSyncedAt && new Date(item.account.lastSyncedAt) >= targetDateForRevenue
           );
 
-          // Check if there is a revenue record or activity recorded today
+          // ── Posted check SOURCE 1: dailyRevenue record ──────────────────────
           const hasRevenueToday = await ctx.prisma.dailyRevenue.findFirst({
             where: {
               accountId: item.account.id,
-              date: todayStart,
+              date: targetDateForRevenue,   // fixed: was server-UTC todayStart, now the VN date
             },
           });
 
-          const isPosted = item.isPosted || Boolean(hasRevenueToday);
+          // ── Posted check SOURCE 2: AccountAnalytics.rawSnapshot.videosList ──
+          // rawSnapshot is populated by GPM sync / studio extractor and contains
+          // the latest video list for the account. We check if any video was posted
+          // on the target VN date and, if so, also persist them into videosSnapshot
+          // so the finalize cron can pick them up without re-reading analytics.
+          const rawSnap = (item.account as any)?.analytics?.rawSnapshot;
+          const rawVideosList: any[] = Array.isArray(rawSnap?.videosList) ? rawSnap.videosList : [];
+          const hasExistingSnapshot = Array.isArray(item.videosSnapshot) && (item.videosSnapshot as any[]).length > 0;
+          const rawVideosOnDate = !hasExistingSnapshot ? getVideosOnDate(rawVideosList, targetVnDateStr) : [];
+          const hasRawVideoToday = rawVideosOnDate.length > 0;
+
+          const isPosted = item.isPosted || Boolean(hasRevenueToday) || hasRawVideoToday;
           const isSynced = item.isSynced || isSyncedToday;
           const isCompleted = isPosted && isSynced;
 
@@ -862,6 +934,10 @@ export const checklistRouter = router({
               isPosted,
               isSynced,
               isCompleted,
+              // Persist raw videos into videosSnapshot so future finalize runs don't miss them
+              ...(hasRawVideoToday && !hasExistingSnapshot
+                ? { videosSnapshot: rawVideosOnDate, videoSource: "live", videoSyncedAt: new Date() }
+                : {}),
             },
           });
         }

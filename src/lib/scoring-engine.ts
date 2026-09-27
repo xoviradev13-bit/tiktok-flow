@@ -126,9 +126,11 @@ export function getCutoffTimeInfo(config: ScoringRuleConfig = DEFAULT_SCORING_CO
     remainingSeconds = Math.floor((diffMs % (1000 * 60)) / 1000);
   }
 
+  const { todayStr } = getBusinessToday(config.timezone);
+
   return {
     currentTimeString: vnDate.toLocaleTimeString("vi-VN", { hour12: false }),
-    currentDateString: vnDate.toISOString().split("T")[0],
+    currentDateString: todayStr,
     isPastCutoff,
     remainingFormatted: `${String(remainingHours).padStart(2, "0")}:${String(remainingMinutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`,
     cutoffTimeString: `${String(config.cutOffHour).padStart(2, "0")}:${String(config.cutOffMinute).padStart(2, "0")} (Giờ VN)`,
@@ -178,6 +180,42 @@ export function getBusinessToday(timezone = "Asia/Ho_Chi_Minh"): {
   };
 }
 
+/** Convert any Date to a Vietnam-timezone YYYY-MM-DD string. */
+export function getVnDateStr(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+/**
+ * Parse a video postDate field (string like "Sep 27, 2026", Unix seconds, or ISO)
+ * and return the Vietnam date string, or null if unparseable.
+ */
+export function parseVideoVnDate(v: any): string | null {
+  const raw = v.postDate ?? v.createTime ?? v.uploadTime ?? v.publishTime ?? v.timestamp;
+  if (raw == null) return null;
+  let d: Date;
+  if (typeof raw === "number") {
+    d = new Date(raw > 1e10 ? raw : raw * 1000);
+  } else {
+    d = new Date(raw as string);
+  }
+  if (isNaN(d.getTime())) return null;
+  return getVnDateStr(d);
+}
+
+/**
+ * Filter a rawSnapshot.videosList to only videos posted on a given VN date string.
+ * Returns the matching video objects (ready to store as videosSnapshot).
+ */
+export function getVideosOnDate(videosList: any[], targetVnDateStr: string): any[] {
+  if (!Array.isArray(videosList)) return [];
+  return videosList.filter(v => parseVideoVnDate(v) === targetVnDateStr);
+}
+
 /**
  * Ensures all active staff/leads/admins with assigned TikTok accounts have a DailyChecklist
  * and corresponding DailyChecklistItems for the specified date.
@@ -204,7 +242,12 @@ export async function ensureDailyChecklistsForDate(
     },
   });
 
-  const usersWithAccounts = activeUsers.filter((u: any) => u.tiktokAccounts.length > 0);
+  // Admins are excluded from daily checklist tracking — only STAFF and LEAD get checklists.
+  // Their TikTok accounts remain assigned and visible normally.
+  const usersWithAccounts = activeUsers.filter(
+    (u: any) => u.role !== "ADMIN" && u.tiktokAccounts.length > 0
+  );
+
   if (usersWithAccounts.length === 0) {
     return { createdCount: 0, userIds: [] };
   }
@@ -328,7 +371,8 @@ export async function finalizePendingChecklists(
     },
     include: {
       items: {
-        include: { account: true },
+        // Include analytics so we can read rawSnapshot.videosList when videosSnapshot is empty
+        include: { account: { include: { analytics: true } } },
       },
       user: {
         select: { id: true, name: true, fullName: true, username: true },
@@ -369,16 +413,31 @@ export async function finalizePendingChecklists(
     // condition, regardless of isSynced or videoSource. isSynced is NOT read here —
     // confirmed during backfill implementation (§0.2). If this ever changes, backfilled
     // days will stop scoring correctly with no error, only silently-wrong completion state.
-    for (const item of checklist.items) {
-      const hasVideos = Array.isArray(item.videosSnapshot) && item.videosSnapshot.length > 0;
-      const isCompleted = item.isCompleted || (item.isPosted && item.isSynced) || hasVideos;
+    // VN date string for this checklist day (used to filter rawSnapshot videos)
+    const checklistVnDateStr = getVnDateStr(new Date(checklist.date));
 
-      if (isCompleted !== item.isCompleted || (hasVideos && !item.isPosted)) {
+    for (const item of checklist.items) {
+      const hasVideos = Array.isArray(item.videosSnapshot) && (item.videosSnapshot as any[]).length > 0;
+
+      // If videosSnapshot is empty, fall back to rawSnapshot.videosList (populated by GPM sync)
+      const rawSnap = (item.account as any)?.analytics?.rawSnapshot;
+      const rawVideosList: any[] = Array.isArray(rawSnap?.videosList) ? rawSnap.videosList : [];
+      const rawVideosOnDate = !hasVideos ? getVideosOnDate(rawVideosList, checklistVnDateStr) : [];
+      const hasRawVideos = rawVideosOnDate.length > 0;
+
+      const newIsPosted = item.isPosted || hasVideos || hasRawVideos;
+      const isCompleted = item.isCompleted || (item.isPosted && item.isSynced) || hasVideos || hasRawVideos;
+
+      if (isCompleted !== item.isCompleted || newIsPosted !== item.isPosted) {
         await prisma.dailyChecklistItem.update({
           where: { id: item.id },
           data: {
             isCompleted,
-            isPosted: item.isPosted || hasVideos,
+            isPosted: newIsPosted,
+            // Persist rawSnapshot videos into videosSnapshot so future runs don't need to re-read analytics
+            ...(hasRawVideos && !hasVideos
+              ? { videosSnapshot: rawVideosOnDate, videoSource: "live", videoSyncedAt: new Date() }
+              : {}),
           },
         });
         if (isCompleted && !item.isCompleted) {

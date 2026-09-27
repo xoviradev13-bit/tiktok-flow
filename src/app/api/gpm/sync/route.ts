@@ -123,12 +123,11 @@ async function resolveSyncAuth(
 
 function userJobFilter(userId: string) {
   return {
-    OR: [
-      { requestedById: userId },
-      { targetScope: `USER:${userId}` },
-      { targetScope: userId },
-      { targetScope: { startsWith: `USER:${userId}|` } },
-    ],
+    // Only match jobs the viewer themselves requested.
+    // Do NOT include targetScope conditions — that would leak admin-initiated
+    // fleet-sync jobs into every targeted staff member's header poll,
+    // causing all users to see/share the same syncing state.
+    requestedById: userId,
   };
 }
 
@@ -236,7 +235,8 @@ async function getAgentSyncHint(userId: string): Promise<{
 
 /** Enqueue SyncQueue job(s) for dashboard "Đồng bộ" / syncAll. */
 async function enqueueDashboardSync(requester: SyncAuthUser, syncAll: boolean) {
-  const isPrivileged = requester.role === "ADMIN" || requester.role === "LEAD";
+  // Only ADMIN can trigger fleet-wide syncAll (not LEAD — to avoid cross-user sync state pollution).
+  const isPrivileged = requester.role === "ADMIN";
   const scopes: string[] = [];
 
   if (syncAll && isPrivileged) {
@@ -737,7 +737,7 @@ export async function POST(req: Request) {
       const agentHint = await getAgentSyncHint(resolved.user.id).catch(() => null);
       const enqueued = await enqueueDashboardSync(
         resolved.user,
-        body?.syncAll === true || resolved.user.role === "ADMIN" || resolved.user.role === "LEAD"
+        body?.syncAll === true || resolved.user.role === "ADMIN"
       );
 
       const blocked =

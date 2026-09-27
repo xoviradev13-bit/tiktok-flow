@@ -1305,8 +1305,8 @@ async function performExtensionSweep(requestId, profileId) {
                   {
                     page: String(pageIdx),
                     video_analytics_filter: JSON.stringify({
-                      video_analytics_display_time_range: 3,
-                      video_analytics_sort_by_type: 3,
+                      video_analytics_display_time_range: 4,
+                      video_analytics_sort_by_type: 1,
                       video_analytics_programs: [progId],
                     }),
                   }
@@ -1332,6 +1332,83 @@ async function performExtensionSweep(requestId, profileId) {
               }
             }
 
+            // Cut off at 60 days based on publish date
+            const SIXTY_DAYS_SEC = 60 * 24 * 60 * 60;
+            const nowSec = Math.floor(Date.now() / 1000);
+            const cutoffSec = nowSec - SIXTY_DAYS_SEC;
+
+            const in60Days = postRewardsRaw.filter((item) => {
+              const pubTime = item.publish_date_unix_time
+                ? Number(item.publish_date_unix_time)
+                : (item.create_time ? (Number(item.create_time) > 1e11 ? Number(item.create_time) / 1000 : Number(item.create_time)) : null);
+              return pubTime == null || pubTime >= cutoffSec;
+            });
+
+            // Parse helper for money amount
+            const parseMoneyHelper = (m) => {
+              if (!m) return 0;
+              if (m.formatted_no_symbol) return parseFloat(String(m.formatted_no_symbol).replace(/,/g, "")) || 0;
+              const u = typeof m.units === "number" ? m.units : parseInt(m.units || "0", 10) || 0;
+              const n = typeof m.nanos === "number" ? m.nanos : parseInt(m.nanos || "0", 10) || 0;
+              return u + n / 1e9;
+            };
+
+            // Identify videos with reward > 0
+            const rewardedItems = in60Days.filter((item) => {
+              const money = item.est_rewards || item.estimated_income || item.income || {};
+              return parseMoneyHelper(money) > 0;
+            });
+
+            // Select up to 40: most rewarded + most recent
+            const topRewarded = [...rewardedItems].sort((a, b) => {
+              const ma = parseMoneyHelper(a.est_rewards || a.estimated_income || a.income || {});
+              const mb = parseMoneyHelper(b.est_rewards || b.estimated_income || b.income || {});
+              return mb - ma;
+            });
+            const topRecent = [...rewardedItems].sort((a, b) => {
+              const ta = Number(a.publish_date_unix_time || 0);
+              const tb = Number(b.publish_date_unix_time || 0);
+              return tb - ta;
+            });
+
+            const targetIdSet = new Set();
+            for (const it of topRewarded) {
+              const id = String(it.video_id_str || it.video_id || it.id || "");
+              if (id) targetIdSet.add(id);
+              if (targetIdSet.size >= 20) break;
+            }
+            for (const it of topRecent) {
+              const id = String(it.video_id_str || it.video_id || it.id || "");
+              if (id) targetIdSet.add(id);
+              if (targetIdSet.size >= 40) break;
+            }
+
+            // Fetch video_reward_analytics for selected videos (cap 30) with pacing
+            for (const item of in60Days) {
+              const vid = String(item.video_id_str || item.video_id || item.id || "");
+              const amt = parseMoneyHelper(item.est_rewards || item.estimated_income || item.income || {});
+              if (amt > 0 && targetIdSet.has(vid)) {
+                try {
+                  const builtDetail = withStudioQs(
+                    "/tiktok/v1/creator/m10n_center/video_reward_analytics",
+                    {
+                      video_id: vid,
+                      start_date: String(nowSec - 31536000),
+                      end_date: String(nowSec),
+                    }
+                  );
+                  const detailRes = await doFetch(builtDetail.url);
+                  const dPayload = detailRes?.data || detailRes;
+                  if (dPayload?.crp_analytics_data?.rpm_metadata) {
+                    item.rpm_metadata = dPayload.crp_analytics_data.rpm_metadata;
+                  }
+                  await new Promise((r) => setTimeout(r, 100));
+                } catch { /* skip on error */ }
+              }
+            }
+
+            postRewardsRaw = in60Days;
+
             return {
               pageUrl,
               userRes,
@@ -1356,7 +1433,7 @@ async function performExtensionSweep(requestId, profileId) {
         if (!userRes && r.userRes) userRes = r.userRes;
         if (!m10nRes && r.m10nRes) m10nRes = r.m10nRes;
         if (!programsRes && r.programsRes) programsRes = r.programsRes;
-        if (!postRewardsRaw.length && r.postRewardsRaw?.length) postRewardsRaw = r.postRewardsRaw;
+        if (r.postRewardsRaw?.length) postRewardsRaw = r.postRewardsRaw;
         if (!insights && r.insights) insights = r.insights;
         else if (r.insights) {
           for (const [k, v] of Object.entries(r.insights)) {
@@ -2072,7 +2149,15 @@ function assembleExtensionSweepPayload({
     const profileViews365d = getVal(365, "pv_history");
 
     // ---- Per-post rewards (match scrapePageMetrics mapInternalVideoItem + id_programId dedupe) ----
-    const postRewardsMapped = (Array.isArray(postRewardsRaw) ? postRewardsRaw : []).map((item) => {
+    const SIXTY_DAYS_SEC = 60 * 24 * 60 * 60;
+    const nowSecCutoff = Math.floor(Date.now() / 1000) - SIXTY_DAYS_SEC;
+    const filteredPostRewardsRaw = (Array.isArray(postRewardsRaw) ? postRewardsRaw : []).filter((item) => {
+      const pubTime = item.publish_date_unix_time
+        ? Number(item.publish_date_unix_time)
+        : (item.create_time ? (Number(item.create_time) > 1e11 ? Number(item.create_time) / 1000 : Number(item.create_time)) : null);
+      return pubTime == null || pubTime >= nowSecCutoff;
+    });
+    const postRewardsMapped = filteredPostRewardsRaw.map((item) => {
       const money = item.est_rewards || item.estimated_income || item.income || {};
       const amt = parseMoney(money);
       const cur = money.currency?.symbol || money.currency?.code || currency;
@@ -2100,12 +2185,10 @@ function assembleExtensionSweepPayload({
         if (!isNaN(d.getTime())) postDateStr = d.toISOString().split("T")[0];
       }
       const viewsCount = Number(item.views) || Number(item.total_views) || Number(item.play_count) || Number(item.quvv) || 0;
-      let rpmStr = null;
-      if (item.rpm_metadata?.rpm_integer) {
-        rpmStr = `${cur}${(Number(item.rpm_metadata.rpm_integer) / 100).toFixed(2)}`;
-      } else if (amt > 0 && viewsCount > 0) {
-        rpmStr = `${cur}${((amt / viewsCount) * 1000).toFixed(2)}`;
-      }
+      // Only use the direct API value; return "N/A" if reward > 0 but no RPM was fetched to distinguish from 0 data (null / "-")
+      const rpmStr = item.rpm_metadata?.rpm_integer != null
+        ? `${cur}${(Number(item.rpm_metadata.rpm_integer) / 100).toFixed(2)}`
+        : (amt > 0 ? "N/A" : null);
       const id = safeId(item.video_id_str, item.item_id, item.aweme_id, item.video_id, item.id);
       return {
         id,

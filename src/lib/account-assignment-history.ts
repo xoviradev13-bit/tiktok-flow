@@ -54,7 +54,7 @@ export async function ensureAssignmentHistoryTable(prisma: any): Promise<void> {
           'System_Bootstrap',
           'Initial assignment state'
         FROM "tiktok_accounts"
-        WHERE "assignedUserId" IS NOT NULL AND "deletedAt" IS NULL
+        WHERE "assignedUserId" IS NOT NULL AND "deleted_at" IS NULL
         ON CONFLICT ("id") DO NOTHING;
       `);
     }

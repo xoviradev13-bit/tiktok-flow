@@ -2,6 +2,9 @@
   "serverUrl": "https://app.tiktokflow.site",
   "memberEmail": "",
   "personalToken": "",
-  "concurrency": "auto",
-  "headless": true
+  "agentAttestSecret": "",
+  "concurrency": 1,
+  "headless": true,
+  "m10nMaxConcurrentPrograms": 2,
+  "m10nPagePacingMs": 150
 }

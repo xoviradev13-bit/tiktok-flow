@@ -24,6 +24,8 @@ import {
   Play,
   Users,
   Check,
+  CheckSquare,
+  Square,
   X,
   ArrowRight,
   Shield,
@@ -56,6 +58,7 @@ interface DayDetailModalProps {
   onLaunchGpm?: (gpmProfileId: string) => void;
   onSyncAccount?: (accountId: string) => void;
   onViewVideos?: (account: any, dateStr: string) => void;
+  onTogglePosted?: (itemId: string, currentValue: boolean) => void;
   isAdmin?: boolean;
   onAdminCheckComplete?: (checklistId: string, fullName: string) => void;
   onAdminCheckHalfDay?: (checklistId: string, fullName: string) => void;
@@ -72,6 +75,7 @@ export default function DayDetailModal({
   onLaunchGpm,
   onSyncAccount,
   onViewVideos,
+  onTogglePosted,
   isAdmin,
   onAdminCheckComplete,
   onAdminCheckHalfDay,
@@ -526,6 +530,31 @@ export default function DayDetailModal({
 
                               {/* Quick Actions Buttons */}
                               <div className="flex items-center gap-1 pl-2 border-l border-slate-200 dark:border-slate-800">
+                                {/* Toggle Posted - Lead/Admin only */}
+                                {isAdmin && onTogglePosted && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        onClick={() => onTogglePosted(item.id, item.isPosted)}
+                                        className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                          item.isPosted
+                                            ? "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                                            : "text-slate-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-950/40"
+                                        }`}
+                                        aria-label={item.isPosted ? "Bỏ đánh dấu đã đăng video" : "Đánh dấu đã đăng video"}
+                                      >
+                                        {item.isPosted
+                                          ? <CheckSquare className="w-3.5 h-3.5" />
+                                          : <Square className="w-3.5 h-3.5" />}
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="text-xs">
+                                      {item.isPosted ? "Bỏ đánh dấu đã đăng video" : "Đánh dấu đã đăng video"}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+
                                 {item.account.gpmProfileId && onLaunchGpm && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>

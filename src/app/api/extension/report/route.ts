@@ -237,18 +237,18 @@ export interface ExtensionReportPayload {
   flagsVersion?: number;
   insightsNoData?: boolean;
   insightsFailReason?:
-    | "session"
-    | "captcha"
-    | "timeout"
-    | "empty_response"
-    | "unknown";
+  | "session"
+  | "captcha"
+  | "timeout"
+  | "empty_response"
+  | "unknown";
   rewardsFailReason?:
-    | "session"
-    | "captcha"
-    | "timeout"
-    | "rate_limited"
-    | "incomplete_list"
-    | "unknown";
+  | "session"
+  | "captcha"
+  | "timeout"
+  | "rate_limited"
+  | "incomplete_list"
+  | "unknown";
   rewardsNoProgram?: boolean;
   hasCheckpoint?: boolean;
   isCheckpoint?: boolean;
@@ -286,7 +286,7 @@ export async function POST(req: Request) {
     }
 
     const body = (await req.json()) as ExtensionReportPayload;
- 
+
     const {
       username,
       nickname,
@@ -634,9 +634,9 @@ export async function POST(req: Request) {
             totalVideos: applyMetrics ? (totalVideos ?? videoCount ?? 0) : 0,
             totalViews:
               applyMetrics &&
-              insightsWritable &&
-              totalViews !== undefined &&
-              totalViews !== null
+                insightsWritable &&
+                totalViews !== undefined &&
+                totalViews !== null
                 ? BigInt(totalViews)
                 : BigInt(0),
             totalRevenue:
@@ -1072,8 +1072,8 @@ export async function POST(req: Request) {
       // Revenue is always-safe when the payload actually includes it — never invent zeros.
       const resolvedSumRevenue =
         sumRevenue &&
-        typeof sumRevenue === "object" &&
-        periodValues(sumRevenue) != null
+          typeof sumRevenue === "object" &&
+          periodValues(sumRevenue) != null
           ? sumRevenue
           : undefined;
 
@@ -1251,9 +1251,9 @@ export async function POST(req: Request) {
                   : {}),
                 ...(resolvedDailyRevenueBreakdown !== undefined
                   ? {
-                      dailyRevenueBreakdown:
-                        resolvedDailyRevenueBreakdown as any,
-                    }
+                    dailyRevenueBreakdown:
+                      resolvedDailyRevenueBreakdown as any,
+                  }
                   : {}),
                 insightsHistory: insightsHistory || undefined,
                 postRewards: postRewardsWrite,
@@ -1565,13 +1565,13 @@ export async function POST(req: Request) {
           rewardsStatus === "skipped_empty" || undefined,
         insightsFailReason:
           insightsStatus === "skipped_stale" ||
-          insightsStatus === "skipped_empty"
+            insightsStatus === "skipped_empty"
             ? (body.insightsFailReason ?? "unknown")
             : undefined,
         rewardsFailReason:
           rewardsStatus === "partial" ||
-          rewardsStatus === "skipped_empty" ||
-          rewardsStatus === "skipped_stale"
+            rewardsStatus === "skipped_empty" ||
+            rewardsStatus === "skipped_stale"
             ? (body.rewardsFailReason ??
               (rewardsStatus === "partial" ? "incomplete_list" : "unknown"))
             : undefined,

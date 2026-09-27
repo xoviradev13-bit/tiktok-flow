@@ -18,6 +18,7 @@ import {
   FileEdit,
   Play,
   Check,
+  Square,
   SlidersHorizontal,
   X,
   Plus,
@@ -362,6 +363,25 @@ function ChecklistPageContent() {
     return () => window.removeEventListener("refreshData", handleRefresh);
   }, [utils]);
 
+  // One-time 7-day backfill on page open (once per browser session)
+  const ensureBackfillMutation = trpc.checklist.ensureBackfill.useMutation({
+    onSuccess: (res) => {
+      if (res.createdCount > 0) {
+        utils.checklist.getByDate.invalidate();
+      }
+    },
+  });
+
+  useEffect(() => {
+    const SESSION_KEY = "checklist_backfilled_v1";
+    if (typeof window !== "undefined" && !sessionStorage.getItem(SESSION_KEY)) {
+      sessionStorage.setItem(SESSION_KEY, "1");
+      ensureBackfillMutation.mutate();
+    }
+    // ensureBackfillMutation is stable — intentionally omitted from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Sync editRules when scoringConfig is loaded from database
   useEffect(() => {
     if (timesheetData?.scoringConfig) {
@@ -426,14 +446,14 @@ function ChecklistPageContent() {
     onSuccess: (res) => {
       setScanning(false);
       showToast(
-        `⚡ Đã tự động quét ${res.totalStaffScanned} nhân sự (${res.totalAccountsScanned} accounts)! Phát hiện ${res.postedCount} video mới và đồng bộ ${res.syncedCount} profile.`,
+        `✅ Đã kiểm tra ${res.totalStaffScanned} nhân sự (${res.totalAccountsScanned} accounts). Phát hiện ${res.postedCount} đã đăng video, ${res.syncedCount} đã sync GPM. (Lưu ý: Đảm bảo đồng bộ dữ liệu GPM trước để kết quả chính xác nhất!)`,
         "success"
       );
       utils.checklist.getByDate.invalidate();
     },
     onError: (err) => {
       setScanning(false);
-      showToast(err.message || "Lỗi khi tự động quét", "error");
+      showToast(err.message || "Lỗi khi kiểm tra chấm công", "error");
     },
   });
 
@@ -475,7 +495,7 @@ function ChecklistPageContent() {
 
   const handleAutoScanAll = () => {
     setScanning(true);
-    showToast("⏳ Đang tiến hành quét tự động toàn bộ nhân sự & tài khoản TikTok...", "info");
+    showToast("⏳ Đang kiểm tra trạng thái chấm công từ dữ liệu hiện tại trong hệ thống...", "info");
     autoScanMutation.mutate({
       date: viewMode === "daily" ? dateStr : undefined,
       userId: selectedUserId === "ALL" ? undefined : selectedUserId,
@@ -1102,11 +1122,12 @@ function ChecklistPageContent() {
                   className="h-10 inline-flex items-center gap-2 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/25 active:scale-95 transition-all cursor-pointer disabled:opacity-70 whitespace-nowrap shrink-0"
                 >
                   <Zap className={`w-4 h-4 shrink-0 ${scanning ? "animate-spin" : ""}`} />
-                  <span className="truncate">{scanning ? "Đang Quét Toàn Dàn..." : "Tự Động Chấm Công"}</span>
+                  <span className="truncate">{scanning ? "Đang Kiểm Tra..." : "Chốt Chấm Công"}</span>
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs font-semibold">
-                Tự động kết nối và ghi nhận chấm công toàn bộ dàn tài khoản
+              <TooltipContent side="bottom" className="text-xs font-semibold max-w-xs text-center">
+                <p>Đọc dữ liệu hiện tại và tính lại kết quả chấm công.</p>
+                <p className="text-amber-300 font-bold mt-1">⚠️ Hãy đảm bảo đồng bộ GPM (Client Agent) trước khi chốt để kết quả chính xác!</p>
               </TooltipContent>
             </Tooltip>
 
@@ -2343,6 +2364,30 @@ function ChecklistPageContent() {
                                                     </TooltipContent>
                                                   </Tooltip>
 
+                                                  {/* Toggle Posted - Lead/Admin only */}
+                                                  {isLeadOrAdmin && (
+                                                    <Tooltip>
+                                                      <TooltipTrigger asChild>
+                                                        <button
+                                                          onClick={() => handleToggleItemField(item, "isPosted")}
+                                                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                                            optPosted
+                                                              ? "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                                                              : "text-slate-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-950/50"
+                                                          }`}
+                                                          aria-label={optPosted ? "Bỏ đánh dấu đã đăng video" : "Đánh dấu đã đăng video"}
+                                                        >
+                                                          {optPosted
+                                                            ? <CheckSquare className="w-3.5 h-3.5" />
+                                                            : <Square className="w-3.5 h-3.5" />}
+                                                        </button>
+                                                      </TooltipTrigger>
+                                                      <TooltipContent side="top" className="text-xs">
+                                                        {optPosted ? "Bỏ đánh dấu đã đăng video" : "Đánh dấu đã đăng video"}
+                                                      </TooltipContent>
+                                                    </Tooltip>
+                                                  )}
+
                                                   {/* Detail Link */}
                                                   <Tooltip>
                                                     <TooltipTrigger asChild>
@@ -2739,6 +2784,9 @@ function ChecklistPageContent() {
         onLaunchGpm={(gpmId) => startGpmMutation.mutate({ gpmProfileId: gpmId })}
         onSyncAccount={(accId) => syncAccountMutation.mutate({ accountId: accId })}
         onViewVideos={(acc, dStr) => setCrossCheckItem({ accountId: acc.id, username: acc.username, dateStr: dStr, staffName: "", itemId: "" })}
+        onTogglePosted={(itemId, currentValue) =>
+          toggleItemMutation.mutate({ itemId, field: "isPosted", value: !currentValue })
+        }
         isAdmin={isLeadOrAdmin}
         onAdminCheckComplete={handleAdminCheckComplete}
         onAdminCheckHalfDay={handleAdminCheckHalfDay}

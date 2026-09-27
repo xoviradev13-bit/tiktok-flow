@@ -4214,11 +4214,11 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
         }
         const viewsCount = Number(item.views) || Number(item.total_views) || Number(item.quvv) || 0;
         let rpmStr = null;
-        if (item.rpm_metadata?.rpm_integer) {
+        if (item.rpm_metadata?.rpm_integer != null) {
           const rVal = (Number(item.rpm_metadata.rpm_integer) / 100).toFixed(2);
           rpmStr = `${cur}${rVal}`;
-        } else if (amt > 0 && viewsCount > 0) {
-          rpmStr = `${cur}${((amt / viewsCount) * 1000).toFixed(2)}`;
+        } else if (amt > 0) {
+          rpmStr = "N/A";
         }
         const rawPrograms = Array.isArray(item.video_analytics_programs) ? item.video_analytics_programs : [];
         const programDetails = rawPrograms.map((p) => {
@@ -4284,8 +4284,8 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
               probeUrl.pathname = "/tiktok/v1/creator/m10n_center/reward_analytics_per_post";
               probeUrl.searchParams.set("page", "0");
               probeUrl.searchParams.set("video_analytics_filter", JSON.stringify({
-                video_analytics_display_time_range: 3,
-                video_analytics_sort_by_type: 3,
+                video_analytics_display_time_range: 4,
+                video_analytics_sort_by_type: 1,
                 video_analytics_programs: allPrograms,
               }));
               const probeRes = await fetch(probeUrl.toString(), {
@@ -4317,8 +4317,8 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
                   u.pathname = "/tiktok/v1/creator/m10n_center/reward_analytics_per_post";
                   u.searchParams.set("page", String(p));
                   u.searchParams.set("video_analytics_filter", JSON.stringify({
-                    video_analytics_display_time_range: 3,
-                    video_analytics_sort_by_type: 3,
+                    video_analytics_display_time_range: 4,
+                    video_analytics_sort_by_type: 1,
                     video_analytics_programs: [progId],
                   }));
                   const r = await fetch(u.toString(), {
@@ -4357,7 +4357,86 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
               if (res.capHit) pageCapHit = true;
               if (res.rateLimited) return { items: extra, rateLimited: true, progId: targetProgId, page: res.page, pageCapHit };
             }
-            return { items: extra, rateLimited: false, pageCapHit };
+
+            // Cut off at 60 days based on publish date
+            const SIXTY_DAYS_SEC = 60 * 24 * 60 * 60;
+            const nowSec = Math.floor(Date.now() / 1000);
+            const cutoffSec = nowSec - SIXTY_DAYS_SEC;
+
+            const in60Days = extra.filter((item) => {
+              const pubTime = item.publish_date_unix_time
+                ? Number(item.publish_date_unix_time)
+                : (item.create_time ? (Number(item.create_time) > 1e11 ? Number(item.create_time) / 1000 : Number(item.create_time)) : null);
+              return pubTime == null || pubTime >= cutoffSec;
+            });
+
+            // Parse helper for money amount
+            const parseMoneyAmt = (m) => {
+              if (!m) return 0;
+              if (m.formatted_no_symbol) return parseFloat(String(m.formatted_no_symbol).replace(/,/g, "")) || 0;
+              const u = typeof m.units === "number" ? m.units : parseInt(m.units || "0", 10) || 0;
+              const n = typeof m.nanos === "number" ? m.nanos : parseInt(m.nanos || "0", 10) || 0;
+              return u + n / 1e9;
+            };
+
+            // Identify videos with reward > 0
+            const rewardedItems = in60Days.filter((item) => {
+              const money = item.est_rewards || item.estimated_income || item.income || {};
+              return parseMoneyAmt(money) > 0;
+            });
+
+            // Select up to 40: most rewarded + most recent
+            const topRewarded = [...rewardedItems].sort((a, b) => {
+              const ma = parseMoneyAmt(a.est_rewards || a.estimated_income || a.income || {});
+              const mb = parseMoneyAmt(b.est_rewards || b.estimated_income || b.income || {});
+              return mb - ma;
+            });
+            const topRecent = [...rewardedItems].sort((a, b) => {
+              const ta = Number(a.publish_date_unix_time || 0);
+              const tb = Number(b.publish_date_unix_time || 0);
+              return tb - ta;
+            });
+
+            const targetIdSet = new Set();
+            for (const it of topRewarded) {
+              const id = String(it.video_id_str || it.video_id || it.id || "");
+              if (id) targetIdSet.add(id);
+              if (targetIdSet.size >= 20) break;
+            }
+            for (const it of topRecent) {
+              const id = String(it.video_id_str || it.video_id || it.id || "");
+              if (id) targetIdSet.add(id);
+              if (targetIdSet.size >= 40) break;
+            }
+
+            // Fetch video_reward_analytics for selected videos (cap 40) with pacing
+            for (const item of in60Days) {
+              const vid = String(item.video_id_str || item.video_id || item.id || "");
+              const amt = parseMoneyAmt(item.est_rewards || item.estimated_income || item.income || {});
+              if (amt > 0 && targetIdSet.has(vid)) {
+                try {
+                  const u = new URL(baseReqUrl, window.location.origin);
+                  u.pathname = "/tiktok/v1/creator/m10n_center/video_reward_analytics";
+                  u.searchParams.delete("page");
+                  u.searchParams.delete("video_analytics_filter");
+                  u.searchParams.set("video_id", vid);
+                  u.searchParams.set("start_date", String(nowSec - 31536000));
+                  u.searchParams.set("end_date", String(nowSec));
+                  const dRes = await fetch(u.toString(), {
+                    credentials: "include",
+                    signal: AbortSignal.timeout(6000),
+                  });
+                  const dJson = await dRes.json();
+                  const dPayload = dJson?.data || dJson;
+                  if (dPayload?.crp_analytics_data?.rpm_metadata) {
+                    item.rpm_metadata = dPayload.crp_analytics_data.rpm_metadata;
+                  }
+                  await sleep(100);
+                } catch { /* skip on error */ }
+              }
+            }
+
+            return { items: in60Days, rateLimited: false, pageCapHit };
           }, {
             baseReqUrl: paginationBaseUrl,
             allPrograms: ALL_M10N_PROGRAMS,
@@ -4413,8 +4492,8 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
                 .map((e) => e.name)
                 .filter((u) => u.includes("reward_analytics_per_post"));
               const defaultFilter = encodeURIComponent(JSON.stringify({
-                video_analytics_display_time_range: 3,
-                video_analytics_sort_by_type: 3,
+                video_analytics_display_time_range: 4,
+                video_analytics_sort_by_type: 1,
                 video_analytics_programs: allPrograms,
               }));
               const baseUrl = perfEntries[0] || `/tiktok/v1/creator/m10n_center/reward_analytics_per_post?page=0&video_analytics_filter=${defaultFilter}`;
@@ -4433,8 +4512,8 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
                     const u = new URL(baseUrl, window.location.origin);
                     u.searchParams.set("page", String(p));
                     u.searchParams.set("video_analytics_filter", JSON.stringify({
-                      video_analytics_display_time_range: 3,
-                      video_analytics_sort_by_type: 3,
+                      video_analytics_display_time_range: 4,
+                      video_analytics_sort_by_type: 1,
                       video_analytics_programs: allPrograms,
                     }));
                     const res = await fetch(u.toString(), {
@@ -4463,7 +4542,18 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
                 p++;
               }
               if (keepGoing && p >= 8) pageCapHit = true;
-              return { items: allItems, rateLimited, rateLimitedPage, pageCapHit };
+
+              // Cut off at 60 days
+              const SIXTY_DAYS_SEC = 60 * 24 * 60 * 60;
+              const cutoffSec = Math.floor(Date.now() / 1000) - SIXTY_DAYS_SEC;
+              const in60Days = allItems.filter((item) => {
+                const pubTime = item.publish_date_unix_time
+                  ? Number(item.publish_date_unix_time)
+                  : (item.create_time ? (Number(item.create_time) > 1e11 ? Number(item.create_time) / 1000 : Number(item.create_time)) : null);
+                return pubTime == null || pubTime >= cutoffSec;
+              });
+
+              return { items: in60Days, rateLimited, rateLimitedPage, pageCapHit };
             } catch { return { items: [], rateLimited: false, rateLimitedPage: 0, pageCapHit: false }; }
           }, {
             allPrograms: ALL_M10N_PROGRAMS,
@@ -4549,10 +4639,6 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
                   if (cleanViews.endsWith("k")) parsedViewsNum = parseFloat(cleanViews) * 1000;
                   else if (cleanViews.endsWith("m")) parsedViewsNum = parseFloat(cleanViews) * 1000000;
                   else parsedViewsNum = parseFloat(cleanViews.replace(/,/g, "")) || 0;
-                }
-                if (!rpmStr && moneyInfo.amount > 0 && parsedViewsNum > 0) {
-                  const calculatedRpm = Math.round((moneyInfo.amount / parsedViewsNum) * 1000 * 100) / 100;
-                  if (calculatedRpm > 0) rpmStr = `${moneyInfo.currency}${calculatedRpm.toFixed(2)}`;
                 }
                 const dateMatch = text.match(/\b(?:\d{4}[/-]\d{2}[/-]\d{2}|\d{2}[/-]\d{2}[/-]\d{4})(?:\s+\d{1,2}:\d{2})?\b/) ||
                   text.match(/\b\d{1,2}:\d{2}\s+\d{2}[/-]\d{2}[/-]\d{4}\b/);
@@ -4930,8 +5016,13 @@ export async function extractProfileStudio(profileDir, profileId, chromePath, de
 
     // -------------------------------------------------------------------------
     // TIER 1: Direct CDP attach
+    // ctl.skipCdp — used by tier-consistency autotest to force Tier-0 extension
+    // when browsers are open (otherwise CDP wins and extension is never exercised).
     // -------------------------------------------------------------------------
-    const activePort = readDevToolsActivePort(storageRoot, profileId);
+    const activePort = ctl?.skipCdp ? null : readDevToolsActivePort(storageRoot, profileId);
+    if (ctl?.skipCdp) {
+      console.log(`   [CDP] Skipped (ctl.skipCdp) for ${profileId.slice(0, 8)} — will use Tier-0/2/3.`);
+    }
     if (activePort) {
       console.log(`   [CDP] Profile ${profileId.slice(0, 8)} has active port :${activePort}. Testing connection...`);
       let cdpBrowser = null;

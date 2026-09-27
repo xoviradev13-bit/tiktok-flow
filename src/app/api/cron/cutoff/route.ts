@@ -70,9 +70,13 @@ export async function GET(req: Request) {
     const forceToday = searchParams.get("forceToday") === "true";
 
     const scoringConfig = await getScoringConfig(prisma);
-    const { todayDateOnly, sevenDaysAgoDateOnly, currentVnHour } = getBusinessToday();
+    const { todayDateOnly, sevenDaysAgoDateOnly, currentVnHour, currentVnMinute } = getBusinessToday();
 
-    const canFinalizeToday = currentVnHour >= scoringConfig.cutOffHour || forceToday;
+    const isPastCutoff =
+      currentVnHour > scoringConfig.cutOffHour ||
+      (currentVnHour === scoringConfig.cutOffHour &&
+        currentVnMinute >= scoringConfig.cutOffMinute);
+    const canFinalizeToday = isPastCutoff || forceToday;
 
     const finalizationResult = await finalizePendingChecklists(prisma, {
       includeToday: canFinalizeToday,

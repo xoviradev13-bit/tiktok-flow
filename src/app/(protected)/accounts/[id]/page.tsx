@@ -2702,21 +2702,15 @@ function AccountDetailPageContent() {
               {filteredPostRewards.map((item: any, idx: number) => {
                 const rewardVal = typeof item.reward === "number" ? item.reward : parseFloat(String(item.reward || "").replace(/[^0-9.-]/g, "")) || 0;
 
-                // Calculate or format RPM
+                // Format RPM directly from API; return null if no value instead of fallback in UI
+                // If reward > 0 but no RPM data available, display N/A to distinguish from 0 data (-)
                 const calculateItemRpm = () => {
-                  if (item.rpm) {
+                  if (item.rpm != null && item.rpm !== "") {
                     if (typeof item.rpm === "number") return formatAmount(item.rpm, account?.country);
                     return String(item.rpm);
                   }
-                  if (rewardVal <= 0 || !item.views) return null;
-                  const rawViews = String(item.views).trim().toLowerCase();
-                  let v = 0;
-                  if (rawViews.endsWith("k")) v = parseFloat(rawViews) * 1000;
-                  else if (rawViews.endsWith("m")) v = parseFloat(rawViews) * 1000000;
-                  else v = parseFloat(rawViews.replace(/[^0-9.]/g, "")) || 0;
-                  if (v <= 0) return null;
-                  const calculated = Math.round((rewardVal / v) * 1000 * 100) / 100;
-                  return formatAmount(calculated, account?.country);
+                  if (rewardVal > 0) return "N/A";
+                  return null;
                 };
                 const itemRpmDisplay = calculateItemRpm();
 
@@ -2835,7 +2829,7 @@ function AccountDetailPageContent() {
                       <div className="text-center px-1 border-x border-slate-200/60 dark:border-slate-800/60">
                         <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold truncate">RPM Video</div>
                         <div className="text-xs sm:text-sm font-black text-pink-600 dark:text-pink-400 truncate">
-                          {itemRpmDisplay ? `${itemRpmDisplay}` : "—"}
+                          {itemRpmDisplay ? `${itemRpmDisplay}` : "-"}
                         </div>
                       </div>
 

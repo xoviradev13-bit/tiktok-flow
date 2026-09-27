@@ -84,7 +84,15 @@ export function vnDateStrToChecklistDate(dateStr: string): Date {
 export function parseVideoVnDate(v: any): string | null {
   let d: Date | null = null;
 
-  const raw = v?.postTime ?? v?.createTime ?? v?.create_time ?? v?.createtime ?? v?.post_time;
+  const raw =
+    v?.postTime ??
+    v?.createTime ??
+    v?.create_time ??
+    v?.createtime ??
+    v?.post_time ??
+    v?.uploadTime ??
+    v?.publishTime ??
+    v?.timestamp;
 
   if (raw != null) {
     const sec = Number(raw);
@@ -184,7 +192,8 @@ export async function backfillChecklistVideos(
   accountId: string,
   videosList: any[],
   todayVnStr: string,
-  windowDays: number = BACKFILL_WINDOW_DAYS
+  windowDays: number = BACKFILL_WINDOW_DAYS,
+  options: { includeToday?: boolean } = {}
 ): Promise<BackfillResult> {
   const written: string[] = [];
   const skipped: Record<string, BackfillSkipReason> = {};
@@ -209,8 +218,8 @@ export async function backfillChecklistVideos(
   }
 
   for (const [dateStr, videos] of byDate.entries()) {
-    // Today belongs to the live path in the extension report route.
-    if (dateStr === todayVnStr) continue;
+    // Skip today only if caller explicitly passed includeToday: false (e.g. extension Phase B)
+    if (dateStr === todayVnStr && options?.includeToday === false) continue;
 
     // Reject dates outside the backfill window (future dates or too old).
     if (dateStr < windowStartStr || dateStr > todayVnStr) {
@@ -416,6 +425,7 @@ export async function backfillChecklistVideos(
       data: {
         videosSnapshot: merged,
         isPosted: true,
+        isCompleted: true,
         videoSource: "backfill",
         videoSyncedAt: new Date(),
         // isSynced intentionally NOT set — §0.2 confirmed scoring doesn't read it.
