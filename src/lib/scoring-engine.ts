@@ -335,17 +335,27 @@ export async function ensureDailyChecklistsForDate(
  * isLocked = false && date >= sevenDaysAgo && date < todayDateOnly.
  * In cron/cutoff mode (options.includeToday === true), ensures today's checklists
  * exist for all active users with assigned accounts, then locks today's checklist.
+ *
+ * Pass `asOf` to pin the business date to the moment the caller first called
+ * getBusinessToday() (e.g. at request-entry in the cron route). This prevents
+ * a long-running execution that crosses midnight from using tomorrow's date.
  */
 export async function finalizePendingChecklists(
   prisma: any,
-  options: { includeToday?: boolean } = {}
+  options: {
+    includeToday?: boolean;
+    asOf?: { todayDateOnly: Date; sevenDaysAgoDateOnly: Date };
+  } = {}
 ): Promise<{
   processedCount: number;
   autoCheckedItemsCount: number;
   createdChecklistsCount: number;
   checklists: Array<{ id: string; date: string; score: number }>;
 }> {
-  const { todayDateOnly, sevenDaysAgoDateOnly } = getBusinessToday();
+  // Use the caller-supplied date if provided so long-running executions that
+  // cross midnight do not accidentally treat tomorrow as "today".
+  const { todayDateOnly, sevenDaysAgoDateOnly } =
+    options.asOf ?? getBusinessToday();
   const scoringConfig = await getScoringConfig(prisma);
 
   let createdChecklistsCount = 0;

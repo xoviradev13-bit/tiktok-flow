@@ -69,8 +69,13 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const forceToday = searchParams.get("forceToday") === "true";
 
+    // Capture business date NOW (before any awaits) so that if execution takes
+    // a long time and crosses midnight, we still finalize the correct day (today
+    // at cron fire time, not tomorrow).
+    const businessToday = getBusinessToday();
+    const { todayDateOnly, sevenDaysAgoDateOnly, currentVnHour, currentVnMinute } = businessToday;
+
     const scoringConfig = await getScoringConfig(prisma);
-    const { todayDateOnly, sevenDaysAgoDateOnly, currentVnHour, currentVnMinute } = getBusinessToday();
 
     const isPastCutoff =
       currentVnHour > scoringConfig.cutOffHour ||
@@ -80,6 +85,7 @@ export async function GET(req: Request) {
 
     const finalizationResult = await finalizePendingChecklists(prisma, {
       includeToday: canFinalizeToday,
+      asOf: { todayDateOnly, sevenDaysAgoDateOnly },
     });
 
     // FIX: retention windows use getBusinessToday's Vietnam-aligned boundary
