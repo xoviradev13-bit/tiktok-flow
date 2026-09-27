@@ -61,6 +61,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -669,6 +670,71 @@ function SettingsPageContent() {
       toast.error(`Lỗi: ${e.message}`);
     } finally {
       setManualGpmSyncing(false);
+    }
+  };
+
+  // Toggle schedule item enabled/disabled
+  const handleToggleScheduleItem = async (target: ModalTarget, itemId: string) => {
+    if (target === "GPM_FLEET") {
+      const updated = gpmSchedule.schedules.map((s) =>
+        s.id === itemId ? { ...s, enabled: !s.enabled } : s
+      );
+      const newConfig = { ...gpmSchedule, schedules: updated };
+      setGpmSchedule(newConfig);
+      await setConfigMutation.mutateAsync({
+        key: "gpm_sync_schedule",
+        value: newConfig,
+        description: "Lịch quét profile GPMLogin tự động",
+      });
+      utils.settings.getAll.invalidate();
+      toast.success("Đã cập nhật trạng thái lịch!");
+    } else if (target === "TIKTOK_SWEEPER") {
+      const updated = sweeperSchedule.schedules.map((s) =>
+        s.id === itemId ? { ...s, enabled: !s.enabled } : s
+      );
+      const newConfig = { ...sweeperSchedule, schedules: updated };
+      setSweeperSchedule(newConfig);
+      await setConfigMutation.mutateAsync({
+        key: "tiktok_sweeper_schedule",
+        value: newConfig,
+        description: "Lịch quét vét TikTok Studio ngầm tự động",
+      });
+      utils.settings.getAll.invalidate();
+      toast.success("Đã cập nhật trạng thái lịch!");
+    }
+  };
+
+  // Delete a schedule item
+  const handleDeleteScheduleItem = async (target: ModalTarget, itemId: string) => {
+    const ok = await confirm({
+      title: "Xóa lịch trình?",
+      description: "Lịch này sẽ bị xóa vĩnh viễn và không thể khôi phục.",
+      confirmLabel: "Xóa lịch",
+      variant: "danger",
+    });
+    if (!ok) return;
+    if (target === "GPM_FLEET") {
+      const updated = gpmSchedule.schedules.filter((s) => s.id !== itemId);
+      const newConfig = { ...gpmSchedule, schedules: updated };
+      setGpmSchedule(newConfig);
+      await setConfigMutation.mutateAsync({
+        key: "gpm_sync_schedule",
+        value: newConfig,
+        description: "Lịch quét profile GPMLogin tự động",
+      });
+      utils.settings.getAll.invalidate();
+      toast.success("Đã xóa lịch đồng bộ!");
+    } else if (target === "TIKTOK_SWEEPER") {
+      const updated = sweeperSchedule.schedules.filter((s) => s.id !== itemId);
+      const newConfig = { ...sweeperSchedule, schedules: updated };
+      setSweeperSchedule(newConfig);
+      await setConfigMutation.mutateAsync({
+        key: "tiktok_sweeper_schedule",
+        value: newConfig,
+        description: "Lịch quét vét TikTok Studio ngầm tự động",
+      });
+      utils.settings.getAll.invalidate();
+      toast.success("Đã xóa lịch đồng bộ!");
     }
   };
 
@@ -2470,15 +2536,26 @@ function SettingsPageContent() {
                 gpmSchedule.schedules.map((item) => (
                   <div
                     key={item.id}
-                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3"
+                    className={`p-4 rounded-2xl border flex items-center justify-between gap-3 transition-all ${item.enabled !== false
+                      ? "bg-slate-50 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-800"
+                      : "bg-slate-50/50 dark:bg-slate-800/20 border-dashed border-slate-200 dark:border-slate-800 opacity-60"
+                      }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-500 flex items-center justify-center font-bold text-xs">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${item.enabled !== false
+                        ? "bg-cyan-500/10 text-cyan-500"
+                        : "bg-slate-300/20 dark:bg-slate-700/20 text-slate-400"
+                        }`}>
                         <Clock className="w-4 h-4" />
                       </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                           {formatScheduleItemLabel(item)}
+                          {item.enabled === false && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                              Tắt
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-slate-400 font-mono">
                           Lần chạy cuối: {item.lastRunAt ? new Date(item.lastRunAt).toLocaleString("vi-VN") : "Chưa chạy"}
@@ -2486,18 +2563,54 @@ function SettingsPageContent() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setModalTarget("GPM_FLEET");
-                          setEditingItem(item);
-                          setIsScheduleModalOpen(true);
-                        }}
-                        className="p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Toggle on/off */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Switch
+                              checked={item.enabled !== false}
+                              onCheckedChange={() => handleToggleScheduleItem("GPM_FLEET", item.id)}
+                              className="data-[state=checked]:bg-cyan-500 dark:data-[state=checked]:bg-cyan-500"
+                            />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          {item.enabled !== false ? "Đang bật — nhấp để tắt" : "Đang tắt — nhấp để bật"}
+                        </TooltipContent>
+                      </Tooltip>
+
+                      {/* Edit */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setModalTarget("GPM_FLEET");
+                              setEditingItem(item);
+                              setIsScheduleModalOpen(true);
+                            }}
+                            className="p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">Chỉnh sửa lịch</TooltipContent>
+                      </Tooltip>
+
+                      {/* Delete */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteScheduleItem("GPM_FLEET", item.id)}
+                            className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">Xóa lịch này</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 ))
@@ -2554,15 +2667,26 @@ function SettingsPageContent() {
                 sweeperSchedule.schedules.map((item) => (
                   <div
                     key={item.id}
-                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3"
+                    className={`p-4 rounded-2xl border flex items-center justify-between gap-3 transition-all ${item.enabled !== false
+                      ? "bg-slate-50 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-800"
+                      : "bg-slate-50/50 dark:bg-slate-800/20 border-dashed border-slate-200 dark:border-slate-800 opacity-60"
+                      }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold text-xs">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${item.enabled !== false
+                        ? "bg-amber-500/10 text-amber-500"
+                        : "bg-slate-300/20 dark:bg-slate-700/20 text-slate-400"
+                        }`}>
                         <Clock className="w-4 h-4" />
                       </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                           {formatScheduleItemLabel(item)}
+                          {item.enabled === false && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                              Tắt
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-slate-400 font-mono">
                           Lần chạy cuối: {item.lastRunAt ? new Date(item.lastRunAt).toLocaleString("vi-VN") : "Chưa chạy"}
@@ -2570,18 +2694,54 @@ function SettingsPageContent() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setModalTarget("TIKTOK_SWEEPER");
-                          setEditingItem(item);
-                          setIsScheduleModalOpen(true);
-                        }}
-                        className="p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Toggle on/off */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Switch
+                              checked={item.enabled !== false}
+                              onCheckedChange={() => handleToggleScheduleItem("TIKTOK_SWEEPER", item.id)}
+                              className="data-[state=checked]:bg-amber-500 dark:data-[state=checked]:bg-amber-500"
+                            />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          {item.enabled !== false ? "Đang bật — nhấp để tắt" : "Đang tắt — nhấp để bật"}
+                        </TooltipContent>
+                      </Tooltip>
+
+                      {/* Edit */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setModalTarget("TIKTOK_SWEEPER");
+                              setEditingItem(item);
+                              setIsScheduleModalOpen(true);
+                            }}
+                            className="p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">Chỉnh sửa lịch</TooltipContent>
+                      </Tooltip>
+
+                      {/* Delete */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteScheduleItem("TIKTOK_SWEEPER", item.id)}
+                            className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">Xóa lịch này</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 ))
