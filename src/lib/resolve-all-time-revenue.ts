@@ -76,6 +76,89 @@ export function getTodayDateStr(): string {
 }
 
 /**
+ * Returns the Monday (start) and Sunday (end) of the current week as YYYY-MM-DD strings.
+ * Week is Monday–Sunday per Vietnamese/ISO convention.
+ */
+export function getThisWeekDateRange(): { start: string; end: string } {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  // Days to subtract to get Monday (ISO week start)
+  const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - diffToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { start: fmt(monday), end: fmt(sunday) };
+}
+
+/**
+ * Returns date strings for the previous calendar month: 01 of prev month to the last day of prev month.
+ */
+export function getPreviousMonthDateRange(): { start: string; end: string } {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0-indexed: 0 = Jan
+  // Previous month
+  const prevYear = month === 0 ? year - 1 : year;
+  const prevMonth = month === 0 ? 12 : month; // 1-indexed
+  const lastDay = new Date(prevYear, prevMonth, 0).getDate(); // last day of prev month
+  const start = `${prevYear}-${String(prevMonth).padStart(2, "0")}-01`;
+  const end = `${prevYear}-${String(prevMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { start, end };
+}
+
+/**
+ * Resolve revenue for the current week (Monday to Sunday).
+ */
+export function resolveThisWeekRevenue(account: AccountRevenueSource): number {
+  const { start, end } = getThisWeekDateRange();
+  let daily = sumDailyRevenueBreakdown(account, start, end);
+  // Also check dailyRevenues array if present
+  const drList = (account as any).dailyRevenues;
+  if (Array.isArray(drList)) {
+    let drSum = 0;
+    for (const dr of drList) {
+      if (!dr?.date) continue;
+      const dStr =
+        typeof dr.date === "string"
+          ? dr.date.split("T")[0]
+          : new Date(dr.date).toISOString().split("T")[0];
+      if (dStr >= start && dStr <= end) {
+        drSum += num(dr.revenue);
+      }
+    }
+    if (drSum > daily) daily = drSum;
+  }
+  return Math.round(daily * 100) / 100;
+}
+
+/**
+ * Resolve revenue for the previous calendar month (01 to last day of that month).
+ */
+export function resolvePreviousMonthRevenue(account: AccountRevenueSource): number {
+  const { start, end } = getPreviousMonthDateRange();
+  let daily = sumDailyRevenueBreakdown(account, start, end);
+  const drList = (account as any).dailyRevenues;
+  if (Array.isArray(drList)) {
+    let drSum = 0;
+    for (const dr of drList) {
+      if (!dr?.date) continue;
+      const dStr =
+        typeof dr.date === "string"
+          ? dr.date.split("T")[0]
+          : new Date(dr.date).toISOString().split("T")[0];
+      if (dStr >= start && dStr <= end) {
+        drSum += num(dr.revenue);
+      }
+    }
+    if (drSum > daily) daily = drSum;
+  }
+  return Math.round(daily * 100) / 100;
+}
+
+/**
  * Resolve Month-To-Date (MTD) revenue: from day 01 of the current month to today.
  */
 export function resolveThisMonthRevenue(
@@ -116,6 +199,8 @@ export function getAccountRevenuePeriods(account: AccountRevenueSource): {
   revenue28d: number;
   revenue30d: number;
   revenueThisMonth: number;
+  revenueThisWeek: number;
+  revenuePrevMonth: number;
   revenue60d: number;
   revenue365d: number;
   totalRevenue: number;
@@ -154,12 +239,16 @@ export function getAccountRevenuePeriods(account: AccountRevenueSource): {
   }
 
   const revenueThisMonth = resolveThisMonthRevenue(account);
+  const revenueThisWeek = resolveThisWeekRevenue(account);
+  const revenuePrevMonth = resolvePreviousMonthRevenue(account);
 
   return {
     revenue7d: num(sr.revenue7d ?? analytics.revenue7d),
     revenue28d: num(sr.revenue28d ?? analytics.revenue28d),
     revenue30d: rev30,
     revenueThisMonth,
+    revenueThisWeek,
+    revenuePrevMonth,
     revenue60d: num(sr.revenue60d ?? analytics.revenue60d),
     revenue365d: num(sr.revenue365d ?? analytics.revenue365d),
     totalRevenue: resolveAllTimeRevenue(account),

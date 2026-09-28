@@ -258,6 +258,18 @@ export interface ExtensionReportPayload {
 // FIX: reject oversized bodies before they hit req.json().
 const MAX_REPORT_BODY_BYTES = 4 * 1024 * 1024; // 4 MB
 
+/**
+ * Max number of videos kept in the stored rawSnapshot preview
+ * (and therefore returned by GET /api/extension/report).
+ * Configurable via env MAX_STORED_VIDEOS_PREVIEW. Defaults to 50.
+ * Note: this does NOT affect Daily Checklist ingestion or postRewards —
+ * those use the full payload regardless of this value.
+ */
+const MAX_STORED_VIDEOS_PREVIEW = Math.max(
+  1,
+  Number(process.env.MAX_STORED_VIDEOS_PREVIEW) || 50
+);
+
 export async function POST(req: Request) {
   let release: (() => void) | null = null;
   let reportT0 = Date.now();
@@ -1059,11 +1071,14 @@ export async function POST(req: Request) {
     let rewardsStatus: RewardsStatus | null = null;
 
     if (applyMetrics) {
-      // Clean rawSnapshot: keep newest 20 videos for lightweight preview
+      // Clean rawSnapshot: keep newest N videos for lightweight preview
+      // (N = MAX_STORED_VIDEOS_PREVIEW, env-configurable, default 50).
       analyticsSnapshot = {
         username: cleanUsername,
         updatedAt: new Date().toISOString(),
-        videosList: Array.isArray(videosList) ? videosList.slice(0, 20) : [],
+        videosList: Array.isArray(videosList)
+          ? videosList.slice(0, MAX_STORED_VIDEOS_PREVIEW)
+          : [],
         topVideos365d: topVideos365d || null,
         postRewardsPartial: postRewardsPartial || undefined,
         insightsUnavailable: insightsUnavailable || undefined,

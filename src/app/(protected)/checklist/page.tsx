@@ -251,6 +251,51 @@ function ChecklistPageContent() {
   const [actionMsg, setActionMsg] = useState<{ text: string; type: "success" | "info" | "error" } | null>(null);
   const [scanning, setScanning] = useState(false);
 
+  // Scan preset state — controls which date(s) the "Chốt Chấm Công" button will scan.
+  // Intentionally NOT tied to the page's view filters (team/user/date range).
+  type ScanPreset = "today" | "yesterday" | "3d" | "7d" | "custom";
+  const [scanPreset, setScanPreset] = useState<ScanPreset>("today");
+  const [isScanDropdownOpen, setIsScanDropdownOpen] = useState(false);
+  const [isScanCalendarOpen, setIsScanCalendarOpen] = useState(false);
+  const [scanRangeSelection, setScanRangeSelection] = useState<DateRange | undefined>(undefined);
+  const [scanCustomRange, setScanCustomRange] = useState<{ from: string; to: string } | null>(null);
+
+  // The 7-day window boundary for scan (today-6 → today)
+  const scanWindowStart = new Date(new Date().setUTCHours(0, 0, 0, 0));
+  scanWindowStart.setUTCDate(scanWindowStart.getUTCDate() - 6);
+
+  // Build the correct mutation input from the current preset.
+  // Dates computed using todayStr (client VN date) — server clamps if needed.
+  const buildScanInput = (preset: ScanPreset, today: string) => {
+    const addDays = (ymd: string, n: number) => {
+      const d = new Date(`${ymd}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    };
+    switch (preset) {
+      case "today": return { date: today };
+      case "yesterday": return { date: addDays(today, -1) };
+      case "3d": return { startDate: addDays(today, -2), endDate: today };
+      case "7d": return { startDate: addDays(today, -6), endDate: today };
+      case "custom":
+        if (scanCustomRange) {
+          return scanCustomRange.from === scanCustomRange.to
+            ? { date: scanCustomRange.from }
+            : { startDate: scanCustomRange.from, endDate: scanCustomRange.to };
+        }
+        return { date: today };
+    }
+  };
+
+  const getScanPresetLabel = (preset: ScanPreset) => {
+    if (preset === "custom" && scanCustomRange) {
+      const f = format(new Date(scanCustomRange.from + "T00:00:00"), "dd/MM");
+      const t = format(new Date(scanCustomRange.to + "T00:00:00"), "dd/MM");
+      return f === t ? f : `${f}–${t}`;
+    }
+    return { today: "Hôm nay", yesterday: "Hôm qua", "3d": "3 ngày", "7d": "7 ngày", custom: "Tùy chọn" }[preset];
+  };
+
   // Note Modal State
   const [noteModalItem, setNoteModalItem] = useState<{
     id: string;
@@ -334,26 +379,39 @@ function ChecklistPageContent() {
   });
 
   const filteredChecklists = useMemo(() => {
-    const list = timesheetData?.checklists || [];
-    if (!search.trim()) return list;
-    return list.filter((chk: any) =>
-      smartSearchMatch(
-        search,
-        chk.user?.fullName,
-        chk.user?.name,
-        chk.user?.username,
-        chk.user?.email,
-        chk.user?.role,
-        ...(chk.items || []).flatMap((item: any) => [
-          item.account?.username,
-          item.account?.gpmProfileName,
-          item.account?.groupName,
-          item.account?.country,
-          item.account?.status,
-        ])
-      )
-    );
-  }, [timesheetData?.checklists, search]);
+    let list = timesheetData?.checklists || [];
+    // Apply search across all view types (server already filters for table view)
+    if (search.trim()) {
+      list = list.filter((chk: any) =>
+        smartSearchMatch(
+          search,
+          chk.user?.fullName,
+          chk.user?.name,
+          chk.user?.username,
+          chk.user?.email,
+          chk.user?.role,
+          ...(chk.items || []).flatMap((item: any) => [
+            item.account?.username,
+            item.account?.gpmProfileName,
+            item.account?.groupName,
+            item.account?.country,
+            item.account?.status,
+          ])
+        )
+      );
+    }
+    // Apply scoreFilter client-side for non-table views (table view sends it server-side)
+    if (viewType !== "table" && scoreFilter && scoreFilter !== "ALL") {
+      list = list.filter((chk: any) => {
+        const s = Number(chk.workdayScore);
+        if (scoreFilter === "FULL") return s >= 1.0;
+        if (scoreFilter === "HALF") return s === 0.5;
+        if (scoreFilter === "ZERO") return s === 0;
+        return true;
+      });
+    }
+    return list;
+  }, [timesheetData?.checklists, search, scoreFilter, viewType]);
 
   // Listen to auto-refresh event
   useEffect(() => {
@@ -366,17 +424,20 @@ function ChecklistPageContent() {
 
   // One-time 7-day backfill on page open (once per browser session)
   const ensureBackfillMutation = trpc.checklist.ensureBackfill.useMutation({
-    onSuccess: (res) => {
-      if (res.createdCount > 0) {
-        utils.checklist.getByDate.invalidate();
-      }
+    onSuccess: () => {
+      // Always invalidate — Phase 2 updates isPosted on existing rows without
+      // creating new ones, so createdCount can be 0 even when data changed.
+      utils.checklist.getByDate.invalidate();
+      utils.checklist.getToday.invalidate();
     },
   });
 
+  // One-time backfill per tab session, auto-resets each calendar day.
+  // sessionStorage clears on tab close, so re-opening the tab always re-runs for today.
   useEffect(() => {
-    const SESSION_KEY = "checklist_backfilled_v1";
-    if (typeof window !== "undefined" && !sessionStorage.getItem(SESSION_KEY)) {
-      sessionStorage.setItem(SESSION_KEY, "1");
+    const todayKey = `checklist_backfilled_${new Date().toISOString().slice(0, 10)}`;
+    if (typeof window !== "undefined" && !sessionStorage.getItem(todayKey)) {
+      sessionStorage.setItem(todayKey, "1");
       ensureBackfillMutation.mutate();
     }
     // ensureBackfillMutation is stable — intentionally omitted from deps
@@ -446,10 +507,19 @@ function ChecklistPageContent() {
   const autoScanMutation = trpc.checklist.autoScanAndCheck.useMutation({
     onSuccess: (res) => {
       setScanning(false);
-      showToast(
-        `✅ Đã kiểm tra ${res.totalStaffScanned} nhân sự (${res.totalAccountsScanned} accounts). Phát hiện ${res.postedCount} đã đăng video, ${res.syncedCount} đã sync GPM. (Lưu ý: Đảm bảo đồng bộ dữ liệu GPM trước để kết quả chính xác nhất!)`,
-        "success"
-      );
+      const created = (res as any).totalCreatedChecklists > 0
+        ? ` Tạo mới ${(res as any).totalCreatedChecklists} bảng công.` : "";
+      if ((res as any).totalVideosFound > 0) {
+        showToast(
+          `✅ Đối soát ${(res as any).datesProcessed} ngày — phát hiện ${(res as any).totalVideosFound} video trên ${(res as any).accountsWithVideos} tài khoản. Cập nhật ${(res as any).checklistsUpdated} bảng công.${created}`,
+          "success"
+        );
+      } else {
+        showToast(
+          `✅ Đã đối soát ${(res as any).datesProcessed ?? 1} ngày (${res.totalAccountsScanned} accounts). ${res.postedCount} đã đăng video.${created}`,
+          "success"
+        );
+      }
       utils.checklist.getByDate.invalidate();
     },
     onError: (err) => {
@@ -496,11 +566,9 @@ function ChecklistPageContent() {
 
   const handleAutoScanAll = () => {
     setScanning(true);
-    showToast("⏳ Đang kiểm tra trạng thái chấm công từ dữ liệu hiện tại trong hệ thống...", "info");
-    autoScanMutation.mutate({
-      date: viewMode === "daily" ? dateStr : undefined,
-      userId: selectedUserId === "ALL" ? undefined : selectedUserId,
-    });
+    const label = getScanPresetLabel(scanPreset);
+    showToast(`⏳ Đang đối soát video và cập nhật ngày công (${label})...`, "info");
+    autoScanMutation.mutate(buildScanInput(scanPreset, todayStr));
   };
 
   const handleMassCompleteAll = async () => {
@@ -951,29 +1019,55 @@ function ChecklistPageContent() {
     totalSynced: 0,
   };
 
-  // When in Calendar view, compute cycle stats for 16th of calendarMonth to 15th of next month
-  const calendarCycleSummary = useMemo(() => {
-    if (viewType !== "calendar") return null;
-    const cycleStart = format(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 16), "yyyy-MM-dd");
-    const cycleEnd = format(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 15), "yyyy-MM-dd");
-    const items = (timesheetData?.checklists || []).filter((c: any) => {
-      const d = format(new Date(c.date), "yyyy-MM-dd");
-      return d >= cycleStart && d <= cycleEnd;
-    });
-    return {
-      totalStaff: new Set(items.map((c: any) => c.userId)).size,
-      fullWorkdayCount: items.filter((c: any) => Number(c.workdayScore) >= 1.0).length,
-      halfWorkdayCount: items.filter((c: any) => Number(c.workdayScore) === 0.5).length,
-      zeroWorkdayCount: items.filter((c: any) => Number(c.workdayScore) === 0).length,
-    };
-  }, [viewType, calendarMonth, timesheetData?.checklists]);
-
+  /**
+   * displaySummary — always derived from filteredChecklists so every active
+   * filter (user, team, search, scoreFilter) is reflected in the top stats.
+   *
+   * For the Calendar view we further narrow to the current payroll cycle
+   * (16th of calendarMonth → 15th of next month) before counting.
+   */
   const displaySummary = useMemo(() => {
-    if (viewType === "calendar" && calendarCycleSummary) {
-      return { ...summary, ...calendarCycleSummary };
+    let base = filteredChecklists;
+
+    if (viewType === "calendar") {
+      const cycleStart = format(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 16), "yyyy-MM-dd");
+      const cycleEnd = format(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 15), "yyyy-MM-dd");
+      base = base.filter((c: any) => {
+        const d = format(new Date(c.date), "yyyy-MM-dd");
+        return d >= cycleStart && d <= cycleEnd;
+      });
     }
-    return summary;
-  }, [viewType, calendarCycleSummary, summary]);
+
+    const totalStaff = new Set(base.map((c: any) => c.userId)).size;
+    const fullWorkdayCount = base.filter((c: any) => Number(c.workdayScore) >= 1.0).length;
+    const halfWorkdayCount = base.filter((c: any) => Number(c.workdayScore) === 0.5).length;
+    const zeroWorkdayCount = base.filter((c: any) => Number(c.workdayScore) === 0).length;
+
+    // Aggregate account-level KPIs from the filtered set
+    // totalAssigned already has banned exclusion applied server-side
+    let totalAssignedAccounts = 0;
+    let totalVideosPosted = 0;
+    let totalSynced = 0;
+    for (const c of base) {
+      totalAssignedAccounts += c.totalAssigned ?? 0;
+      for (const item of (c.items || [])) {
+        if (item.isPosted) totalVideosPosted++;
+        if (item.isSynced) totalSynced++;
+      }
+    }
+
+    return {
+      ...summary,
+      totalStaff,
+      fullWorkdayCount,
+      halfWorkdayCount,
+      zeroWorkdayCount,
+      totalAssignedAccounts,
+      totalVideosPosted,
+      totalSynced,
+      totalRecords: base.length,
+    };
+  }, [filteredChecklists, viewType, calendarMonth, summary]);
 
   const isMonthCycleMode =
     viewType === "calendar" ||
@@ -1097,23 +1191,168 @@ function ChecklistPageContent() {
 
           {/* Action Buttons Group */}
           <div className="flex flex-wrap items-center gap-2.5 self-start lg:self-auto">
-            {/* Auto-Scan Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleAutoScanAll}
-                  disabled={scanning}
-                  className="h-10 inline-flex items-center gap-2 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/25 active:scale-95 transition-all cursor-pointer disabled:opacity-70 whitespace-nowrap shrink-0"
+            {/* Auto-Scan Button + Date Preset Dropdown */}
+            <div className="inline-flex items-stretch shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleAutoScanAll}
+                    disabled={scanning || autoScanMutation.isPending}
+                    className="h-10 inline-flex items-center gap-2 px-4 rounded-l-xl text-xs font-black bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/25 active:scale-95 transition-all cursor-pointer disabled:opacity-70 whitespace-nowrap"
+                  >
+                    <Zap className={`w-4 h-4 shrink-0 ${scanning ? "animate-spin" : ""}`} />
+                    <span className="truncate">{scanning ? "Đang Đối Soát..." : "Chốt Chấm Công"}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs font-semibold max-w-xs text-center">
+                  <p>Quét video và tự động cập nhật ngày công.</p>
+                  <p className="text-slate-300 mt-0.5">Phạm vi: <span className="text-white font-bold">{getScanPresetLabel(scanPreset)}</span> — không phụ thuộc bộ lọc trang.</p>
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Date Preset Selector */}
+              <DropdownMenu open={isScanDropdownOpen} onOpenChange={setIsScanDropdownOpen}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    disabled={scanning || autoScanMutation.isPending}
+                    className="h-10 inline-flex items-center gap-1 px-2.5 rounded-r-xl text-xs font-bold bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white border-l border-white/20 active:scale-95 transition-all cursor-pointer disabled:opacity-70 whitespace-nowrap"
+                    aria-label="Chọn phạm vi ngày đối soát"
+                  >
+                    <CalendarIcon className="w-3.5 h-3.5 shrink-0 text-white/80" />
+                    <span>{getScanPresetLabel(scanPreset)}</span>
+                    <ChevronDown className="w-3 h-3 opacity-70" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-52 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl p-1.5 space-y-0.5"
                 >
-                  <Zap className={`w-4 h-4 shrink-0 ${scanning ? "animate-spin" : ""}`} />
-                  <span className="truncate">{scanning ? "Đang Kiểm Tra..." : "Chốt Chấm Công"}</span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs font-semibold max-w-xs text-center">
-                <p>Đọc dữ liệu hiện tại và tính lại kết quả chấm công.</p>
-                <p className="text-amber-300 font-bold mt-1">⚠️ Hãy đảm bảo đồng bộ GPM (Client Agent) trước khi chốt để kết quả chính xác!</p>
-              </TooltipContent>
-            </Tooltip>
+                  <DropdownMenuItem
+                    onClick={() => { setScanPreset("today"); setIsScanDropdownOpen(false); }}
+                    className={`text-xs rounded-xl cursor-pointer py-2.5 px-3 flex items-center gap-2 ${scanPreset === "today" ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 font-bold" : ""}`}
+                  >
+                    <span className="text-sm">📅</span> Hôm nay
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => { setScanPreset("yesterday"); setIsScanDropdownOpen(false); }}
+                    className={`text-xs rounded-xl cursor-pointer py-2.5 px-3 flex items-center gap-2 ${scanPreset === "yesterday" ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 font-bold" : ""}`}
+                  >
+                    <span className="text-sm">📅</span> Hôm qua
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="my-1" />
+                  <DropdownMenuItem
+                    onClick={() => { setScanPreset("3d"); setIsScanDropdownOpen(false); }}
+                    className={`text-xs rounded-xl cursor-pointer py-2.5 px-3 flex items-center gap-2 ${scanPreset === "3d" ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 font-bold" : ""}`}
+                  >
+                    <span className="text-sm">📅</span> 3 ngày gần nhất
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => { setScanPreset("7d"); setIsScanDropdownOpen(false); }}
+                    className={`text-xs rounded-xl cursor-pointer py-2.5 px-3 flex items-center gap-2 ${scanPreset === "7d" ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 font-bold" : ""}`}
+                  >
+                    <span className="text-sm">📅</span> 7 ngày gần nhất
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="my-1" />
+
+                  {/* Tùy chọn — opens a nested Popover calendar */}
+                  <Popover open={isScanCalendarOpen} onOpenChange={(open) => {
+                    if (open) {
+                      setScanRangeSelection(
+                        scanCustomRange
+                          ? { from: new Date(scanCustomRange.from + "T00:00:00"), to: new Date(scanCustomRange.to + "T00:00:00") }
+                          : { from: new Date(), to: new Date() }
+                      );
+                      // Keep dropdown mounted while calendar is open so PopoverContent isn't unmounted
+                      setIsScanDropdownOpen(true);
+                    }
+                    setIsScanCalendarOpen(open);
+                    if (!open) setIsScanDropdownOpen(false);
+                  }}>
+                    <PopoverTrigger asChild>
+                      <div
+                        role="menuitem"
+                        tabIndex={0}
+                        className={`text-xs rounded-xl cursor-pointer py-2.5 px-3 flex items-center gap-2 select-none outline-none hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${scanPreset === "custom" ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 font-bold" : "text-slate-700 dark:text-slate-300"}`}
+                        onClick={() => setIsScanCalendarOpen(true)}
+                        onKeyDown={(e) => e.key === "Enter" && setIsScanCalendarOpen(true)}
+                      >
+                        <CalendarIcon className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          {scanPreset === "custom" && scanCustomRange
+                            ? getScanPresetLabel("custom")
+                            : "Tùy chọn ngày..."}
+                        </span>
+                      </div>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="left"
+                      sideOffset={8}
+                      align="end"
+                      avoidCollisions={true}
+                      collisionPadding={16}
+                      forceMount={isScanCalendarOpen ? true : undefined}
+                      className="w-[310px] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-[200]"
+                    >
+                      <div className="flex items-center justify-between gap-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Chọn ngày đối soát</span>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Trong 7 ngày gần nhất</p>
+                        </div>
+                        {scanRangeSelection?.from && (
+                          <span className="text-[11px] font-semibold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/50 px-2 py-0.5 rounded-md border border-pink-200 dark:border-pink-800 whitespace-nowrap shrink-0">
+                            {format(scanRangeSelection.from, "dd/MM")} {scanRangeSelection.to && scanRangeSelection.to.getTime() !== scanRangeSelection.from.getTime() ? `– ${format(scanRangeSelection.to, "dd/MM")}` : ""}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="w-full py-0.5">
+                        <CalendarPicker
+                          mode="range"
+                          selected={scanRangeSelection}
+                          onSelect={(range) => setScanRangeSelection(range)}
+                          disabled={(date) => date < scanWindowStart || date > new Date()}
+                          numberOfMonths={1}
+                          className="w-full p-0 [--cell-size:2.1rem] [&_.rdp-root]:w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-month_grid]:w-full [&_.rdp-weekdays]:w-full [&_.rdp-weekdays]:justify-between [&_.rdp-week]:w-full [&_.rdp-week]:justify-between [&_.rdp-week]:mt-1 [&_.rdp-day]:flex-1 [&_.rdp-button]:w-full [&_.rdp-button]:h-8 [&_.rdp-button]:min-w-0 [&_.rdp-button]:aspect-auto [&_.rdp-button]:text-xs"
+                          classNames={{
+                            root: "w-full",
+                            months: "relative flex flex-col w-full",
+                            month: "w-full flex flex-col gap-1.5",
+                            weekdays: "flex w-full justify-between",
+                            week: "flex w-full mt-1 justify-between",
+                          }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setIsScanCalendarOpen(false)}
+                          className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!scanRangeSelection?.from}
+                          onClick={() => {
+                            if (scanRangeSelection?.from) {
+                              const s = format(scanRangeSelection.from, "yyyy-MM-dd");
+                              const e = scanRangeSelection.to ? format(scanRangeSelection.to, "yyyy-MM-dd") : s;
+                              setScanCustomRange({ from: s, to: e });
+                              setScanPreset("custom");
+                            }
+                            setIsScanCalendarOpen(false);
+                          }}
+                          className="px-4 py-1.5 text-xs font-bold bg-pink-500 hover:bg-pink-400 disabled:opacity-50 text-white rounded-lg shadow-sm cursor-pointer transition-all"
+                        >
+                          Áp dụng
+                        </button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
 
             {/* Export Excel Button */}
             <Tooltip>
@@ -1820,7 +2059,7 @@ function ChecklistPageContent() {
                   <th className="py-3.5 px-2 w-28 text-center">Đã sync GPM</th>
                   <th className="py-3.5 px-3 w-44">Tiến độ</th>
                   <th className="py-3.5 px-3 w-40 text-center">Kết quả chấm công</th>
-                  <th className="py-3.5 px-2 w-36 min-w-[130px] text-center whitespace-nowrap">Chi tiết</th>
+                  <th className="py-3.5 px-2 w-40 min-w-[150px] text-center whitespace-nowrap">Chi tiết</th>
                   <th className="py-3.5 px-3 w-28 text-center whitespace-nowrap">Thao tác</th>
                 </tr>
               </thead>
@@ -1941,7 +2180,7 @@ function ChecklistPageContent() {
                         </td>
 
                         {/* Col 7: Accordion Expand Chi Tiết Button */}
-                        <td className="w-36 min-w-[130px] text-center px-2 py-3 whitespace-nowrap">
+                        <td className="w-40 min-w-[150px] text-center px-2 py-3 whitespace-nowrap">
                           <button
                             onClick={() => handleToggleRowExpand(chk.id)}
                             className={`inline-flex items-center justify-center gap-1.5 px-3.5 h-7.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs whitespace-nowrap shrink-0 ${isExpanded
@@ -2205,13 +2444,13 @@ function ChecklistPageContent() {
                                               <td className="py-3 px-4 text-center w-36 min-w-[130px] whitespace-nowrap">
                                                 <Tooltip>
                                                   <TooltipTrigger asChild>
-                                                    <div className="inline-flex cursor-help">
+                                                    <div className="inline-flex cursor-help w-[90px] items-center justify-center">
                                                       {isItemCompleted ? (
-                                                        <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs whitespace-nowrap">
+                                                        <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs w-full">
                                                           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Đạt KPI
                                                         </span>
                                                       ) : (
-                                                        <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs whitespace-nowrap">
+                                                        <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs w-full">
                                                           Chưa đạt
                                                         </span>
                                                       )}
@@ -2280,11 +2519,10 @@ function ChecklistPageContent() {
                                                               canEdit: true,
                                                             });
                                                           }}
-                                                          className={`inline-flex items-center justify-center gap-1.5 px-3 h-8 rounded-xl border transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 ${
-                                                            hasMessages
-                                                              ? "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border-pink-200/80 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/60 font-bold"
-                                                               : "bg-slate-50 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500 border-slate-200/80 dark:border-slate-800 hover:text-pink-600 hover:border-pink-300 dark:hover:border-pink-800 hover:bg-slate-100 dark:hover:bg-slate-800/60 font-medium"
-                                                          }`}
+                                                          className={`inline-flex items-center justify-center gap-1.5 px-3 h-8 rounded-xl border transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 ${hasMessages
+                                                            ? "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border-pink-200/80 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/60 font-bold"
+                                                            : "bg-slate-50 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500 border-slate-200/80 dark:border-slate-800 hover:text-pink-600 hover:border-pink-300 dark:hover:border-pink-800 hover:bg-slate-100 dark:hover:bg-slate-800/60 font-medium"
+                                                            }`}
                                                         >
                                                           <MessageSquare className="w-3.5 h-3.5 shrink-0" />
                                                           <span className="text-xs">{msgCount}</span>
@@ -2365,11 +2603,10 @@ function ChecklistPageContent() {
                                                       <TooltipTrigger asChild>
                                                         <button
                                                           onClick={() => handleToggleItemField(item, "isPosted")}
-                                                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                                            optPosted
-                                                              ? "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
-                                                              : "text-slate-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-950/50"
-                                                          }`}
+                                                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${optPosted
+                                                            ? "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                                                            : "text-slate-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-950/50"
+                                                            }`}
                                                           aria-label={optPosted ? "Bỏ đánh dấu đã đăng video" : "Đánh dấu đã đăng video"}
                                                         >
                                                           {optPosted

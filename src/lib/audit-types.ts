@@ -52,8 +52,15 @@ export type ListStats =
       totalRevenue60d?: number;
       totalRevenue365d?: number;
       trashCount: number | null;
+      archiveCount: number;
     }
   | {
       mode: "trash";
       trashCount: number;
+    }
+  | {
+      mode: "archive";
+      archiveCount: number;
+      trashCount: number | null;
     };
+

@@ -44,6 +44,7 @@ import {
   RotateCcw,
   AlertOctagon,
   ArchiveRestore,
+  Archive,
   Info,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
@@ -86,6 +87,9 @@ import {
   optimisticallyBulkUpdateAccounts,
   optimisticallyDeleteAccounts,
   optimisticallyRestoreAccounts,
+  optimisticallyArchiveAccounts,
+  optimisticallyUnarchiveAccounts,
+  optimisticallyHardDeleteAccounts,
   snapshotAccountQueries,
   rollbackAccountQueries,
 } from "@/utils/optimisticAccounts";
@@ -94,6 +98,10 @@ import {
   resolveAllTimeRevenue,
   resolvePeriodRevenue,
   resolveThisMonthRevenue,
+  resolveThisWeekRevenue,
+  resolvePreviousMonthRevenue,
+  getThisWeekDateRange,
+  getPreviousMonthDateRange,
 } from "@/lib/resolve-all-time-revenue";
 import { getAccountViewsPeriods } from "@/lib/daily-views-breakdown";
 import { OnlineOfflineBadge } from "@/components/ui/status-badge";
@@ -576,6 +584,10 @@ function AccountsPageContent() {
   const initialViewTrash = isAdmin && searchParams?.get("trash") === "true";
   const [viewTrash, setViewTrash] = useState<boolean>(initialViewTrash);
 
+  // Archive mode state (Lead / Admin)
+  const initialViewArchive = isLeadOrAdmin && searchParams?.get("archive") === "true";
+  const [viewArchive, setViewArchive] = useState<boolean>(initialViewArchive);
+
   // View Mode: read initial value from URL Search Params ("v" or "view")
   const initialViewMode = ((searchParams?.get("v") || searchParams?.get("view")) === "list" ? "list" : "grid") as "grid" | "list";
   const [viewMode, setViewMode] = useState<"grid" | "list">(initialViewMode);
@@ -666,6 +678,7 @@ function AccountsPageContent() {
         sort: sortConfig.key,
         dir: sortConfig.desc ? "desc" : "asc",
         trash: viewTrash ? "true" : "",
+        archive: viewArchive ? "true" : "",
       },
       {
         v: "grid",
@@ -685,6 +698,7 @@ function AccountsPageContent() {
         sort: "updatedAt",
         dir: "desc",
         trash: "",
+        archive: "",
       }
     );
   }, [
@@ -704,6 +718,7 @@ function AccountsPageContent() {
     minRevenue,
     sortConfig,
     viewTrash,
+    viewArchive,
     updateUrlParams,
   ]);
 
@@ -816,12 +831,13 @@ function AccountsPageContent() {
   // tRPC Queries
   const { data: accountsData, isLoading: loading } = trpc.accounts.list.useQuery({
     search: debouncedSearch || undefined,
-    status: !viewTrash && statusFilter !== "ALL" ? statusFilter : undefined,
-    onlineStatus: !viewTrash && onlineFilter !== "ALL" ? onlineFilter : undefined,
-    syncStatus: !viewTrash && syncFilter !== "ALL" ? syncFilter : undefined,
+    status: !viewTrash && !viewArchive && statusFilter !== "ALL" ? statusFilter : undefined,
+    onlineStatus: !viewTrash && !viewArchive && onlineFilter !== "ALL" ? onlineFilter : undefined,
+    syncStatus: !viewTrash && !viewArchive && syncFilter !== "ALL" ? syncFilter : undefined,
     country: countryFilter !== "ALL" ? countryFilter : undefined,
     assignedUserId: isLeadOrAdmin && assignedFilter !== "ALL" ? assignedFilter : undefined,
     viewTrash: viewTrash && isAdmin ? true : false,
+    viewArchive: viewArchive && isLeadOrAdmin ? true : false,
   });
 
   const { data: users = [] } = trpc.user.listStaff.useQuery();
@@ -876,53 +892,47 @@ function AccountsPageContent() {
   const stats = accountsData?.stats;
   const fleetStats = stats?.mode === "fleet" ? stats : null;
 
+  const canManageArchiveForAccount = useCallback((acc: any) => {
+    if (isAdmin) return true;
+    if (!isLead) return false;
+    if (!acc?.assignedUserId) return false;
+    if (acc.assignedUserId === (session?.user as any)?.id) return true;
+    return users.some((u: any) => u.id === acc.assignedUserId);
+  }, [isAdmin, isLead, session?.user, users]);
+
+  const getManageableAccountIds = useCallback((ids: Set<string>) => {
+    if (isAdmin) return Array.from(ids);
+    if (!isLead) return [];
+    return accounts
+      .filter((a: any) => ids.has(a.id) && canManageArchiveForAccount(a))
+      .map((a: any) => a.id);
+  }, [isAdmin, isLead, accounts, canManageArchiveForAccount]);
+
   const fleetRevenuePeriods = useMemo(() => {
     const fs = fleetStats as any;
-    const r7 =
-      typeof fs?.totalRevenue7d === "number"
-        ? fs.totalRevenue7d
-        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 7), 0);
-    const r28 =
-      typeof fs?.totalRevenue28d === "number"
-        ? fs.totalRevenue28d
-        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 28), 0);
-    const r30 =
-      typeof fs?.totalRevenue30d === "number"
-        ? fs.totalRevenue30d
-        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 30), 0);
     const rThisMonth =
       typeof fs?.totalRevenueThisMonth === "number"
         ? fs.totalRevenueThisMonth
         : typeof fs?.totalRevenue30d === "number"
           ? fs.totalRevenue30d
           : accounts.reduce((sum: number, acc: any) => sum + resolveThisMonthRevenue(acc), 0);
-    const r60 =
-      typeof fs?.totalRevenue60d === "number"
-        ? fs.totalRevenue60d
-        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 60), 0);
-    const r365 =
-      typeof fs?.totalRevenue365d === "number"
-        ? fs.totalRevenue365d
-        : accounts.reduce((sum: number, acc: any) => sum + resolvePeriodRevenue(acc, 365), 0);
-    const allTime =
-      typeof fs?.totalRevenue === "number"
-        ? fs.totalRevenue
-        : accounts.reduce((sum: number, acc: any) => sum + resolveAllTimeRevenue(acc), 0);
+    const rThisWeek = accounts.reduce(
+      (sum: number, acc: any) => sum + resolveThisWeekRevenue(acc),
+      0
+    );
+    const rPrevMonth = accounts.reduce(
+      (sum: number, acc: any) => sum + resolvePreviousMonthRevenue(acc),
+      0
+    );
 
     return {
-      revenue7d: r7,
-      revenue28d: r28,
-      revenue30d: r30,
       revenueThisMonth: rThisMonth,
-      revenue60d: r60,
-      revenue365d: r365,
-      allTime,
+      revenueThisWeek: rThisWeek,
+      revenuePrevMonth: rPrevMonth,
     };
   }, [fleetStats, accounts]);
 
   const fleetRevenueThisMonth = fleetRevenuePeriods.revenueThisMonth;
-  const fleetRevenue30d = fleetRevenuePeriods.revenue30d;
-  const fleetRevenueAllTime = fleetRevenuePeriods.allTime;
 
   const getAssigneeLabel = (acc: any) => {
     if (!acc?.assignedUserId) return "-- Chưa gán --";
@@ -1025,6 +1035,10 @@ function AccountsPageContent() {
     blockedAccounts: Array<{ id: string; username: string }>;
   } | null>(null);
 
+  // Archive mode state
+  const [accountToArchive, setAccountToArchive] = useState<any>(null);
+  const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+
   // Auto-restore confirm dialog state for Create Account
   const [autoRestoreConfirm, setAutoRestoreConfirm] = useState<{
     username: string;
@@ -1034,6 +1048,8 @@ function AccountsPageContent() {
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["accounts"]] });
       const snapshot = snapshotAccountQueries(queryClient);
+      setIsDeleteOpen(false);
+      setAccountToDelete(null);
       if (!viewTrash) {
         optimisticallyDeleteAccounts(queryClient, [vars.id]);
       }
@@ -1046,8 +1062,6 @@ function AccountsPageContent() {
       toast.error(err.message || "Lỗi khi xóa tài khoản");
     },
     onSuccess: () => {
-      setIsDeleteOpen(false);
-      setAccountToDelete(null);
       setActionMsg("🗑️ Đã chuyển tài khoản TikTok vào thùng rác!");
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
@@ -1061,6 +1075,8 @@ function AccountsPageContent() {
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["accounts"]] });
       const snapshot = snapshotAccountQueries(queryClient);
+      setIsBulkDeleteOpen(false);
+      setSelectedIds(new Set());
       if (!viewTrash) {
         optimisticallyDeleteAccounts(queryClient, vars.ids);
       }
@@ -1073,8 +1089,6 @@ function AccountsPageContent() {
       toast.error(err.message || "Lỗi khi xóa hàng loạt");
     },
     onSuccess: (res) => {
-      setIsBulkDeleteOpen(false);
-      setSelectedIds(new Set());
       setActionMsg(`🗑️ Đã chuyển thành công ${res.count} tài khoản vào thùng rác!`);
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
@@ -1113,6 +1127,7 @@ function AccountsPageContent() {
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["accounts"]] });
       const snapshot = snapshotAccountQueries(queryClient);
+      setSelectedIds(new Set());
       if (viewTrash) {
         optimisticallyRestoreAccounts(queryClient, vars.ids);
       }
@@ -1125,7 +1140,6 @@ function AccountsPageContent() {
       toast.error(err.message || "Lỗi khi khôi phục hàng loạt");
     },
     onSuccess: (res) => {
-      setSelectedIds(new Set());
       setActionMsg(`✅ Đã khôi phục thành công ${res.restoredCount} tài khoản!`);
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
@@ -1136,18 +1150,50 @@ function AccountsPageContent() {
   });
 
   const hardDeleteMutation = trpc.accounts.hardDelete.useMutation({
-    onSuccess: () => {
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
       setIsHardDeleteOpen(false);
       setAccountToHardDelete(null);
       setForcePurge(false);
+      optimisticallyHardDeleteAccounts(queryClient, [vars.id]);
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi xóa vĩnh viễn");
+    },
+    onSuccess: () => {
       setActionMsg("💥 Đã xóa vĩnh viễn tài khoản khỏi hệ thống!");
       utils.accounts.list.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   const bulkHardDeleteMutation = trpc.accounts.bulkHardDelete.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      if (forcePurge) {
+        setIsBulkHardDeleteOpen(false);
+        setBulkHardDeleteResult(null);
+        setForcePurge(false);
+        setSelectedIds(new Set());
+        optimisticallyHardDeleteAccounts(queryClient, vars.ids);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi xóa vĩnh viễn hàng loạt");
+    },
     onSuccess: (res) => {
       if (res.blockedCount > 0 && !forcePurge) {
         setBulkHardDeleteResult(res);
@@ -1161,7 +1207,113 @@ function AccountsPageContent() {
         setTimeout(() => setActionMsg(null), 4000);
       }
     },
-    onError: (err: any) => toast.error(err.message),
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
+  });
+
+  const archiveMutation = trpc.accounts.archive.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      setIsArchiveConfirmOpen(false);
+      setAccountToArchive(null);
+      if (!viewArchive) {
+        optimisticallyArchiveAccounts(queryClient, [vars.id]);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi lưu trữ tài khoản");
+    },
+    onSuccess: () => {
+      setActionMsg("📦 Đã lưu trữ tài khoản thành công!");
+      utils.accounts.list.invalidate();
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
+  });
+
+  const unarchiveMutation = trpc.accounts.unarchive.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      if (viewArchive) {
+        optimisticallyUnarchiveAccounts(queryClient, [vars.id]);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi bỏ lưu trữ");
+    },
+    onSuccess: () => {
+      setActionMsg("✅ Đã bỏ lưu trữ tài khoản!");
+      utils.accounts.list.invalidate();
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
+  });
+
+  const bulkArchiveMutation = trpc.accounts.bulkArchive.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      setSelectedIds(new Set());
+      if (!viewArchive) {
+        optimisticallyArchiveAccounts(queryClient, vars.ids);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi lưu trữ hàng loạt");
+    },
+    onSuccess: (res) => {
+      setActionMsg(`📦 Đã lưu trữ thành công ${res.count} tài khoản!`);
+      utils.accounts.list.invalidate();
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
+  });
+
+  const bulkUnarchiveMutation = trpc.accounts.bulkUnarchive.useMutation({
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: [["accounts"]] });
+      const snapshot = snapshotAccountQueries(queryClient);
+      setSelectedIds(new Set());
+      if (viewArchive) {
+        optimisticallyUnarchiveAccounts(queryClient, vars.ids);
+      }
+      return { snapshot };
+    },
+    onError: (err: any, _vars, context: any) => {
+      if (context?.snapshot) {
+        rollbackAccountQueries(queryClient, context.snapshot);
+      }
+      toast.error(err.message || "Lỗi khi bỏ lưu trữ hàng loạt");
+    },
+    onSuccess: (res) => {
+      setActionMsg(`✅ Đã bỏ lưu trữ thành công ${res.count} tài khoản!`);
+      utils.accounts.list.invalidate();
+      setTimeout(() => setActionMsg(null), 4000);
+    },
+    onSettled: () => {
+      utils.accounts.list.invalidate();
+    },
   });
 
   const bulkUpdateStatusMutation = trpc.accounts.bulkUpdateStatus.useMutation({
@@ -1681,6 +1833,36 @@ function AccountsPageContent() {
 
           {isLeadOrAdmin && (
             <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+              {isLeadOrAdmin && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewArchive(!viewArchive);
+                        if (!viewArchive) setViewTrash(false);
+                        setPage(1);
+                        setSelectedIds(new Set());
+                      }}
+                      className={`h-10 flex items-center gap-2 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${viewArchive
+                        ? "bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-600/30 font-extrabold"
+                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        }`}
+                    >
+                      <Archive className={`w-4 h-4 ${viewArchive ? "text-white" : "text-amber-500"}`} />
+                      <span>
+                        Lưu trữ {stats && "archiveCount" in stats && stats.archiveCount != null ? `(${stats.archiveCount})` : ""}
+                      </span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    {viewArchive
+                      ? "Đang xem lưu trữ — bấm để quay lại danh sách chính"
+                      : "Xem danh sách tài khoản đã lưu trữ"}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
               {isAdmin && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1688,6 +1870,7 @@ function AccountsPageContent() {
                       type="button"
                       onClick={() => {
                         setViewTrash(!viewTrash);
+                        if (!viewTrash) setViewArchive(false);
                         setPage(1);
                         setSelectedIds(new Set());
                       }}
@@ -1710,7 +1893,7 @@ function AccountsPageContent() {
                 </Tooltip>
               )}
 
-              {!viewTrash && (
+              {!viewTrash && !viewArchive && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -1729,6 +1912,31 @@ function AccountsPageContent() {
             </div>
           )}
         </div>
+
+        {/* Archive Mode Banner */}
+        {viewArchive && (
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 animate-in fade-in">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Archive className="w-5 h-5 text-amber-500 shrink-0" />
+              <div className="min-w-0">
+                <span className="font-bold">Lưu trữ:</span>
+                <span className="ml-1 text-slate-600 dark:text-slate-300">
+                  Hiển thị các tài khoản TikTok đã được lưu trữ. Bạn có thể bỏ lưu trữ để đưa tài khoản trở lại danh sách hoạt động.
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setViewArchive(false);
+                setPage(1);
+                setSelectedIds(new Set());
+              }}
+              className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-500/40 text-amber-700 dark:text-amber-300 font-bold hover:bg-amber-500/20 transition-all cursor-pointer whitespace-nowrap shrink-0"
+            >
+              ← Quay lại danh sách chính
+            </button>
+          </div>
+        )}
 
         {/* Trash Mode Banner */}
         {viewTrash && (
@@ -1762,7 +1970,7 @@ function AccountsPageContent() {
         )}
 
         {/* KPI Stats Bar */}
-        {!viewTrash && (loading || !fleetStats ? (
+        {!viewTrash && !viewArchive && (loading || !fleetStats ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
               <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate whitespace-nowrap">Tổng Số Acc</div>
@@ -1884,47 +2092,35 @@ function AccountsPageContent() {
                       <span>Doanh Thu Toàn Dàn (Tháng Này)</span>
                     </div>
                     <p className="text-[11px] text-slate-300 leading-relaxed">
-                      Số tiền hiển thị là tổng doanh thu từ <strong>ngày 01 tháng này đến hiện tại</strong> được tổng hợp từ toàn bộ tài khoản TikTok trong hệ thống.
+                      Số tiền hiển thị là tổng doanh thu <strong>tháng này (01/{(() => { const d = new Date(); return String(d.getMonth() + 1).padStart(2, "0"); })()})</strong> được tổng hợp từ toàn bộ tài khoản TikTok trong hệ thống.
                     </p>
                     <div className="pt-1.5 mt-1 border-t border-slate-800 space-y-1 text-[11px]">
-                      <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">7 ngày gần nhất:</span>
-                        <span className="font-semibold text-cyan-300">
-                          ${fleetRevenuePeriods.revenue7d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">28 ngày gần nhất:</span>
-                        <span className="font-semibold text-purple-300">
-                          ${fleetRevenuePeriods.revenue28d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">Tháng này:</span>
-                        <span className="font-bold text-pink-400">
-                          ${fleetRevenueThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">60 ngày gần nhất:</span>
-                        <span className="font-semibold text-indigo-300">
-                          ${fleetRevenuePeriods.revenue60d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-slate-400">365 ngày gần nhất:</span>
-                        <span className="font-semibold text-amber-300">
-                          ${fleetRevenuePeriods.revenue365d.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      {fleetRevenueAllTime > 0 && (
-                        <div className="flex justify-between gap-4 pt-1 border-t border-slate-800 font-bold">
-                          <span className="text-slate-300">Toàn bộ (All-time):</span>
-                          <span className="font-semibold text-emerald-400">
-                            ${fleetRevenueAllTime.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
+                      {(() => {
+                        const weekRange = getThisWeekDateRange();
+                        const prevRange = getPreviousMonthDateRange();
+                        return (
+                          <>
+                            <div className="flex justify-between gap-4">
+                              <span className="text-slate-400">Tuần này ({weekRange.start.slice(8)}/{weekRange.start.slice(5, 7)}–{weekRange.end.slice(8)}/{weekRange.end.slice(5, 7)}):</span>
+                              <span className="font-semibold text-cyan-300">
+                                ${fleetRevenuePeriods.revenueThisWeek.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                            <div className="flex justify-between gap-4">
+                              <span className="text-slate-400">Tháng này (01/{new Date().toLocaleDateString("vi-VN", { month: "2-digit" })} đến nay):</span>
+                              <span className="font-bold text-pink-400">
+                                ${fleetRevenueThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                            <div className="flex justify-between gap-4">
+                              <span className="text-slate-400">Tháng trước ({prevRange.start.slice(0, 7)}):</span>
+                              <span className="font-semibold text-purple-300">
+                                ${fleetRevenuePeriods.revenuePrevMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </TooltipContent>
                 </Tooltip>
@@ -2177,38 +2373,99 @@ function AccountsPageContent() {
 
                   <div className="p-4 pt-3 overflow-y-auto space-y-3.5 flex-1 overscroll-contain">
 
-                  {/* Trạng thái tài khoản (Khi là Leader hoặc Admin) */}
-                  {isLeadOrAdmin && (
+                    {/* Trạng thái tài khoản (Khi là Leader hoặc Admin) */}
+                    {isLeadOrAdmin && (
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                          Trạng thái tài khoản
+                        </label>
+                        <div className="relative">
+                          <Select
+                            value={statusFilter}
+                            onValueChange={(val) => {
+                              setStatusFilter(val);
+                              setPage(1);
+                            }}
+                          >
+                            <SelectTrigger
+                              className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${statusFilter !== "ALL"
+                                ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                                : ""
+                                }`}
+                            >
+                              <SelectValue placeholder="Tất cả trạng thái" />
+                            </SelectTrigger>
+                            <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                              <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
+                              <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
+                              <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
+                              <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
+                              <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
+                              <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {statusFilter !== "ALL" && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    setStatusFilter("ALL");
+                                    setPage(1);
+                                  }}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                  aria-label="Xóa chọn trạng thái"
+                                >
+                                  <X className="w-2.5 h-2.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Trạng thái mở Profile GPM (Online / Offline) */}
                     <div className="space-y-1">
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-                        Trạng thái tài khoản
+                        Trình duyệt GPM (Online / Offline)
                       </label>
                       <div className="relative">
                         <Select
-                          value={statusFilter}
-                          onValueChange={(val) => {
-                            setStatusFilter(val);
+                          value={onlineFilter}
+                          onValueChange={(val: any) => {
+                            setOnlineFilter(val);
                             setPage(1);
                           }}
                         >
                           <SelectTrigger
-                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${statusFilter !== "ALL"
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${onlineFilter !== "ALL"
                               ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                               : ""
                               }`}
                           >
-                            <SelectValue placeholder="Tất cả trạng thái" />
+                            <SelectValue placeholder="Tất cả trạng thái mở" />
                           </SelectTrigger>
                           <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả trạng thái</SelectItem>
-                            <SelectItem value="ACTIVE" className="text-xs font-normal cursor-pointer">Active</SelectItem>
-                            <SelectItem value="WARMING" className="text-xs font-normal cursor-pointer">Warming</SelectItem>
-                            <SelectItem value="RESTRICTED" className="text-xs font-normal cursor-pointer">Restricted</SelectItem>
-                            <SelectItem value="BANNED" className="text-xs font-normal cursor-pointer">Banned</SelectItem>
-                            <SelectItem value="STOPPED" className="text-xs font-normal cursor-pointer">Stopped</SelectItem>
+                            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả (Mở &amp; Đóng)</SelectItem>
+                            <SelectItem value="ONLINE" className="text-xs font-normal cursor-pointer">
+                              <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50" />
+                                <span>Đang mở profile (Online)</span>
+                              </span>
+                            </SelectItem>
+                            <SelectItem value="OFFLINE" className="text-xs font-normal cursor-pointer">
+                              <span className="inline-flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium">
+                                <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
+                                <span>Đang đóng (Offline)</span>
+                              </span>
+                            </SelectItem>
                           </SelectContent>
                         </Select>
-                        {statusFilter !== "ALL" && (
+                        {onlineFilter !== "ALL" && (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
@@ -2216,378 +2473,315 @@ function AccountsPageContent() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   e.preventDefault();
-                                  setStatusFilter("ALL");
+                                  setOnlineFilter("ALL");
                                   setPage(1);
                                 }}
                                 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                                aria-label="Xóa chọn trạng thái"
+                                aria-label="Xóa chọn trạng thái mở"
                               >
                                 <X className="w-2.5 h-2.5" />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent side="top">Xóa chọn trạng thái</TooltipContent>
+                            <TooltipContent side="top">Xóa chọn trạng thái mở</TooltipContent>
                           </Tooltip>
                         )}
                       </div>
                     </div>
-                  )}
 
-                  {/* Trạng thái mở Profile GPM (Online / Offline) */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Trình duyệt GPM (Online / Offline)
-                    </label>
-                    <div className="relative">
-                      <Select
-                        value={onlineFilter}
-                        onValueChange={(val: any) => {
-                          setOnlineFilter(val);
-                          setPage(1);
-                        }}
-                      >
-                        <SelectTrigger
-                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${onlineFilter !== "ALL"
-                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                            : ""
-                            }`}
+                    {/* Trạng thái đồng bộ (Sync Status) */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Trạng thái đồng bộ (Sync)
+                      </label>
+                      <div className="relative">
+                        <Select
+                          value={syncFilter}
+                          onValueChange={(val: any) => {
+                            setSyncFilter(val);
+                            setPage(1);
+                          }}
                         >
-                          <SelectValue placeholder="Tất cả trạng thái mở" />
-                        </SelectTrigger>
-                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả (Mở &amp; Đóng)</SelectItem>
-                          <SelectItem value="ONLINE" className="text-xs font-normal cursor-pointer">
-                            <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 shadow-xs shadow-emerald-500/50" />
-                              <span>Đang mở profile (Online)</span>
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="OFFLINE" className="text-xs font-normal cursor-pointer">
-                            <span className="inline-flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium">
-                              <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
-                              <span>Đang đóng (Offline)</span>
-                            </span>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {onlineFilter !== "ALL" && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                setOnlineFilter("ALL");
-                                setPage(1);
-                              }}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                              aria-label="Xóa chọn trạng thái mở"
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Xóa chọn trạng thái mở</TooltipContent>
-                        </Tooltip>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Trạng thái đồng bộ (Sync Status) */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Trạng thái đồng bộ (Sync)
-                    </label>
-                    <div className="relative">
-                      <Select
-                        value={syncFilter}
-                        onValueChange={(val: any) => {
-                          setSyncFilter(val);
-                          setPage(1);
-                        }}
-                      >
-                        <SelectTrigger
-                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${syncFilter !== "ALL"
-                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                            : ""
-                            }`}
-                        >
-                          <SelectValue placeholder="Tất cả đồng bộ" />
-                        </SelectTrigger>
-                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả đồng bộ</SelectItem>
-                          <SelectItem value="SYNC_OK" className="text-xs font-normal cursor-pointer">
-                            <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                              <span>Đồng bộ tốt (&lt; 24h)</span>
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="SYNC_ISSUES" className="text-xs font-normal cursor-pointer">
-                            <span className="inline-flex items-center gap-2 text-rose-600 dark:text-rose-400 font-medium">
-                              <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
-                              <span>Lỗi sync / Cần xử lý</span>
-                            </span>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {syncFilter !== "ALL" && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                setSyncFilter("ALL");
-                                setPage(1);
-                              }}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                              aria-label="Xóa chọn trạng thái sync"
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Xóa chọn trạng thái sync</TooltipContent>
-                        </Tooltip>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Quốc gia */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Quốc gia
-                    </label>
-                    <div className="relative">
-                      <Select
-                        value={countryFilter}
-                        onValueChange={(val) => {
-                          setCountryFilter(val);
-                          setPage(1);
-                        }}
-                      >
-                        <SelectTrigger
-                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${countryFilter !== "ALL"
-                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                            : ""
-                            }`}
-                        >
-                          <SelectValue placeholder="Tất cả quốc gia" />
-                        </SelectTrigger>
-                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
-                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
-                          {COUNTRY_OPTIONS.map((c) => (
-                            <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
-                              {c.label}
+                          <SelectTrigger
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${syncFilter !== "ALL"
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
+                              }`}
+                          >
+                            <SelectValue placeholder="Tất cả đồng bộ" />
+                          </SelectTrigger>
+                          <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả đồng bộ</SelectItem>
+                            <SelectItem value="SYNC_OK" className="text-xs font-normal cursor-pointer">
+                              <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                <span>Đồng bộ tốt (&lt; 24h)</span>
+                              </span>
                             </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {countryFilter !== "ALL" && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                setCountryFilter("ALL");
-                                setPage(1);
-                              }}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                              aria-label="Xóa chọn quốc gia"
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Xóa chọn quốc gia</TooltipContent>
-                        </Tooltip>
-                      )}
+                            <SelectItem value="SYNC_ISSUES" className="text-xs font-normal cursor-pointer">
+                              <span className="inline-flex items-center gap-2 text-rose-600 dark:text-rose-400 font-medium">
+                                <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                                <span>Lỗi sync / Cần xử lý</span>
+                              </span>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {syncFilter !== "ALL" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setSyncFilter("ALL");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa chọn trạng thái sync"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa chọn trạng thái sync</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Cảnh báo vi phạm */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Cảnh báo vi phạm
-                    </label>
-                    <div className="relative">
-                      <Select
-                        value={warningFilter}
-                        onValueChange={(val) => {
-                          setWarningFilter(val as any);
-                          setPage(1);
-                        }}
-                      >
-                        <SelectTrigger
-                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${warningFilter !== "ALL"
-                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                            : ""
-                            }`}
+                    {/* Quốc gia */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Quốc gia
+                      </label>
+                      <div className="relative">
+                        <Select
+                          value={countryFilter}
+                          onValueChange={(val) => {
+                            setCountryFilter(val);
+                            setPage(1);
+                          }}
                         >
-                          <SelectValue placeholder="Tất cả" />
-                        </SelectTrigger>
-                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
-                          <SelectItem value="HAS_WARNING" className="text-xs font-normal cursor-pointer">Có cảnh báo vi phạm</SelectItem>
-                          <SelectItem value="CLEAN" className="text-xs font-normal cursor-pointer">Sạch sẽ (Không cảnh báo)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {warningFilter !== "ALL" && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                setWarningFilter("ALL");
-                                setPage(1);
-                              }}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                              aria-label="Xóa chọn cảnh báo"
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Xóa chọn cảnh báo</TooltipContent>
-                        </Tooltip>
-                      )}
+                          <SelectTrigger
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${countryFilter !== "ALL"
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
+                              }`}
+                          >
+                            <SelectValue placeholder="Tất cả quốc gia" />
+                          </SelectTrigger>
+                          <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
+                            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả quốc gia</SelectItem>
+                            {COUNTRY_OPTIONS.map((c) => (
+                              <SelectItem key={c.value} value={c.value} className="text-xs font-normal cursor-pointer">
+                                {c.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {countryFilter !== "ALL" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setCountryFilter("ALL");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa chọn quốc gia"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa chọn quốc gia</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Đồng bộ GPM-Login */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Đồng bộ GPM-Login
-                    </label>
-                    <div className="relative">
-                      <Select
-                        value={gpmFilter}
-                        onValueChange={(val) => {
-                          setGpmFilter(val as any);
-                          setPage(1);
-                        }}
-                      >
-                        <SelectTrigger
-                          className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${gpmFilter !== "ALL"
-                            ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
-                            : ""
-                            }`}
+                    {/* Cảnh báo vi phạm */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Cảnh báo vi phạm
+                      </label>
+                      <div className="relative">
+                        <Select
+                          value={warningFilter}
+                          onValueChange={(val) => {
+                            setWarningFilter(val as any);
+                            setPage(1);
+                          }}
                         >
-                          <SelectValue placeholder="Tất cả" />
-                        </SelectTrigger>
-                        <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
-                          <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
-                          <SelectItem value="LINKED" className="text-xs font-normal cursor-pointer">Đã liên kết Profile GPM</SelectItem>
-                          <SelectItem value="NOT_LINKED" className="text-xs font-normal cursor-pointer">Chưa liên kết Profile GPM</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {gpmFilter !== "ALL" && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                setGpmFilter("ALL");
-                                setPage(1);
-                              }}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                              aria-label="Xóa chọn GPM"
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Xóa chọn GPM</TooltipContent>
-                        </Tooltip>
-                      )}
+                          <SelectTrigger
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${warningFilter !== "ALL"
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
+                              }`}
+                          >
+                            <SelectValue placeholder="Tất cả" />
+                          </SelectTrigger>
+                          <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
+                            <SelectItem value="HAS_WARNING" className="text-xs font-normal cursor-pointer">Có cảnh báo vi phạm</SelectItem>
+                            <SelectItem value="CLEAN" className="text-xs font-normal cursor-pointer">Sạch sẽ (Không cảnh báo)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {warningFilter !== "ALL" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setWarningFilter("ALL");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa chọn cảnh báo"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa chọn cảnh báo</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Lượt xem tối thiểu */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Lượt xem tối thiểu (Views)
-                    </label>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        placeholder="e.g. 10000"
-                        value={minViews}
-                        onChange={(e) => {
-                          setMinViews(e.target.value);
-                          setPage(1);
-                        }}
-                        className={`h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors ${
-                          minViews
+                    {/* Đồng bộ GPM-Login */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Đồng bộ GPM-Login
+                      </label>
+                      <div className="relative">
+                        <Select
+                          value={gpmFilter}
+                          onValueChange={(val) => {
+                            setGpmFilter(val as any);
+                            setPage(1);
+                          }}
+                        >
+                          <SelectTrigger
+                            className={`w-full h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${gpmFilter !== "ALL"
+                              ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
+                              : ""
+                              }`}
+                          >
+                            <SelectValue placeholder="Tất cả" />
+                          </SelectTrigger>
+                          <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl">
+                            <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả</SelectItem>
+                            <SelectItem value="LINKED" className="text-xs font-normal cursor-pointer">Đã liên kết Profile GPM</SelectItem>
+                            <SelectItem value="NOT_LINKED" className="text-xs font-normal cursor-pointer">Chưa liên kết Profile GPM</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {gpmFilter !== "ALL" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setGpmFilter("ALL");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa chọn GPM"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa chọn GPM</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Lượt xem tối thiểu */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Lượt xem tối thiểu (Views)
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          placeholder="e.g. 10000"
+                          value={minViews}
+                          onChange={(e) => {
+                            setMinViews(e.target.value);
+                            setPage(1);
+                          }}
+                          className={`h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors ${minViews
                             ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300"
                             : ""
-                        }`}
-                      />
-                      {minViews && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMinViews("");
-                                setPage(1);
-                              }}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                              aria-label="Xóa lọc views"
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Xóa lọc views</TooltipContent>
-                        </Tooltip>
-                      )}
+                            }`}
+                        />
+                        {minViews && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMinViews("");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa lọc views"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa lọc views</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Doanh thu tối thiểu */}
-                  <div className="space-y-1">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Doanh thu tối thiểu ($)
-                    </label>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        placeholder="e.g. 50"
-                        value={minRevenue}
-                        onChange={(e) => {
-                          setMinRevenue(e.target.value);
-                          setPage(1);
-                        }}
-                        className={`h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors ${
-                          minRevenue
+                    {/* Doanh thu tối thiểu */}
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Doanh thu tối thiểu ($)
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          placeholder="e.g. 50"
+                          value={minRevenue}
+                          onChange={(e) => {
+                            setMinRevenue(e.target.value);
+                            setPage(1);
+                          }}
+                          className={`h-8.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors ${minRevenue
                             ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300"
                             : ""
-                        }`}
-                      />
-                      {minRevenue && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMinRevenue("");
-                                setPage(1);
-                              }}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                              aria-label="Xóa lọc doanh thu"
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Xóa lọc doanh thu</TooltipContent>
-                        </Tooltip>
-                      )}
+                            }`}
+                        />
+                        {minRevenue && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMinRevenue("");
+                                  setPage(1);
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
+                                aria-label="Xóa lọc doanh thu"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Xóa lọc doanh thu</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </PopoverContent>
+                </PopoverContent>
               </Popover>
             </div>
 
@@ -3157,6 +3351,26 @@ function AccountsPageContent() {
                                   </>
                                 )}
                               </>
+                            ) : viewArchive ? (
+                              <>
+                                {canManageArchiveForAccount(acc) && (
+                                  <DropdownMenuItem
+                                    onClick={() => unarchiveMutation.mutate({ id: acc.id })}
+                                    disabled={unarchiveMutation.isPending}
+                                    className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-xl cursor-pointer"
+                                  >
+                                    <ArchiveRestore className="w-3.5 h-3.5 text-amber-500" />
+                                    <span>Bỏ lưu trữ</span>
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenLogs(acc)}
+                                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                >
+                                  <History className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Lịch sử hoạt động</span>
+                                </DropdownMenuItem>
+                              </>
                             ) : (
                               <>
                                 <DropdownMenuItem asChild>
@@ -3214,6 +3428,21 @@ function AccountsPageContent() {
                                     <Pencil className="w-3.5 h-3.5 text-slate-400" />
                                     <span>Chỉnh sửa</span>
                                   </DropdownMenuItem>
+                                )}
+                                {isLeadOrAdmin && canManageArchiveForAccount(acc) && (
+                                  <>
+                                    <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        setAccountToArchive(acc);
+                                        setIsArchiveConfirmOpen(true);
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-xl cursor-pointer"
+                                    >
+                                      <Archive className="w-3.5 h-3.5 text-amber-500" />
+                                      <span>Lưu trữ tài khoản</span>
+                                    </DropdownMenuItem>
+                                  </>
                                 )}
                                 {isAdmin && (
                                   <>
@@ -3291,6 +3520,15 @@ function AccountsPageContent() {
                                 <span className="truncate">
                                   Đã xóa bởi {acc.deletedByName || "Hệ thống"}
                                   {acc.deletedAt ? ` (${new Date(acc.deletedAt).toLocaleDateString("vi-VN")})` : ""}
+                                </span>
+                              </div>
+                            )}
+                            {viewArchive && (
+                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1 mt-1">
+                                <Archive className="w-3 h-3 shrink-0" />
+                                <span className="truncate">
+                                  Lưu trữ bởi {acc.archivedByName || "Hệ thống"}
+                                  {acc.archivedAt ? ` (${new Date(acc.archivedAt).toLocaleDateString("vi-VN")})` : ""}
                                 </span>
                               </div>
                             )}
@@ -3417,34 +3655,24 @@ function AccountsPageContent() {
                             <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
                               {(() => {
                                 const p = getAccountRevenuePeriods(acc as any);
+                                const weekRange = getThisWeekDateRange();
+                                const prevRange = getPreviousMonthDateRange();
                                 return (
                                   <>
                                     <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1 flex items-center gap-1">
                                       <span>Doanh Thu TikTok Studio</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">7 ngày gần nhất:</span>
-                                      <span className="font-semibold text-cyan-300">{formatAmount(p.revenue7d, (acc as any).country)}</span>
+                                      <span className="text-slate-400">Tuần này ({weekRange.start.slice(8)}/{weekRange.start.slice(5, 7)}–{weekRange.end.slice(8)}/{weekRange.end.slice(5, 7)}):</span>
+                                      <span className="font-semibold text-cyan-300">{formatAmount(p.revenueThisWeek, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">28 ngày gần nhất:</span>
-                                      <span className="font-semibold text-purple-300">{formatAmount(p.revenue28d, (acc as any).country)}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">Tháng này:</span>
+                                      <span className="text-slate-400">Tháng này (01/{new Date().toLocaleDateString("vi-VN", { month: "2-digit" })} đến nay):</span>
                                       <span className="font-semibold text-pink-400">{formatAmount(p.revenueThisMonth, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">60 ngày gần nhất:</span>
-                                      <span className="font-semibold text-indigo-300">{formatAmount(p.revenue60d, (acc as any).country)}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">365 ngày gần nhất:</span>
-                                      <span className="font-semibold text-amber-300">{formatAmount(p.revenue365d, (acc as any).country)}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                      <span className="text-slate-300">Toàn bộ (All-time):</span>
-                                      <span className="text-emerald-400">{formatAmount(p.totalRevenue, (acc as any).country)}</span>
+                                      <span className="text-slate-400">Tháng trước ({prevRange.start.slice(0, 7)}):</span>
+                                      <span className="font-semibold text-purple-300">{formatAmount(p.revenuePrevMonth, (acc as any).country)}</span>
                                     </div>
                                   </>
                                 );
@@ -4193,34 +4421,24 @@ function AccountsPageContent() {
                                   <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
                                     {(() => {
                                       const p = getAccountRevenuePeriods(acc as any);
+                                      const weekRange = getThisWeekDateRange();
+                                      const prevRange = getPreviousMonthDateRange();
                                       return (
                                         <>
                                           <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1">
                                             Doanh Thu TikTok Studio
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">7 ngày gần nhất:</span>
-                                            <span className="font-semibold text-cyan-300">{formatAmount(p.revenue7d, (acc as any).country)}</span>
+                                            <span className="text-slate-400">Tuần này ({weekRange.start.slice(8)}/{weekRange.start.slice(5, 7)}–{weekRange.end.slice(8)}/{weekRange.end.slice(5, 7)}):</span>
+                                            <span className="font-semibold text-cyan-300">{formatAmount(p.revenueThisWeek, (acc as any).country)}</span>
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">28 ngày gần nhất:</span>
-                                            <span className="font-semibold text-purple-300">{formatAmount(p.revenue28d, (acc as any).country)}</span>
-                                          </div>
-                                          <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">Tháng này:</span>
+                                            <span className="text-slate-400">Tháng này (01/{new Date().toLocaleDateString("vi-VN", { month: "2-digit" })} đến nay):</span>
                                             <span className="font-semibold text-pink-400">{formatAmount(p.revenueThisMonth, (acc as any).country)}</span>
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">60 ngày gần nhất:</span>
-                                            <span className="font-semibold text-indigo-300">{formatAmount(p.revenue60d, (acc as any).country)}</span>
-                                          </div>
-                                          <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">365 ngày gần nhất:</span>
-                                            <span className="font-semibold text-amber-300">{formatAmount(p.revenue365d, (acc as any).country)}</span>
-                                          </div>
-                                          <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                            <span className="text-slate-300">Toàn bộ (All-time):</span>
-                                            <span className="text-emerald-400">{formatAmount(p.totalRevenue, (acc as any).country)}</span>
+                                            <span className="text-slate-400">Tháng trước ({prevRange.start.slice(0, 7)}):</span>
+                                            <span className="font-semibold text-purple-300">{formatAmount(p.revenuePrevMonth, (acc as any).country)}</span>
                                           </div>
                                         </>
                                       );
@@ -4450,6 +4668,26 @@ function AccountsPageContent() {
                                             </>
                                           )}
                                         </>
+                                      ) : viewArchive ? (
+                                        <>
+                                          {canManageArchiveForAccount(acc) && (
+                                            <DropdownMenuItem
+                                              onClick={() => unarchiveMutation.mutate({ id: acc.id })}
+                                              disabled={unarchiveMutation.isPending}
+                                              className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-xl cursor-pointer"
+                                            >
+                                              <ArchiveRestore className="w-3.5 h-3.5 text-amber-500" />
+                                              <span>Bỏ lưu trữ</span>
+                                            </DropdownMenuItem>
+                                          )}
+                                          <DropdownMenuItem
+                                            onClick={() => handleOpenLogs(acc)}
+                                            className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+                                          >
+                                            <History className="w-3.5 h-3.5 text-slate-400" />
+                                            <span>Lịch sử hoạt động</span>
+                                          </DropdownMenuItem>
+                                        </>
                                       ) : (
                                         <>
                                           <DropdownMenuItem asChild>
@@ -4506,6 +4744,22 @@ function AccountsPageContent() {
                                               <Pencil className="w-3.5 h-3.5 text-slate-400" />
                                               <span>Chỉnh sửa thông tin</span>
                                             </DropdownMenuItem>
+                                          )}
+
+                                          {isLeadOrAdmin && canManageArchiveForAccount(acc) && (
+                                            <>
+                                              <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
+                                              <DropdownMenuItem
+                                                onClick={() => {
+                                                  setAccountToArchive(acc);
+                                                  setIsArchiveConfirmOpen(true);
+                                                }}
+                                                className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-xl cursor-pointer"
+                                              >
+                                                <Archive className="w-3.5 h-3.5 text-amber-500" />
+                                                <span>Lưu trữ tài khoản</span>
+                                              </DropdownMenuItem>
+                                            </>
                                           )}
 
                                           {isAdmin && (
@@ -4598,6 +4852,24 @@ function AccountsPageContent() {
                 </button>
               )}
             </>
+          ) : viewArchive ? (
+            <>
+              <button
+                onClick={() => {
+                  const targetIds = getManageableAccountIds(selectedIds);
+                  if (targetIds.length === 0) {
+                    toast.error("Không có tài khoản nào thuộc đội nhóm của bạn để bỏ lưu trữ.");
+                    return;
+                  }
+                  bulkUnarchiveMutation.mutate({ ids: targetIds });
+                }}
+                disabled={bulkUnarchiveMutation.isPending}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
+              >
+                <ArchiveRestore className="w-3.5 h-3.5" />
+                <span>Bỏ lưu trữ đã chọn ({selectedIds.size})</span>
+              </button>
+            </>
           ) : (
             <>
               {isLeadOrAdmin && (
@@ -4615,6 +4887,24 @@ function AccountsPageContent() {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
                 >
                   <span>Gán nhân sự</span>
+                </button>
+              )}
+
+              {isLeadOrAdmin && (
+                <button
+                  onClick={() => {
+                    const targetIds = getManageableAccountIds(selectedIds);
+                    if (targetIds.length === 0) {
+                      toast.error("Không có tài khoản nào thuộc đội nhóm của bạn để lưu trữ.");
+                      return;
+                    }
+                    bulkArchiveMutation.mutate({ ids: targetIds });
+                  }}
+                  disabled={bulkArchiveMutation.isPending}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                  <span>Lưu trữ ({selectedIds.size})</span>
                 </button>
               )}
 
@@ -5016,6 +5306,63 @@ function AccountsPageContent() {
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{deleteMutation.isPending ? "Đang chuyển..." : "Chuyển vào thùng rác"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Archive Confirm */}
+      {isArchiveConfirmOpen && accountToArchive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <Archive className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Lưu trữ tài khoản
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Bạn có chắc muốn lưu trữ @{accountToArchive.username}?
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50/80 dark:bg-amber-950/30 rounded-2xl p-4 border border-amber-200/60 dark:border-amber-800/50 text-xs text-amber-900 dark:text-amber-200">
+              Tài khoản sẽ bị ẩn khỏi danh sách chính và checklist. Bạn có thể bỏ lưu trữ bất kỳ lúc nào.
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 space-y-1 text-xs text-slate-700 dark:text-slate-300">
+              <div><span className="font-semibold">Tài khoản:</span> @{accountToArchive.username}</div>
+              <div><span className="font-semibold">Quốc gia:</span> {accountToArchive.country}</div>
+              <div><span className="font-semibold">Doanh thu:</span> ${Number(accountToArchive.totalRevenue || 0).toFixed(2)}</div>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsArchiveConfirmOpen(false);
+                  setAccountToArchive(null);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={archiveMutation.isPending}
+                onClick={() => {
+                  if (accountToArchive) {
+                    archiveMutation.mutate({ id: accountToArchive.id });
+                  }
+                }}
+                className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span>{archiveMutation.isPending ? "Đang lưu trữ..." : "Lưu trữ"}</span>
               </button>
             </div>
           </div>

@@ -102,6 +102,7 @@ model User {
   tiktokAccounts    TiktokAccount[]
   assignmentHistories AccountAssignmentHistory[]
   deletedAccounts   TiktokAccount[]         @relation("AccountDeletedBy")
+  archivedAccounts  TiktokAccount[]         @relation("AccountArchivedBy")
   dailyChecklists        DailyChecklist[]
   checklistNotes         DailyChecklistItemNote[]
   sentInvitations        Invitation[]             @relation("SentInvitations")
@@ -177,6 +178,11 @@ model TiktokAccount {
   deletedById        String?              @map("deleted_by_id")
   deletedBy          User?                @relation("AccountDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
 
+  // Archive fields (Lead / Admin)
+  archivedAt         DateTime?            @map("archived_at")
+  archivedById       String?              @map("archived_by_id")
+  archivedBy         User?                @relation("AccountArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
+
   @@index([status])
   @@index([isOnline])
   @@index([syncStatus])
@@ -196,6 +202,8 @@ model TiktokAccount {
   @@index([deletedAt, isOnline, lastSyncedAt])
   @@index([deletedAt, syncStatus])
   @@index([deletedAt, country])
+  @@index([archivedAt])
+  @@index([archivedAt, assignedUserId])
   @@map("tiktok_accounts")
 }
 
@@ -294,6 +302,7 @@ model DailyChecklistItem {
   videoSyncedAt  DateTime?      // Last time videosSnapshot actually changed (not just any write)
   updatedAt   DateTime       @updatedAt
 
+  @@unique([checklistId, accountId])
   @@index([checklistId])
   @@index([accountId])
   @@index([checklistId, isCompleted])

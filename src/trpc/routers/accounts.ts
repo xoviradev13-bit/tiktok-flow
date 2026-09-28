@@ -54,19 +54,26 @@ export const accountsRouter = router({
           country: z.string().optional(),
           assignedUserId: z.string().optional(),
           viewTrash: z.boolean().optional().default(false),
+          viewArchive: z.boolean().optional().default(false),
         })
         .optional()
     )
     .query(async ({ ctx, input }) => {
       const isAdmin = ctx.session.user.role === "ADMIN";
+      const isLeadOrAdmin = isAdmin || ctx.session.user.role === "LEAD";
       const viewTrash = Boolean(input?.viewTrash && isAdmin);
+      const viewArchive = Boolean(input?.viewArchive && isLeadOrAdmin);
 
       // Fleet mode uses the extended client so the soft-delete extension is the
       // one source of truth for "what counts as active" — not a hand-copied
       // filter that can drift from the extension's own logic.
-      const client = viewTrash ? ctx.prismaRaw : ctx.prisma;
+      const client = (viewTrash || viewArchive) ? ctx.prismaRaw : ctx.prisma;
 
-      const where: any = viewTrash ? { deletedAt: { not: null } } : {};
+      const where: any = viewTrash
+        ? { deletedAt: { not: null } }
+        : viewArchive
+          ? { archivedAt: { not: null }, deletedAt: null }
+          : { archivedAt: null };
 
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
 
@@ -160,7 +167,7 @@ export const accountsRouter = router({
         }
       }
 
-      const [accounts, trashCount, statusTeams, onlineCount] = await Promise.all([
+      const [accounts, trashCount, archiveCount, statusTeams, onlineCount] = await Promise.all([
         client.tiktokAccount.findMany({
           where,
           include: {
@@ -199,14 +206,17 @@ export const accountsRouter = router({
         isAdmin
           ? ctx.prismaRaw.tiktokAccount.count({ where: { deletedAt: { not: null } } })
           : Promise.resolve(null),
-        !viewTrash
+        isLeadOrAdmin
+          ? ctx.prismaRaw.tiktokAccount.count({ where: { archivedAt: { not: null }, deletedAt: null } })
+          : Promise.resolve(null),
+        !viewTrash && !viewArchive
           ? ctx.prisma.tiktokAccount.groupBy({
             by: ["status"],
             where,
             _count: { id: true },
           })
           : Promise.resolve([]),
-        !viewTrash
+        !viewTrash && !viewArchive
           ? ctx.prisma.tiktokAccount.count({
             where: {
               ...baseCountWhere,
@@ -217,7 +227,7 @@ export const accountsRouter = router({
       ]);
 
       // Lazily heal stale online records in the DB when in fleet mode
-      if (!viewTrash) {
+      if (!viewTrash && !viewArchive) {
         ctx.prisma.tiktokAccount
           .updateMany({
             where: {
@@ -230,13 +240,16 @@ export const accountsRouter = router({
           .catch(() => { });
       }
 
-      // Join the latest SystemAuditLog entry per row in Trash mode so UI shows deleter name
+      // Join the latest SystemAuditLog entry per row in Trash/Archive mode so UI shows actor name
       const deleterByAccountId: Record<string, string> = {};
-      if (viewTrash && accounts.length > 0) {
+      if ((viewTrash || viewArchive) && accounts.length > 0) {
+        const actionFilter = viewTrash
+          ? { in: ["SOFT_DELETE", "BULK_SOFT_DELETE"] }
+          : { in: ["ARCHIVE", "BULK_ARCHIVE"] };
         const logs = await ctx.prismaRaw.systemAuditLog.findMany({
           where: {
             entityId: { in: accounts.map((i: any) => i.id) },
-            action: { in: ["SOFT_DELETE", "BULK_SOFT_DELETE"] },
+            action: actionFilter,
           },
           orderBy: { createdAt: "desc" },
           select: { entityId: true, actorName: true, createdAt: true },
@@ -319,28 +332,32 @@ export const accountsRouter = router({
           punishedVideosCount30d: strikeCount,
           strikeLevel,
           deletedByName: viewTrash ? deleterByAccountId[acc.id] ?? null : undefined,
+          archivedByName: viewArchive ? deleterByAccountId[acc.id] ?? null : undefined,
         };
       });
 
       const stats: ListStats = viewTrash
         ? { mode: "trash", trashCount: trashCount ?? 0 }
-        : {
-          mode: "fleet",
-          total: totalCount,
-          active: activeCount,
-          restricted: restrictedCount,
-          banned: bannedCount,
-          warming: warmingCount,
-          online: onlineCount,
-          totalRevenue: Math.round(totalFleetRevenue * 100) / 100,
-          totalRevenue7d: Math.round(totalFleetRevenue7d * 100) / 100,
-          totalRevenue28d: Math.round(totalFleetRevenue28d * 100) / 100,
-          totalRevenue30d: Math.round(totalFleetRevenueThisMonth * 100) / 100,
-          totalRevenueThisMonth: Math.round(totalFleetRevenueThisMonth * 100) / 100,
-          totalRevenue60d: Math.round(totalFleetRevenue60d * 100) / 100,
-          totalRevenue365d: Math.round(totalFleetRevenue365d * 100) / 100,
-          trashCount,
-        };
+        : viewArchive
+          ? { mode: "archive", archiveCount: archiveCount ?? 0, trashCount: trashCount ?? 0 }
+          : {
+            mode: "fleet",
+            total: totalCount,
+            active: activeCount,
+            restricted: restrictedCount,
+            banned: bannedCount,
+            warming: warmingCount,
+            online: onlineCount,
+            totalRevenue: Math.round(totalFleetRevenue * 100) / 100,
+            totalRevenue7d: Math.round(totalFleetRevenue7d * 100) / 100,
+            totalRevenue28d: Math.round(totalFleetRevenue28d * 100) / 100,
+            totalRevenue30d: Math.round(totalFleetRevenueThisMonth * 100) / 100,
+            totalRevenueThisMonth: Math.round(totalFleetRevenueThisMonth * 100) / 100,
+            totalRevenue60d: Math.round(totalFleetRevenue60d * 100) / 100,
+            totalRevenue365d: Math.round(totalFleetRevenue365d * 100) / 100,
+            trashCount,
+            archiveCount: archiveCount ?? 0,
+          };
 
       return {
         items: serializeBigInt(items),
@@ -1504,5 +1521,230 @@ export const accountsRouter = router({
       }
 
       return { count: res.count };
+    }),
+  // 19. Archive Account (LEAD / ADMIN)
+  archive: leadProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const account = await ctx.prisma.tiktokAccount.findFirst({
+        where: { id: input.id, deletedAt: null, archivedAt: null },
+      });
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
+
+      if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể lưu trữ tài khoản thuộc đội nhóm của mình." });
+      }
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Lead";
+      const now = new Date();
+
+      await ctx.prismaRaw.$transaction(async (tx: any) => {
+        const res = await tx.tiktokAccount.updateMany({
+          where: { id: account.id, deletedAt: null, archivedAt: null },
+          data: { archivedAt: now, archivedById: ctx.session.user.id, isOnline: false },
+        });
+        if (res.count === 0) throw new TRPCError({ code: "CONFLICT", message: "Account state changed" });
+
+        await tx.accountLog.create({
+          data: {
+            accountId: account.id,
+            logType: "ARCHIVED",
+            newStatus: account.status,
+            message: `[LƯU TRỮ] Tài khoản @${account.username} đã được lưu trữ bởi ${actorName}.`,
+            actorName,
+          },
+        });
+
+        await tx.systemAuditLog.create({
+          data: {
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "ARCHIVE",
+            entityType: "TiktokAccount",
+            entityId: account.id,
+            entityLabel: account.username,
+            snapshot: { status: account.status, assignedUserId: account.assignedUserId },
+          },
+        });
+      });
+
+      if (account.assignedUserId) {
+        await reconcileAfterCommit(ctx.prismaRaw as any, account.assignedUserId, "archive");
+      }
+
+      return { success: true };
+    }),
+
+  // 20. Unarchive Account (LEAD / ADMIN)
+  unarchive: leadProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const account = await ctx.prismaRaw.tiktokAccount.findFirst({
+        where: { id: input.id, archivedAt: { not: null }, deletedAt: null },
+      });
+      if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Not in Archive" });
+
+      if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể bỏ lưu trữ tài khoản thuộc đội nhóm của mình." });
+      }
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Lead";
+
+      await ctx.prismaRaw.$transaction(async (tx: any) => {
+        const res = await tx.tiktokAccount.updateMany({
+          where: { id: account.id, archivedAt: { not: null } },
+          data: { archivedAt: null, archivedById: null },
+        });
+        if (res.count === 0) throw new TRPCError({ code: "CONFLICT", message: "Account state changed" });
+
+        await tx.accountLog.create({
+          data: {
+            accountId: account.id,
+            logType: "UNARCHIVED",
+            newStatus: account.status,
+            message: `[BỎ LƯU TRỮ] Tài khoản @${account.username} đã được khôi phục từ lưu trữ bởi ${actorName}.`,
+            actorName,
+          },
+        });
+
+        await tx.systemAuditLog.create({
+          data: {
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "UNARCHIVE",
+            entityType: "TiktokAccount",
+            entityId: account.id,
+            entityLabel: account.username,
+            snapshot: { restoredFromArchive: true, actorRole: ctx.session.user.role },
+          },
+        });
+      });
+
+      if (account.assignedUserId) {
+        await reconcileAfterCommit(ctx.prismaRaw as any, account.assignedUserId, "unarchive");
+      }
+
+      return { success: true };
+    }),
+
+  // 21. Bulk Archive (LEAD / ADMIN)
+  bulkArchive: leadProcedure
+    .input(z.object({ ids: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const whereScope: any = { id: { in: input.ids }, deletedAt: null, archivedAt: null };
+      if (scope.isLead) whereScope.assignedUserId = { in: scope.memberUserIds };
+
+      const targets: Array<{ id: string; username: string; status: string; assignedUserId: string | null }> =
+        await ctx.prismaRaw.tiktokAccount.findMany({
+          where: whereScope,
+          select: { id: true, username: true, status: true, assignedUserId: true },
+        });
+      if (targets.length === 0) return { count: 0 };
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Lead";
+      const now = new Date();
+
+      await ctx.prismaRaw.$transaction(async (tx: any) => {
+        const res = await tx.tiktokAccount.updateMany({
+          where: { id: { in: targets.map((t) => t.id) }, deletedAt: null, archivedAt: null },
+          data: { archivedAt: now, archivedById: ctx.session.user.id, isOnline: false },
+        });
+        if (res.count !== targets.length) {
+          throw new TRPCError({ code: "CONFLICT", message: "One or more accounts changed state. Retry." });
+        }
+
+        await tx.accountLog.createMany({
+          data: targets.map((t) => ({
+            accountId: t.id,
+            logType: "ARCHIVED",
+            newStatus: t.status,
+            message: `[LƯU TRỮ] Tài khoản @${t.username} đã được lưu trữ bởi ${actorName}.`,
+            actorName,
+          })),
+        });
+
+        await tx.systemAuditLog.createMany({
+          data: targets.map((t) => ({
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "BULK_ARCHIVE",
+            entityType: "TiktokAccount",
+            entityId: t.id,
+            entityLabel: t.username,
+            snapshot: { status: t.status, assignedUserId: t.assignedUserId },
+          })),
+        });
+      });
+
+      const affectedUsers = Array.from(
+        new Set(targets.map((t) => t.assignedUserId).filter((u): u is string => !!u))
+      );
+      for (const userId of affectedUsers) {
+        await reconcileAfterCommit(ctx.prismaRaw as any, userId, "bulkArchive");
+      }
+
+      return { count: targets.length };
+    }),
+
+  // 22. Bulk Unarchive (LEAD / ADMIN)
+  bulkUnarchive: leadProcedure
+    .input(z.object({ ids: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const whereScope: any = { id: { in: input.ids }, archivedAt: { not: null }, deletedAt: null };
+      if (scope.isLead) whereScope.assignedUserId = { in: scope.memberUserIds };
+
+      const targets: Array<{ id: string; username: string; status: string; assignedUserId: string | null }> =
+        await ctx.prismaRaw.tiktokAccount.findMany({
+          where: whereScope,
+          select: { id: true, username: true, status: true, assignedUserId: true },
+        });
+      if (targets.length === 0) return { count: 0 };
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || "Lead";
+
+      await ctx.prismaRaw.$transaction(async (tx: any) => {
+        const res = await tx.tiktokAccount.updateMany({
+          where: { id: { in: targets.map((t) => t.id) }, archivedAt: { not: null } },
+          data: { archivedAt: null, archivedById: null },
+        });
+        if (res.count !== targets.length) {
+          throw new TRPCError({ code: "CONFLICT", message: "One or more accounts changed state. Retry." });
+        }
+
+        await tx.accountLog.createMany({
+          data: targets.map((t) => ({
+            accountId: t.id,
+            logType: "UNARCHIVED",
+            newStatus: t.status,
+            message: `[BỎ LƯU TRỮ] Tài khoản @${t.username} đã được khôi phục từ lưu trữ bởi ${actorName}.`,
+            actorName,
+          })),
+        });
+
+        await tx.systemAuditLog.createMany({
+          data: targets.map((t) => ({
+            actorId: ctx.session.user.id,
+            actorName,
+            action: "BULK_UNARCHIVE",
+            entityType: "TiktokAccount",
+            entityId: t.id,
+            entityLabel: t.username,
+            snapshot: { restoredFromArchive: true },
+          })),
+        });
+      });
+
+      const affectedUsers = Array.from(
+        new Set(targets.map((t) => t.assignedUserId).filter((u): u is string => !!u))
+      );
+      for (const userId of affectedUsers) {
+        await reconcileAfterCommit(ctx.prismaRaw as any, userId, "bulkUnarchive");
+      }
+
+      return { count: targets.length };
     }),
 });

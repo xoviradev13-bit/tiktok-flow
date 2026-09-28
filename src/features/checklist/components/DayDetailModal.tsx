@@ -117,7 +117,7 @@ export default function DayDetailModal({
 
   const activeChecklist = selectedStaffId
     ? checklistsForDate.find((c) => c.userId === selectedStaffId) ||
-      checklistsForDate[0]
+    checklistsForDate[0]
     : checklistsForDate[0];
 
   const getRoleBadge = (role?: string) => {
@@ -255,21 +255,19 @@ export default function DayDetailModal({
                           key={c.id}
                           type="button"
                           onClick={() => setSelectedStaffId(c.userId)}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer border ${
-                            isSelected
-                              ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent shadow-sm"
-                              : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750"
-                          }`}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer border ${isSelected
+                            ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent shadow-sm"
+                            : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750"
+                            }`}
                         >
                           <span>{c.user?.fullName || c.user?.username}</span>
                           <span
-                            className={`w-2 h-2 rounded-full ${
-                              score >= 1.0
-                                ? "bg-emerald-500"
-                                : score === 0.5
+                            className={`w-2 h-2 rounded-full ${score >= 1.0
+                              ? "bg-emerald-500"
+                              : score === 0.5
                                 ? "bg-amber-500"
                                 : "bg-rose-500"
-                            }`}
+                              }`}
                           />
                         </button>
                       );
@@ -399,10 +397,10 @@ export default function DayDetailModal({
 
                     {(!activeChecklist.items ||
                       activeChecklist.items.length === 0) && (
-                      <div className="text-xs text-slate-400 italic py-6 text-center bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
-                        Chưa gán tài khoản nào cho nhân viên này vào ngày này.
-                      </div>
-                    )}
+                        <div className="text-xs text-slate-400 italic py-6 text-center bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                          Chưa gán tài khoản nào cho nhân viên này vào ngày này.
+                        </div>
+                      )}
 
                     <div className="grid grid-cols-1 gap-2.5">
                       {(activeChecklist.items || []).map((item: any) => {
@@ -418,25 +416,20 @@ export default function DayDetailModal({
                             key={item.id}
                             className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-2xs hover:border-slate-300 dark:hover:border-slate-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3"
                           >
-                            {/* Left: Account Name & Link & Notes */}
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                            {/* Left: Account Name & Link & Notes — fixed width so right buttons stay aligned */}
+                            <div className="flex items-center gap-3 w-full md:w-[220px] md:min-w-[220px] md:max-w-[220px] min-w-0">
                               <div className="w-8 h-8 rounded-xl bg-pink-500/10 border border-pink-500/20 text-pink-600 dark:text-pink-400 font-black text-xs flex items-center justify-center shrink-0">
                                 {item.account.username?.slice(0, 2).toUpperCase() ||
                                   "TK"}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <Link
-                                    href={`/accounts/${item.account.id}`}
-                                    className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white hover:text-pink-500 hover:underline truncate"
-                                  >
-                                    @{item.account.username}
-                                  </Link>
-                                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase border border-slate-200 dark:border-slate-700">
-                                    {item.account.country || "US"}
-                                  </span>
-                                </div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 flex items-center gap-1.5">
+                                <Link
+                                  href={`/accounts/${item.account.id}`}
+                                  className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white hover:text-pink-500 hover:underline truncate block max-w-full"
+                                >
+                                  @{item.account.username}
+                                </Link>
+                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
                                   <span>{item.notes || "Chưa có ghi chú vận hành"}</span>
                                 </div>
                               </div>
@@ -447,15 +440,14 @@ export default function DayDetailModal({
                               {/* Video Posted Status with Rich Tooltip */}
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <div className="flex items-center gap-1.5 text-xs font-semibold cursor-help select-none">
+                                  <div className="flex items-center gap-1.5 text-xs font-semibold cursor-help select-none w-[72px] min-w-[72px] max-w-[72px] shrink-0">
                                     <span
-                                      className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] shadow-2xs ${
-                                        item.isPosted
-                                          ? "bg-emerald-500 text-white"
-                                          : isAccountFailed
+                                      className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] shadow-2xs shrink-0 ${item.isPosted
+                                        ? "bg-emerald-500 text-white"
+                                        : isAccountFailed
                                           ? "bg-rose-500 text-white"
                                           : "bg-rose-500 text-white"
-                                      }`}
+                                        }`}
                                     >
                                       {item.isPosted ? (
                                         <Check className="w-3 h-3 stroke-[3]" />
@@ -468,8 +460,8 @@ export default function DayDetailModal({
                                     <span
                                       className={
                                         item.isPosted
-                                          ? "text-emerald-600 dark:text-emerald-400 font-bold"
-                                          : "text-slate-400"
+                                          ? "text-emerald-600 dark:text-emerald-400 font-bold truncate"
+                                          : "text-slate-400 truncate"
                                       }
                                     >
                                       Video
@@ -478,20 +470,18 @@ export default function DayDetailModal({
                                 </TooltipTrigger>
                                 <TooltipContent side="top" className="text-xs font-normal z-[200] max-w-xs">
                                   {item.isPosted
-                                    ? `Đã đăng video${
-                                        item.postedAt
-                                          ? ` lúc ${format(new Date(item.postedAt), "HH:mm dd/MM/yyyy")}`
-                                          : " hôm nay"
-                                      }`
+                                    ? `Đã đăng video${item.postedAt
+                                      ? ` lúc ${format(new Date(item.postedAt), "HH:mm dd/MM/yyyy")}`
+                                      : " hôm nay"
+                                    }`
                                     : isAccountFailed
-                                    ? `Kiểm tra thất bại: Tài khoản bị ${
-                                        item.account?.status === "BANNED"
-                                          ? "khóa (Banned)"
-                                          : item.account?.status === "RESTRICTED"
+                                      ? `Kiểm tra thất bại: Tài khoản bị ${item.account?.status === "BANNED"
+                                        ? "khóa (Banned)"
+                                        : item.account?.status === "RESTRICTED"
                                           ? "hạn chế"
                                           : "tạm dừng"
                                       } - Không thể đăng video`
-                                    : `Chưa đăng video ngày ${format(
+                                      : `Chưa đăng video ngày ${format(
                                         new Date(dateStr + "T00:00:00"),
                                         "dd/MM/yyyy"
                                       )}`}
@@ -499,24 +489,28 @@ export default function DayDetailModal({
                               </Tooltip>
 
                               {/* Sync GPM Status with Rich Diagnostic Badge */}
-                              <SyncStatusBadge
-                                account={item.account}
-                                isSyncedToday={item.isSynced}
-                                syncedAt={item.syncedAt || item.account?.lastSyncedAt}
-                                mode="compact"
-                              />
+                              <div className="w-[130px] min-w-[130px] max-w-[130px] shrink-0 flex items-center justify-center">
+                                <SyncStatusBadge
+                                  account={item.account}
+                                  isSyncedToday={item.isSynced}
+                                  syncedAt={item.syncedAt || item.account?.lastSyncedAt}
+                                  mode="compact"
+                                  className="w-full justify-center px-1.5"
+                                  textClassName="truncate"
+                                />
+                              </div>
 
                               {/* KPI Pill with Rich Tooltip */}
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <div className="cursor-help select-none">
+                                  <div className="cursor-help select-none w-[90px] min-w-[90px] max-w-[90px] shrink-0 flex items-center justify-center">
                                     {isKpiAchieved ? (
-                                      <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs inline-flex items-center gap-1">
-                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs inline-flex items-center gap-1 w-full justify-center">
+                                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                                         <span>Đạt KPI</span>
                                       </span>
                                     ) : (
-                                      <span className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 shadow-2xs inline-flex items-center gap-1 whitespace-nowrap">
+                                      <span className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 shadow-2xs inline-flex items-center justify-center w-full whitespace-nowrap">
                                         Chưa đạt
                                       </span>
                                     )}
@@ -530,7 +524,7 @@ export default function DayDetailModal({
                               </Tooltip>
 
                               {/* Quick Actions Buttons */}
-                              <div className="flex items-center gap-1 pl-2 border-l border-slate-200 dark:border-slate-800">
+                              <div className="flex items-center gap-1 pl-2 border-l border-slate-200 dark:border-slate-800 shrink-0">
                                 {/* Toggle Posted - Lead/Admin only */}
                                 {isAdmin && onTogglePosted && (
                                   <Tooltip>
@@ -538,11 +532,10 @@ export default function DayDetailModal({
                                       <button
                                         type="button"
                                         onClick={() => onTogglePosted(item.id, item.isPosted)}
-                                        className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                          item.isPosted
-                                            ? "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                                            : "text-slate-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-950/40"
-                                        }`}
+                                        className={`p-1.5 rounded-lg transition-colors cursor-pointer w-7 h-7 flex items-center justify-center shrink-0 ${item.isPosted
+                                          ? "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                                          : "text-slate-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-950/40"
+                                          }`}
                                         aria-label={item.isPosted ? "Bỏ đánh dấu đã đăng video" : "Đánh dấu đã đăng video"}
                                       >
                                         {item.isPosted
@@ -556,23 +549,27 @@ export default function DayDetailModal({
                                   </Tooltip>
                                 )}
 
-                                {item.account.gpmProfileId && onLaunchGpm && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          onLaunchGpm(item.account.gpmProfileId)
-                                        }
-                                        className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
-                                      >
-                                        <Play className="w-3.5 h-3.5" />
-                                      </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" className="text-xs">
-                                      Mở GPM Profile
-                                    </TooltipContent>
-                                  </Tooltip>
+                                {onLaunchGpm && (
+                                  item.account.gpmProfileId ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            onLaunchGpm(item.account.gpmProfileId)
+                                          }
+                                          className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer w-7 h-7 flex items-center justify-center shrink-0"
+                                        >
+                                          <Play className="w-3.5 h-3.5" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="text-xs">
+                                        Mở GPM Profile
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : (
+                                    <div className="w-7 h-7 shrink-0" aria-hidden="true" />
+                                  )
                                 )}
 
                                 {onSyncAccount && (
@@ -583,7 +580,7 @@ export default function DayDetailModal({
                                         onClick={() =>
                                           onSyncAccount(item.account.id)
                                         }
-                                        className="p-1.5 rounded-lg text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 transition-colors cursor-pointer"
+                                        className="p-1.5 rounded-lg text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 transition-colors cursor-pointer w-7 h-7 flex items-center justify-center shrink-0"
                                       >
                                         <RefreshCw className="w-3.5 h-3.5" />
                                       </button>
@@ -628,11 +625,10 @@ export default function DayDetailModal({
                                               activeChecklist.user?.fullName
                                             )
                                           }
-                                          className={`inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-lg border transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 ${
-                                            hasMessages
-                                              ? "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border-pink-200/80 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/60 font-bold"
-                                              : "bg-slate-50 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500 border-slate-200/80 dark:border-slate-800 hover:text-pink-600 hover:border-pink-300 dark:hover:border-pink-800 font-medium"
-                                          }`}
+                                          className={`inline-flex items-center gap-1.5 px-2.5 h-7.5 rounded-lg border transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 ${hasMessages
+                                            ? "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border-pink-200/80 dark:border-pink-800/80 hover:bg-pink-100 dark:hover:bg-pink-900/60 font-bold"
+                                            : "bg-slate-50 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500 border-slate-200/80 dark:border-slate-800 hover:text-pink-600 hover:border-pink-300 dark:hover:border-pink-800 font-medium"
+                                            }`}
                                         >
                                           <MessageSquare className="w-3.5 h-3.5 shrink-0" />
                                           <span className="text-xs">{msgCount}</span>

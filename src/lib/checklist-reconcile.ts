@@ -49,6 +49,7 @@ export async function reconcileChecklistForUserAndDate(
     where: {
       assignedUserId: targetUserId,
       deletedAt: null,
+      archivedAt: null,
       status: { in: allowedStatuses as any },
     },
     select: {
@@ -85,7 +86,7 @@ export async function reconcileChecklistForUserAndDate(
     const extraIds = historicalAccountIds.filter((id: string) => !activeIds.has(id));
     if (extraIds.length > 0) {
       const extraAccounts = await prismaClient.tiktokAccount.findMany({
-        where: { id: { in: extraIds }, deletedAt: null },
+        where: { id: { in: extraIds }, deletedAt: null, archivedAt: null },
         select: {
           id: true,
           lastSyncedAt: true,
@@ -98,7 +99,16 @@ export async function reconcileChecklistForUserAndDate(
     }
   }
 
-  if (accountsForChecklist.length === 0) return null;
+  // Deduplicate accountsForChecklist by ID
+  const uniqueAccountsMap = new Map<string, any>();
+  for (const acc of accountsForChecklist) {
+    if (!uniqueAccountsMap.has(acc.id)) {
+      uniqueAccountsMap.set(acc.id, acc);
+    }
+  }
+  const uniqueAccountsForChecklist = Array.from(uniqueAccountsMap.values());
+
+  if (uniqueAccountsForChecklist.length === 0) return null;
 
   let checklist = await prismaClient.dailyChecklist.findFirst({
     where: { userId: targetUserId, date: targetDate },
@@ -115,12 +125,12 @@ export async function reconcileChecklistForUserAndDate(
         data: {
           userId: targetUserId,
           date: targetDate,
-          totalAssigned: accountsForChecklist.length,
+          totalAssigned: uniqueAccountsForChecklist.length,
           completedCount: 0,
           completionRate: 0,
           workdayScore: 0,
           items: {
-            create: accountsForChecklist.map((a: any) => ({
+            create: uniqueAccountsForChecklist.map((a: any) => ({
               accountId: a.id,
               isPosted: false,
               isSynced: !!a.lastSyncedAt,
@@ -142,7 +152,7 @@ export async function reconcileChecklistForUserAndDate(
     }
   } else {
     const existingIds = new Set<string>(checklist.items.map((i: any) => i.accountId));
-    const toAdd = accountsForChecklist.filter((a: any) => !existingIds.has(a.id));
+    const toAdd = uniqueAccountsForChecklist.filter((a: any) => !existingIds.has(a.id));
     const activeIds = new Set(activeAccounts.map((a: any) => a.id));
     // CRITICAL: For past dates, NEVER delete accounts from the checklist.
     // If the user had 10 accounts 7 days ago and only 8 today, the past checklist retains all 10.
@@ -222,6 +232,7 @@ export async function reconcileRecentChecklistsForUser(
       where: {
         assignedUserId: targetUserId,
         deletedAt: null,
+        archivedAt: null,
       },
       select: {
         id: true,

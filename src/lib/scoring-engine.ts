@@ -236,7 +236,7 @@ export async function ensureDailyChecklistsForDate(
     where: { isActive: true, role: { in: ["STAFF", "LEAD", "ADMIN"] }, deletedAt: null },
     include: {
       tiktokAccounts: {
-        where: { status: { in: allowedStatuses as any }, deletedAt: null },
+        where: { status: { in: allowedStatuses as any }, deletedAt: null, archivedAt: null },
         select: { id: true, lastSyncedAt: true },
       },
     },
@@ -272,18 +272,23 @@ export async function ensureDailyChecklistsForDate(
 
   for (const u of usersWithAccounts) {
     const existing = existingMap.get(u.id);
+    // Deduplicate accounts by ID to ensure no duplicate items can ever be attempted
+    const uniqueAccounts = Array.from(
+      new Map(u.tiktokAccounts.map((acc: any) => [acc.id, acc])).values()
+    );
+
     if (!existing) {
       try {
         await prisma.dailyChecklist.create({
           data: {
             userId: u.id,
             date,
-            totalAssigned: u.tiktokAccounts.length,
+            totalAssigned: uniqueAccounts.length,
             completedCount: 0,
             completionRate: 0,
             workdayScore: 0,
             items: {
-              create: u.tiktokAccounts.map((acc: any) => ({
+              create: uniqueAccounts.map((acc: any) => ({
                 accountId: acc.id,
                 isPosted: false,
                 isSynced: !!acc.lastSyncedAt,
@@ -300,7 +305,7 @@ export async function ensureDailyChecklistsForDate(
       }
     } else if (!existing.isLocked) {
       const existingAccountIds = new Set(existing.items.map((it: any) => it.accountId));
-      const missingAccounts = u.tiktokAccounts.filter((acc: any) => !existingAccountIds.has(acc.id));
+      const missingAccounts = uniqueAccounts.filter((acc: any) => !existingAccountIds.has(acc.id));
       if (missingAccounts.length > 0) {
         try {
           await prisma.dailyChecklistItem.createMany({
@@ -313,10 +318,13 @@ export async function ensureDailyChecklistsForDate(
             })),
             skipDuplicates: true,
           });
+          const actualTotal = await prisma.dailyChecklistItem.count({
+            where: { checklistId: existing.id },
+          });
           await prisma.dailyChecklist.update({
             where: { id: existing.id },
             data: {
-              totalAssigned: existing.items.length + missingAccounts.length,
+              totalAssigned: actualTotal,
             },
           });
         } catch (err) {

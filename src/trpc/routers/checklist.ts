@@ -23,6 +23,33 @@ function serializeBigInt<T>(obj: T): T {
   );
 }
 
+export function deduplicateChecklistItems<
+  T extends { accountId: string; isPosted?: boolean; isCompleted?: boolean; updatedAt?: any }
+>(items: T[]): T[] {
+  if (!Array.isArray(items)) return [];
+  const map = new Map<string, T>();
+  for (const item of items) {
+    const existing = map.get(item.accountId);
+    if (!existing) {
+      map.set(item.accountId, item);
+      continue;
+    }
+    const score = (i: T) => (i.isPosted ? 4 : 0) + (i.isCompleted ? 2 : 0);
+    const existingScore = score(existing);
+    const itemScore = score(item);
+    if (itemScore > existingScore) {
+      map.set(item.accountId, item);
+    } else if (itemScore === existingScore) {
+      const existingTime = new Date(existing.updatedAt || 0).getTime();
+      const itemTime = new Date(item.updatedAt || 0).getTime();
+      if (itemTime > existingTime) {
+        map.set(item.accountId, item);
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
 export const checklistRouter = router({
   // 1. Get or initialize today's checklist for current operator (or specified user for lead/admin)
   getToday: protectedProcedure
@@ -80,7 +107,7 @@ export const checklistRouter = router({
 
       const { todayDateOnly: today } = getBusinessToday();
 
-      let checklist = await ctx.prisma.dailyChecklist.findUnique({
+      let checklist: any = await ctx.prisma.dailyChecklist.findUnique({
         where: {
           userId_date: {
             userId: targetUserId,
@@ -136,56 +163,82 @@ export const checklistRouter = router({
             assignedUserId: targetUserId,
             status: { in: allowedStatuses as any },
             deletedAt: null,
+            archivedAt: null,
           },
         });
 
-        checklist = await ctx.prisma.dailyChecklist.create({
-          data: {
-            userId: targetUserId,
-            date: today,
-            totalAssigned: assignedAccounts.length,
-            completedCount: 0,
-            completionRate: 0,
-            workdayScore: 0,
-            items: {
-              create: assignedAccounts.map((acc) => ({
-                accountId: acc.id,
-                isPosted: false,
-                isSynced: !!acc.lastSyncedAt,
-                isCompleted: false,
-              })),
-            },
-          },
-          include: {
-            items: {
-              include: {
-                account: {
-                  select: {
-                    id: true,
-                    username: true,
-                    country: true,
-                    gpmProfileId: true,
-                    gpmProfileName: true,
-                    groupName: true,
-                    isOnline: true,
-                    syncStatus: true,
-                    status: true,
-                    bannedReason: true,
-                    metadata: true,
-                    totalViews: true,
-                    totalRevenue: true,
-                    totalVideos: true,
-                    lastSyncedAt: true,
-                    alerts: {
-                      where: { status: "OPEN" },
-                      select: { id: true, alertType: true, description: true, severity: true },
-                    },
+        const uniqueAssigned = Array.from(
+          new Map(assignedAccounts.map((a: any) => [a.id, a])).values()
+        );
+
+        const checklistInclude: any = {
+          items: {
+            include: {
+              account: {
+                select: {
+                  id: true,
+                  username: true,
+                  country: true,
+                  gpmProfileId: true,
+                  gpmProfileName: true,
+                  groupName: true,
+                  isOnline: true,
+                  syncStatus: true,
+                  status: true,
+                  bannedReason: true,
+                  metadata: true,
+                  totalViews: true,
+                  totalRevenue: true,
+                  totalVideos: true,
+                  lastSyncedAt: true,
+                  alerts: {
+                    where: { status: "OPEN" as const },
+                    select: { id: true, alertType: true, description: true, severity: true },
                   },
                 },
               },
+              _count: {
+                select: { notesList: true },
+              },
             },
           },
-        });
+        };
+
+        try {
+          checklist = await ctx.prisma.dailyChecklist.create({
+            data: {
+              userId: targetUserId,
+              date: today,
+              totalAssigned: uniqueAssigned.length,
+              completedCount: 0,
+              completionRate: 0,
+              workdayScore: 0,
+              items: {
+                create: uniqueAssigned.map((acc: any) => ({
+                  accountId: acc.id,
+                  isPosted: false,
+                  isSynced: !!acc.lastSyncedAt,
+                  isCompleted: false,
+                })),
+              },
+            },
+            include: checklistInclude,
+          });
+        } catch (err: any) {
+          if (err?.code === "P2002") {
+            checklist = await ctx.prisma.dailyChecklist.findUnique({
+              where: {
+                userId_date: {
+                  userId: targetUserId,
+                  date: today,
+                },
+              },
+              include: checklistInclude,
+            });
+          } else {
+            throw err;
+          }
+        }
       } else {
         if (!checklist.isLocked) {
           await reconcileTodayChecklistForUser(ctx.prisma, targetUserId);
@@ -221,6 +274,9 @@ export const checklistRouter = router({
                         select: { id: true, alertType: true, description: true, severity: true },
                       },
                     },
+                  },
+                  _count: {
+                    select: { notesList: true },
                   },
                 },
                 orderBy: { updatedAt: "asc" },
@@ -277,6 +333,9 @@ export const checklistRouter = router({
                       },
                     },
                   },
+                  _count: {
+                    select: { notesList: true },
+                  },
                 },
                 orderBy: { updatedAt: "asc" },
               },
@@ -285,8 +344,13 @@ export const checklistRouter = router({
         }
       }
 
+      if (checklist && Array.isArray((checklist as any).items)) {
+        (checklist as any).items = deduplicateChecklistItems((checklist as any).items);
+      }
+
       return serializeBigInt(checklist);
     }),
+
 
   // 2. One-time 7-day backfill: creates missing DailyChecklist rows for the last 7 days
   // and backfills video records from rawSnapshot.videosList into DailyChecklistItems.
@@ -362,10 +426,19 @@ export const checklistRouter = router({
       const todayDateStr = new Date().toISOString().split("T")[0];
       const targetDateStr = input?.date || todayDateStr;
 
-      // 1. Ensure checklists exist for all active staff for the requested date (only when single day mode)
+      // 1. Ensure checklists exist for all active staff for the requested date (only when single day mode
+      //    AND the date is within the recent 7-day backfill window).
+      //    Arbitrary historical dates selected via the custom date-picker should never trigger
+      //    auto-creation — we only read whatever already exists in the DB for those dates.
       if (!isRangeMode) {
         const dateObj = parseDateOnly(targetDateStr);
-        await ensureDailyChecklistsForDate(ctx.prisma, dateObj);
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7);
+        sevenDaysAgo.setUTCHours(0, 0, 0, 0);
+        const isWithinBackfillWindow = dateObj >= sevenDaysAgo;
+        if (isWithinBackfillWindow) {
+          await ensureDailyChecklistsForDate(ctx.prisma, dateObj);
+        }
       }
 
       // 2. Build Prisma Where Clause
@@ -470,6 +543,7 @@ export const checklistRouter = router({
           c.user.username ||
           c.user.email;
 
+        const uniqueItems = deduplicateChecklistItems(c.items);
         let totalAssigned = c.totalAssigned;
         let completedCount = c.completedCount;
         let completionRate = Number(c.completionRate || 0);
@@ -477,8 +551,8 @@ export const checklistRouter = router({
 
         if (!c.isLocked) {
           const eligibleItems = shouldExcludeBanned
-            ? c.items.filter((item: any) => item.account?.status !== "BANNED")
-            : c.items;
+            ? uniqueItems.filter((item: any) => item.account?.status !== "BANNED")
+            : uniqueItems;
           totalAssigned = eligibleItems.length;
           completedCount = eligibleItems.filter((item: any) => item.isCompleted || item.isPosted).length;
           const scoreResult = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
@@ -488,6 +562,7 @@ export const checklistRouter = router({
 
         return {
           ...c,
+          items: uniqueItems,
           totalAssigned,
           completedCount,
           completionRate,
@@ -991,157 +1066,288 @@ export const checklistRouter = router({
     .input(
       z
         .object({
-          date: z.string().optional(), // YYYY-MM-DD
-          userId: z.string().optional(), // "ALL" or specific user
+          // Scan a single date (YYYY-MM-DD). Clamped to 7-day window server-side.
+          date: z.string().optional(),
+          // Scan a date range. Both required together. Clamped to [today-6, today].
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          // Per-row menu: scan a specific checklist only (bypasses date selector).
           checklistId: z.string().optional(),
         })
         .optional()
     )
     .mutation(async ({ ctx, input }) => {
-      const todayDateStr = new Date().toISOString().split("T")[0];
-      const targetDateObj = parseDateOnly(input?.date || todayDateStr);
-
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
-      const whereClause: any = { date: targetDateObj };
+      const scoringConfig = await getScoringConfig(ctx.prisma);
+      const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+
+      // ── Resolve the scan window ──────────────────────────────────────────────
+      // Window ceiling: today (VN) down to today-6 (7 days inclusive).
+      // All date arithmetic uses UTC midnight of the VN calendar date so it
+      // stays in sync with how DailyChecklist.date is stored.
+      const { todayDateOnly, todayStr } = getBusinessToday();
+      const DAY_MS = 86_400_000;
+      const sixDaysAgoDateOnly = new Date(todayDateOnly.getTime() - 6 * DAY_MS);
+
+      let scanDates: Date[]; // UTC-midnight dates to scan
+      let targetChecklist: { id: string; date: Date; userId: string } | null = null;
+
       if (input?.checklistId) {
-        whereClause.id = input.checklistId;
-        if (scope.isStaff) {
-          whereClause.userId = ctx.session.user.id;
-        } else if (scope.isLead) {
-          whereClause.userId = { in: scope.memberUserIds };
+        // ── checklistId path: scan exactly the date of that checklist ──────────
+        // Security: verify caller is allowed to touch this checklist.
+        targetChecklist = await ctx.prisma.dailyChecklist.findUnique({
+          where: { id: input.checklistId },
+          select: { id: true, date: true, userId: true },
+        });
+        if (!targetChecklist) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Không tìm thấy bảng công." });
         }
-      } else if (scope.isStaff) {
-        whereClause.userId = ctx.session.user.id;
-      } else if (scope.isLead) {
-        if (input?.userId && input.userId !== "ALL") {
-          if (scope.memberUserIds.includes(input.userId)) {
-            whereClause.userId = input.userId;
-          } else {
-            whereClause.userId = { in: scope.memberUserIds };
+        if (
+          scope.isStaff && targetChecklist.userId !== ctx.session.user.id ||
+          scope.isLead && !scope.memberUserIds.includes(targetChecklist.userId)
+        ) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Bạn không có quyền đối soát bảng công này." });
+        }
+        scanDates = [new Date(targetChecklist.date)];
+      } else {
+        // ── Batch path: resolve date(s) from input, clamp to [today-6, today] ──
+        if (input?.date) {
+          const d = parseDateOnly(input.date);
+          if (d < sixDaysAgoDateOnly || d > todayDateOnly) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Chỉ có thể đối soát trong 7 ngày gần nhất (hôm nay đến 6 ngày trước).",
+            });
+          }
+          scanDates = [d];
+        } else if (input?.startDate && input?.endDate) {
+          let s = parseDateOnly(input.startDate);
+          let e = parseDateOnly(input.endDate);
+          if (s > e) throw new TRPCError({ code: "BAD_REQUEST", message: "startDate phải ≤ endDate." });
+          // Clamp range
+          if (s < sixDaysAgoDateOnly) s = sixDaysAgoDateOnly;
+          if (e > todayDateOnly) e = todayDateOnly;
+          if (s > e) throw new TRPCError({ code: "BAD_REQUEST", message: "Khoảng ngày nằm ngoài 7 ngày gần nhất." });
+          scanDates = [];
+          for (let cur = new Date(s); cur <= e; cur = new Date(cur.getTime() + DAY_MS)) {
+            scanDates.push(new Date(cur));
           }
         } else {
-          whereClause.userId = { in: scope.memberUserIds };
+          // Default: today only
+          scanDates = [todayDateOnly];
         }
-      } else if (input?.userId && input.userId !== "ALL") {
-        whereClause.userId = input.userId;
       }
 
+      // ── Step 1: Ensure checklists + items exist for every date in range ──────
+      // Creates missing DailyChecklist and DailyChecklistItem rows so we never
+      // skip a user/account just because the cron hasn't run yet for that day.
+      let totalCreatedChecklists = 0;
+      for (const d of scanDates) {
+        try {
+          const { createdCount } = await ensureDailyChecklistsForDate(ctx.prisma, d);
+          totalCreatedChecklists += createdCount;
+        } catch (err) {
+          console.warn("[autoScanAndCheck] ensureDailyChecklistsForDate error:", err);
+        }
+      }
+
+      // ── Step 2: Batch-load all accounts in scope + their rawSnapshot ─────────
+      // One query for all accounts; rawSnapshot contains the rolling video list.
+      const accountWhereClause: any = { deletedAt: null };
+      if (scope.isStaff) {
+        accountWhereClause.assignedUserId = ctx.session.user.id;
+      } else if (scope.isLead) {
+        accountWhereClause.assignedUserId = { in: scope.memberUserIds };
+      }
+      // checklistId path: narrow to just that checklist's user
+      if (input?.checklistId && targetChecklist) {
+        accountWhereClause.assignedUserId = targetChecklist.userId;
+      }
+
+      const allAccounts = await ctx.prisma.tiktokAccount.findMany({
+        where: accountWhereClause,
+        select: {
+          id: true,
+          lastSyncedAt: true,
+          status: true,
+          analytics: { select: { rawSnapshot: true } },
+        },
+      });
+
+      // ── Step 3: Group raw videos by (accountId → vnDateStr → videos[]) in RAM ─
+      // This avoids per-item queries to analytics; all grouping is done in JS.
+      const videosByAccountAndDate = new Map<string, Map<string, any[]>>();
+      let totalVideosFound = 0;
+
+      for (const account of allAccounts) {
+        const rawSnap = (account.analytics as any)?.rawSnapshot;
+        const rawVideosList: any[] = Array.isArray(rawSnap?.videosList) ? rawSnap.videosList : [];
+        if (rawVideosList.length === 0) continue;
+
+        const byDate = new Map<string, any[]>();
+        for (const v of rawVideosList) {
+          const vnDate = (() => {
+            const raw = v.postDate ?? v.createTime ?? v.uploadTime ?? v.publishTime ?? v.timestamp;
+            if (raw == null) return null;
+            let d: Date;
+            if (typeof raw === "number") d = new Date(raw > 1e10 ? raw : raw * 1000);
+            else d = new Date(raw as string);
+            if (isNaN(d.getTime())) return null;
+            return getVnDateStr(d);
+          })();
+          if (!vnDate) continue;
+          if (!byDate.has(vnDate)) byDate.set(vnDate, []);
+          byDate.get(vnDate)!.push(v);
+        }
+        if (byDate.size > 0) videosByAccountAndDate.set(account.id, byDate);
+      }
+
+      // ── Step 4: Fetch all relevant checklist items for all scan dates ─────────
+      const scanDateList = scanDates;
+      const checklistWhereClause: any = { date: { in: scanDateList } };
+      if (scope.isStaff) checklistWhereClause.userId = ctx.session.user.id;
+      else if (scope.isLead) checklistWhereClause.userId = { in: scope.memberUserIds };
+      if (input?.checklistId) checklistWhereClause.id = input.checklistId;
+
       const targetChecklists = await ctx.prisma.dailyChecklist.findMany({
-        where: whereClause,
+        where: checklistWhereClause,
         include: {
           user: { select: { id: true, username: true, name: true } },
           items: {
-            // Include analytics so we can read rawSnapshot.videosList for video detection
-            include: { account: { include: { analytics: true } } },
+            include: { account: { select: { id: true, status: true, lastSyncedAt: true, deletedAt: true } } },
           },
         },
       });
 
-      if (targetChecklists.length === 0) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "No checklists found for the specified criteria",
-        });
-      }
-
-      const totalStaffScanned = targetChecklists.length;
+      // ── Step 5: Process each checklist × item — all updates in bulk ───────────
+      let totalStaffScanned = 0;
       let totalAccountsScanned = 0;
-      let scannedCount = 0;
-      let postedCount = 0;
-      let syncedCount = 0;
+      let totalPostedCount = 0;
+      let checklistsUpdated = 0;
+      const accountsWithVideos = new Set<string>();
 
-      // Use targetDateStr (VN timezone, from frontend input) — not server UTC date.
-      // todayStart from new Date() can drift on UTC servers where VN midnight ≠ UTC midnight.
-      const targetVnDateStr = input?.date ?? getVnDateStr(new Date());
-      // UTC midnight representation of the VN date (how DailyRevenue rows are stored)
-      const targetDateForRevenue = whereClause.date as Date; // already set by parseDateOnly above
-
-      // NOTE: This procedure only reads the current DB state and recalculates scores.
-      // It does NOT trigger a GPM sync. Ensure Client Agent has synced before calling.
       for (const checklist of targetChecklists) {
-        for (const item of checklist.items) {
-          totalAccountsScanned++;
-          scannedCount++;
+        totalStaffScanned++;
+        const checklistVnDateStr = getVnDateStr(new Date(checklist.date));
+        const checklistDateOnly = new Date(checklist.date); // already UTC midnight
 
-          // ── Sync check: was the account synced on the target date? ──────────
-          // Compare lastSyncedAt against UTC midnight of the VN date (same epoch as DB dates).
-          const isSyncedToday = Boolean(
-            item.account.lastSyncedAt && new Date(item.account.lastSyncedAt) >= targetDateForRevenue
+        let anyItemChanged = false;
+
+        const itemUpdates: Array<Promise<any>> = [];
+
+        const deduplicatedItems = deduplicateChecklistItems(checklist.items);
+        for (const item of deduplicatedItems) {
+          totalAccountsScanned++;
+
+          // Skip deleted accounts
+          if (item.account?.deletedAt) continue;
+
+          // Look up videos for this account on this checklist's date
+          const byDate = videosByAccountAndDate.get(item.account.id);
+          const videosOnDate: any[] = byDate?.get(checklistVnDateStr) ?? [];
+          const hasRawVideoOnDate = videosOnDate.length > 0;
+
+          if (hasRawVideoOnDate) {
+            accountsWithVideos.add(item.account.id);
+            totalVideosFound += videosOnDate.length;
+          }
+
+          // Determine posted status: existing OR newly found in rawSnapshot
+          const hasExistingSnapshot =
+            Array.isArray(item.videosSnapshot) && (item.videosSnapshot as any[]).length > 0;
+
+          const isSyncedOnDate = Boolean(
+            item.account.lastSyncedAt && new Date(item.account.lastSyncedAt) >= checklistDateOnly
           );
 
-          // ── Posted check SOURCE 1: dailyRevenue record ──────────────────────
-          const hasRevenueToday = await ctx.prisma.dailyRevenue.findFirst({
-            where: {
-              accountId: item.account.id,
-              date: targetDateForRevenue,   // fixed: was server-UTC todayStart, now the VN date
-            },
-          });
+          const newIsPosted = item.isPosted || hasRawVideoOnDate;
+          const newIsSynced = item.isSynced || isSyncedOnDate;
+          const newIsCompleted = newIsPosted || (item.isCompleted);
 
-          // ── Posted check SOURCE 2: AccountAnalytics.rawSnapshot.videosList ──
-          // rawSnapshot is populated by GPM sync / studio extractor and contains
-          // the latest video list for the account. We check if any video was posted
-          // on the target VN date and, if so, also persist them into videosSnapshot
-          // so the finalize cron can pick them up without re-reading analytics.
-          const rawSnap = (item.account as any)?.analytics?.rawSnapshot;
-          const rawVideosList: any[] = Array.isArray(rawSnap?.videosList) ? rawSnap.videosList : [];
-          const hasExistingSnapshot = Array.isArray(item.videosSnapshot) && (item.videosSnapshot as any[]).length > 0;
-          const rawVideosOnDate = !hasExistingSnapshot ? getVideosOnDate(rawVideosList, targetVnDateStr) : [];
-          const hasRawVideoToday = rawVideosOnDate.length > 0;
+          if (newIsPosted) totalPostedCount++;
 
-          const isPosted = item.isPosted || Boolean(hasRevenueToday) || hasRawVideoToday;
-          const isSynced = item.isSynced || isSyncedToday;
-          const isCompleted = isPosted && isSynced;
+          // Only write to DB if something actually changed
+          const changed =
+            newIsPosted !== item.isPosted ||
+            newIsSynced !== item.isSynced ||
+            newIsCompleted !== item.isCompleted ||
+            (hasRawVideoOnDate && !hasExistingSnapshot);
 
-          if (isPosted) postedCount++;
-          if (isSynced) syncedCount++;
-
-          await ctx.prisma.dailyChecklistItem.update({
-            where: { id: item.id },
-            data: {
-              isPosted,
-              isSynced,
-              isCompleted,
-              // Persist raw videos into videosSnapshot so future finalize runs don't miss them
-              ...(hasRawVideoToday && !hasExistingSnapshot
-                ? { videosSnapshot: rawVideosOnDate, videoSource: "live", videoSyncedAt: new Date() }
-                : {}),
-            },
-          });
+          if (changed) {
+            anyItemChanged = true;
+            itemUpdates.push(
+              ctx.prisma.dailyChecklistItem.update({
+                where: { id: item.id },
+                data: {
+                  isPosted: newIsPosted,
+                  isSynced: newIsSynced,
+                  isCompleted: newIsCompleted,
+                  // Persist discovered videos so finalize cron picks them up
+                  ...(hasRawVideoOnDate && !hasExistingSnapshot
+                    ? { videosSnapshot: videosOnDate, videoSource: "live", videoSyncedAt: new Date() }
+                    : {}),
+                },
+              })
+            );
+          }
         }
 
-        // Recalculate total checklist score for this staff
-        const allItems = await ctx.prisma.dailyChecklistItem.findMany({
+        // Flush all item updates for this checklist
+        if (itemUpdates.length > 0) {
+          await Promise.all(itemUpdates);
+        }
+
+        // ── Recalculate workday score ──────────────────────────────────────────
+        // Always recalc (not just when items changed) — ensures score is consistent
+        // even if the checklist was created fresh by ensureDailyChecklistsForDate.
+        const freshItems = await ctx.prisma.dailyChecklistItem.findMany({
           where: { checklistId: checklist.id },
-          include: { account: true },
+          include: { account: { select: { status: true, deletedAt: true } } },
         });
 
-        const scoringConfig = await getScoringConfig(ctx.prisma);
-        const shouldExcludeBanned = scoringConfig.excludeBannedAccounts !== false;
+        const uniqueFreshItems = deduplicateChecklistItems(freshItems);
+        const eligibleItems = uniqueFreshItems.filter((i: any) => {
+          if (!i.account || i.account.deletedAt) return false;
+          if (shouldExcludeBanned && i.account.status === "BANNED") return false;
+          return true;
+        });
 
-        const eligibleItems = shouldExcludeBanned
-          ? allItems.filter((i: any) => i.account?.status !== "BANNED")
-          : allItems;
         const totalAssigned = eligibleItems.length;
-        const completedCount = eligibleItems.filter((i: any) => i.isCompleted || i.isPosted).length;
-        const { completionRate, workdayScore } = calculateWorkdayScore(totalAssigned, completedCount, scoringConfig);
+        const completedCount = eligibleItems.filter(
+          (i: any) => i.isCompleted || i.isPosted
+        ).length;
+        const { completionRate, workdayScore } = calculateWorkdayScore(
+          totalAssigned,
+          completedCount,
+          scoringConfig
+        );
 
         await ctx.prisma.dailyChecklist.update({
           where: { id: checklist.id },
-          data: {
-            totalAssigned,
-            completedCount,
-            completionRate,
-            workdayScore,
-          },
+          data: { totalAssigned, completedCount, completionRate, workdayScore },
         });
+
+        if (anyItemChanged) checklistsUpdated++;
       }
 
+      const rangeStart = scanDates[0].toISOString().slice(0, 10);
+      const rangeEnd = scanDates[scanDates.length - 1].toISOString().slice(0, 10);
+
       return {
+        // Legacy fields (keep for backward compat with old toast)
         totalStaffScanned,
         totalAccountsScanned,
-        scannedCount,
-        postedCount,
-        syncedCount,
+        scannedCount: totalAccountsScanned,
+        postedCount: totalPostedCount,
+        syncedCount: 0,
+        // New rich fields for updated toast
+        datesProcessed: scanDates.length,
+        rangeStart,
+        rangeEnd,
+        accountsWithVideos: accountsWithVideos.size,
+        totalVideosFound,
+        checklistsUpdated,
+        totalCreatedChecklists,
       };
     }),
 

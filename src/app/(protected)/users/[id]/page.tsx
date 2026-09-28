@@ -104,7 +104,7 @@ import { downloadPackage } from "@/lib/download-package";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { format, subDays, addDays, differenceInCalendarDays } from "date-fns";
-import { getAccountRevenuePeriods } from "@/lib/resolve-all-time-revenue";
+import { getAccountRevenuePeriods, getThisWeekDateRange, getPreviousMonthDateRange } from "@/lib/resolve-all-time-revenue";
 import { getAccountViewsPeriods } from "@/lib/daily-views-breakdown";
 import { useCurrency } from "@/contexts/CurrencyContext";
 
@@ -2384,45 +2384,29 @@ function UserDetailPageContent() {
                               <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
                                 {(() => {
                                   const p = getAccountRevenuePeriods(acc as any);
+                                  const weekRange = getThisWeekDateRange();
+                                  const prevRange = getPreviousMonthDateRange();
                                   return (
                                     <>
                                       <div className="font-bold text-emerald-400 border-b border-slate-700 pb-1">
                                         Doanh Thu TikTok Studio
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">7 ngày gần nhất:</span>
+                                        <span className="text-slate-400">Tuần này ({weekRange.start.slice(8)}/{weekRange.start.slice(5,7)}–{weekRange.end.slice(8)}/{weekRange.end.slice(5,7)}):</span>
                                         <span className="font-semibold text-cyan-300">
-                                          {formatAmount(p.revenue7d, (acc as any).country)}
+                                          {formatAmount(p.revenueThisWeek, (acc as any).country)}
                                         </span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">28 ngày gần nhất:</span>
-                                        <span className="font-semibold text-purple-300">
-                                          {formatAmount(p.revenue28d, (acc as any).country)}
-                                        </span>
-                                      </div>
-                                      <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">Tháng này:</span>
+                                        <span className="text-slate-400">Tháng này (01/{new Date().toLocaleDateString("vi-VN", { month: "2-digit" })} đến nay):</span>
                                         <span className="font-semibold text-pink-400">
                                           {formatAmount(p.revenueThisMonth, (acc as any).country)}
                                         </span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">60 ngày gần nhất:</span>
-                                        <span className="font-semibold text-indigo-300">
-                                          {formatAmount(p.revenue60d, (acc as any).country)}
-                                        </span>
-                                      </div>
-                                      <div className="flex justify-between gap-4 text-[11px]">
-                                        <span className="text-slate-400">365 ngày gần nhất:</span>
-                                        <span className="font-semibold text-amber-300">
-                                          {formatAmount(p.revenue365d, (acc as any).country)}
-                                        </span>
-                                      </div>
-                                      <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800 font-bold">
-                                        <span className="text-slate-300">Toàn bộ (All-time):</span>
-                                        <span className="text-emerald-400">
-                                          {formatAmount(p.totalRevenue, (acc as any).country)}
+                                        <span className="text-slate-400">Tháng trước ({prevRange.start.slice(0,7)}):</span>
+                                        <span className="font-semibold text-purple-300">
+                                          {formatAmount(p.revenuePrevMonth, (acc as any).country)}
                                         </span>
                                       </div>
                                     </>

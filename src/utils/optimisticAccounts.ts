@@ -329,6 +329,7 @@ export function optimisticallyDeleteAccounts(queryClient: QueryClient, ids: stri
           ...newStats,
           total: Math.max(0, (newStats.total || 0) - idSet.size),
           trash: (newStats.trash || 0) + idSet.size,
+          trashCount: (newStats.trashCount || 0) + idSet.size,
         };
       }
       return {
@@ -367,6 +368,99 @@ export function optimisticallyRestoreAccounts(queryClient: QueryClient, ids: str
           ...newStats,
           total: (newStats.total || 0) + idSet.size,
           trash: Math.max(0, (newStats.trash || 0) - idSet.size),
+          trashCount: Math.max(0, (newStats.trashCount || 0) - idSet.size),
+        };
+      }
+      return {
+        ...oldData,
+        items: newItems,
+        stats: newStats,
+      };
+    }
+  );
+}
+
+/**
+ * Optimistically archives accounts from active fleet lists.
+ */
+export function optimisticallyArchiveAccounts(queryClient: QueryClient, ids: string[]) {
+  const idSet = new Set(ids);
+  queryClient.setQueriesData(
+    { queryKey: [["accounts", "list"]] },
+    (oldData: any) => {
+      if (!oldData || !Array.isArray(oldData.items)) return oldData;
+      const newItems = oldData.items.filter((a: any) => !idSet.has(a.id));
+      let newStats = oldData.stats;
+      if (newStats) {
+        newStats = {
+          ...newStats,
+          total: Math.max(0, (newStats.total || 0) - idSet.size),
+          archiveCount: (newStats.archiveCount || 0) + idSet.size,
+        };
+      }
+      return {
+        ...oldData,
+        items: newItems,
+        stats: newStats,
+      };
+    }
+  );
+
+  queryClient.setQueriesData(
+    { queryKey: [["user", "getById"]] },
+    (oldData: any) => {
+      if (!oldData || !Array.isArray(oldData.tiktokAccounts)) return oldData;
+      return {
+        ...oldData,
+        tiktokAccounts: oldData.tiktokAccounts.filter((a: any) => !idSet.has(a.id)),
+      };
+    }
+  );
+}
+
+/**
+ * Optimistically unarchives accounts in archive view (bỏ lưu trữ).
+ */
+export function optimisticallyUnarchiveAccounts(queryClient: QueryClient, ids: string[]) {
+  const idSet = new Set(ids);
+  queryClient.setQueriesData(
+    { queryKey: [["accounts", "list"]] },
+    (oldData: any) => {
+      if (!oldData || !Array.isArray(oldData.items)) return oldData;
+      const newItems = oldData.items.filter((a: any) => !idSet.has(a.id));
+      let newStats = oldData.stats;
+      if (newStats) {
+        newStats = {
+          ...newStats,
+          total: (newStats.total || 0) + idSet.size,
+          archiveCount: Math.max(0, (newStats.archiveCount || 0) - idSet.size),
+        };
+      }
+      return {
+        ...oldData,
+        items: newItems,
+        stats: newStats,
+      };
+    }
+  );
+}
+
+/**
+ * Optimistically permanently removes accounts from trash view.
+ */
+export function optimisticallyHardDeleteAccounts(queryClient: QueryClient, ids: string[]) {
+  const idSet = new Set(ids);
+  queryClient.setQueriesData(
+    { queryKey: [["accounts", "list"]] },
+    (oldData: any) => {
+      if (!oldData || !Array.isArray(oldData.items)) return oldData;
+      const newItems = oldData.items.filter((a: any) => !idSet.has(a.id));
+      let newStats = oldData.stats;
+      if (newStats) {
+        newStats = {
+          ...newStats,
+          trash: Math.max(0, (newStats.trash || 0) - idSet.size),
+          trashCount: Math.max(0, (newStats.trashCount || 0) - idSet.size),
         };
       }
       return {
