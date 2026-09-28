@@ -40,7 +40,7 @@ function GpmHubPageContent() {
   const { searchParams, updateUrlParams } = useUrlParams();
 
   const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
-  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 10;
+  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 25;
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
 
@@ -65,7 +65,7 @@ function GpmHubPageContent() {
       },
       {
         p: 1,
-        ps: 10,
+        ps: 25,
         q: "",
         status: "ALL",
       }

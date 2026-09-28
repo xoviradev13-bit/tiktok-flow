@@ -745,10 +745,11 @@ export const analyticsRouter = router({
         entry.views += Number(rec.views || 0);
         sourceMap.set(src, entry);
       }
+      const sourceRevTotal = Array.from(sourceMap.values()).reduce((s, e) => s + e.revenue, 0);
       const sourceDistribution = Array.from(sourceMap.values()).map((s) => ({
         ...s,
         revenue: Math.round(s.revenue * 100) / 100,
-        percentage: currTotalRev > 0 ? Math.round((s.revenue / currTotalRev) * 100) : 0,
+        percentage: sourceRevTotal > 0 ? Math.round((s.revenue / sourceRevTotal) * 100) : 0,
       }));
 
       // ================= TOP & ATTENTION-NEEDED ACCOUNTS =================

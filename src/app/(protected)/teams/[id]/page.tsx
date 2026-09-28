@@ -255,7 +255,7 @@ function TeamDetailContent() {
   const initialStatus = searchParams?.get("status") || "ALL";
   const initialFleet = searchParams?.get("fleet") || "ALL";
   const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
-  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 10;
+  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 25;
   const initialSortKey = searchParams?.get("sort") || searchParams?.get("sortKey") || "role";
   const initialSortDir = (searchParams?.get("dir") || searchParams?.get("sortDir") || "asc") as "asc" | "desc";
 
@@ -292,7 +292,7 @@ function TeamDetailContent() {
         status: "ALL",
         fleet: "ALL",
         p: 1,
-        ps: 10,
+        ps: 25,
         sort: "role",
         dir: "asc",
       }

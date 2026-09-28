@@ -372,7 +372,7 @@ function ChecklistPageContent() {
     date: queryDate,
     startDate: queryStartDate,
     endDate: queryEndDate,
-    userId: selectedUserId === "ALL" ? undefined : selectedUserId,
+    userId: resolvedUserId === "ALL" ? undefined : resolvedUserId,
     teamId: teamFilter === "ALL" ? undefined : teamFilter,
     search: viewType === "table" && debouncedSearch ? debouncedSearch : undefined,
     scoreFilter: viewType === "table" && scoreFilter !== "ALL" ? scoreFilter : undefined,
@@ -1056,6 +1056,15 @@ function ChecklistPageContent() {
       }
     }
 
+    const avgCompletionRate =
+      base.length > 0
+        ? Math.round(
+            (base.reduce((sum: number, c: any) => sum + Number(c.completionRate || 0), 0) /
+              base.length) *
+              10
+          ) / 10
+        : 0;
+
     return {
       ...summary,
       totalStaff,
@@ -1066,6 +1075,7 @@ function ChecklistPageContent() {
       totalVideosPosted,
       totalSynced,
       totalRecords: base.length,
+      avgCompletionRate,
     };
   }, [filteredChecklists, viewType, calendarMonth, summary]);
 

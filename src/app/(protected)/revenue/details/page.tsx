@@ -239,7 +239,7 @@ function RevenueDetailsPageContent() {
   };
 
   const initialPage = Number(searchParams?.get("p") || searchParams?.get("page")) || 1;
-  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 15;
+  const initialPageSize = Number(searchParams?.get("ps") || searchParams?.get("pageSize")) || 25;
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
 
@@ -274,7 +274,7 @@ function RevenueDetailsPageContent() {
         sort: "date",
         dir: "desc",
         p: 1,
-        ps: 15,
+        ps: 25,
         team: "ALL",
         operator: "ALL",
       }

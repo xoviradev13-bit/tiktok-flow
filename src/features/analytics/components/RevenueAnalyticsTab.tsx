@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
+import Link from "next/link";
 import {
   ResponsiveContainer,
   BarChart,
@@ -9,11 +10,16 @@ import {
   Line,
   XAxis,
   YAxis,
-  Tooltip,
   CartesianGrid,
   Legend,
+  Tooltip as RechartsTooltip,
 } from "recharts";
-import { DollarSign, TrendingUp, Globe, ArrowUpRight, Search } from "lucide-react";
+import { DollarSign, TrendingUp, Globe, ExternalLink } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface RevenueAnalyticsTabProps {
   timeSeries: Array<{
@@ -57,12 +63,6 @@ export default function RevenueAnalyticsTab({
   countryDistribution,
   topAccounts,
 }: RevenueAnalyticsTabProps) {
-  const [searchAccount, setSearchAccount] = useState("");
-
-  const filteredAccounts = topAccounts.filter((a) =>
-    a.username.toLowerCase().includes(searchAccount.toLowerCase()) ||
-    a.operatorName.toLowerCase().includes(searchAccount.toLowerCase())
-  );
 
   return (
     <div className="space-y-6">
@@ -94,7 +94,7 @@ export default function RevenueAnalyticsTab({
                   tick={{ fill: "#94a3b8", fontSize: 11 }}
                   tickFormatter={(v) => `$${v}`}
                 />
-                <Tooltip
+                <RechartsTooltip
                   formatter={(val) => [`$${Number(val).toFixed(2)}`, "Doanh Thu"]}
                   contentStyle={{
                     backgroundColor: "#0f172a",
@@ -136,7 +136,7 @@ export default function RevenueAnalyticsTab({
                   tick={{ fill: "#94a3b8", fontSize: 11 }}
                   tickFormatter={(v) => `$${v}`}
                 />
-                <Tooltip
+                <RechartsTooltip
                   formatter={(val) => [`$${Number(val).toFixed(2)}`, "RPM"]}
                   contentStyle={{
                     backgroundColor: "#0f172a",
@@ -209,23 +209,27 @@ export default function RevenueAnalyticsTab({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-              Bảng Doanh Thu Chi Tiết Theo Kênh
+              Top 5 Kênh Doanh Thu Cao Nhất
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Danh sách các kênh có số liệu thu nhập và tỷ suất RPM.
+              5 kênh đạt doanh thu và RPM cao nhất trong kỳ đã chọn.
             </p>
           </div>
 
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Tìm theo username hoặc nhân sự..."
-              value={searchAccount}
-              onChange={(e) => setSearchAccount(e.target.value)}
-              className="bg-slate-100 dark:bg-slate-800 text-xs pl-8 pr-3 py-1.5 rounded-xl text-slate-900 dark:text-white outline-none border border-transparent focus:border-pink-500 w-64"
-            />
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                href="/revenue/details"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 hover:bg-pink-500 hover:text-white hover:border-pink-500 transition-all shrink-0 cursor-pointer shadow-sm"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Xem Chi Tiết</span>
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              Xem chi tiết doanh thu toàn dàn
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         <div className="overflow-x-auto">
@@ -242,14 +246,14 @@ export default function RevenueAnalyticsTab({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-              {filteredAccounts.length === 0 ? (
+              {topAccounts.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-6 text-center text-slate-400">
-                    Không tìm thấy tài khoản phù hợp.
+                    Không có dữ liệu doanh thu trong kỳ này.
                   </td>
                 </tr>
               ) : (
-                filteredAccounts.map((acc) => (
+                topAccounts.map((acc) => (
                   <tr key={acc.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                     <td className="py-3 font-bold text-slate-900 dark:text-white">
                       @{acc.username}

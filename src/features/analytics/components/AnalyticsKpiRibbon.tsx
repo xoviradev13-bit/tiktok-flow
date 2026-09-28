@@ -46,7 +46,7 @@ function formatCompactNumber(num: number): string {
 export default function AnalyticsKpiRibbon({ kpi, isStaff }: AnalyticsKpiRibbonProps) {
   const cards = [
     {
-      label: isStaff ? "Doanh Thu Của Bạn" : "Tổng Doanh Thu Studio",
+      label: isStaff ? "Doanh Thu Của Bạn" : "Tổng Doanh Thu",
       value: `$${kpi.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       delta: kpi.revenueGrowthPct,
       deltaLabel: `vs kỳ trước ($${Number(kpi.prevTotalRevenue).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
@@ -141,24 +141,22 @@ export default function AnalyticsKpiRibbon({ kpi, isStaff }: AnalyticsKpiRibbonP
                   </span>
                 ) : card.isAlert ? (
                   <span
-                    className={`font-semibold ${
-                      card.hasCritical
-                        ? "text-rose-600 dark:text-rose-400 animate-pulse"
-                        : "text-slate-500 dark:text-slate-400"
-                    }`}
+                    className={`font-semibold ${card.hasCritical
+                      ? "text-rose-600 dark:text-rose-400 animate-pulse"
+                      : "text-slate-500 dark:text-slate-400"
+                      }`}
                   >
                     {card.subText}
                   </span>
                 ) : (
                   <>
                     <span
-                      className={`inline-flex items-center gap-0.5 font-bold px-1.5 py-0.5 rounded-md text-xs ${
-                        isPositive
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                          : isZero
+                      className={`inline-flex items-center gap-0.5 font-bold px-1.5 py-0.5 rounded-md text-xs ${isPositive
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        : isZero
                           ? "bg-slate-500/10 text-slate-500 dark:text-slate-400"
                           : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                      }`}
+                        }`}
                     >
                       {isPositive ? (
                         <TrendingUp className="w-3 h-3" />

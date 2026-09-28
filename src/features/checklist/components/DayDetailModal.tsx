@@ -232,13 +232,13 @@ export default function DayDetailModal({
         </div>
 
         {/* Body Container - Flex-1 & scrollable */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6 space-y-6">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 pt-2 pb-5 sm:pb-6 space-y-4">
           {checklistsForDate.length === 0 ? (
             <div className="text-center py-12 text-slate-400 text-xs">
               Chưa có dữ liệu chấm công cho ngày này.
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {/* Staff Selector Pills if multiple staff */}
               {checklistsForDate.length > 1 && (
                 <div>
@@ -497,6 +497,7 @@ export default function DayDetailModal({
                                   mode="compact"
                                   className="w-full justify-center px-1.5"
                                   textClassName="truncate"
+                                  maxTextWidth="max-w-[82px]"
                                 />
                               </div>
 

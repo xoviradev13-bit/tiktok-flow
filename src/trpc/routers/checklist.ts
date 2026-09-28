@@ -677,28 +677,60 @@ export const checklistRouter = router({
 
         const score = input?.scoreOverride ?? 1.0;
 
-        await ctx.prisma.dailyChecklistItem.updateMany({
-          where: { checklistId: input.checklistId },
-          data: {
-            isPosted: true,
-            isSynced: true,
-            isCompleted: true,
-          },
-        });
-
         const allItems = await ctx.prisma.dailyChecklistItem.findMany({
           where: { checklistId: input.checklistId },
         });
 
         const totalAssigned = allItems.length;
 
+        if (score >= 1.0) {
+          // Mark ALL items as completed
+          await ctx.prisma.dailyChecklistItem.updateMany({
+            where: { checklistId: input.checklistId },
+            data: { isPosted: true, isSynced: true, isCompleted: true },
+          });
+        } else if (score === 0.5) {
+          // Mark half completed, rest as NOT completed
+          const halfCount = Math.ceil(totalAssigned / 2);
+          const completedIds = allItems.slice(0, halfCount).map((i) => i.id);
+          const notCompletedIds = allItems.slice(halfCount).map((i) => i.id);
+          if (completedIds.length > 0) {
+            await ctx.prisma.dailyChecklistItem.updateMany({
+              where: { id: { in: completedIds } },
+              data: { isPosted: true, isSynced: true, isCompleted: true },
+            });
+          }
+          if (notCompletedIds.length > 0) {
+            await ctx.prisma.dailyChecklistItem.updateMany({
+              where: { id: { in: notCompletedIds } },
+              data: { isPosted: false, isSynced: false, isCompleted: false },
+            });
+          }
+        } else {
+          // score === 0: Mark ALL items as NOT completed
+          await ctx.prisma.dailyChecklistItem.updateMany({
+            where: { checklistId: input.checklistId },
+            data: { isPosted: false, isSynced: false, isCompleted: false },
+          });
+        }
+
+        const completedCount =
+          score >= 1.0
+            ? totalAssigned
+            : score === 0.5
+              ? Math.ceil(totalAssigned / 2)
+              : 0;
+
         return await ctx.prisma.dailyChecklist.update({
           where: { id: input.checklistId },
           data: {
             totalAssigned,
-            completedCount: totalAssigned,
+            completedCount,
             completionRate: score * 100,
             workdayScore: score,
+            // Lock so getByDate doesn't recalculate and override the admin's chosen score
+            isLocked: true,
+            lockedAt: new Date(),
           },
           include: {
             items: {
@@ -749,6 +781,8 @@ export const checklistRouter = router({
                 completedCount: count,
                 completionRate: 100,
                 workdayScore: 1.0,
+                isLocked: true,
+                lockedAt: new Date(),
               },
             });
           })
@@ -840,6 +874,10 @@ export const checklistRouter = router({
           completedCount,
           completionRate,
           workdayScore,
+          // If an admin/lead manually toggles an item, unlock so score is recalculated from live data
+          ...(item.checklist.isLocked && ctx.session.user.role !== "STAFF"
+            ? { isLocked: false, lockedAt: null }
+            : {}),
         },
         include: {
           items: {
@@ -1576,6 +1614,7 @@ export const checklistRouter = router({
           lastSyncedAt: account.lastSyncedAt,
           syncStatus: account.syncStatus,
           gpmProfileId: account.gpmProfileId,
+          gpmProfileName: account.gpmProfileName,
           assignedUser: account.assignedUser,
         },
         targetDate: input.date,

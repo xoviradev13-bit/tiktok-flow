@@ -2085,37 +2085,59 @@ function AccountsPageContent() {
                   </TooltipTrigger>
                   <TooltipContent
                     side="top"
-                    className="text-xs max-w-xs space-y-1.5 bg-slate-900 text-white border-slate-800 shadow-xl p-3"
+                    className="w-72 max-w-[calc(100vw-2rem)] [text-wrap:wrap] text-xs space-y-1.5 bg-slate-900 text-white border-slate-800 shadow-xl p-3"
                   >
                     <div className="font-bold text-pink-400 border-b border-slate-700/80 pb-1 flex items-center gap-1.5">
-                      <Info className="w-3.5 h-3.5 text-pink-400" />
-                      <span>Doanh Thu Toàn Dàn (Tháng Này)</span>
+                      <Info className="w-3.5 h-3.5 shrink-0 text-pink-400" />
+                      <span className="min-w-0 break-words">Doanh Thu Toàn Dàn (Tháng Này)</span>
                     </div>
-                    <p className="text-[11px] text-slate-300 leading-relaxed">
-                      Số tiền hiển thị là tổng doanh thu <strong>tháng này (01/{(() => { const d = new Date(); return String(d.getMonth() + 1).padStart(2, "0"); })()})</strong> được tổng hợp từ toàn bộ tài khoản TikTok trong hệ thống.
+
+                    <p className="text-[11px] text-slate-300 leading-relaxed text-left [text-wrap:wrap] break-words">
+                      Số tiền hiển thị là tổng doanh thu{" "}
+                      <strong>
+                        tháng này (01/{String(new Date().getMonth() + 1).padStart(2, "0")} đến nay)
+                      </strong>{" "}
+                      được tổng hợp từ toàn bộ tài khoản TikTok trong hệ thống.
                     </p>
+
                     <div className="pt-1.5 mt-1 border-t border-slate-800 space-y-1 text-[11px]">
                       {(() => {
                         const weekRange = getThisWeekDateRange();
                         const prevRange = getPreviousMonthDateRange();
+                        const fmt = (n: number) =>
+                          n.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          });
+                        const monthNum = String(new Date().getMonth() + 1).padStart(2, "0");
+
                         return (
                           <>
-                            <div className="flex justify-between gap-4">
-                              <span className="text-slate-400">Tuần này ({weekRange.start.slice(8)}/{weekRange.start.slice(5, 7)}–{weekRange.end.slice(8)}/{weekRange.end.slice(5, 7)}):</span>
-                              <span className="font-semibold text-cyan-300">
-                                ${fleetRevenuePeriods.revenueThisWeek.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <div className="flex items-baseline justify-between gap-3">
+                              <span className="min-w-0 flex-1 text-slate-400">
+                                Tuần này ({weekRange.start.slice(8)}/{weekRange.start.slice(5, 7)}–
+                                {weekRange.end.slice(8)}/{weekRange.end.slice(5, 7)}):
+                              </span>
+                              <span className="shrink-0 font-semibold text-cyan-300 whitespace-nowrap tabular-nums">
+                                ${fmt(fleetRevenuePeriods.revenueThisWeek)}
                               </span>
                             </div>
-                            <div className="flex justify-between gap-4">
-                              <span className="text-slate-400">Tháng này (01/{new Date().toLocaleDateString("vi-VN", { month: "2-digit" })} đến nay):</span>
-                              <span className="font-bold text-pink-400">
-                                ${fleetRevenueThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+
+                            <div className="flex items-baseline justify-between gap-3">
+                              <span className="min-w-0 flex-1 text-slate-400">
+                                Tháng này (01/{monthNum} đến nay):
+                              </span>
+                              <span className="shrink-0 font-bold text-pink-400 whitespace-nowrap tabular-nums">
+                                ${fmt(fleetRevenueThisMonth)}
                               </span>
                             </div>
-                            <div className="flex justify-between gap-4">
-                              <span className="text-slate-400">Tháng trước ({prevRange.start.slice(0, 7)}):</span>
-                              <span className="font-semibold text-purple-300">
-                                ${fleetRevenuePeriods.revenuePrevMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+
+                            <div className="flex items-baseline justify-between gap-3">
+                              <span className="min-w-0 flex-1 text-slate-400">
+                                Tháng trước ({prevRange.start.slice(0, 7)}):
+                              </span>
+                              <span className="shrink-0 font-semibold text-purple-300 whitespace-nowrap tabular-nums">
+                                ${fmt(fleetRevenuePeriods.revenuePrevMonth)}
                               </span>
                             </div>
                           </>
@@ -5277,11 +5299,6 @@ function AccountsPageContent() {
               Tài khoản sẽ được chuyển vào thùng rác và có thể khôi phục bất cứ lúc nào. Dữ liệu số liệu không bị xóa.
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 space-y-1 text-xs text-slate-700 dark:text-slate-300">
-              <div><span className="font-semibold">Tài khoản:</span> @{accountToDelete.username}</div>
-              <div><span className="font-semibold">Quốc gia:</span> {accountToDelete.country}</div>
-              <div><span className="font-semibold">Doanh thu hiện tại:</span> ${Number(accountToDelete.totalRevenue || 0).toFixed(2)}</div>
-            </div>
 
             <div className="flex justify-end gap-2.5 pt-2">
               <button
@@ -5334,11 +5351,6 @@ function AccountsPageContent() {
               Tài khoản sẽ bị ẩn khỏi danh sách chính và checklist. Bạn có thể bỏ lưu trữ bất kỳ lúc nào.
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 space-y-1 text-xs text-slate-700 dark:text-slate-300">
-              <div><span className="font-semibold">Tài khoản:</span> @{accountToArchive.username}</div>
-              <div><span className="font-semibold">Quốc gia:</span> {accountToArchive.country}</div>
-              <div><span className="font-semibold">Doanh thu:</span> ${Number(accountToArchive.totalRevenue || 0).toFixed(2)}</div>
-            </div>
 
             <div className="flex justify-end gap-2.5 pt-2">
               <button

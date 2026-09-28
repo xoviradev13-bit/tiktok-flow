@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState, type ReactNode } from "react";
+import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import {
   Ban,
   AlertTriangle,
@@ -105,62 +106,73 @@ export function ConfirmModal({
   const Icon = ICON_MAP[icon || styles.icon] || Trash2;
 
   return (
-    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirm-modal-title"
-        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5 animate-in zoom-in-95"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${styles.iconWrap}`}
-          >
-            <Icon className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <h3
-              id="confirm-modal-title"
-              className="text-base font-bold text-slate-900 dark:text-white"
+    <AlertDialogPrimitive.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !loading) {
+          onCancel();
+        }
+      }}
+    >
+      <AlertDialogPrimitive.Portal>
+        <AlertDialogPrimitive.Overlay className="fixed inset-0 z-[500] bg-black/60 backdrop-blur-xs data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <AlertDialogPrimitive.Content
+          className="fixed left-[50%] top-[50%] z-[500] translate-x-[-50%] translate-y-[-50%] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-[calc(100%-2rem)] shadow-2xl space-y-5 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 outline-none"
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${styles.iconWrap}`}
             >
-              {title}
-            </h3>
-            {description ? (
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 whitespace-pre-line">
-                {description}
-              </p>
-            ) : null}
+              <Icon className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <AlertDialogPrimitive.Title className="text-base font-bold text-slate-900 dark:text-white">
+                {title}
+              </AlertDialogPrimitive.Title>
+              {description ? (
+                <AlertDialogPrimitive.Description className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 whitespace-pre-line">
+                  {description}
+                </AlertDialogPrimitive.Description>
+              ) : (
+                <AlertDialogPrimitive.Description className="sr-only">
+                  {title}
+                </AlertDialogPrimitive.Description>
+              )}
+            </div>
           </div>
-        </div>
 
-        {body ? (
-          <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 whitespace-pre-line">
-            {body}
+          {body ? (
+            <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 whitespace-pre-line">
+              {body}
+            </div>
+          ) : null}
+
+          <div className="flex justify-end gap-2.5 pt-1">
+            <AlertDialogPrimitive.Cancel asChild>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={onCancel}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {cancelLabel}
+              </button>
+            </AlertDialogPrimitive.Cancel>
+            <AlertDialogPrimitive.Action asChild>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={onConfirm}
+                className={`flex items-center gap-1.5 px-5 py-2 text-xs font-bold rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer ${styles.confirmBtn}`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{loading ? loadingLabel || "Đang xử lý..." : confirmLabel}</span>
+              </button>
+            </AlertDialogPrimitive.Action>
           </div>
-        ) : null}
-
-        <div className="flex justify-end gap-2.5 pt-1">
-          <button
-            type="button"
-            disabled={loading}
-            onClick={onCancel}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer disabled:opacity-60"
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            disabled={loading}
-            onClick={onConfirm}
-            className={`flex items-center gap-1.5 px-5 py-2 text-xs font-bold rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer ${styles.confirmBtn}`}
-          >
-            <Icon className="w-3.5 h-3.5" />
-            <span>{loading ? loadingLabel || "Đang xử lý..." : confirmLabel}</span>
-          </button>
-        </div>
-      </div>
-    </div>
+        </AlertDialogPrimitive.Content>
+      </AlertDialogPrimitive.Portal>
+    </AlertDialogPrimitive.Root>
   );
 }
 

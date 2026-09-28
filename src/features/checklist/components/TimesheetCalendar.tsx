@@ -109,6 +109,14 @@ export default function TimesheetCalendar({
     return 'Hôm nay';
   }, [quickMode, formattedSelectedDate]);
 
+  const formatScoreDisplay = (num: number) => {
+    if (num >= 1000) {
+      const val = num / 1000;
+      return `${Number(val.toFixed(1))}k`;
+    }
+    return String(num);
+  };
+
   // Calendar Matrix generation
   const { daysInGrid, monthStart, monthEnd } = useMemo(() => {
     const mStart = startOfMonth(selectedMonthDate);
@@ -563,6 +571,11 @@ export default function TimesheetCalendar({
               (c) => Number(c.workdayScore) === 0
             ).length;
             const teamTotalStaff = dayChecklists.length;
+            const teamScore = Number(
+              dayChecklists
+                .reduce((sum, c) => sum + Number(c.workdayScore || 0), 0)
+                .toFixed(1)
+            );
             const teamVideos = dayChecklists.reduce(
               (sum, c) =>
                 sum + (c.items?.filter((i: any) => i.isPosted).length || 0),
@@ -597,10 +610,10 @@ export default function TimesheetCalendar({
                   }`}
               >
                 {/* Cell Header: Day Number + Status Flag */}
-                <div className="flex items-center justify-between gap-1">
-                  <div className="flex items-center gap-1.5">
+                <div className="flex items-center justify-between gap-1 h-6 min-w-0">
+                  <div className="flex items-center gap-1.5 h-6 min-w-0 shrink">
                     <span
-                      className={`text-xs sm:text-sm font-black rounded-lg w-6 h-6 flex items-center justify-center ${isCurrDay
+                      className={`text-xs sm:text-sm font-black rounded-lg w-6 h-6 flex items-center justify-center shrink-0 ${isCurrDay
                         ? "bg-pink-600 text-white shadow-xs"
                         : isCurrMonth
                           ? "text-slate-800 dark:text-slate-200"
@@ -610,25 +623,37 @@ export default function TimesheetCalendar({
                       {format(day, "d")}
                     </span>
                     {isCurrDay && (
-                      <span className="hidden xl:inline-block text-[9px] font-black uppercase text-pink-600 dark:text-pink-400">
+                      <span className="hidden xl:inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-pink-100 dark:bg-pink-950/60 text-pink-600 dark:text-pink-400 leading-none shrink truncate max-w-[55px]">
                         Hôm nay
                       </span>
                     )}
                   </div>
 
-                  {/* Note Indicator Icon if any note exists */}
-                  {singleHasNotes && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="text-pink-500 dark:text-pink-400">
-                          <FileText className="w-3 h-3" />
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">
-                        Có ghi chú vận hành ngày này
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+                  {/* Header Right: Note Indicator Icon & Team Score */}
+                  <div className="flex items-center gap-1.5 h-6 shrink-0">
+                    {singleHasNotes && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-pink-500 dark:text-pink-400">
+                            <FileText className="w-3 h-3" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          Có ghi chú vận hành ngày này
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {!isSingleUser && hasData && (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-xs font-black text-slate-800 dark:text-slate-200 leading-none text-right shrink-0"
+                        title={`${teamScore.toLocaleString("vi-VN")} công`}
+                      >
+                        <span>{formatScoreDisplay(teamScore)}</span>
+                        <span className="text-[10px] font-bold text-slate-400">công</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Cell Center: Metrics & Workday Status */}
@@ -722,30 +747,65 @@ export default function TimesheetCalendar({
                           )}
                         </div>
 
-                        {/* Staff count pills: 0 công, 0.5 công, 1 công */}
-                        <div className="text-xs font-bold flex items-center justify-between min-h-[18px]">
-                          {teamFull > 0 && (
-                            <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
-                              {teamTotalStaff > 1 && <span>{teamFull} NV ×</span>}
-                              <span>1 công</span>
-                            </span>
-                          )}
-                          {teamHalf > 0 && (
-                            <span className="text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
-                              {teamTotalStaff > 1 && <span>{teamHalf} NV ×</span>}
-                              <span>0.5 công</span>
-                            </span>
-                          )}
-                          {teamZero > 0 && (
-                            <span className="text-rose-600 dark:text-rose-400 flex items-center gap-0.5">
-                              {teamTotalStaff > 1 ? (
-                                <span>{teamZero} NV × 0 công</span>
-                              ) : (
-                                <span>0 công</span>
+                        {/* Staff count pills: 0 công, 0.5 công, 1 công (evenly spaced & truncated) */}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center justify-between gap-1.5 min-h-[22px] cursor-help w-full">
+                              {teamFull > 0 && (
+                                <span
+                                  className="flex-1 min-w-0 max-w-[55px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                                  title={`${teamFull} NV đạt 1.0 công`}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                  <span className="truncate">{teamFull}</span>
+                                </span>
                               )}
-                            </span>
-                          )}
-                        </div>
+                              {teamHalf > 0 && (
+                                <span
+                                  className="flex-1 min-w-0 max-w-[55px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                                  title={`${teamHalf} NV đạt 0.5 công`}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                  <span className="truncate">{teamHalf}</span>
+                                </span>
+                              )}
+                              {teamZero > 0 && (
+                                <span
+                                  className="flex-1 min-w-0 max-w-[55px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20"
+                                  title={`${teamZero} NV 0 công`}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                                  <span className="truncate">{teamZero}</span>
+                                </span>
+                              )}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs space-y-1 p-2.5 z-50">
+                            <div className="font-bold text-slate-200 border-b border-slate-700/60 pb-1">
+                              {teamTotalStaff} nhân sự • Tổng {teamScore} công
+                            </div>
+                            <div className="space-y-0.5 text-[11px]">
+                              {teamFull > 0 && (
+                                <div className="text-emerald-400 flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  <span>{teamFull} NV đạt 1.0 công (&ge;{fullDayThreshold}%)</span>
+                                </div>
+                              )}
+                              {teamHalf > 0 && (
+                                <div className="text-amber-400 flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                                  <span>{teamHalf} NV đạt 0.5 công ({halfDayThreshold}-{Math.max(0, fullDayThreshold - 1)}%)</span>
+                                </div>
+                              )}
+                              {teamZero > 0 && (
+                                <div className="text-rose-400 flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                                  <span>{teamZero} NV 0 công (&lt;{halfDayThreshold}%)</span>
+                                </div>
+                              )}
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
 
                         {/* Team avg rate & videos - Same text-xs font-bold size */}
                         <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 pt-0.5 border-t border-slate-100 dark:border-slate-800/60">

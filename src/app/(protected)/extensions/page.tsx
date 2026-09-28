@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, Suspense } from "react";
 import { useUrlParams } from "@/hooks/useUrlState";
+import { useDebounce } from "@/hooks/useDebounce";
 import Link from "next/link";
 import {
   Puzzle,
@@ -56,6 +57,7 @@ function ExtensionsListPageContent() {
 
   const initialSearch = searchParams?.get("q") || searchParams?.get("search") || "";
   const [search, setSearch] = useState(initialSearch);
+  const debouncedSearch = useDebounce(search, 300);
 
   const initialCat = searchParams?.get("cat") || searchParams?.get("category") || "ALL";
   const [category, setCategory] = useState(initialCat);
@@ -88,7 +90,7 @@ function ExtensionsListPageContent() {
 
   const { data: extensions = [], isLoading } = trpc.extension.list.useQuery({
     category,
-    search,
+    search: debouncedSearch || undefined,
     sortBy,
     sortOrder,
   });
