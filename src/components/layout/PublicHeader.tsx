@@ -17,18 +17,6 @@ export default function PublicHeader({ badge }: PublicHeaderProps) {
   const { data: session } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Only route through force-signout if a session exists (to clear stale JWT cookie).
-  // If the user is already unauthenticated, navigate directly to /signin.
-  const goToSignIn = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setMobileMenuOpen(false);
-    if (session) {
-      window.location.href = `/api/auth/force-signout?callbackUrl=${encodeURIComponent(APP_ROUTES.ACCOUNTS)}`;
-    } else {
-      window.location.href = APP_ROUTES.SIGNIN;
-    }
-  };
-
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -75,11 +63,10 @@ export default function PublicHeader({ badge }: PublicHeaderProps) {
                 <Link
                   key={nav.href}
                   href={nav.href}
-                  className={`transition-colors py-1 ${
-                    isActive
+                  className={`transition-colors py-1 ${isActive
                       ? "text-pink-600 dark:text-pink-400 font-bold border-b-2 border-pink-500"
                       : "hover:text-pink-600 dark:hover:text-pink-400"
-                  }`}
+                    }`}
                 >
                   {nav.label}
                 </Link>
@@ -100,13 +87,12 @@ export default function PublicHeader({ badge }: PublicHeaderProps) {
                 <ArrowRight className="w-3.5 h-3.5 hidden sm:inline-block" />
               </Link>
             ) : (
-              <a
+              <Link
                 href={APP_ROUTES.SIGNIN}
-                onClick={goToSignIn}
                 className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-md shadow-pink-600/20 active:scale-95 transition-all whitespace-nowrap"
               >
                 <span>Đăng Nhập</span>
-              </a>
+              </Link>
             )}
 
             {/* Mobile Hamburger Button */}
@@ -145,11 +131,10 @@ export default function PublicHeader({ badge }: PublicHeaderProps) {
                     key={nav.href}
                     href={nav.href}
                     onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center justify-between px-3.5 py-3 rounded-2xl text-base font-semibold transition-all ${
-                      isActive
+                    className={`flex items-center justify-between px-3.5 py-3 rounded-2xl text-base font-semibold transition-all ${isActive
                         ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 font-bold border border-pink-500/20"
                         : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900"
-                    }`}
+                      }`}
                   >
                     <span>{nav.label}</span>
                     <ArrowRight className="w-4 h-4 text-slate-400 opacity-60" />
@@ -170,13 +155,13 @@ export default function PublicHeader({ badge }: PublicHeaderProps) {
                 </Link>
               ) : (
                 <>
-                  <a
+                  <Link
                     href={APP_ROUTES.SIGNIN}
-                    onClick={goToSignIn}
+                    onClick={() => setMobileMenuOpen(false)}
                     className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl text-sm font-bold bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md shadow-pink-600/20"
                   >
                     <span>Đăng Nhập Tài Khoản</span>
-                  </a>
+                  </Link>
                   <Link
                     href={APP_ROUTES.SIGNUP}
                     onClick={() => setMobileMenuOpen(false)}

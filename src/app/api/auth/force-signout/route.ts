@@ -53,9 +53,13 @@ async function handleForceSignOut(req: NextRequest) {
   // to all interfaces — that resolves to an unreachable host in the browser.
   const rawOrigin = req.nextUrl.origin;
   const isBadOrigin = rawOrigin.includes("0.0.0.0") || rawOrigin.includes("::");
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https");
+  const headerOrigin = host && !host.includes("0.0.0.0") && !host.includes("::") ? `${proto}://${host}` : null;
   const trustedOrigin =
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.AUTH_URL ||
+    headerOrigin ||
     (isBadOrigin ? "http://localhost:3000" : rawOrigin);
 
   const signinUrl = new URL(
