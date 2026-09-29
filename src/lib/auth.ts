@@ -80,6 +80,10 @@ export const authOptions: NextAuthConfig = {
       // Absolute URL: allow same origin, any streamdash.site / tiktokflow.site subdomain, or local dev
       try {
         const parsed = new URL(url);
+        // Clean out any internal container binding origins (e.g. 0.0.0.0:3000)
+        if (parsed.hostname === "0.0.0.0" || (IS_PRODUCTION && (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost"))) {
+          return `${appUrl}${parsed.pathname}${parsed.search}`;
+        }
         if (
           parsed.origin === baseUrl ||
           parsed.hostname.endsWith("streamdash.site") ||
