@@ -53,5 +53,8 @@ next-env.d.ts
 # Scratch & temporary debug scripts
 scratch/
 scratch
+scripts/
+scripts
 *.pyc
+__pycache__/
 
