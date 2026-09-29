@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useRef, Suspense } from "react";
+import { signOut } from "next-auth/react";
 import { useUrlParams } from "@/hooks/useUrlState";
 import {
   Settings,
@@ -1187,7 +1188,10 @@ function SettingsPageContent() {
             </div>
 
             <button
-              onClick={() => {
+              onClick={async () => {
+                try {
+                  await signOut({ redirect: false });
+                } catch {}
                 window.location.href = "/api/auth/force-signout?callbackUrl=/signin";
               }}
               className="w-full py-2.5 rounded-xl text-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-all cursor-pointer"

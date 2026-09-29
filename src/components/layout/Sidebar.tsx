@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   Users,
@@ -158,7 +158,10 @@ export default function Sidebar() {
     return "Nhân Viên (Staff)";
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await signOut({ redirect: false });
+    } catch {}
     window.location.href = "/api/auth/force-signout?callbackUrl=/signin";
   };
 

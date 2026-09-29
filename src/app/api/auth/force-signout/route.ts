@@ -3,9 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const IS_PRODUCTION = process.env.APP_ENV === "production" || process.env.NODE_ENV === "production";
 
-// All cookie names that may hold session, CSRF, or callback tokens.
-// Must be cleared to prevent middleware from seeing a stale JWT and bouncing the user back.
-const ALL_AUTH_COOKIE_NAMES = [
+const BASE_AUTH_COOKIE_NAMES = [
   "streamdash.session-token",
   "__Secure-streamdash.session-token",
   "tiktokflow.session-token",
@@ -28,12 +26,10 @@ const ALL_AUTH_COOKIE_NAMES = [
  * GET /api/auth/force-signout?callbackUrl=/some/path
  * POST /api/auth/force-signout
  *
- * Clears all session + CSRF cookies server-side and redirects to /signin.
- * Does NOT require a CSRF token — safe because it only removes cookies, never
- * reads or mutates application data.
+ * Clears all session + CSRF cookies server-side across all domains/subdomains and redirects to /signin.
  */
 async function handleForceSignOut(req: NextRequest) {
-  // Security guard: Ignore embedded/subresource requests (e.g. cross-site <img src="...">)
+  // Security guard: Ignore embedded/subresource requests
   const fetchDest = req.headers.get("sec-fetch-dest");
   if (fetchDest && ["image", "script", "style", "video", "audio", "font", "track"].includes(fetchDest)) {
     return new NextResponse(null, { status: 400 });
@@ -42,19 +38,26 @@ async function handleForceSignOut(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const rawCallback = searchParams.get("callbackUrl") || "";
 
-  // Open-redirect protection: only allow local relative paths
-  const callbackUrl =
-    rawCallback.startsWith("/") && !rawCallback.startsWith("//")
+  // Open-redirect protection & strip circular signin callback
+  const cleanCallback =
+    rawCallback.startsWith("/") &&
+    !rawCallback.startsWith("//") &&
+    !rawCallback.startsWith("/signin") &&
+    !rawCallback.startsWith("/signup") &&
+    !rawCallback.startsWith("/auth")
       ? rawCallback
-      : "/accounts";
+      : "";
 
-  // Use the canonical app URL from env if available.
-  // req.nextUrl.origin can be "http://0.0.0.0:3000" in dev when Next.js binds
-  // to all interfaces — that resolves to an unreachable host in the browser.
+  const signinPath = cleanCallback
+    ? `/signin?callbackUrl=${encodeURIComponent(cleanCallback)}`
+    : "/signin";
+
+  // Derive trusted origin
   const rawOrigin = req.nextUrl.origin;
   const isBadOrigin = rawOrigin.includes("0.0.0.0") || rawOrigin.includes("::");
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  const proto = req.headers.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https");
+  const hostHeader = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+  const host = hostHeader.split(":")[0];
+  const proto = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
   const headerOrigin = host && !host.includes("0.0.0.0") && !host.includes("::") ? `${proto}://${host}` : null;
   const trustedOrigin =
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -62,11 +65,7 @@ async function handleForceSignOut(req: NextRequest) {
     headerOrigin ||
     (isBadOrigin ? "http://localhost:3000" : rawOrigin);
 
-  const signinUrl = new URL(
-    `/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`,
-    trustedOrigin
-  );
-
+  const signinUrl = new URL(signinPath, trustedOrigin);
   const res = NextResponse.redirect(signinUrl);
 
   // Prevent caching of sign-out response
@@ -74,30 +73,79 @@ async function handleForceSignOut(req: NextRequest) {
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
 
-  const cookieDomain = process.env.COOKIE_DOMAIN || (IS_PRODUCTION ? ".streamdash.site" : undefined);
+  // Collect all cookie names to expire, including chunked (.0, .1, .2)
+  const cookieNamesToClear = new Set<string>();
+  for (const base of BASE_AUTH_COOKIE_NAMES) {
+    cookieNamesToClear.add(base);
+    for (let i = 0; i <= 5; i++) {
+      cookieNamesToClear.add(`${base}.${i}`);
+    }
+  }
 
-  // Expire all auth-related cookies
-  for (const name of ALL_AUTH_COOKIE_NAMES) {
+  // Also include any cookie currently present on the request matching auth tokens
+  for (const cookie of req.cookies.getAll()) {
+    const n = cookie.name.toLowerCase();
+    if (
+      n.includes("session-token") ||
+      n.includes("csrf") ||
+      n.includes("callback-url") ||
+      n.includes("streamdash") ||
+      n.includes("tiktokflow") ||
+      n.includes("auth")
+    ) {
+      cookieNamesToClear.add(cookie.name);
+    }
+  }
+
+  // Determine potential cookie domains to purge
+  const candidateDomains = new Set<string>();
+  if (process.env.COOKIE_DOMAIN) candidateDomains.add(process.env.COOKIE_DOMAIN);
+  candidateDomains.add(".streamdash.site");
+  candidateDomains.add("streamdash.site");
+  candidateDomains.add(".tiktokflow.site");
+  candidateDomains.add("tiktokflow.site");
+  if (host && !host.includes("localhost") && !host.includes("127.0.0.1")) {
+    candidateDomains.add(host);
+    candidateDomains.add(`.${host}`);
+    const parts = host.split(".");
+    if (parts.length >= 2) {
+      const rootDomain = parts.slice(-2).join(".");
+      candidateDomains.add(`.${rootDomain}`);
+      candidateDomains.add(rootDomain);
+    }
+  }
+
+  const isHttps = proto === "https" || IS_PRODUCTION;
+
+  // IMPORTANT: Do NOT call `res.cookies.set()` here!
+  // In Next.js, calling `res.cookies.set()` creates an internal ResponseCookies map
+  // that overwrites or drops raw Set-Cookie headers appended via `res.headers.append()`.
+  // Using pure `res.headers.append('Set-Cookie', ...)` guarantees ALL deletion headers are sent.
+  for (const name of cookieNamesToClear) {
     const isHostCookie = name.startsWith("__Host-");
-    const isSecureCookie = name.startsWith("__Secure-") || isHostCookie || IS_PRODUCTION;
+    const isSecureCookie = name.startsWith("__Secure-") || isHostCookie || isHttps;
 
-    // 1. Host-only / standard cookie removal
-    res.cookies.set(name, "", {
-      expires: new Date(0),
-      maxAge: 0,
-      path: "/",
-      secure: isSecureCookie,
-      httpOnly: true,
-      sameSite: "lax",
-    });
+    // 1. Host-only removal (no Domain attribute)
+    let hostVal = `${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Lax`;
+    if (isSecureCookie) hostVal += "; Secure";
+    res.headers.append("Set-Cookie", hostVal);
 
-    // 2. Domain-scoped cookie removal (RFC 6265 forbids Domain attribute on __Host- cookies)
-    if (cookieDomain && !isHostCookie) {
-      let headerVal = `${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Lax; Domain=${cookieDomain}`;
-      if (isSecureCookie) {
-        headerVal += "; Secure";
+    if (!name.startsWith("__Secure-") && !name.startsWith("__Host-")) {
+      res.headers.append("Set-Cookie", `${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Lax`);
+    }
+
+    // 2. Domain-scoped removal (RFC 6265 forbids Domain attribute on __Host- cookies)
+    if (!isHostCookie) {
+      for (const domain of candidateDomains) {
+        if (!domain) continue;
+        let domainVal = `${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Lax; Domain=${domain}`;
+        if (isSecureCookie) domainVal += "; Secure";
+        res.headers.append("Set-Cookie", domainVal);
+
+        if (!name.startsWith("__Secure-")) {
+          res.headers.append("Set-Cookie", `${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Lax; Domain=${domain}`);
+        }
       }
-      res.headers.append("Set-Cookie", headerVal);
     }
   }
 

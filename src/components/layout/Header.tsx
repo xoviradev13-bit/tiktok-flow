@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import ThemeToggle from "./ThemeToggle";
 import { trpc } from "@/lib/trpc";
 import {
@@ -422,7 +422,10 @@ export default function Header() {
     return "Nhân Viên (Staff)";
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await signOut({ redirect: false });
+    } catch {}
     window.location.href = "/api/auth/force-signout?callbackUrl=/signin";
   };
 
