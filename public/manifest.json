@@ -1,7 +1,7 @@
 {
-  "name": "TIKTOKFLOW – TikTok Fleet Automation & Creator Rewards Operations",
-  "short_name": "TIKTOKFLOW",
-  "description": "Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
+  "name": "StreamDash – Video Fleet Operations & Analytics Platform",
+  "short_name": "StreamDash",
+  "description": "Nền tảng tự động hóa và quản trị dàn tài khoản quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu hóa hiệu suất.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#020617",

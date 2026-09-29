@@ -42,7 +42,7 @@ export function ClientAgentSection() {
             <span>Zero-Dependency Windows Portable</span>
           </div>
           <div className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-            TikTokFlow Client Agent
+            StreamDash Client Agent
           </div>
           <p className="text-sm text-slate-600 dark:text-slate-400 max-w-xl">
             Đã bao gồm sẵn mọi thành phần chạy ngầm dạng Portable. Bạn <strong>KHÔNG CẦN</strong> cài thêm bất kỳ phần mềm nào trên máy.
@@ -52,7 +52,7 @@ export function ClientAgentSection() {
         {session ? (
           <button
             type="button"
-            onClick={() => downloadPackage("/api/client-agent/download", "TikTokFlow-ClientAgent.zip")}
+            onClick={() => downloadPackage("/api/client-agent/download", "StreamDash-ClientAgent.zip")}
             className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-sm font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-600/20 shrink-0 transition-all cursor-pointer"
           >
             <Download className="w-4 h-4" />
@@ -77,7 +77,7 @@ export function ClientAgentSection() {
 
         <div className="rounded-3xl bg-slate-900 border border-slate-800 p-6 font-mono text-xs sm:text-sm text-slate-300 space-y-3 shadow-xl">
           <div className="text-slate-400 text-xs pb-2.5 border-b border-slate-800 flex items-center justify-between">
-            <span>📁 D:\TikTokFlow-Agent\</span>
+            <span>📁 D:\StreamDash-Agent\</span>
             <span className="text-emerald-400 font-bold">Ready to run</span>
           </div>
 
@@ -345,7 +345,7 @@ export function ClientAgentSection() {
             <div>
               <div className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">Xóa Thư Mục Đã Giải Nén</div>
               <p className="text-slate-600 dark:text-slate-400 mt-1 leading-relaxed text-sm">
-                Xóa thư mục <code className="text-slate-800 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded font-mono text-xs">TikTokFlow-Agent</code>. Máy trạm của bạn hoàn toàn sạch sẽ, không có bất kỳ file rác hay registry nào bị lưu lại.
+                Xóa thư mục <code className="text-slate-800 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded font-mono text-xs">StreamDash-Agent</code>. Máy trạm của bạn hoàn toàn sạch sẽ, không có bất kỳ file rác hay registry nào bị lưu lại.
               </p>
             </div>
           </div>

@@ -11,7 +11,7 @@ export interface WorkspaceInvitationEmailData {
   expiresAt?: Date;
 }
 
-const TIKTOKFLOW_THEME: EmailTheme = {
+const STREAMDASH_THEME: EmailTheme = {
   brandColor: "#ec4899",
   buttonText: "#ffffff",
   backgroundColor: "#0f172a",
@@ -21,11 +21,11 @@ const TIKTOKFLOW_THEME: EmailTheme = {
 
 export class InvitationEmailTemplates {
   /**
-   * Invitation to join TIKTOKFLOW operations workspace
+   * Invitation to join StreamDash operations workspace
    */
   static getWorkspaceMemberInvite(
     data: WorkspaceInvitationEmailData,
-    theme: EmailTheme = TIKTOKFLOW_THEME
+    theme: EmailTheme = STREAMDASH_THEME
   ): EmailTemplate {
     const diffHours = data.expiresAt
       ? Math.max(1, Math.round((new Date(data.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60)))
@@ -43,18 +43,18 @@ export class InvitationEmailTemplates {
         ? "Trưởng Nhóm (Lead)"
         : "Nhân Viên Vận Hành (Staff)";
 
-    const workspace = data.workspaceName || "TIKTOKFLOW";
+    const workspace = data.workspaceName || "StreamDash";
     const displayTeam = data.teamName || data.groupName || null;
 
     return {
-      subject: `[TIKTOKFLOW] ${data.inviterName} đã gửi thư mời bạn tham gia hệ thống (${roleBadgeText})`,
+      subject: `[StreamDash] ${data.inviterName} đã gửi thư mời bạn tham gia hệ thống (${roleBadgeText})`,
       html: `
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lời Mời Tham Gia TIKTOKFLOW</title>
+    <title>Lời Mời Tham Gia StreamDash</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b;">
     <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f8fafc;">
@@ -68,10 +68,10 @@ export class InvitationEmailTemplates {
                                 Thư Mời Thành Viên
                             </div>
                             <div style="font-size: 26px; font-weight: 900; letter-spacing: -0.5px; color: #ffffff; margin-bottom: 4px;">
-                                TIKTOK<span style="color: #ec4899;">FLOW</span>
+                                STREAM<span style="color: #ec4899;">DASH</span>
                             </div>
                             <div style="font-size: 12px; color: #94a3b8; font-weight: 500;">
-                                Nền tảng tự động hóa và quản trị dàn tài khoản TikTok
+                                Nền tảng tự động hóa và quản trị vận hành kênh video
                             </div>
                         </td>
                     </tr>
@@ -133,7 +133,7 @@ export class InvitationEmailTemplates {
                                 Nếu bạn không nhận diện được người gửi hoặc không mong đợi thư mời này, bạn có thể an tâm bỏ qua email này.
                             </p>
                             <p style="margin: 0; font-size: 12px; color: #cbd5e1; font-weight: 600;">
-                                © ${new Date().getFullYear()} TIKTOKFLOW. TikTok Fleet Automation & Creator Operations.
+                                © ${new Date().getFullYear()} StreamDash. Video Fleet Operations & Management Platform.
                             </p>
                         </td>
                     </tr>
@@ -144,10 +144,10 @@ export class InvitationEmailTemplates {
 </body>
 </html>
       `,
-      text: `[TIKTOKFLOW] Lời mời tham gia hệ thống
+      text: `[StreamDash] Lời mời tham gia hệ thống
 
 Xin chào ${data.recipientName || "bạn"},
-${data.inviterName} đã mời bạn tham gia hệ thống TIKTOKFLOW với vai trò: ${roleBadgeText}.
+${data.inviterName} đã mời bạn tham gia hệ thống StreamDash với vai trò: ${roleBadgeText}.
 ${data.groupName ? `Nhóm/Team: ${data.groupName}\n` : ""}Thời hạn liên kết: ${expiryLabel}
 
 Bấm vào liên kết bên dưới để hoàn tất đăng ký hoặc đăng nhập nhận quyền:

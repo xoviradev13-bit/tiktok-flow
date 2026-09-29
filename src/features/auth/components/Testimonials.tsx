@@ -4,7 +4,7 @@ import React from 'react';
 const testimonials = [
   { id: 1, name: "Thanh Hằng", handle: "@hangdigital", rating: 5, quote: "Nền tảng tuyệt vời! Trải nghiệm mượt mà và các tính năng checklist, quét GPM cực kỳ sát với nhu cầu vận hành dàn acc." },
   { id: 2, name: "Minh Tuấn", handle: "@tuantiktok", rating: 5, quote: "Hệ thống giúp tối ưu hóa toàn bộ quy trình chấm công nhân sự và kiểm soát doanh thu từng tài khoản chính xác theo thời gian thực." },
-  { id: 3, name: "Quốc Bảo", handle: "@baomedia", rating: 5, quote: "Đã thử qua nhiều giải pháp nhưng TIKTOKFLOW vượt trội hơn hẳn. Trực quan, ổn định và tăng hiệu suất team rõ rệt." },
+  { id: 3, name: "Quốc Bảo", handle: "@baomedia", rating: 5, quote: "Đã thử qua nhiều giải pháp nhưng StreamDash vượt trội hơn hẳn. Trực quan, ổn định và tăng hiệu suất team rõ rệt." },
 ];
 
 const StarRating = ({ rating }: { rating: number }) => (

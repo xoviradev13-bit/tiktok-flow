@@ -293,11 +293,11 @@ function ExtensionsListPageContent() {
                   <div className={`w-12 h-12 rounded-2xl ${
                     isAccessRevoked
                       ? "bg-slate-100 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/50 text-slate-400"
-                      : ext.slug === "tiktokflow-client-agent" || ext.category === "SCRAPER"
+                      : ext.slug === "streamdash-client-agent" || ext.slug === "tiktokflow-client-agent" || ext.category === "SCRAPER"
                         ? "bg-gradient-to-tr from-indigo-500/20 via-purple-500/20 to-cyan-500/20 border border-indigo-500/30 text-indigo-400"
                         : "bg-gradient-to-tr from-pink-500/20 via-purple-500/20 to-cyan-500/20 border border-pink-500/30 text-pink-600 dark:text-pink-400"
                   } flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-xs`}>
-                    {ext.slug === "tiktokflow-client-agent" || ext.category === "SCRAPER" ? (
+                    {ext.slug === "streamdash-client-agent" || ext.slug === "tiktokflow-client-agent" || ext.category === "SCRAPER" ? (
                       <Bot className="w-6 h-6" />
                     ) : (
                       <Puzzle className="w-6 h-6" />
@@ -321,7 +321,7 @@ function ExtensionsListPageContent() {
                 <p className={`text-xs leading-relaxed line-clamp-3 ${
                   isAccessRevoked ? "text-slate-400 dark:text-slate-500" : "text-slate-600 dark:text-slate-300"
                 }`}>
-                  {ext.shortDesc || ext.description || "Tiện ích mở rộng chính thức cho hệ sinh thái TikTokFlow."}
+                  {ext.shortDesc || ext.description || "Tiện ích mở rộng chính thức cho hệ sinh thái StreamDash."}
                 </p>
 
                 {/* Supported Browsers */}
@@ -388,6 +388,7 @@ function ExtensionsListPageContent() {
                         type="button"
                         onClick={() => {
                           const isClientAgent =
+                            ext.slug === "streamdash-client-agent" ||
                             ext.slug === "tiktokflow-client-agent" ||
                             ext.folderPath === "client-agent";
                           const url = isClientAgent
@@ -396,13 +397,13 @@ function ExtensionsListPageContent() {
                           downloadPackage(
                             url,
                             isClientAgent
-                              ? "TikTokFlow-ClientAgent.zip"
-                              : "TikTokFlow-Extension.zip"
+                              ? "StreamDash-ClientAgent.zip"
+                              : "StreamDash-Extension.zip"
                           );
                         }}
                         aria-label="Tải bản cài đặt"
                         className={`p-2.5 rounded-xl ${
-                          ext.slug === "tiktokflow-client-agent"
+                          ext.slug === "streamdash-client-agent" || ext.slug === "tiktokflow-client-agent"
                             ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 shadow-indigo-600/20"
                             : "bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-pink-600/20"
                         } text-white shadow-md active:scale-95 transition-all cursor-pointer shrink-0`}
@@ -411,7 +412,7 @@ function ExtensionsListPageContent() {
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="text-xs font-semibold max-w-xs text-center">
-                      {ext.slug === "tiktokflow-client-agent"
+                      {ext.slug === "streamdash-client-agent" || ext.slug === "tiktokflow-client-agent"
                         ? "Tải Client Agent (.zip) với mã pairing"
                         : "Tải Extension (.zip) với mã pairing"}
                     </TooltipContent>

@@ -52,7 +52,7 @@ import ScheduleModal, {
   SyncScheduleConfig,
   SyncScheduleItem,
 } from "@/features/schedule/ScheduleModal";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { useColorTheme, COLOR_THEMES } from "@/components/theme/ColorThemeProvider";
 import { toast } from "sonner";
@@ -1023,7 +1023,7 @@ function SettingsPageContent() {
               Thông Tin Tài Khoản
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-              Cập nhật tên hiển thị, username và ảnh đại diện trên toàn hệ thống TikTokFlow.
+              Cập nhật tên hiển thị, username và ảnh đại diện trên toàn hệ thống StreamDash.
             </p>
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1187,7 +1187,9 @@ function SettingsPageContent() {
             </div>
 
             <button
-              onClick={() => signOut({ callbackUrl: "/signin" })}
+              onClick={() => {
+                window.location.href = "/api/auth/force-signout?callbackUrl=/signin";
+              }}
               className="w-full py-2.5 rounded-xl text-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-all cursor-pointer"
             >
               Đăng Xuất Khỏi Tài Khoản

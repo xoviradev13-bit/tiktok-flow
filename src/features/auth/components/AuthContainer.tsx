@@ -20,11 +20,11 @@ export const AuthContainer = ({ children, title, subtitle }: AuthContainerProps)
           <Link href="/" className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-md shadow-pink-500/20">
               <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
-                <Zap className="w-4 h-4 text-pink-400 fill-pink-400" />
+                <span className="text-white font-black text-base tracking-tight select-none">S</span>
               </div>
             </div>
             <span className="font-black text-xl tracking-tight text-slate-900 dark:text-white">
-              TIKTOK<span className="text-pink-500">FLOW</span>
+              STREAM<span className="text-pink-500">DASH</span>
             </span>
           </Link>
         </div>
@@ -41,6 +41,12 @@ export const AuthContainer = ({ children, title, subtitle }: AuthContainerProps)
             </div>
           )}
           {children}
+
+          <div className="mt-8 pt-4 border-t border-slate-100 dark:border-slate-800/80 text-center">
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-normal">
+              StreamDash là giải pháp quản trị vận hành nội bộ độc lập, không trực thuộc hay liên kết với TikTok Pte. Ltd.
+            </p>
+          </div>
         </div>
       </div>
     </div>

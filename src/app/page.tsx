@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import {
   Zap,
   TrendingUp,
@@ -32,14 +32,9 @@ import PublicFooter from "@/components/layout/PublicFooter";
 export default function LandingPage() {
   const { status } = useSession();
 
-  const goToSignIn = async (e: React.MouseEvent) => {
+  const goToSignIn = (e: React.MouseEvent) => {
     e.preventDefault();
-    try {
-      await signOut({ redirect: false });
-    } catch {
-      // ignore — still navigate to sign-in
-    }
-    window.location.href = "/signin";
+    window.location.href = "/api/auth/force-signout?callbackUrl=/accounts";
   };
 
   const isAuthenticated = status === "authenticated";
@@ -109,18 +104,18 @@ export default function LandingPage() {
             <span className="relative inline-flex rounded-full h-2 w-2 bg-pink-500"></span>
           </span>
           <span className="text-xs font-semibold bg-gradient-to-r from-pink-600 via-purple-600 to-cyan-600 dark:from-pink-300 dark:via-purple-200 dark:to-cyan-300 bg-clip-text text-transparent">
-            Nền Tảng Tự Động Hóa Vận Hành TikTok Studio 2026
+            Nền Tảng Tự Động Hóa Vận Hành StreamDash 2026
           </span>
         </div>
 
         {/* Hero Title */}
         <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-slate-900 dark:text-white max-w-5xl mx-auto leading-[1.15]">
-          Quản Trị <span className="bg-gradient-to-r from-pink-600 via-rose-500 to-cyan-500 dark:from-pink-500 dark:via-rose-400 dark:to-cyan-400 bg-clip-text text-transparent">Hàng Nghìn Kênh TikTok</span> Tối Ưu Doanh Thu & Vận Hành
+          Quản Trị <span className="bg-gradient-to-r from-pink-600 via-rose-500 to-cyan-500 dark:from-pink-500 dark:via-rose-400 dark:to-cyan-400 bg-clip-text text-transparent">Hàng Nghìn Kênh Video</span> Tối Ưu Doanh Thu & Vận Hành
         </h1>
 
         {/* Subtitle */}
         <p className="mt-6 text-lg sm:text-xl text-slate-600 dark:text-slate-400 max-w-3xl mx-auto leading-relaxed">
-          Tối ưu vận hành TikTok với hệ thống quản lý tập trung. Đồng bộ tài khoản, chấm công nhân sự, theo dõi hiệu suất, RPM và doanh thu theo thời gian thực.
+          Tối ưu vận hành với hệ thống quản trị tập trung. Đồng bộ tài khoản qua GPM-Login, chấm công nhân sự, theo dõi hiệu suất, RPM và doanh thu theo thời gian thực.
         </p>
 
         {/* CTA Buttons */}
@@ -153,7 +148,7 @@ export default function LandingPage() {
               <div className="w-3 h-3 rounded-full bg-amber-500/80" />
               <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
               <span className="text-xs text-slate-500 dark:text-slate-400 font-mono ml-2 hidden sm:inline">
-                tiktokflow.studio/ops-control
+                app.streamdash.site/ops-control
               </span>
             </div>
             <div className="flex items-center gap-3 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/30 px-2.5 py-1 rounded-full">
@@ -199,7 +194,7 @@ export default function LandingPage() {
             Giải Pháp Toàn Diện
           </h2>
           <p className="mt-3 text-3xl sm:text-4xl font-black text-slate-900 dark:text-white">
-            Bộ Công Cụ Được Thiết Kế Riêng Cho TikTok Studio Vận Hành
+            Bộ Công Cụ Được Thiết Kế Riêng Cho Media Studio Vận Hành
           </p>
           <p className="mt-4 text-slate-600 dark:text-slate-400 text-base sm:text-lg">
             Giải quyết triệt để bài toán quên lịch đăng, nhầm lẫn profile, rò rỉ dữ liệu và thất thoát doanh thu.
@@ -316,7 +311,7 @@ export default function LandingPage() {
         <div className="relative rounded-3xl bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-cyan-500/10 dark:from-pink-900/40 dark:via-purple-900/30 dark:to-cyan-900/40 border border-pink-500/30 dark:border-pink-500/20 p-10 sm:p-16 overflow-hidden">
           <div className="absolute inset-0 bg-white/80 dark:bg-slate-950/60 backdrop-blur-sm -z-10" />
           <h2 className="text-3xl sm:text-5xl font-black text-slate-900 dark:text-white">
-            Sẵn Sàng Nâng Tầm Vận Hành TikTok Studio?
+            Sẵn Sàng Nâng Tầm Vận Hành Cùng StreamDash?
           </h2>
           <p className="mt-4 text-slate-600 dark:text-slate-300 text-base sm:text-lg max-w-2xl mx-auto">
             Hệ thống hóa toàn bộ dàn kênh, kiểm soát nhân sự chặt chẽ và bứt phá doanh thu ngay hôm nay.

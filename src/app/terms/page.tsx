@@ -33,10 +33,10 @@ export default function TermsPage() {
             1. Phạm Vi Dịch Vụ & Chấp Thuận Điều Khoản
           </h2>
           <p>
-            Chào mừng bạn đến với hệ sinh thái <strong>TikTokFlow Automation</strong>. Bằng việc truy cập hoặc sử dụng bảng điều khiển, tiện ích mở rộng Companion Extension, ứng dụng Client Agent Worker hoặc các API liên quan, bạn xác nhận đã đọc, hiểu và đồng ý bị ràng buộc bởi các Điều khoản này.
+            Chào mừng bạn đến với hệ sinh thái <strong>StreamDash Operations</strong>. Bằng việc truy cập hoặc sử dụng bảng điều khiển, tiện ích mở rộng Companion Extension, ứng dụng Client Agent Worker hoặc các API liên quan, bạn xác nhận đã đọc, hiểu và đồng ý bị ràng buộc bởi các Điều khoản này.
           </p>
           <p>
-            Hệ thống cung cấp các giải pháp hỗ trợ quản trị dàn profile GPMLogin, tự động hóa kiểm tra dữ liệu Creator Rewards Program, chấm công vận hành hàng ngày và phân tích doanh thu nội bộ cho các Studio và Content Creator.
+            Hệ thống cung cấp các giải pháp hỗ trợ quản trị dàn profile GPMLogin, tự động hóa kiểm tra dữ liệu Creator Rewards, chấm công vận hành hàng ngày và phân tích doanh thu nội bộ cho các Studio và Content Creator.
           </p>
         </section>
 
@@ -69,10 +69,10 @@ export default function TermsPage() {
             4. Quyền Sở Hữu Trí Tuệ & Dữ Liệu Của Bạn
           </h2>
           <p>
-            Bạn giữ toàn quyền sở hữu đối với tất cả dữ liệu tài khoản TikTok, số liệu doanh thu và nội dung video do bạn đưa vào hệ thống. TikTokFlow chỉ đóng vai trò xử lý, đồng bộ và hiển thị dữ liệu phục vụ mục đích quản trị nội bộ của bạn.
+            Bạn giữ toàn quyền sở hữu đối với tất cả dữ liệu tài khoản, số liệu doanh thu và nội dung video do bạn đưa vào hệ thống. StreamDash chỉ đóng vai trò xử lý, đồng bộ và hiển thị dữ liệu phục vụ mục đích quản trị nội bộ của bạn.
           </p>
           <p>
-            Toàn bộ mã nguồn, giao diện, thuật toán điều phối GPMLogin, cấu trúc tiện ích Extension và thương hiệu TikTokFlow thuộc quyền sở hữu độc quyền của đội ngũ phát triển.
+            Toàn bộ mã nguồn, giao diện, thuật toán điều phối GPMLogin, cấu trúc tiện ích Extension và thương hiệu StreamDash thuộc quyền sở hữu độc quyền của đội ngũ phát triển.
           </p>
         </section>
 
@@ -82,7 +82,7 @@ export default function TermsPage() {
             5. Giới Hạn Trách Nhiệm Đối Với Nền Tảng Bên Thứ Ba
           </h2>
           <p>
-            TikTokFlow là giải pháp độc lập và không có mối quan hệ liên kết trực tiếp, tài trợ hay bảo trợ bởi ByteDance Ltd. hoặc TikTok Inc. Người dùng có trách nhiệm tuân thủ Điều khoản cộng đồng của TikTok khi sản xuất và xuất bản nội dung. Chúng tôi không chịu trách nhiệm đối với các rủi ro phát sinh từ các biện pháp xử phạt thuật toán hoặc thay đổi chính sách từ phía TikTok.
+            StreamDash là giải pháp phần mềm độc lập và hoàn toàn không có mối quan hệ liên kết trực tiếp, tài trợ hay bảo trợ bởi TikTok Pte. Ltd. hoặc ByteDance Ltd. Người dùng có trách nhiệm tuân thủ Điều khoản cộng đồng của các nền tảng mạng xã hội bên thứ ba khi sản xuất và xuất bản nội dung. Chúng tôi không chịu trách nhiệm đối với các rủi ro phát sinh từ các biện pháp xử phạt thuật toán hoặc thay đổi chính sách từ phía các nền tảng bên thứ ba.
           </p>
         </section>
 
@@ -92,7 +92,7 @@ export default function TermsPage() {
             6. Liên Hệ Pháp Lý & Giải Quyết Tranh Chấp
           </h2>
           <p>
-            Mọi thắc mắc liên quan đến Điều khoản Dịch vụ, xin vui lòng gửi về bộ phận pháp lý qua địa chỉ email hỗ trợ chính thức: <strong>legal@tiktokflow.com</strong>.
+            Mọi thắc mắc liên quan đến Điều khoản Dịch vụ, xin vui lòng gửi về bộ phận pháp lý qua địa chỉ email hỗ trợ chính thức: <strong>huynhphihung0403@gmail.com</strong>.
           </p>
         </section>
       </main>

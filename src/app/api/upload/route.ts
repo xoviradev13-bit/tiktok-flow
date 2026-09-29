@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const ALLOWED_BUCKETS = new Set(["avatars", "reports", "tiktokflow", "uploads"]);
+    const ALLOWED_BUCKETS = new Set(["avatars", "reports", "tiktokflow", "streamdash", "uploads"]);
     const ALLOWED_FOLDERS = new Set(["users", "reports", "avatars", "proofs", "checklist"]);
     const ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
 

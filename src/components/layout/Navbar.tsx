@@ -124,12 +124,12 @@ export default function Navbar() {
           <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-lg shadow-pink-500/20 group-hover:scale-105 transition-transform">
               <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-                <Zap className="w-5 h-5 text-pink-400 fill-pink-400" />
+                <span className="text-white font-black text-base tracking-tight select-none">S</span>
               </div>
             </div>
             <div>
               <div className="font-black text-base tracking-tight bg-gradient-to-r from-white via-slate-200 to-pink-300 bg-clip-text text-transparent">
-                TIKTOK<span className="text-pink-500 font-extrabold">FLOW</span>
+                STREAM<span className="text-pink-500 font-extrabold">DASH</span>
               </div>
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Ops & Automation

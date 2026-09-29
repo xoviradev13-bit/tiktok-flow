@@ -1,4 +1,4 @@
-# Pack client-agent-base.zip for fast-path download (Track B).
+# Pack client-agent-base.zip for StreamDash fast-path download (Track B).
 # Pins NSSM win64 and verifies SHA256. Fails if bin/node.exe or bin/nssm.exe missing after pack.
 param(
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 $agentDir = Join-Path $RepoRoot "client-agent"
 $outZip = Join-Path $RepoRoot "client-agent-base.zip"
-$staging = Join-Path $env:TEMP ("ttf-agent-pack-" + [guid]::NewGuid().ToString("n"))
+$staging = Join-Path $env:TEMP ("streamdash-agent-pack-" + [guid]::NewGuid().ToString("n"))
 $binDir = Join-Path $staging "bin"
 
 Write-Host "[*] Staging $agentDir -> $staging"

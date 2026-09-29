@@ -25,7 +25,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("tiktokflow_sidebar_collapsed");
+    const saved =
+      localStorage.getItem("streamdash_sidebar_collapsed") ??
+      localStorage.getItem("tiktokflow_sidebar_collapsed");
     if (saved !== null) {
       setIsCollapsed(saved === "true");
     }
@@ -33,7 +35,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
   const setCollapsed = (collapsed: boolean) => {
     setIsCollapsed(collapsed);
-    localStorage.setItem("tiktokflow_sidebar_collapsed", String(collapsed));
+    localStorage.setItem("streamdash_sidebar_collapsed", String(collapsed));
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("sidebar:collapse-change", {

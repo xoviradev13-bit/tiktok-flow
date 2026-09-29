@@ -47,7 +47,7 @@ export class EmailService {
   }
 
   public static getInstance(config: EmailConfig, defaultFrom: string, theme?: Partial<EmailTheme>): EmailService {
-    const instanceKey = `${config.host}:${config.auth.user}`;
+    const instanceKey = `${config.service || config.host}:${config.auth.user}`;
     if (!this.instances.has(instanceKey)) {
       this.instances.set(instanceKey, new EmailService(config, defaultFrom, theme));
     }
@@ -164,6 +164,16 @@ export class EmailService {
 }
 
 function validateEmailConfig(config: EmailConfig): EmailConfig {
+  if (config.service) {
+    return {
+      service: config.service,
+      auth: {
+        user: config.auth.user,
+        pass: config.auth.pass,
+      },
+    };
+  }
+
   if (!config.host || !config.port) {
     throw new EmailServiceError(
       'Invalid email configuration: missing host or port',
@@ -177,25 +187,41 @@ function validateEmailConfig(config: EmailConfig): EmailConfig {
     secure: config.secure ?? (port === 465),
     auth: {
       user: config.auth.user,
-      pass: config.auth.pass
-    }
+      pass: config.auth.pass,
+    },
   };
 }
+
+const isGmail =
+  process.env.DEFAULT_EMAIL_SERVICE === 'google' ||
+  process.env.DEFAULT_EMAIL_SERVICE === 'gmail' ||
+  process.env.SMTP_SERVICE === 'gmail' ||
+  process.env.SMTP_HOST === 'smtp.gmail.com';
 
 const smtpPort = parseInt(process.env.SMTP_PORT || '465');
 const isSecure = process.env.SMTP_SECURE !== undefined 
   ? process.env.SMTP_SECURE === 'true' 
   : smtpPort === 465;
 
-const defaultSmtpConfig: EmailConfig = validateEmailConfig({
-  host: process.env.SMTP_HOST || 'smtp.hostinger.com',
-  port: smtpPort,
-  secure: isSecure,
-  auth: {
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || ''
-  }
-});
+const defaultSmtpConfig: EmailConfig = validateEmailConfig(
+  isGmail
+    ? {
+        service: 'gmail',
+        auth: {
+          user: process.env.SMTP_USER || '',
+          pass: process.env.SMTP_PASS || '',
+        },
+      }
+    : {
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: smtpPort,
+        secure: isSecure,
+        auth: {
+          user: process.env.SMTP_USER || '',
+          pass: process.env.SMTP_PASS || '',
+        },
+      }
+);
 
 export const emailService = EmailService.getInstance(
   defaultSmtpConfig,

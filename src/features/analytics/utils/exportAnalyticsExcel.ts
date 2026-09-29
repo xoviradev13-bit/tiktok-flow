@@ -138,5 +138,5 @@ export function exportAnalyticsToExcel(data: ExportDataParams) {
   }
 
   const exportDateStr = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `Bao_Cao_Phan_Tich_TikTokFlow_${data.period}_${exportDateStr}.xlsx`);
+  XLSX.writeFile(wb, `Bao_Cao_Phan_Tich_StreamDash_${data.period}_${exportDateStr}.xlsx`);
 }

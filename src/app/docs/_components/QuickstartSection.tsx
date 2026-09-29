@@ -31,10 +31,10 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
           Hướng Dẫn Nhập Môn
         </span>
         <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-          Bắt Đầu Nhanh Với TikTokFlow
+          Bắt Đầu Nhanh Với StreamDash
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
-          Quy trình kết nối máy trạm và đồng bộ số liệu tài khoản TikTok về hệ thống quản trị trung tâm.
+          Quy trình kết nối máy trạm và đồng bộ số liệu tài khoản về hệ thống quản trị trung tâm.
         </p>
       </div>
 
@@ -49,7 +49,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
               Bước 1: Tải Cả 2 Công Cụ Đồng Bộ (Extension & Client Agent)
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-              Vui lòng tải và cài đặt cả hai công cụ dưới đây để hệ thống tự động nhận diện và đồng bộ số liệu TikTok Studio toàn diện nhất:
+              Vui lòng tải và cài đặt cả hai công cụ dưới đây để hệ thống tự động nhận diện và đồng bộ số liệu toàn diện nhất:
             </p>
           </div>
         </div>
@@ -87,10 +87,10 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
               </div>
 
               <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400 transition-colors">
-                TikTokFlow Extension (TikTokFlow Companion)
+                StreamDash Extension (StreamDash Companion)
               </h4>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                Tích hợp trực tiếp với GPMLogin thông qua tính năng Extension, tự động kích hoạt khi mở profile để nhận diện tài khoản TikTok đang đăng nhập trên từng profile. Hệ thống hỗ trợ tự động liên kết và bàn giao tài khoản giữa các nhân sự. Mỗi máy chỉ cài đặt một Extension, được cấu hình riêng cho từng nhân sự vận hành, nhằm đảm bảo dữ liệu được xử lý ổn định, chính xác và tránh xung đột trong quá trình vận hành.
+                Tích hợp trực tiếp với GPMLogin thông qua tính năng Extension, tự động kích hoạt khi mở profile để nhận diện tài khoản đang đăng nhập trên từng profile. Hệ thống hỗ trợ tự động liên kết và bàn giao tài khoản giữa các nhân sự. Mỗi máy chỉ cài đặt một Extension, được cấu hình riêng cho từng nhân sự vận hành.
               </p>
             </div>
 
@@ -101,7 +101,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
               {session ? (
                 <button
                   type="button"
-                  onClick={() => downloadPackage("/api/extension/download", "TikTokFlow-Extension.zip")}
+                  onClick={() => downloadPackage("/api/extension/download", "StreamDash-Extension.zip")}
                   className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/25 transition-all cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
@@ -141,10 +141,10 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
               </div>
 
               <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
-                TikTokFlow Client Agent Worker
+                StreamDash Client Agent Worker
               </h4>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                Phần mềm Agent chạy trên máy <strong>Windows</strong>, tự động thu thập số liệu TikTok (lượt xem, doanh thu…) rồi đồng bộ về hệ thống. Agent chạy ngầm cùng Windows, hạn chế chiếm dụng chuột. Mỗi máy chỉ chạy một Agent, cấu hình riêng cho từng nhân sự. <strong>Cài và chạy Agent trước</strong>, rồi mới nạp Extension.
+                Phần mềm Agent chạy trên máy <strong>Windows</strong>, tự động thu thập số liệu (lượt xem, doanh thu…) rồi đồng bộ về hệ thống. Agent chạy ngầm cùng Windows, hạn chế chiếm dụng chuột. Mỗi máy chỉ chạy một Agent, cấu hình riêng cho từng nhân sự. <strong>Cài và chạy Agent trước</strong>, rồi mới nạp Extension.
               </p>
             </div>
 
@@ -155,7 +155,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
               {session ? (
                 <button
                   type="button"
-                  onClick={() => downloadPackage("/api/client-agent/download", "TikTokFlow-ClientAgent.zip")}
+                  onClick={() => downloadPackage("/api/client-agent/download", "StreamDash-ClientAgent.zip")}
                   className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md shadow-cyan-600/25 transition-all cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
@@ -242,7 +242,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
               <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 shadow-sm">
                 <ZoomableImage
                   src="/images/docs/extensions/anh-2.png"
-                  alt="Minh họa Extension TikTokFlow Companion bật On trên GPMLogin"
+                  alt="Minh họa Extension StreamDash Companion bật On trên GPMLogin"
                   onZoom={(src, alt) => setZoomImage({ src, alt })}
                 />
               </div>
@@ -332,7 +332,7 @@ export function QuickstartSection({ onNavigateSection }: QuickstartSectionProps)
                     <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900 shadow-xs max-w-lg mt-1">
                       <ZoomableImage
                         src="/images/docs/extensions/anh-3.png"
-                        alt="Popup TikTokFlow Companion với ô Personal Token"
+                        alt="Popup StreamDash Companion với ô Personal Token"
                         onZoom={(src, alt) => setZoomImage({ src, alt })}
                       />
                     </div>

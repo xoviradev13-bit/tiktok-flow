@@ -4151,7 +4151,7 @@ function UsersManagementContent() {
                   }
                   downloadPackage(
                     `/api/extension/download?userId=${selectedUserForToken.id}`,
-                    `TikTokFlow-Extension-${selectedUserForToken.username || selectedUserForToken.id}.zip`
+                    `StreamDash-Extension-${selectedUserForToken.username || selectedUserForToken.id}.zip`
                   );
                 }}
                 disabled={tokenData?.accessEnabled === false}

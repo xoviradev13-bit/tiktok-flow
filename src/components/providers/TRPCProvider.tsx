@@ -6,7 +6,6 @@ import { makeQueryClient } from '@/utils/trpc/trpcClient';
 import type { AppRouter } from '@/trpc/root';
 import superjson from 'superjson';
 import { trpc } from "@/lib/trpc";
-import { signOut } from 'next-auth/react';
 
 interface TRPCProviderProps {
   children: React.ReactNode;
@@ -20,9 +19,10 @@ let browserQueryClient: QueryClient | undefined = undefined;
  * so they return to the same page after re-authenticating.
  */
 async function handleUnauthorized() {
-  const callbackUrl = encodeURIComponent(window.location.pathname + window.location.search);
-  await signOut({ redirect: false });
-  window.location.href = `/signin?callbackUrl=${callbackUrl}`;
+  const currentPath = window.location.pathname + window.location.search;
+  // Use the server-side force-signout endpoint — it clears the JWT cookie before
+  // redirecting, so the middleware won't see a stale token and bounce back to /accounts.
+  window.location.href = `/api/auth/force-signout?callbackUrl=${encodeURIComponent(currentPath)}`;
 }
 
 export function getQueryClient() {

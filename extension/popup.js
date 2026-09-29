@@ -530,7 +530,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         setSyncBar(fleetSyncBar, fleetSyncText, "error", response?.error || "Đồng bộ thất bại");
         alert(
           response?.error ||
-          "Đồng bộ thất bại. Kiểm tra Personal Token và máy chủ TikTokFlow."
+          "Đồng bộ thất bại. Kiểm tra Personal Token và máy chủ StreamDash."
         );
       }
     });

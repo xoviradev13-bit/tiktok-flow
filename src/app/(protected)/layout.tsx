@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession, signOut, type UpdateSession } from "next-auth/react";
+import { useSession, type UpdateSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import AppFrame from "@/components/layout/AppFrame";
 import AutoSyncRunner from "@/components/common/AutoSyncRunner";
@@ -23,20 +23,18 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     // Account locked mid-session: redirect to the error page, not /signin,
     // so the user gets an explanation instead of a bare sign-in form.
     if (isAccountLocked) {
-      void signOut({ redirect: false }).finally(() => {
-        window.location.href = "/auth/error?error=ACCOUNT_LOCKED";
-      });
+      window.location.href = "/auth/error?error=ACCOUNT_LOCKED";
       return;
     }
 
     if (status === "unauthenticated") {
-      // Clear any leftover JWT so proxy.ts does not bounce /signin → /accounts
+      // Route through force-signout so the stale JWT cookie is cleared server-side
+      // before landing on /signin — otherwise the middleware sees isAuthenticated=true
+      // and bounces the user back to /accounts.
       const callbackPath =
         typeof window !== "undefined" ? window.location.pathname + window.location.search : "";
-      const callbackUrl = callbackPath ? `?callbackUrl=${encodeURIComponent(callbackPath)}` : "";
-      void signOut({ redirect: false }).finally(() => {
-        window.location.href = `/signin${callbackUrl}`;
-      });
+      const dest = callbackPath ? encodeURIComponent(callbackPath) : encodeURIComponent("/accounts");
+      window.location.href = `/api/auth/force-signout?callbackUrl=${dest}`;
       return;
     }
 
@@ -67,10 +65,8 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     if (hydrationTimedOut) {
       const callbackPath =
         typeof window !== "undefined" ? window.location.pathname + window.location.search : "";
-      const callbackUrl = callbackPath ? `?callbackUrl=${encodeURIComponent(callbackPath)}` : "";
-      void signOut({ redirect: false }).finally(() => {
-        window.location.href = `/signin${callbackUrl}`;
-      });
+      const dest = callbackPath ? encodeURIComponent(callbackPath) : encodeURIComponent("/accounts");
+      window.location.href = `/api/auth/force-signout?callbackUrl=${dest}`;
     }
   }, [hydrationTimedOut]);
 

@@ -1587,7 +1587,7 @@ export const adminRouter = router({
         const inviterName = ctx.session.user.name || ctx.session.user.email?.split("@")[0] || "Admin";
         const emailContent = InvitationEmailTemplates.getWorkspaceMemberInvite({
           inviterName,
-          workspaceName: "TIKTOKFLOW",
+          workspaceName: "StreamDash",
           role: input.role,
           teamName: invitation.team?.name || null,
           invitationUrl: inviteUrl,
@@ -1706,7 +1706,7 @@ export const adminRouter = router({
             const inviteUrl = `${APP_URL}/invite/accept?token=${token}`;
             const emailContent = InvitationEmailTemplates.getWorkspaceMemberInvite({
               inviterName,
-              workspaceName: "TIKTOKFLOW",
+              workspaceName: "StreamDash",
               role: input.role,
               teamName: input.teamName || null,
               invitationUrl: inviteUrl,
@@ -1777,7 +1777,7 @@ export const adminRouter = router({
         const inviterName = ctx.session.user.name || ctx.session.user.email?.split("@")[0] || "Admin";
         const emailContent = InvitationEmailTemplates.getWorkspaceMemberInvite({
           inviterName,
-          workspaceName: "TIKTOKFLOW",
+          workspaceName: "StreamDash",
           role: updated.role,
           teamName: invite.team?.name || null,
           invitationUrl: inviteUrl,

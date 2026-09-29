@@ -222,7 +222,7 @@ export async function GET(req: Request) {
         status: 200,
         headers: {
           "Content-Type": "application/zip",
-          "Content-Disposition": `attachment; filename="TikTokFlow-ClientAgent-${downloadId}.zip"`,
+          "Content-Disposition": `attachment; filename="StreamDash-ClientAgent-${downloadId}.zip"`,
           "Content-Length": zipBuffer.length.toString(),
           "Cache-Control": "no-store, no-cache, must-revalidate, private",
           // FIX: prevent browsers/proxies from caching the zip contents

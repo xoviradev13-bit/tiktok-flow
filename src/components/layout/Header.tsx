@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import ThemeToggle from "./ThemeToggle";
 import { trpc } from "@/lib/trpc";
 import {
@@ -423,7 +423,7 @@ export default function Header() {
   };
 
   const handleLogout = () => {
-    signOut({ callbackUrl: "/signin" });
+    window.location.href = "/api/auth/force-signout?callbackUrl=/signin";
   };
 
   return (

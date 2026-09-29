@@ -20,18 +20,18 @@ export default function PublicFooter() {
             <Link href={APP_ROUTES.HOME} className="flex flex-row items-center flex-nowrap gap-3 w-fit shrink-0 group">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-md shrink-0 group-hover:scale-105 transition-transform">
                 <div className="w-full h-full bg-white dark:bg-slate-950 rounded-[9px] flex items-center justify-center">
-                  <Zap className="w-4 h-4 text-pink-500 fill-pink-500" />
+                  <span className="text-pink-500 font-black text-sm tracking-tight select-none">S</span>
                 </div>
               </div>
               <div className="flex flex-row items-center flex-nowrap gap-2 shrink-0">
                 <span className="font-black text-lg tracking-tight text-slate-900 dark:text-white shrink-0">
-                  TIKTOK<span className="text-pink-500">FLOW</span>
+                  STREAM<span className="text-pink-500">DASH</span>
                 </span>
               </div>
             </Link>
 
             <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-              Nền tảng quản lý và tự động hóa vận hành TikTok quy mô lớn. Đồng bộ GPMLogin, tự động cập nhật số liệu, quản lý nhân sự và theo dõi hiệu suất, doanh thu tập trung trên một hệ thống.
+              Nền tảng quản lý và tự động hóa vận hành kênh video quy mô lớn. Đồng bộ GPMLogin, tự động cập nhật số liệu, quản lý nhân sự và theo dõi hiệu suất, doanh thu tập trung trên một hệ thống.
             </p>
 
             <div className="pt-1 text-xs text-slate-400 dark:text-slate-500 font-medium">
@@ -103,7 +103,7 @@ export default function PublicFooter() {
         {/* Bottom copyright bar */}
         <div className="mt-12 pt-6 border-t border-slate-200 dark:border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-500">
           <div>
-            &copy; {new Date().getFullYear()} TIKTOKFLOW Automation. All rights reserved.
+            &copy; {new Date().getFullYear()} StreamDash Operations. All rights reserved.
           </div>
           <div className="flex items-center gap-4">
             <span className="inline-flex items-center gap-1.5 text-xs">
@@ -113,6 +113,13 @@ export default function PublicFooter() {
             <span>•</span>
             <span className="text-xs">Next.js 16 Enterprise Platform</span>
           </div>
+        </div>
+
+        {/* Legal Disclaimer */}
+        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/40 text-center">
+          <p className="text-[11px] text-slate-400 dark:text-slate-600 leading-normal">
+            Disclaimer: StreamDash là nền tảng phần mềm quản trị vận hành độc lập, không trực thuộc, liên kết, bảo trợ hay được ủy quyền bởi TikTok Pte. Ltd. hoặc ByteDance Ltd.
+          </p>
         </div>
       </div>
     </footer>

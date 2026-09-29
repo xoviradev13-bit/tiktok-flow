@@ -7,13 +7,13 @@ export default function JsonLd() {
   const softwareAppSchema = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "TIKTOKFLOW",
-    alternateName: "TikTok Automation & Fleet Operations",
+    name: "StreamDash",
+    alternateName: "StreamDash Fleet Operations",
     applicationCategory: "BusinessApplication",
     operatingSystem: "Windows, macOS, Linux, Chrome",
     url: baseUrl,
     description:
-      "Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
+      "Nền tảng tự động hóa và quản trị vận hành kênh video quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
     softwareVersion: "2.4.0",
     offers: {
       "@type": "Offer",
@@ -29,10 +29,10 @@ export default function JsonLd() {
       worstRating: "1",
     },
     featureList: [
-      "Quản lý dàn tài khoản TikTok tập trung",
+      "Quản lý dàn kênh video tập trung",
       "Tích hợp GPMLogin API Local Port 9495",
       "Checklist quy trình & chấm công tự động",
-      "Báo cáo doanh thu & tối ưu RPM Creator Rewards",
+      "Báo cáo doanh thu & tối ưu RPM",
       "Chrome Extension & Native Client Agent tự động hóa",
     ],
   };
@@ -40,15 +40,15 @@ export default function JsonLd() {
   const organizationSchema = {
     "@context": "https://schema.org",
     "@type": "Organization",
-    name: "TIKTOKFLOW",
+    name: "StreamDash",
     url: baseUrl,
     logo: `${baseUrl}/icons/icon-512x512.png`,
     description:
-      "Giải pháp tự động hóa vận hành TikTok MCN, Agency và Creator Rewards hàng đầu.",
+      "Giải pháp tự động hóa vận hành Media Agency và Creator Rewards chuyên nghiệp.",
     contactPoint: {
       "@type": "ContactPoint",
       contactType: "customer support",
-      email: "security@tiktokflow.internal",
+      email: "huynhphihung0403@gmail.com",
       availableLanguage: ["Vietnamese", "English"],
     },
   };
@@ -56,7 +56,7 @@ export default function JsonLd() {
   const webSiteSchema = {
     "@context": "https://schema.org",
     "@type": "WebSite",
-    name: "TIKTOKFLOW",
+    name: "StreamDash",
     url: baseUrl,
     potentialAction: {
       "@type": "SearchAction",

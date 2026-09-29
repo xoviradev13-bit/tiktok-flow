@@ -16,8 +16,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const PUBLIC_THEME_KEY = "tiktokflow_public_theme";
-const APP_THEME_KEY = "tiktokflow_app_theme";
+const PUBLIC_THEME_KEY = "streamdash_public_theme";
+const APP_THEME_KEY = "streamdash_app_theme";
+const LEGACY_PUBLIC_THEME_KEY = "tiktokflow_public_theme";
+const LEGACY_APP_THEME_KEY = "tiktokflow_app_theme";
 
 export function ThemeToggle({ forceScope }: { forceScope?: "public" | "app" }) {
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -43,7 +45,9 @@ export function ThemeToggle({ forceScope }: { forceScope?: "public" | "app" }) {
     // Synchronize active theme with respective scope storage
     if (typeof window !== "undefined") {
       if (isPublicPage) {
-        const savedPublicTheme = localStorage.getItem(PUBLIC_THEME_KEY);
+        const savedPublicTheme =
+          localStorage.getItem(PUBLIC_THEME_KEY) ??
+          localStorage.getItem(LEGACY_PUBLIC_THEME_KEY);
         if (savedPublicTheme) {
           if (savedPublicTheme !== theme) {
             setTheme(savedPublicTheme);
@@ -53,7 +57,9 @@ export function ThemeToggle({ forceScope }: { forceScope?: "public" | "app" }) {
           setTheme("light");
         }
       } else {
-        const savedAppTheme = localStorage.getItem(APP_THEME_KEY);
+        const savedAppTheme =
+          localStorage.getItem(APP_THEME_KEY) ??
+          localStorage.getItem(LEGACY_APP_THEME_KEY);
         if (savedAppTheme && savedAppTheme !== theme) {
           setTheme(savedAppTheme);
         }

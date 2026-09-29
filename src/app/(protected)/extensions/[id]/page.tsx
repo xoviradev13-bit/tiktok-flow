@@ -120,6 +120,7 @@ export default function ExtensionDetailPage() {
 
   const isAccessRevoked = ext.accessEnabled === false;
   const isClientAgent =
+    ext.slug === "streamdash-client-agent" ||
     ext.slug === "tiktokflow-client-agent" ||
     ext.folderPath === "client-agent" ||
     ext.category === "SCRAPER";
@@ -230,8 +231,8 @@ export default function ExtensionDetailPage() {
                     downloadPackage(
                       url,
                       isClientAgent
-                        ? "TikTokFlow-ClientAgent.zip"
-                        : "TikTokFlow-Extension.zip"
+                        ? "StreamDash-ClientAgent.zip"
+                        : "StreamDash-Extension.zip"
                     );
                   }}
                   className={`flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl text-xs sm:text-sm font-bold ${isClientAgent
@@ -608,12 +609,12 @@ export default function ExtensionDetailPage() {
                   </div>
                   <ZoomableImage
                     src="/images/docs/extensions/anh-2.png"
-                    alt="Tiện ích TikTokFlow Companion bật On"
+                    alt="Tiện ích StreamDash Companion bật On"
                     onZoom={(src, alt) => setZoomImage({ src, alt })}
                   />
                 </div>
                 <p className="text-xs text-slate-500 text-center italic">
-                  Hình 2: TikTokFlow Companion đã bật On
+                  Hình 2: StreamDash Companion đã bật On
                 </p>
               </div>
 

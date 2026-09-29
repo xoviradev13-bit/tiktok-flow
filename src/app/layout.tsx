@@ -17,29 +17,28 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "TIKTOKFLOW – TikTok Fleet Automation & Creator Rewards Operations",
-    template: "%s | TIKTOKFLOW",
+    default: "StreamDash – Video Fleet Operations & Creator Management Platform",
+    template: "%s | StreamDash",
   },
 
   description:
-    "Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
+    "Nền tảng tự động hóa và quản trị vận hành kênh video quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
 
   keywords: [
-    "TikTok Automation",
-    "Quản trị dàn TikTok",
+    "StreamDash",
+    "Video Fleet Automation",
+    "Quản trị dàn kênh",
     "GPM-Login API",
-    "TikTok Creator Rewards",
-    "Checklist TikTok",
-    "Tối ưu RPM TikTok",
-    "Automation Marketing",
-    "Chrome Extension TikTok",
-    "TikTok MCN Tool",
-    "TikTok Fleet Management",
+    "Creator Rewards Management",
+    "Checklist vận hành",
+    "Tối ưu RPM",
+    "Automation Operations",
+    "MCN Operations Tool",
   ],
 
-  authors: [{ name: "TIKTOKFLOW Team", url: getServerSideURL() }],
-  creator: "TIKTOKFLOW",
-  publisher: "TIKTOKFLOW Technologies",
+  authors: [{ name: "StreamDash Team", url: getServerSideURL() }],
+  creator: "StreamDash",
+  publisher: "StreamDash Technologies",
   category: "technology",
 
   metadataBase: new URL(getServerSideURL()),
@@ -51,25 +50,25 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "TIKTOKFLOW",
+    title: "StreamDash",
   },
 
   openGraph: mergeOpenGraph({
-    title: "TIKTOKFLOW – TikTok Account Management & Operations Automation System",
+    title: "StreamDash – Video Fleet Operations & Management Platform",
     description:
-      "Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
-    siteName: "TIKTOKFLOW",
+      "Nền tảng tự động hóa và quản trị vận hành kênh video quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
+    siteName: "StreamDash",
     locale: "vi_VN",
     type: "website",
   }),
 
   twitter: {
     card: "summary_large_image",
-    site: "@tiktokflow",
-    creator: "@tiktokflow",
-    title: "TIKTOKFLOW – TikTok Account Management & Operations Automation System",
+    site: "@streamdash",
+    creator: "@streamdash",
+    title: "StreamDash – Video Fleet Operations & Management Platform",
     description:
-      "Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
+      "Nền tảng tự động hóa và quản trị vận hành kênh video quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.",
     images: ["/images/og-image.png"],
   },
 
@@ -135,7 +134,7 @@ export default async function RootLayout({
                 var p = window.location.pathname;
                 var isPublic = p === '/' || p.startsWith('/docs') || p.startsWith('/api-docs') || p.startsWith('/security') || p.startsWith('/terms') || p.startsWith('/privacy') || p.startsWith('/signin') || p.startsWith('/signup');
                 if (isPublic) {
-                  var saved = localStorage.getItem('tiktokflow_public_theme');
+                  var saved = localStorage.getItem('streamdash_public_theme') || localStorage.getItem('tiktokflow_public_theme');
                   if (!saved || saved === 'light') {
                     document.documentElement.classList.remove('dark');
                     document.documentElement.classList.add('light');
@@ -146,7 +145,7 @@ export default async function RootLayout({
                     document.documentElement.style.colorScheme = 'dark';
                   }
                 }
-                var colorTheme = localStorage.getItem('tiktokflow_color_theme') || 'pink';
+                var colorTheme = localStorage.getItem('streamdash_color_theme') || localStorage.getItem('tiktokflow_color_theme') || 'pink';
                 document.documentElement.setAttribute('data-color-theme', colorTheme);
               } catch (e) {}
             `,

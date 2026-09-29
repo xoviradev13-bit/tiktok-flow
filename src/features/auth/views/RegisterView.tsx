@@ -146,7 +146,7 @@ export const RegisterView = () => {
 
   return (
     <AuthContainer
-      title="Tạo Tài Khoản TIKTOKFLOW"
+      title="Tạo Tài Khoản StreamDash"
       subtitle={
         <span className="flex items-center gap-1.5 flex-wrap">
           <span>Đã có tài khoản?</span>

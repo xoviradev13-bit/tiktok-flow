@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { Zap, Menu, X, ArrowRight, ExternalLink } from "lucide-react";
 import ThemeToggle from "@/components/layout/ThemeToggle";
 import { PUBLIC_NAV_LINKS, APP_ROUTES } from "@/constants/routes.config";
@@ -19,15 +19,10 @@ export default function PublicHeader({ badge }: PublicHeaderProps) {
 
   // Client session can be null while a JWT cookie still exists (expired/broken
   // /api/auth/session). Clear it before /signin so proxy.ts does not bounce to /accounts.
-  const goToSignIn = async (e: React.MouseEvent) => {
+  const goToSignIn = (e: React.MouseEvent) => {
     e.preventDefault();
     setMobileMenuOpen(false);
-    try {
-      await signOut({ redirect: false });
-    } catch {
-      // ignore — still navigate to sign-in
-    }
-    window.location.href = APP_ROUTES.SIGNIN;
+    window.location.href = `/api/auth/force-signout?callbackUrl=/accounts`;
   };
 
   // Close mobile menu on route change
@@ -55,11 +50,11 @@ export default function PublicHeader({ badge }: PublicHeaderProps) {
           <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-md group-hover:scale-105 transition-transform">
               <div className="w-full h-full bg-white dark:bg-slate-950 rounded-[9px] flex items-center justify-center">
-                <Zap className="w-4 h-4 text-pink-500 fill-pink-500" />
+                <span className="text-pink-500 font-black text-sm tracking-tight select-none">S</span>
               </div>
             </div>
             <span className="font-black text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">
-              TIKTOK<span className="text-pink-500">FLOW</span>
+              STREAM<span className="text-pink-500">DASH</span>
             </span>
             {badge && (
               <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 whitespace-nowrap">

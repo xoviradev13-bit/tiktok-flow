@@ -81,9 +81,10 @@ export async function proxy(request: NextRequest) {
   const rawHost = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
   const hostname = rawHost.split(":")[0].toLowerCase();
 
-  // Canonical redirect: www.tiktokflow.site -> tiktokflow.site
-  if (hostname === "www.tiktokflow.site") {
-    return NextResponse.redirect(new URL(`https://tiktokflow.site${pathname}${url.search}`), 301);
+  // Canonical redirect: www.domain -> root domain
+  if (hostname === "www.streamdash.site" || hostname === "www.tiktokflow.site") {
+    const rootDomain = hostname.replace(/^www\./, "");
+    return NextResponse.redirect(new URL(`https://${rootDomain}${pathname}${url.search}`), 301);
   }
 
   if (!isApiRoute) {
@@ -118,8 +119,8 @@ export async function proxy(request: NextRequest) {
 
   const IS_PRODUCTION = process.env.APP_ENV === "production" || process.env.NODE_ENV === "production";
   const SHARED_COOKIE_NAME = IS_PRODUCTION
-    ? "__Secure-tiktokflow.session-token"
-    : "tiktokflow.session-token";
+    ? (process.env.COOKIE_NAME || "__Secure-streamdash.session-token")
+    : "streamdash.session-token";
 
   let token = await getToken({
     req: request,
@@ -127,6 +128,16 @@ export async function proxy(request: NextRequest) {
     cookieName: SHARED_COOKIE_NAME,
     secureCookie: IS_PRODUCTION,
   });
+
+  // Backward compatibility with previous cookie name during migration
+  if (!token) {
+    token = await getToken({
+      req: request,
+      secret: process.env.AUTH_SECRET,
+      cookieName: IS_PRODUCTION ? "__Secure-tiktokflow.session-token" : "tiktokflow.session-token",
+      secureCookie: IS_PRODUCTION,
+    });
+  }
 
   if (!token) {
     token = await getToken({
@@ -142,11 +153,11 @@ export async function proxy(request: NextRequest) {
   const isAccountLocked = (token as any)?.error === "ACCOUNT_LOCKED";
   const isAuthenticated = !!token?.id;
 
-  const isPublicDomain = hostname === "tiktokflow.site";
-  const isAppDomain = hostname === "app.tiktokflow.site";
-  const appBaseUrl = "https://app.tiktokflow.site";
+  const isPublicDomain = hostname === "streamdash.site" || hostname === "tiktokflow.site";
+  const isAppDomain = hostname === "app.streamdash.site" || hostname === "app.tiktokflow.site";
+  const appBaseUrl = hostname.includes("tiktokflow") ? "https://app.tiktokflow.site" : "https://app.streamdash.site";
 
-  // ── A. ROOT PUBLIC DOMAIN (tiktokflow.site) ────────────────────────────────
+  // ── A. ROOT PUBLIC DOMAIN ──────────────────────────────────────────────────
   if (isPublicDomain) {
     // Auth routes on public domain -> redirect to app subdomain
     if (isAccessingAuthRoute) {

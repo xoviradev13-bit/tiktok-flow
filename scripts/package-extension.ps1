@@ -1,9 +1,9 @@
-# Script to package TikTokFlow Companion Extension into ZIP for GPMLogin distribution
+# Script to package StreamDash Companion Extension into ZIP for GPMLogin distribution
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $ExtensionDir = Join-Path $ProjectRoot "extension"
-$ZipOutput = Join-Path $ProjectRoot "TikTokFlow-Companion-Extension.zip"
+$ZipOutput = Join-Path $ProjectRoot "StreamDash-Companion-Extension.zip"
 
 if (-not (Test-Path $ExtensionDir)) {
     Write-Error "Extension directory not found at $ExtensionDir"
@@ -14,7 +14,7 @@ if (Test-Path $ZipOutput) {
     Remove-Item $ZipOutput -Force
 }
 
-Write-Output "Packaging TikTokFlow Companion Extension..."
+Write-Output "Packaging StreamDash Companion Extension..."
 Compress-Archive -Path "$ExtensionDir\*" -DestinationPath $ZipOutput -Force
 
 Write-Output "Package created successfully: $ZipOutput"

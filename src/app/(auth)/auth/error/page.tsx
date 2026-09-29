@@ -54,7 +54,7 @@ function AuthErrorContent() {
         {isInvitationError ? (
           <div className="space-y-3.5 w-full mb-6 text-center">
             <p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">
-              Hệ thống TIKTOKFLOW hiện đang hoạt động theo chế độ <b>chỉ dành cho thành viên được mời</b>.
+              Hệ thống StreamDash hiện đang hoạt động theo chế độ <b>chỉ dành cho thành viên được mời</b>.
             </p>
 
             {emailAttempted && (
@@ -84,7 +84,7 @@ function AuthErrorContent() {
           <div className="space-y-3.5 w-full mb-6 text-center">
             <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 rounded-xl text-center space-y-1.5 text-xs">
               <p className="text-rose-700 dark:text-rose-300 font-medium leading-relaxed">
-                Tài khoản này đã bị Quản trị viên chặn quyền truy cập vào hệ thống TIKTOKFLOW.
+                Tài khoản này đã bị Quản trị viên chặn quyền truy cập vào hệ thống StreamDash.
               </p>
               <p className="text-xs text-rose-600/80 dark:text-rose-400/80">
                 Mọi quyền đăng nhập và thao tác dữ liệu đều bị tạm ngừng. Vui lòng liên hệ Admin nếu bạn cho rằng đây là sự nhầm lẫn.
@@ -146,7 +146,7 @@ function AuthErrorContent() {
         <p className="text-xs text-slate-400 dark:text-slate-500">
           Cần cấp quyền truy cập?{" "}
           <a
-            href="mailto:support@tiktokflow.com"
+            href="mailto:huynhphihung0403@gmail.com"
             className="text-pink-600 dark:text-pink-400 hover:underline font-semibold transition-colors"
           >
             Liên hệ Quản trị viên
@@ -165,11 +165,11 @@ export default function AuthErrorPage() {
         <Link href="/" className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-md shadow-pink-500/20">
             <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
-              <span className="text-white font-black text-sm tracking-tight">TTF</span>
+              <span className="text-white font-black text-sm tracking-tight select-none">S</span>
             </div>
           </div>
           <span className="font-black text-xl tracking-tight text-slate-900 dark:text-white">
-            TIKTOK<span className="text-pink-500">FLOW</span>
+            STREAM<span className="text-pink-500">DASH</span>
           </span>
         </Link>
       </div>

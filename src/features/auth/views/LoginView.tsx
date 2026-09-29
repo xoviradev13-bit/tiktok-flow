@@ -160,7 +160,7 @@ export const LoginView = () => {
 
   return (
     <AuthContainer
-      title="Chào Mừng Đến Với TIKTOKFLOW"
+      title="Chào Mừng Đến Với StreamDash"
       subtitle={
         <span className="flex items-center gap-1.5 flex-wrap">
           <span>Chưa có tài khoản?</span>

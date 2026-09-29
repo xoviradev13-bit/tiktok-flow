@@ -21,11 +21,11 @@ export const AuthLayout = ({ children }: { children: React.ReactNode }) => {
           <div className="flex items-center gap-3 mb-12">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-lg shadow-pink-500/20">
               <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
-                <Zap className="w-5 h-5 text-pink-400 fill-pink-400" />
+                <span className="text-white font-black text-lg tracking-tight select-none">S</span>
               </div>
             </div>
             <span className="text-2xl font-black tracking-tight text-white">
-              TIKTOK<span className="text-pink-500">FLOW</span>
+              STREAM<span className="text-pink-500">DASH</span>
             </span>
           </div>
 
@@ -33,7 +33,7 @@ export const AuthLayout = ({ children }: { children: React.ReactNode }) => {
             <h1 className="text-4xl sm:text-5xl font-black leading-tight tracking-tight text-white">
               Quản Trị Vận Hành <br />
               <span className="bg-gradient-to-r from-pink-400 via-rose-300 to-amber-300 bg-clip-text text-transparent">
-                Dàn Acc & Doanh Thu.
+                Dàn Kênh & Doanh Thu.
               </span>
             </h1>
 
@@ -43,17 +43,22 @@ export const AuthLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
         </div>
 
-        <div className="relative z-10 flex gap-6 text-xs font-semibold text-slate-400">
-          <span>© 2026 TIKTOKFLOW Inc.</span>
-          <Link href="/security" className="hover:text-white transition-colors">
-            Bảo Mật
-          </Link>
-          <Link href="/privacy" className="hover:text-white transition-colors">
-            Quyền Riêng Tư
-          </Link>
-          <Link href="/terms" className="hover:text-white transition-colors">
-            Điều Khoản
-          </Link>
+        <div className="relative z-10 space-y-4">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs font-semibold text-slate-400">
+            <span>© 2026 StreamDash. All rights reserved.</span>
+            <Link href="/security" className="hover:text-white transition-colors">
+              Bảo Mật
+            </Link>
+            <Link href="/privacy" className="hover:text-white transition-colors">
+              Quyền Riêng Tư
+            </Link>
+            <Link href="/terms" className="hover:text-white transition-colors">
+              Điều Khoản
+            </Link>
+          </div>
+          <p className="text-[11px] text-slate-500 leading-normal border-t border-slate-800/80 pt-3">
+            Disclaimer: StreamDash là phần mềm quản trị vận hành nội bộ độc lập, không trực thuộc, liên kết, bảo trợ hay được ủy quyền bởi TikTok Pte. Ltd. hay ByteDance Ltd.
+          </p>
         </div>
       </div>
 

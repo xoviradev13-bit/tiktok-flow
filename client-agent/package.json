@@ -1,7 +1,7 @@
 {
-  "name": "tiktokflow-client-agent",
+  "name": "streamdash-client-agent",
   "version": "1.0.0",
-  "description": "TikTokFlow Client Agent - Background TikTok Studio Deep Sweeper for Member Machines",
+  "description": "StreamDash Client Agent - Background Deep Sweeper for Member Machines",
   "type": "module",
   "main": "agent.js",
   "scripts": {

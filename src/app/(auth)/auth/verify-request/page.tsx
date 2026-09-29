@@ -55,11 +55,11 @@ export default function VerifyRequestPage() {
         <Link href="/" className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-md shadow-pink-500/20">
             <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
-              <span className="text-white font-black text-sm tracking-tight">TTF</span>
+              <span className="text-white font-black text-sm tracking-tight select-none">S</span>
             </div>
           </div>
           <span className="font-black text-xl tracking-tight text-slate-900 dark:text-white">
-            TIKTOK<span className="text-pink-500">FLOW</span>
+            STREAM<span className="text-pink-500">DASH</span>
           </span>
         </Link>
       </div>
@@ -106,7 +106,7 @@ export default function VerifyRequestPage() {
 
         <div className="mt-8 text-center">
           <p className="text-xs text-slate-400 dark:text-slate-500">
-            &copy; {new Date().getFullYear()} TIKTOKFLOW Inc. Bảo lưu mọi quyền.
+            &copy; {new Date().getFullYear()} StreamDash Inc. Bảo lưu mọi quyền.
           </p>
         </div>
       </div>

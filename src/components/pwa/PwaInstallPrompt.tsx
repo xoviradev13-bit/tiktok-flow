@@ -73,7 +73,7 @@ export function PwaInstallPrompt() {
       setIsInstalled(true);
       setIsInstallable(false);
       setDeferredPrompt(null);
-      console.log("[PWA] TIKTOKFLOW installed successfully!");
+      console.log("[PWA] STREAMDASH installed successfully!");
     };
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
@@ -128,7 +128,7 @@ export function PwaInstallPrompt() {
 
           <div className="flex-1 min-w-0 pr-1">
             <h4 className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
-              <span>Cài Đặt TIKTOKFLOW</span>
+              <span>Cài Đặt StreamDash</span>
               <span className="px-1.5 py-0.2 rounded-md bg-pink-500/20 text-pink-400 text-xs font-extrabold uppercase">
                 App
               </span>

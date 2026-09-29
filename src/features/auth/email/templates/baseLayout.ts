@@ -22,7 +22,7 @@ export const baseEmailLayout = (content: string, actionButton?: { url: string; t
 <body>
   <div class="container">
     <div class="header">
-      <a href="{{app_url}}" class="logo">TIKTOKFLOW</a>
+      <a href="{{app_url}}" class="logo">StreamDash</a>
     </div>
     <div class="content">
       ${content}
@@ -39,7 +39,7 @@ export const baseEmailLayout = (content: string, actionButton?: { url: string; t
     </div>
     <div class="footer">
       <p class="footer-text">
-        &copy; ${new Date().getFullYear()} TIKTOKFLOW Inc. Bảo lưu mọi quyền.
+        &copy; ${new Date().getFullYear()} StreamDash Inc. Bảo lưu mọi quyền.
       </p>
       <p class="footer-text" style="margin-top: 8px;">
         <a href="{{app_url}}/privacy" class="link">Chính Sách Bảo Mật</a> • <a href="{{app_url}}/terms" class="link">Điều Khoản Dịch Vụ</a>

@@ -12,8 +12,8 @@ import {
 // Must match the custom cookie name configured in auth.ts
 const IS_PRODUCTION = process.env.APP_ENV === 'production';
 const SHARED_COOKIE_NAME = IS_PRODUCTION
-  ? '__Secure-tiktokflow.session-token'
-  : 'tiktokflow.session-token';
+  ? (process.env.COOKIE_NAME || '__Secure-streamdash.session-token')
+  : 'streamdash.session-token';
 
 export async function GET(req: Request) {
   try {
@@ -30,12 +30,21 @@ export async function GET(req: Request) {
       });
     }
 
-    const token = await getToken({
+    let token = await getToken({
       req,
       secret,
       secureCookie: IS_PRODUCTION,
       cookieName: SHARED_COOKIE_NAME,
     });
+
+    if (!token) {
+      token = await getToken({
+        req,
+        secret,
+        secureCookie: IS_PRODUCTION,
+        cookieName: IS_PRODUCTION ? '__Secure-tiktokflow.session-token' : 'tiktokflow.session-token',
+      });
+    }
 
     if (!token) {
       const response = createErrorResponse(

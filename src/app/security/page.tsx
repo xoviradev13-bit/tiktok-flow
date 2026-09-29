@@ -70,12 +70,12 @@ export default function SecurityPage() {
         <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
           Trung Tâm Bảo Mật & Tin Cậy <br />
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-pink-600 via-purple-600 to-cyan-600 dark:from-pink-500 dark:via-purple-400 dark:to-cyan-400">
-            TikTokFlow Trust Center
+            StreamDash Trust Center
           </span>
         </h1>
 
         <p className="mt-4 text-sm sm:text-base text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed font-medium">
-          Cam kết bảo vệ dữ liệu dàn tài khoản, doanh thu TikTok và thông tin cá nhân của bạn với các tiêu chuẩn mã hóa và bảo mật nghiêm ngặt nhất.
+          Cam kết bảo vệ dữ liệu dàn tài khoản, doanh thu và thông tin vận hành của bạn với các tiêu chuẩn mã hóa và bảo mật nghiêm ngặt nhất.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -128,7 +128,7 @@ export default function SecurityPage() {
               Kiến Trúc Bảo Vệ Dữ Liệu Đa Tầng (Defense-in-Depth)
             </h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Mỗi lớp kiến trúc trong TikTokFlow được thiết kế độc lập nhằm cô lập rủi ro và ngăn ngừa lây lan nếu có sự cố xảy ra.
+              Mỗi lớp kiến trúc trong StreamDash được thiết kế độc lập nhằm cô lập rủi ro và ngăn ngừa lây lan nếu có sự cố xảy ra.
             </p>
           </div>
 

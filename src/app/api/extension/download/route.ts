@@ -284,7 +284,7 @@ export async function GET(req: Request) {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="TikTokFlow-Extension-${downloadId}.zip"`,
+        "Content-Disposition": `attachment; filename="StreamDash-Extension-${downloadId}.zip"`,
         "Content-Length": zipBuffer.length.toString(),
         // FIX: belt-and-suspenders cache defeat. The zip contains a fresh
         // pairing code; no proxy or CDN may cache it.

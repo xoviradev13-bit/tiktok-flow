@@ -296,7 +296,7 @@ export async function notifyExtensionAuthIncident(
     const when = new Date().toISOString();
     await emailService.sendNodemailerEmail(
       emails,
-      `[TikTokFlow] ${eventType}`,
+      `[StreamDash] ${eventType}`,
       `
         <p><strong>${eventType}</strong></p>
         <p>User ID: ${opts.userId}</p>

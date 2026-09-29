@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
-export const alt = "TIKTOKFLOW – TikTok Fleet Automation & Creator Rewards Operations";
+export const alt = "StreamDash – Video Fleet Operations & Management Platform";
 export const size = {
   width: 1200,
   height: 630,
@@ -65,7 +65,7 @@ export default async function Image() {
               fontWeight: 900,
             }}
           >
-            TF
+            S
           </div>
           <span
             style={{
@@ -75,7 +75,7 @@ export default async function Image() {
               color: "#ffffff",
             }}
           >
-            TIKTOK<span style={{ color: "#06b6d4" }}>FLOW</span>
+            STREAM<span style={{ color: "#ec4899" }}>DASH</span>
           </span>
           <div
             style={{
@@ -114,7 +114,7 @@ export default async function Image() {
                 color: "transparent",
               }}
             >
-              TikTok Fleet Quy Mô Lớn
+              Kênh Video Quy Mô Lớn
             </span>
           </h1>
           <p

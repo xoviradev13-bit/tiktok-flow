@@ -2,12 +2,12 @@ import React from "react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Chính Sách Quyền Riêng Tư | TIKTOKFLOW Privacy Policy",
+  title: "Chính Sách Quyền Riêng Tư | StreamDash Privacy Policy",
   description:
-    "Chính sách bảo vệ dữ liệu và quyền riêng tư tại TIKTOKFLOW. Cam kết không bán dữ liệu, cookie __Secure- và quyền xóa dữ liệu theo chuẩn GDPR/CCPA.",
+    "Chính sách bảo vệ dữ liệu và quyền riêng tư tại StreamDash. Cam kết không bán dữ liệu, cookie __Secure- và quyền xóa dữ liệu theo chuẩn GDPR/CCPA.",
   keywords: [
     "Chính sách quyền riêng tư",
-    "TIKTOKFLOW Privacy",
+    "StreamDash Privacy",
     "Bảo mật thông tin",
     "GDPR",
     "CCPA",
@@ -16,8 +16,8 @@ export const metadata: Metadata = {
     canonical: "/privacy",
   },
   openGraph: {
-    title: "Chính Sách Quyền Riêng Tư | TIKTOKFLOW Privacy Policy",
-    description: "Chính sách bảo vệ dữ liệu và quyền riêng tư tại TIKTOKFLOW.",
+    title: "Chính Sách Quyền Riêng Tư | StreamDash Privacy Policy",
+    description: "Chính sách bảo vệ dữ liệu và quyền riêng tư tại StreamDash.",
     url: "/privacy",
     type: "website",
   },

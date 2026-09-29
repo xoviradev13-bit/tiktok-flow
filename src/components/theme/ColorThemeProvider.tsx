@@ -109,7 +109,9 @@ export function ColorThemeProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     try {
-      const saved = (localStorage.getItem("tiktokflow_color_theme") as ColorTheme) || "pink";
+      const saved =
+        ((localStorage.getItem("streamdash_color_theme") ??
+          localStorage.getItem("tiktokflow_color_theme")) as ColorTheme) || "pink";
       if (COLOR_THEMES.some((t) => t.id === saved)) {
         setColorThemeState(saved);
         document.documentElement.setAttribute("data-color-theme", saved);
@@ -124,7 +126,7 @@ export function ColorThemeProvider({ children }: { children: React.ReactNode }) 
   const setColorTheme = (newTheme: ColorTheme) => {
     setColorThemeState(newTheme);
     try {
-      localStorage.setItem("tiktokflow_color_theme", newTheme);
+      localStorage.setItem("streamdash_color_theme", newTheme);
       document.documentElement.setAttribute("data-color-theme", newTheme);
     } catch {
       // ignore

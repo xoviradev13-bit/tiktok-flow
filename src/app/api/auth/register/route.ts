@@ -161,12 +161,12 @@ export async function POST(req: Request) {
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b; background-color: #ffffff; border-radius: 16px; padding: 40px; border: 1px solid #e2e8f0;">
         <div style="text-align: center; margin-bottom: 24px;">
           <div style="display: inline-block; background: linear-gradient(135deg, #ec4899, #f43f5e); padding: 12px 24px; border-radius: 12px; color: #ffffff; font-weight: 900; font-size: 20px; letter-spacing: -0.5px;">
-            TIKTOKFLOW
+            StreamDash
           </div>
         </div>
         <h2 style="text-align: center; margin-bottom: 12px; font-size: 22px; color: #0f172a; font-weight: 800;">Xác nhận địa chỉ email</h2>
         <p style="text-align: center; color: #64748b; margin-bottom: 28px; font-size: 15px; line-height: 1.6;">
-          Chào mừng bạn đến với <strong>TIKTOKFLOW</strong>. Vui lòng nhấn vào nút bên dưới để xác thực tài khoản và hoàn tất đăng ký.
+          Chào mừng bạn đến với <strong>StreamDash</strong>. Vui lòng nhấn vào nút bên dưới để xác thực tài khoản và hoàn tất đăng ký.
         </p>
         <div style="text-align: center; margin: 32px 0;">
           <a href="${verifyUrl}" style="
@@ -188,7 +188,7 @@ export async function POST(req: Request) {
       </div>
     `;
 
-    await emailService.sendNodemailerEmail(email, "Xác nhận địa chỉ email - TIKTOKFLOW", html);
+    await emailService.sendNodemailerEmail(email, "Xác nhận địa chỉ email - StreamDash", html);
 
     const response = createSuccessResponse(
       { email },

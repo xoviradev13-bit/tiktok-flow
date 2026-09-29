@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Loader2, CheckCircle, XCircle, LogIn, UserPlus, ArrowRight, ShieldCheck, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -129,7 +129,7 @@ function AcceptInvitationContent() {
 
       toast({
         title: "Thành công!",
-        description: "Bạn đã tham gia hệ thống TIKTOKFLOW thành công.",
+        description: "Bạn đã tham gia hệ thống StreamDash thành công.",
       });
 
       setTimeout(() => {
@@ -158,10 +158,9 @@ function AcceptInvitationContent() {
     router.push(`/signup?callbackUrl=${encodeURIComponent(callbackUrl)}`);
   };
 
-  const handleSwitchAccount = async () => {
+  const handleSwitchAccount = () => {
     const callbackUrl = `/invite/accept?token=${token}`;
-    await signOut({ redirect: false });
-    window.location.href = `/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+    window.location.href = `/api/auth/force-signout?callbackUrl=${encodeURIComponent(callbackUrl)}`;
   };
 
   return (
@@ -171,11 +170,11 @@ function AcceptInvitationContent() {
         <Link href="/" className="flex items-center gap-2">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-lg shadow-pink-500/25">
             <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-              <span className="text-white font-black text-base tracking-tight">TTF</span>
+              <span className="text-white font-black text-base tracking-tight select-none">S</span>
             </div>
           </div>
           <span className="font-black text-2xl tracking-tight text-slate-900 dark:text-white">
-            TIKTOK<span className="text-pink-500">FLOW</span>
+            STREAM<span className="text-pink-500">DASH</span>
           </span>
         </Link>
       </div>
@@ -186,7 +185,7 @@ function AcceptInvitationContent() {
             Xác Nhận Thư Mời Tham Gia
           </CardTitle>
           <CardDescription className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-            Hệ thống quản trị và vận hành TikTok Operations
+            Hệ thống quản trị và vận hành StreamDash Operations
           </CardDescription>
         </CardHeader>
 

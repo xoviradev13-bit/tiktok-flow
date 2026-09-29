@@ -33,7 +33,7 @@ export default function PrivacyPage() {
             1. Cam Kết Bảo Vệ Quyền Riêng Tư
           </h2>
           <p>
-            Tại <strong>TikTokFlow Automation</strong>, chúng tôi coi trọng sự tin cậy và quyền riêng tư của từng khách hàng và studio. Chúng tôi cam kết không bán, không thương mại hóa và không chia sẻ dữ liệu kinh doanh, dàn kênh hoặc doanh thu của bạn cho bất kỳ bên thứ ba nào ngoài phạm vi cần thiết để cung cấp dịch vụ.
+            Tại <strong>StreamDash Operations</strong>, chúng tôi coi trọng sự tin cậy và quyền riêng tư của từng khách hàng và studio. Chúng tôi cam kết không bán, không thương mại hóa và không chia sẻ dữ liệu kinh doanh, dàn kênh hoặc doanh thu của bạn cho bất kỳ bên thứ ba nào ngoài phạm vi cần thiết để cung cấp dịch vụ.
           </p>
         </section>
 
@@ -64,7 +64,7 @@ export default function PrivacyPage() {
             3. Chính Sách Về Cookie & Phiên Làm Việc
           </h2>
           <p>
-            Hệ thống chỉ sử dụng các cookie kỹ thuật cần thiết cho chức năng xác thực phiên làm việc an toàn (với tiền tố <code>__Secure-tiktokflow.session-token</code> có cờ <code>HttpOnly</code> và <code>SameSite=Lax</code>). Chúng tôi không sử dụng bất kỳ cookie theo dõi quảng cáo của bên thứ ba nào.
+            Hệ thống chỉ sử dụng các cookie kỹ thuật cần thiết cho chức năng xác thực phiên làm việc an toàn (với tiền tố <code>__Secure-streamdash.session-token</code> có cờ <code>HttpOnly</code> và <code>SameSite=Lax</code>). Chúng tôi không sử dụng bất kỳ cookie theo dõi quảng cáo của bên thứ ba nào.
           </p>
         </section>
 
@@ -74,7 +74,7 @@ export default function PrivacyPage() {
             4. Quyền Kiểm Soát Dữ Liệu & Quyền Được Xóa Bỏ
           </h2>
           <p>
-            Bạn có toàn quyền yêu cầu xuất bản sao lưu trữ dữ liệu hoặc yêu cầu xóa vĩnh viễn tài khoản và toàn bộ lịch sử dàn kênh khỏi máy chủ TikTokFlow bất kỳ lúc nào. Quản trị viên hệ thống có thể thực hiện xóa dữ liệu an toàn thông qua trang Quản Lý Nhân Sự hoặc gửi yêu cầu tới đội ngũ kỹ thuật qua email <strong>privacy@tiktokflow.com</strong>.
+            Bạn có toàn quyền yêu cầu xuất bản sao lưu trữ dữ liệu hoặc yêu cầu xóa vĩnh viễn tài khoản và toàn bộ lịch sử dàn kênh khỏi máy chủ StreamDash bất kỳ lúc nào. Quản trị viên hệ thống có thể thực hiện xóa dữ liệu an toàn thông qua trang Quản Lý Nhân Sự hoặc gửi yêu cầu tới đội ngũ kỹ thuật qua email <strong>huynhphihung0403@gmail.com</strong>.
           </p>
         </section>
       </main>

@@ -2,12 +2,12 @@ import React from "react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Điều Khoản Dịch Vụ | TIKTOKFLOW Terms of Service",
+  title: "Điều Khoản Dịch Vụ | StreamDash Terms of Service",
   description:
-    "Điều khoản sử dụng dịch vụ nền tảng TIKTOKFLOW, cam kết chất lượng SLA 99.9%, chính sách quyền sở hữu tài khoản và trách nhiệm tuân thủ TikTok Policy.",
+    "Điều khoản sử dụng dịch vụ nền tảng StreamDash, cam kết chất lượng SLA 99.9%, chính sách quyền sở hữu tài khoản và tính độc lập của nền tảng.",
   keywords: [
     "Điều khoản dịch vụ",
-    "TIKTOKFLOW Terms",
+    "StreamDash Terms",
     "SLA 99.9%",
     "Chính sách sử dụng",
   ],
@@ -15,8 +15,8 @@ export const metadata: Metadata = {
     canonical: "/terms",
   },
   openGraph: {
-    title: "Điều Khoản Dịch Vụ | TIKTOKFLOW Terms of Service",
-    description: "Điều khoản sử dụng dịch vụ nền tảng TIKTOKFLOW và cam kết SLA 99.9%.",
+    title: "Điều Khoản Dịch Vụ | StreamDash Terms of Service",
+    description: "Điều khoản sử dụng dịch vụ nền tảng StreamDash và cam kết SLA 99.9%.",
     url: "/terms",
     type: "website",
   },

@@ -52,7 +52,7 @@ if %errorlevel% equ 0 (
 :: 4. Chay Agent
 if "%1"=="--daemon" goto :run_daemon
 
-title TikTokFlow Client Agent - Quet Ngam TikTok Studio
+title StreamDash Client Agent - Quet Ngam TikTok Studio
 color 0b
 "%NODE_CMD%" agent.js
 echo.

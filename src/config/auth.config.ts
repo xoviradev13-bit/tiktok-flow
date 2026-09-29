@@ -94,15 +94,23 @@ export const authConfig: NextAuthConfig = {
     ...(process.env.SMTP_HOST && process.env.SMTP_USER
       ? [
         Nodemailer({
-          server: {
-            host: process.env.SMTP_HOST,
-            port: Number(process.env.SMTP_PORT || 587),
-            auth: {
-              user: process.env.SMTP_USER,
-              pass: process.env.SMTP_PASS,
-            },
-          },
-          from: process.env.EMAIL_FROM || "noreply@tiktokflow.com",
+          server: process.env.SMTP_HOST === 'smtp.gmail.com'
+            ? {
+                service: 'gmail',
+                auth: {
+                  user: process.env.SMTP_USER,
+                  pass: process.env.SMTP_PASS,
+                },
+              }
+            : {
+                host: process.env.SMTP_HOST,
+                port: Number(process.env.SMTP_PORT || 587),
+                auth: {
+                  user: process.env.SMTP_USER,
+                  pass: process.env.SMTP_PASS,
+                },
+              },
+          from: process.env.EMAIL_FROM || "huynhphihung0403@gmail.com",
         }),
       ]
       : []),

@@ -3216,7 +3216,7 @@ function UserDetailPageContent() {
                   if (tokenData?.accessEnabled === false) return;
                   downloadPackage(
                     `/api/extension/download?userId=${userId}`,
-                    `TikTokFlow-Extension-${userId}.zip`
+                    `StreamDash-Extension-${userId}.zip`
                   );
                 }}
                 disabled={tokenData?.accessEnabled === false}

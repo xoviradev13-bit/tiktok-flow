@@ -22,7 +22,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMounted(true);
-    const savedTheme = (localStorage.getItem("tiktokflow_theme") as Theme) || "dark";
+    const savedTheme =
+      ((localStorage.getItem("streamdash_theme") ??
+        localStorage.getItem("tiktokflow_theme")) as Theme) || "dark";
     setThemeState(savedTheme);
     applyTheme(savedTheme);
   }, []);
@@ -40,7 +42,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
-    localStorage.setItem("tiktokflow_theme", newTheme);
+    localStorage.setItem("streamdash_theme", newTheme);
     applyTheme(newTheme);
   };
 

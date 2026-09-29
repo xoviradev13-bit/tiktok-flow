@@ -56,7 +56,7 @@ export async function POST(req: Request) {
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b; background-color: #ffffff; border-radius: 16px; padding: 40px; border: 1px solid #e2e8f0;">
           <div style="text-align: center; margin-bottom: 24px;">
             <div style="display: inline-block; background: linear-gradient(135deg, #ec4899, #f43f5e); padding: 12px 24px; border-radius: 12px; color: #ffffff; font-weight: 900; font-size: 20px; letter-spacing: -0.5px;">
-              TIKTOKFLOW
+              StreamDash
             </div>
           </div>
           <h2 style="text-align: center; margin-bottom: 12px; font-size: 22px; color: #0f172a; font-weight: 800;">Khôi phục mật khẩu</h2>
@@ -84,7 +84,7 @@ export async function POST(req: Request) {
       `;
 
       try {
-        await emailService.sendNodemailerEmail(email, "Khôi phục mật khẩu - TIKTOKFLOW", html);
+        await emailService.sendNodemailerEmail(email, "Khôi phục mật khẩu - StreamDash", html);
       } catch (emailError) {
         console.error("Failed to send reset email:", emailError);
         // Don't expose email sending failures to prevent user enumeration

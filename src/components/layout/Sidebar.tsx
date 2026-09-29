@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { useState, useEffect } from "react";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import {
   LayoutDashboard,
   Users,
@@ -159,7 +159,7 @@ export default function Sidebar() {
   };
 
   const handleLogout = () => {
-    signOut({ callbackUrl: "/signin" });
+    window.location.href = "/api/auth/force-signout?callbackUrl=/signin";
   };
 
   return (
@@ -191,14 +191,14 @@ export default function Sidebar() {
           >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-pink-500 to-rose-500 p-0.5 shadow-lg shadow-pink-500/20 group-hover:scale-105 transition-transform shrink-0">
               <div className="w-full h-full bg-slate-950 rounded-[9px] flex items-center justify-center">
-                <Zap className="w-4 h-4 text-pink-400 fill-pink-400" />
+                <span className="text-white font-black text-sm tracking-tight select-none">S</span>
               </div>
             </div>
 
             {/* Always visible on mobile, toggleable on desktop */}
             <div className={`min-w-0 ${isCollapsed ? "lg:hidden" : "block"}`}>
               <div className="font-black text-base tracking-tight text-slate-900 dark:bg-gradient-to-r dark:from-white dark:via-slate-200 dark:to-pink-300 dark:bg-clip-text dark:text-transparent truncate">
-                TIKTOK<span className="text-pink-500">FLOW</span>
+                STREAM<span className="text-pink-500">DASH</span>
               </div>
               <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
                 Ops & Automation

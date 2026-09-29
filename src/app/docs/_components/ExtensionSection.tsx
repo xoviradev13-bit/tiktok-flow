@@ -28,10 +28,10 @@ export function ExtensionSection() {
           Tiện Ích Trình Duyệt
         </span>
         <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-          Hướng Dẫn Cài Đặt, Sử Dụng & Gỡ Bỏ TikTokFlow Extension
+          Hướng Dẫn Cài Đặt, Sử Dụng & Gỡ Bỏ StreamDash Extension
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">
-          Cách nạp tiện ích TikTokFlow Companion vào GPMLogin, kích hoạt đồng bộ số liệu và gỡ bỏ khi cần.
+          Cách nạp tiện ích StreamDash Companion vào GPMLogin, kích hoạt đồng bộ số liệu và gỡ bỏ khi cần.
         </p>
       </div>
 
@@ -49,7 +49,7 @@ export function ExtensionSection() {
             <span>Tiện Ích GPMLogin Tự Động Định Danh</span>
           </div>
           <div className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-            TikTokFlow Companion Extension
+            StreamDash Companion Extension
           </div>
           <p className="text-sm text-slate-600 dark:text-slate-400 max-w-xl">
             Đã tích hợp sẵn cơ chế xác thực và trao đổi Token tự động với hệ thống. Bạn <strong>KHÔNG CẦN</strong> giải nén, chỉ cần nạp trực tiếp file zip vào GPMLogin.
@@ -59,7 +59,7 @@ export function ExtensionSection() {
         {session ? (
           <button
             type="button"
-            onClick={() => downloadPackage("/api/extension/download", "TikTokFlow-Extension.zip")}
+            onClick={() => downloadPackage("/api/extension/download", "StreamDash-Extension.zip")}
             className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-sm font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/20 shrink-0 transition-all cursor-pointer"
           >
             <Download className="w-4 h-4" />
@@ -82,7 +82,7 @@ export function ExtensionSection() {
           <span className="w-6 h-6 rounded-lg bg-pink-500/10 text-pink-600 dark:text-pink-400 flex items-center justify-center text-xs font-black">
             A
           </span>
-          <span>Quy Trình Cài Đặt TikTokFlow Extension (3 Bước)</span>
+          <span>Quy Trình Cài Đặt StreamDash Extension (3 Bước)</span>
         </h3>
 
         {/* Step 1 */}
@@ -140,17 +140,17 @@ export function ExtensionSection() {
             <div className="space-y-2">
               <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 shadow-lg group">
                 <div className="bg-slate-950 px-3.5 py-2 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                  <span className="font-semibold text-slate-200">2. TikTokFlow Companion đã nạp & bật On</span>
+                  <span className="font-semibold text-slate-200">2. StreamDash Companion đã nạp & bật On</span>
                   <span className="text-[11px] text-emerald-400 font-mono">Đã kích hoạt</span>
                 </div>
                 <ZoomableImage
                   src="/images/docs/extensions/anh-2.png"
-                  alt="TikTokFlow Companion hiển thị và bật On trên GPMLogin"
+                  alt="StreamDash Companion hiển thị và bật On trên GPMLogin"
                   onZoom={(src, alt) => setZoomImage({ src, alt })}
                 />
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 text-center italic">
-                Hình 2: Trạng thái Extension TikTokFlow Companion đã bật On sẵn sàng
+                Hình 2: Trạng thái Extension StreamDash Companion đã bật On sẵn sàng
               </p>
             </div>
           </div>
@@ -256,7 +256,7 @@ export function ExtensionSection() {
           </div>
 
           <ol className="list-decimal list-inside text-sm text-slate-700 dark:text-slate-300 space-y-2 leading-relaxed pl-1">
-            <li>Mở profile GPMLogin bất kỳ ➔ Bấm vào biểu tượng tiện ích <strong>TikTokFlow Companion</strong> ở góc trên bên phải trình duyệt.</li>
+            <li>Mở profile GPMLogin bất kỳ ➔ Bấm vào biểu tượng tiện ích <strong>StreamDash Companion</strong> ở góc trên bên phải trình duyệt.</li>
             <li>Dán mã Personal Token mới của bạn vào ô <strong>Personal Token</strong>.</li>
             <li>Bấm nút <strong>Kiểm tra</strong> để hệ thống test kết nối ngay với máy chủ (hoặc bấm <strong>Lưu</strong>, tiện ích sẽ tự động xác thực trước khi kích hoạt thành công!).</li>
           </ol>
@@ -264,12 +264,12 @@ export function ExtensionSection() {
           <div className="pl-0 sm:pl-4 max-w-2xl pt-1">
             <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 shadow-lg group">
               <div className="bg-slate-950 px-3.5 py-2 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                <span className="font-semibold text-slate-200">Giao diện Popup TikTokFlow Companion trên trình duyệt</span>
+                <span className="font-semibold text-slate-200">Giao diện Popup StreamDash Companion trên trình duyệt</span>
                 <span className="text-[11px] text-pink-400 font-mono">Đổi Personal Token</span>
               </div>
               <ZoomableImage
                 src="/images/docs/extensions/anh-3.png"
-                alt="Popup TikTokFlow Companion với Personal Token và thông tin nhân sự"
+                alt="Popup StreamDash Companion với Personal Token và thông tin nhân sự"
                 onZoom={(src, alt) => setZoomImage({ src, alt })}
               />
             </div>
@@ -297,7 +297,7 @@ export function ExtensionSection() {
               <span className="text-rose-600 dark:text-rose-400">Cách 1:</span> Gỡ trong phần mềm GPMLogin
             </div>
             <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-sm">
-              Mở ứng dụng GPMLogin ➔ Vào menu <strong>Extensions (Tiện ích)</strong> ➔ Tìm <strong>TikTokFlow Companion</strong> và bấm biểu tượng thùng rác / Xóa tiện ích khỏi danh sách.
+              Mở ứng dụng GPMLogin ➔ Vào menu <strong>Extensions (Tiện ích)</strong> ➔ Tìm <strong>StreamDash Companion</strong> và bấm biểu tượng thùng rác / Xóa tiện ích khỏi danh sách.
             </p>
           </div>
 
@@ -306,7 +306,7 @@ export function ExtensionSection() {
               <span className="text-rose-600 dark:text-rose-400">Cách 2:</span> Gỡ trực tiếp trên trình duyệt
             </div>
             <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-sm">
-              Mở trình duyệt GPMLogin ➔ Truy cập <code className="text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded font-mono text-xs">chrome://extensions</code> ➔ Tìm thẻ <strong>TikTokFlow Companion</strong> ➔ Bấm nút <strong className="text-rose-600 dark:text-rose-400">Remove (Xóa)</strong>.
+              Mở trình duyệt GPMLogin ➔ Truy cập <code className="text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded font-mono text-xs">chrome://extensions</code> ➔ Tìm thẻ <strong>StreamDash Companion</strong> ➔ Bấm nút <strong className="text-rose-600 dark:text-rose-400">Remove (Xóa)</strong>.
             </p>
           </div>
         </div>

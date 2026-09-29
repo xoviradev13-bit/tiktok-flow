@@ -1,6 +1,6 @@
 {
   "serverUrl": "http://localhost:3000",
-  "memberEmail": "admin@tiktokflow.com",
+  "memberEmail": "admin@streamdash.site",
   "personalToken": "",
   "agentAttestSecret": "",
   "concurrency": 1,

@@ -213,7 +213,7 @@ export const supportRouter = router({
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
               <div style="background: linear-gradient(135deg, #0f172a, #1e293b); padding: 24px; color: #ffffff;">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                  <span style="font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">TIKTOK<span style="color: #ec4899;">FLOW</span></span>
+                  <span style="font-weight: 900; font-size: 18px; letter-spacing: -0.5px;">STREAM<span style="color: #ec4899;">DASH</span></span>
                   <span style="background: ${severityColor}; color: #ffffff; font-size: 10px; font-weight: 800; padding: 4px 10px; border-radius: 9999px; text-transform: uppercase;">
                     ${input.severity}
                   </span>
@@ -261,7 +261,7 @@ export const supportRouter = router({
           for (const email of targetEmails) {
             await emailService.sendNodemailerEmail(
               email,
-              `[TIKTOKFLOW BÁO CÁO SỰ CỐ] [${input.severity}] ${input.title}`,
+              `[StreamDash BÁO CÁO SỰ CỐ] [${input.severity}] ${input.title}`,
               emailHtml
             );
           }

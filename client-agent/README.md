@@ -1,4 +1,4 @@
-# TikTokFlow Client Agent (Deep Sweeper Windows)
+# StreamDash Client Agent (Deep Sweeper Windows)
 
 Bộ công cụ thu thập số liệu TikTok Studio chuyên sâu, chạy hoàn toàn độc lập và an toàn tuyệt đối trên máy trạm Windows của nhân viên.
 
@@ -16,8 +16,8 @@ Bộ công cụ thu thập số liệu TikTok Studio chuyên sâu, chạy hoàn 
 ## 🚀 HƯỚNG DẪN SỬ DỤNG NHANH
 
 ### Cách 1: Chạy Quét Ngay Lập Tức (Thủ Công)
-1. Tải file `.zip` từ trang **Tiện Ích (`/extensions`)** trên hệ thống TikTokFlow.
-2. Giải nén vào một thư mục cố định trên ổ đĩa (ví dụ: `D:\TikTokFlow-Agent`).
+1. Tải file `.zip` từ trang **Tiện Ích (`/extensions`)** trên hệ thống StreamDash.
+2. Giải nén vào một thư mục cố định trên ổ đĩa (ví dụ: `D:\StreamDash-Agent`).
 3. Nhấp đúp chuột vào file:
    ```cmd
    run-agent.bat
@@ -35,7 +35,7 @@ Bạn không cần phải nhớ mở phần mềm mỗi ngày!
 2. Nhấn phím **`1`** và bấm Enter.
 3. **Hoàn tất!**
    - Từ nay, mỗi khi bạn bật máy tính và đăng nhập Windows, Agent sẽ **tự động chạy ngầm 100% vô hình** (không mở cửa sổ đen, không làm phiền công việc).
-   - Agent sẽ tự động đồng bộ theo đúng **Lịch Trình (Schedule) được thiết lập trong Settings** của hệ thống TikTokFlow.
+   - Agent sẽ tự động đồng bộ theo đúng **Lịch Trình (Schedule) được thiết lập trong Settings** của hệ thống StreamDash.
    - Khi hết giờ làm việc hoặc đến giờ hẹn (ví dụ 18:00), Agent sẽ tự động cào số liệu và gửi báo cáo về máy chủ.
 
 ---

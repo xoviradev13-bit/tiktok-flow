@@ -1,5 +1,5 @@
 /**
- * Routes Configuration for TikTok Automation (TIKTOKFLOW)
+ * Routes Configuration for StreamDash Operations
  * Centralized routes & navigation links for all pages & layouts.
  */
 

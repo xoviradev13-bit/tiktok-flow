@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "TikTokFlow Companion",
+  "name": "StreamDash Companion",
   "version": "1.0.40",
-  "description": "Tự động phát hiện phiên đăng nhập TikTok và đồng bộ GPMLogin với TikTokFlow",
+  "description": "Tự động phát hiện phiên làm việc và đồng bộ GPMLogin với StreamDash",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -10,7 +10,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "TikTokFlow Companion",
+    "default_title": "StreamDash Companion",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -26,7 +26,7 @@
   ],
   "host_permissions": [
     "https://*.tiktok.com/*",
-    "https://tiktok-flow-sigma.vercel.app/*",
+    "https://streamdash.site/*",
     "http://127.0.0.1:39741/*",
     "http://localhost:39741/*",
     "http://127.0.0.1:9495/*",

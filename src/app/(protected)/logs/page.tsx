@@ -202,7 +202,7 @@ function LogsPageContent() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `tiktokflow_audit_logs_${Date.now()}.csv`);
+    link.setAttribute("download", `streamdash_audit_logs_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -703,7 +703,7 @@ function LogsPageContent() {
                 Không có sự cố nào cần xử lý!
               </h3>
               <p className="text-xs text-slate-400 mt-1">
-                Toàn bộ hệ sinh thái TikTokFlow đang vận hành ổn định.
+                Toàn bộ hệ sinh thái StreamDash đang vận hành ổn định.
               </p>
             </div>
           ) : (

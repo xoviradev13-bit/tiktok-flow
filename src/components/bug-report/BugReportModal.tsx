@@ -429,7 +429,7 @@ export default function BugReportModal({
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   {editingReport
                     ? "Cập nhật thông tin chi tiết và đính kèm của sự cố."
-                    : "Gửi thông tin để đội ngũ TikTokFlow kiểm tra và hỗ trợ bạn."}
+                    : "Gửi thông tin để đội ngũ StreamDash kiểm tra và hỗ trợ bạn."}
                 </p>
               </div>
             </div>

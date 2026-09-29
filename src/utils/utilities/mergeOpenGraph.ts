@@ -2,10 +2,10 @@ import type { Metadata } from 'next'
 
 const defaultOpenGraph: Metadata['openGraph'] = {
   type: 'website',
-  title: 'TIKTOKFLOW',
-  description: 'Nền tảng tự động hóa và quản trị dàn tài khoản TikTok quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.',
-  url: 'https://tiktokflow.site/',
-  siteName: 'TIKTOKFLOW',
+  title: 'StreamDash',
+  description: 'Nền tảng tự động hóa và quản trị vận hành kênh video quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.',
+  url: 'https://streamdash.site/',
+  siteName: 'StreamDash',
   images: [
     {
       url: '/favicon.ico',
@@ -13,7 +13,7 @@ const defaultOpenGraph: Metadata['openGraph'] = {
       height: 630,
     },
   ],
-  locale: 'en_US',
+  locale: 'vi_VN',
 };
 
 export const mergeOpenGraph = (og?: Metadata['openGraph']): Metadata['openGraph'] => {
