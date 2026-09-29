@@ -1177,4 +1177,151 @@ export function TeamDetailSkeleton() {
   );
 }
 
+// ============================================================================
+// 16. Extension Detail Page Skeleton
+// ============================================================================
+export function ExtensionDetailSkeleton() {
+  return (
+    <div
+      className="space-y-6 w-full pb-28 animate-fadeIn"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      {/* Breadcrumb row */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <SkeletonBox className="h-8 w-72 max-w-full rounded-full" />
+        <div className="flex items-center gap-2">
+          <SkeletonBox className="h-8 w-36 rounded-xl" />
+          <SkeletonBox className="h-8 w-44 rounded-xl" />
+        </div>
+      </div>
 
+      {/* Hero Banner Card */}
+      <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6">
+          <div className="flex items-start gap-4 flex-1 min-w-0">
+            <SkeletonBox className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl shrink-0" />
+            <div className="space-y-3 flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <SkeletonBox className="h-7 w-56 max-w-full rounded-lg" />
+                <SkeletonBox className="h-6 w-14 rounded-lg" />
+                <SkeletonBox className="h-6 w-20 rounded-lg" />
+              </div>
+              <SkeletonLine className="h-3 w-80 max-w-full" />
+              <div className="space-y-2 pt-1 max-w-xl">
+                <SkeletonLine className="h-3.5 w-full" />
+                <SkeletonLine className="h-3.5 w-4/5" />
+              </div>
+            </div>
+          </div>
+
+          {/* Download action box */}
+          <div className="flex flex-col gap-2.5 shrink-0 sm:w-72">
+            <SkeletonBox className="h-12 w-full rounded-2xl" />
+            <div className="p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2 flex flex-col items-center">
+              <SkeletonLine className="h-3 w-11/12" />
+              <SkeletonLine className="h-3 w-3/4" />
+              <SkeletonLine className="h-3 w-2/3 mt-1" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Token Card */}
+      <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="space-y-2">
+            <SkeletonBox className="h-4 w-72 max-w-full rounded-lg" />
+            <SkeletonLine className="h-3 w-56 max-w-full" />
+          </div>
+          <SkeletonBox className="h-7 w-40 rounded-full" />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <SkeletonLine className="h-3 w-28" />
+            <SkeletonLine className="h-3 w-48 hidden sm:block" />
+          </div>
+          <SkeletonBox className="h-11 w-full rounded-2xl" />
+        </div>
+
+        <div className="pt-2 flex items-center justify-between gap-4">
+          <div className="space-y-2 flex-1">
+            <SkeletonLine className="h-3 w-full max-w-lg" />
+            <SkeletonLine className="h-3 w-2/3 max-w-sm" />
+          </div>
+          <SkeletonBox className="h-9 w-44 rounded-xl shrink-0" />
+        </div>
+      </div>
+
+      {/* Setup Guide */}
+      <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="space-y-2">
+          <SkeletonBox className="h-5 w-80 max-w-full rounded-lg" />
+          <SkeletonLine className="h-3 w-full max-w-2xl" />
+          <SkeletonLine className="h-3 w-3/4 max-w-xl" />
+        </div>
+
+        {/* Notice banner */}
+        <SkeletonBox className="h-14 w-full rounded-2xl" />
+
+        {/* 3 steps */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/60 dark:border-slate-800 space-y-3"
+            >
+              <SkeletonBox className="w-8 h-8 rounded-xl" />
+              <SkeletonBox className="h-4 w-2/3 rounded-lg" />
+              <div className="space-y-2">
+                <SkeletonLine className="h-3 w-full" />
+                <SkeletonLine className="h-3 w-full" />
+                <SkeletonLine className="h-3 w-4/5" />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 3 screenshots */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="space-y-2">
+              <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800">
+                <div className="px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                  <SkeletonLine className="h-3 w-32" />
+                  <SkeletonLine className="h-3 w-16" />
+                </div>
+                <SkeletonBox className="aspect-video w-full rounded-none" />
+              </div>
+              <SkeletonLine className="h-3 w-3/4 mx-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Permissions & Changelog */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+          <SkeletonBox className="h-4 w-64 max-w-full rounded-lg" />
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <SkeletonBox className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" />
+                <div className="space-y-1.5 flex-1">
+                  <SkeletonLine className="h-3 w-full" />
+                  <SkeletonLine className="h-3 w-2/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4">
+          <SkeletonBox className="h-4 w-52 rounded-lg" />
+          <SkeletonBox className="h-48 w-full rounded-2xl" />
+        </div>
+      </div>
+    </div>
+  );
+}

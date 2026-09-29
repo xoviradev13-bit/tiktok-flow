@@ -1096,11 +1096,12 @@ function SettingsPageContent() {
 
               {/* Group & Role Information Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+                {/* Vai trò của bạn */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 flex items-start justify-start gap-3 text-left">
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
                     <ShieldCheck className="w-5 h-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-xs font-bold text-slate-400 uppercase">Vai trò của bạn</div>
                     <div className="mt-0.5 text-xs font-black text-slate-800 dark:text-slate-200">
                       {userProfile?.role === "ADMIN"
@@ -1112,17 +1113,66 @@ function SettingsPageContent() {
                   </div>
                 </div>
 
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-                    <Layers className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-slate-400 uppercase">Nhóm Trực Thuộc</div>
-                    <div className="mt-0.5 text-xs font-black text-slate-800 dark:text-slate-200">
-                      {userProfile?.team?.name || (userProfile as any)?.group?.name || "Chưa phân nhóm"}
+                {/* Nhóm Trực Thuộc & Quản Lý */}
+                {(() => {
+                  const seenIds = new Set<string>();
+                  const allTeams: { id: string; name: string; color?: string | null }[] = [];
+                  const ledTeams: { id: string; name: string; color?: string | null }[] =
+                    (userProfile as any)?.leadingTeams || [];
+                  for (const t of ledTeams) {
+                    if (!seenIds.has(t.id)) { seenIds.add(t.id); allTeams.push(t); }
+                  }
+                  const memberTeam = userProfile?.team;
+                  if (memberTeam && !seenIds.has(memberTeam.id)) {
+                    seenIds.add(memberTeam.id); allTeams.push(memberTeam);
+                  }
+
+                  const teamNamesLine = allTeams.map((t) => t.name).join(", ");
+
+                  return (
+                    <div className="min-w-0 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 flex items-start justify-start gap-3 text-left">
+                      <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                        <Layers className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-400 uppercase mb-1">
+                          {allTeams.length > 1 ? "Nhóm Trực Thuộc & Quản Lý" : "Nhóm Trực Thuộc"}
+                        </div>
+
+                        {allTeams.length === 0 ? (
+                          <div className="text-xs font-black text-slate-800 dark:text-slate-200">
+                            Chưa phân nhóm
+                          </div>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="text-xs font-black text-slate-800 dark:text-slate-200 truncate cursor-help">
+                                {teamNamesLine}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <div className="flex flex-col gap-2 py-0.5">
+                                {allTeams.map((t) => {
+                                  const isLed = ledTeams.some((lt) => lt.id === t.id);
+                                  return (
+                                    <div key={t.id} className="flex items-center gap-1.5 text-xs font-semibold">
+                                      <span>{t.name}</span>
+                                      {isLed && (
+                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-500 border border-amber-500/30">
+                                          Trưởng nhóm
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </div>
 
               <div className="flex justify-end pt-3">
@@ -1191,7 +1241,7 @@ function SettingsPageContent() {
               onClick={async () => {
                 try {
                   await signOut({ redirect: false });
-                } catch {}
+                } catch { }
                 window.location.href = "/api/auth/force-signout?callbackUrl=/signin";
               }}
               className="w-full py-2.5 rounded-xl text-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-all cursor-pointer"

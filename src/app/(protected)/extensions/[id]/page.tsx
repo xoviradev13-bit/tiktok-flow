@@ -30,7 +30,7 @@ import {
   KeyRound,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { DataTableSkeleton } from "@/components/ui/data-table-skeleton";
+import { ExtensionDetailSkeleton } from "@/components/skeletons/PageSkeletons";
 import {
   Tooltip,
   TooltipContent,
@@ -88,11 +88,7 @@ export default function ExtensionDetailPage() {
   });
 
   if (isLoading) {
-    return (
-      <div className="w-full space-y-6 pb-24">
-        <DataTableSkeleton columns={3} rows={4} />
-      </div>
-    );
+    return <ExtensionDetailSkeleton />;
   }
 
   if (!ext) {
@@ -129,11 +125,16 @@ export default function ExtensionDetailPage() {
     <div className="w-full space-y-6 pb-28 animate-fadeIn">
       {/* Breadcrumb Navigation */}
       <div className="flex items-center justify-between text-xs gap-3 flex-wrap">
-        <Link
+      <Link
           href="/extensions"
-          className="flex items-center gap-1.5 font-bold text-slate-500 hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+          className="group inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-bold
+                     text-slate-500 transition-all duration-300 ease-out
+                     hover:bg-pink-50 hover:text-pink-600 hover:shadow-sm hover:shadow-pink-200/50
+                     active:scale-95
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-400
+                     dark:hover:bg-pink-500/10 dark:hover:text-pink-400 dark:hover:shadow-none"
         >
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className="h-4 w-4 transition-transform duration-300 ease-out group-hover:-translate-x-1" />
           <span>Tất cả Tiện Ích & Công Cụ (Extensions & Agents)</span>
         </Link>
         <div className="flex items-center gap-2">
@@ -202,7 +203,7 @@ export default function ExtensionDetailPage() {
                 Phát triển bởi <span className="font-semibold text-slate-700 dark:text-slate-300">{ext.author}</span> • Hỗ trợ {ext.supportedBrowsers?.join(", ") || (isClientAgent ? "Windows 10/11, GPMLogin, Chrome" : "Chrome, GPMLogin Chromium")}
               </p>
 
-              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 pt-1 leading-relaxed max-w-2xl">
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 pt-1 leading-relaxed max-w-xl">
                 {ext.shortDesc || ext.description}
               </p>
             </div>
@@ -298,7 +299,7 @@ export default function ExtensionDetailPage() {
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs">
             <label className="font-semibold text-slate-700 dark:text-slate-300">
-              Personal Sync Token:
+              Personal Token:
             </label>
             <span className="text-xs text-slate-400">
               (Tuyệt đối không chia sẻ công khai Personal Token)

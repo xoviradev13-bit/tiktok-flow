@@ -56,6 +56,9 @@ export const userRouter = router({
         team: {
           select: { id: true, name: true, color: true },
         },
+        leadingTeams: {
+          select: { id: true, name: true, color: true },
+        },
         password: true,
       },
     });
