@@ -157,28 +157,6 @@ export async function proxy(request: NextRequest) {
   const isAppDomain = hostname === "app.streamdash.site" || hostname === "app.tiktokflow.site";
   const appBaseUrl = hostname.includes("tiktokflow") ? "https://app.tiktokflow.site" : "https://app.streamdash.site";
 
-  // Compute the real public external origin so redirects never leak internal container origins (like 0.0.0.0:3000)
-  const rawProto = request.headers.get("x-forwarded-proto") || (request.url.startsWith("https") ? "https" : "http");
-  const proto = rawProto.split(",")[0].trim();
-  const isInternalHost = !rawHost || rawHost.startsWith("0.0.0.0") || rawHost.startsWith("127.0.0.1") || rawHost.startsWith("localhost");
-
-  const publicBaseUrl = isAppDomain
-    ? appBaseUrl
-    : isPublicDomain
-    ? (hostname.includes("tiktokflow") ? "https://tiktokflow.site" : "https://streamdash.site")
-    : (isInternalHost ? (IS_PRODUCTION ? "https://app.streamdash.site" : url.origin) : `${proto}://${rawHost}`);
-
-  // Helper: create a redirection response guaranteed to point to the external public domain
-  const createRedirect = (destPath: string, searchParams?: Record<string, string>, statusCode: number = 307) => {
-    const targetUrl = new URL(destPath, publicBaseUrl);
-    if (searchParams) {
-      for (const [k, v] of Object.entries(searchParams)) {
-        targetUrl.searchParams.set(k, v);
-      }
-    }
-    return NextResponse.redirect(targetUrl, statusCode);
-  };
-
   // ── A. ROOT PUBLIC DOMAIN ──────────────────────────────────────────────────
   if (isPublicDomain) {
     // Auth routes on public domain -> redirect to app subdomain
@@ -195,14 +173,14 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── B. APPLICATION SUBDOMAIN (app.streamdash.site) ───────────────────────────
+  // ── B. APPLICATION SUBDOMAIN (app.tiktokflow.site) ───────────────────────────
   if (isAppDomain) {
-    // Root URL (app.streamdash.site/) -> redirect to dashboard if authenticated, or signin
+    // Root URL (app.tiktokflow.site/) -> redirect to dashboard if authenticated, or signin
     if (pathname === "/") {
       if (isAuthenticated) {
-        return createRedirect("/accounts");
+        return NextResponse.redirect(new URL("/accounts", url));
       }
-      return createRedirect("/signin");
+      return NextResponse.redirect(new URL("/signin", url));
     }
 
     // Locked accounts: redirect to /auth/error
@@ -210,7 +188,9 @@ export async function proxy(request: NextRequest) {
       if (isApiRoute) {
         return NextResponse.json({ error: "ACCOUNT_LOCKED" }, { status: 403 });
       }
-      return createRedirect("/auth/error", { error: "ACCOUNT_LOCKED" });
+      const lockedUrl = new URL("/auth/error", url);
+      lockedUrl.searchParams.set("error", "ACCOUNT_LOCKED");
+      return NextResponse.redirect(lockedUrl);
     }
 
     // If authenticated user tries to access /signin, /signup, etc. -> redirect to accounts or callbackUrl
@@ -218,7 +198,7 @@ export async function proxy(request: NextRequest) {
       const callbackUrl = url.searchParams.get("callbackUrl");
       const isCallbackAuthRoute = callbackUrl && AUTH_ROUTES.some(r => callbackUrl === r || callbackUrl.startsWith(r + "/") || callbackUrl.startsWith(r + "?"));
       const safeDest = callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//") && !isCallbackAuthRoute ? callbackUrl : "/accounts";
-      return createRedirect(safeDest);
+      return NextResponse.redirect(new URL(safeDest, url));
     }
 
     // If unauthenticated user tries to access protected routes -> redirect to /signin
@@ -226,19 +206,19 @@ export async function proxy(request: NextRequest) {
       if (isApiRoute) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
+      const loginUrl = new URL("/signin", url);
       const targetDest = pathname + url.search;
-      const redirectParams: Record<string, string> = {};
       if (!AUTH_ROUTES.some(r => targetDest === r || targetDest.startsWith(r + "/") || targetDest.startsWith(r + "?"))) {
-        redirectParams.callbackUrl = targetDest;
+        loginUrl.searchParams.set("callbackUrl", targetDest);
       }
-      return createRedirect("/signin", redirectParams);
+      return NextResponse.redirect(loginUrl);
     }
 
     // Admin role check
     if (isAuthenticated && isAdminRoute) {
       const role = String((token as any)?.userType ?? "");
       if (role.toUpperCase() !== "ADMIN") {
-        return createRedirect("/accounts");
+        return NextResponse.redirect(new URL("/accounts", url));
       }
     }
 
@@ -255,7 +235,9 @@ export async function proxy(request: NextRequest) {
     if (isApiRoute) {
       return NextResponse.json({ error: "ACCOUNT_LOCKED" }, { status: 403 });
     }
-    return createRedirect("/auth/error", { error: "ACCOUNT_LOCKED" });
+    const lockedUrl = new URL("/auth/error", url);
+    lockedUrl.searchParams.set("error", "ACCOUNT_LOCKED");
+    return NextResponse.redirect(lockedUrl);
   }
 
   // Redirect authenticated users away from auth routes, honoring preserved destination
@@ -263,7 +245,7 @@ export async function proxy(request: NextRequest) {
     const callbackUrl = url.searchParams.get("callbackUrl");
     const isCallbackAuthRoute = callbackUrl && AUTH_ROUTES.some(r => callbackUrl === r || callbackUrl.startsWith(r + "/") || callbackUrl.startsWith(r + "?"));
     const safeDest = callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//") && !isCallbackAuthRoute ? callbackUrl : "/accounts";
-    return createRedirect(safeDest);
+    return NextResponse.redirect(new URL(safeDest, url));
   }
 
   // Redirect unauthenticated users to signin, preserving destination
@@ -271,12 +253,12 @@ export async function proxy(request: NextRequest) {
     if (isApiRoute) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const loginUrl = new URL("/signin", url);
     const targetDest = pathname + url.search;
-    const redirectParams: Record<string, string> = {};
     if (!AUTH_ROUTES.some(r => targetDest === r || targetDest.startsWith(r + "/") || targetDest.startsWith(r + "?"))) {
-      redirectParams.callbackUrl = targetDest;
+      loginUrl.searchParams.set("callbackUrl", targetDest);
     }
-    return createRedirect("/signin", redirectParams);
+    return NextResponse.redirect(loginUrl);
   }
 
   // Handle authenticated role checks
@@ -284,7 +266,7 @@ export async function proxy(request: NextRequest) {
     if (isAdminRoute) {
       const role = String((token as any)?.userType ?? "");
       if (role.toUpperCase() !== "ADMIN") {
-        return createRedirect("/");
+        return NextResponse.redirect(new URL("/", url));
       }
     }
   }

@@ -17,12 +17,16 @@ export default function PublicHeader({ badge }: PublicHeaderProps) {
   const { data: session } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Client session can be null while a JWT cookie still exists (expired/broken
-  // /api/auth/session). Clear it before /signin so proxy.ts does not bounce to /accounts.
+  // Only route through force-signout if a session exists (to clear stale JWT cookie).
+  // If the user is already unauthenticated, navigate directly to /signin.
   const goToSignIn = (e: React.MouseEvent) => {
     e.preventDefault();
     setMobileMenuOpen(false);
-    window.location.href = `/api/auth/force-signout?callbackUrl=/accounts`;
+    if (session) {
+      window.location.href = `/api/auth/force-signout?callbackUrl=${encodeURIComponent(APP_ROUTES.ACCOUNTS)}`;
+    } else {
+      window.location.href = APP_ROUTES.SIGNIN;
+    }
   };
 
   // Close mobile menu on route change

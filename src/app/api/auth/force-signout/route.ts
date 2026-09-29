@@ -48,9 +48,19 @@ async function handleForceSignOut(req: NextRequest) {
       ? rawCallback
       : "/accounts";
 
+  // Use the canonical app URL from env if available.
+  // req.nextUrl.origin can be "http://0.0.0.0:3000" in dev when Next.js binds
+  // to all interfaces — that resolves to an unreachable host in the browser.
+  const rawOrigin = req.nextUrl.origin;
+  const isBadOrigin = rawOrigin.includes("0.0.0.0") || rawOrigin.includes("::");
+  const trustedOrigin =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.AUTH_URL ||
+    (isBadOrigin ? "http://localhost:3000" : rawOrigin);
+
   const signinUrl = new URL(
     `/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`,
-    req.nextUrl.origin
+    trustedOrigin
   );
 
   const res = NextResponse.redirect(signinUrl);
