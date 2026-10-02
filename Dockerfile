@@ -49,6 +49,9 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/extension ./extension
 COPY --from=builder /app/client-agent-base.zip ./client-agent-base.zip
 
+# Ensure uploads directory exists (Docker volume mount point)
+RUN mkdir -p /app/public/uploads/bug-reports/reports
+
 # Prisma client generated assets
 COPY --from=builder /app/src/generated ./src/generated
 

@@ -83,7 +83,9 @@ export async function POST(req: Request) {
             upsert: true,
           });
 
-        if (!error && data) {
+        if (error) {
+          console.warn("[Upload] Supabase storage upload rejected:", error.message || error);
+        } else if (data) {
           const { data: publicData } = supabase.storage
             .from(targetBucket)
             .getPublicUrl(filePath);
@@ -94,7 +96,7 @@ export async function POST(req: Request) {
           }
         }
       } catch (err: any) {
-        console.warn("[Upload] Supabase direct upload note:", err?.message);
+        console.warn("[Upload] Supabase direct upload error:", err?.message);
       }
 
       // Graceful local fallback to public/uploads if Supabase storage is not initialized
