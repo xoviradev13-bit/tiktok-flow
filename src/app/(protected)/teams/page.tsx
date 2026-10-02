@@ -285,7 +285,7 @@ function TeamsManagementContent() {
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
 
-  // Refresh when sync completes — group member counts/assignments may change
+  // Refresh when sync completes — team member counts/assignments may change
   useEffect(() => {
     const handleRefresh = () => {
       utils.admin.listTeams.invalidate();
@@ -461,7 +461,7 @@ function TeamsManagementContent() {
     onSuccess: (res) => {
       setIsBulkDeleteOpen(false);
       setSelectedTeamIds([]);
-      setActionMsg(`🗑️ Đã xóa thành công ${res.count} nhóm đã chọn!`);
+      setActionMsg(`🗑️ Đã xóa thành công ${res.count} đội nhóm đã chọn!`);
       utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
@@ -489,7 +489,7 @@ function TeamsManagementContent() {
       setIsBulkAssignLeaderOpen(false);
       setBulkLeaderId("");
       setSelectedTeamIds([]);
-      setActionMsg(`👑 Đã cập nhật Trưởng nhóm cho ${res.count} nhóm!`);
+      setActionMsg(`👑 Đã cập nhật Trưởng nhóm cho ${res.count} đội nhóm!`);
       utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
@@ -511,12 +511,12 @@ function TeamsManagementContent() {
       if (context?.snapshot) {
         rollbackUserTeamQueries(queryClient, context.snapshot);
       }
-      toast.error(err.message || "Lỗi đổi màu nhóm");
+      toast.error(err.message || "Lỗi đổi màu đội nhóm");
     },
     onSuccess: (res) => {
       setIsBulkColorOpen(false);
       setSelectedTeamIds([]);
-      setActionMsg(`🎨 Đã đổi màu nhãn cho ${res.count} nhóm!`);
+      setActionMsg(`🎨 Đã đổi màu nhãn cho ${res.count} đội nhóm!`);
       utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
       setTimeout(() => setActionMsg(null), 4000);
@@ -527,7 +527,7 @@ function TeamsManagementContent() {
     },
   });
 
-  const handleCreateGroup = (e: React.FormEvent) => {
+  const handleCreateTeam = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
     createTeamMutation.mutate({
@@ -539,13 +539,13 @@ function TeamsManagementContent() {
     });
   };
 
-  const handleOpenEdit = (group: any) => {
-    setEditingTeam(group);
-    setEditName(group.name);
-    setEditDesc(group.description || "");
-    setEditColor(group.color || "pink");
-    setEditLeaderId(group.leader?.id || "");
-    setEditMemberIds((group.members || []).map((m: any) => m.id));
+  const handleOpenEdit = (team: any) => {
+    setEditingTeam(team);
+    setEditName(team.name);
+    setEditDesc(team.description || "");
+    setEditColor(team.color || "pink");
+    setEditLeaderId(team.leader?.id || "");
+    setEditMemberIds((team.members || []).map((m: any) => m.id));
     setEditMemberSearch("");
     setIsEditOpen(true);
   };
@@ -574,15 +574,15 @@ function TeamsManagementContent() {
   const filteredAndSortedTeams = useMemo(() => {
     const s = search.toLowerCase().trim();
 
-    const filtered = teams.filter((g: any) => {
+    const filtered = teams.filter((t: any) => {
       return smartSearchMatch(
         search,
-        g.name,
-        g.description,
-        g.leader?.name,
-        g.leader?.fullName,
-        g.leader?.username,
-        ...(g.members || []).flatMap((m: any) => [m.name, m.fullName, m.username, m.email])
+        t.name,
+        t.description,
+        t.leader?.name,
+        t.leader?.fullName,
+        t.leader?.username,
+        ...(t.members || []).flatMap((m: any) => [m.name, m.fullName, m.username, m.email])
       );
     });
 
@@ -629,7 +629,7 @@ function TeamsManagementContent() {
 
   // Bulk selection helpers
   const allFilteredIds = useMemo(
-    () => filteredAndSortedTeams.map((g: any) => g.id),
+    () => filteredAndSortedTeams.map((t: any) => t.id),
     [filteredAndSortedTeams]
   );
   const isAllSelected =
@@ -646,7 +646,7 @@ function TeamsManagementContent() {
     }
   };
 
-  const toggleSelectGroup = (id: string) => {
+  const toggleSelectTeam = (id: string) => {
     setSelectedTeamIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     );
@@ -655,12 +655,12 @@ function TeamsManagementContent() {
   // Overall Stats
   const totalTeamsCount = teams.length;
   const totalAssignedMembers = teams.reduce(
-    (sum: number, g: any) => sum + (g.membersCount || 0),
+    (sum: number, t: any) => sum + (t.membersCount || 0),
     0
   );
   const unassignedStaffCount = allUsers.filter((u: any) => !u.teamName).length;
   const totalAccountsCovered = teams.reduce(
-    (sum: number, g: any) => sum + (g.totalAccounts || 0),
+    (sum: number, t: any) => sum + (t.totalAccounts || 0),
     0
   );
 
@@ -715,7 +715,7 @@ function TeamsManagementContent() {
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
               {isAdmin
-                ? "Quản trị cơ cấu nhóm, chỉ định Trưởng nhóm (Leader) và theo dõi thành viên & dàn tài khoản TikTok phụ trách."
+                ? "Quản trị cơ cấu đội nhóm, chỉ định Trưởng nhóm (Leader) và theo dõi thành viên & dàn tài khoản TikTok phụ trách."
                 : "Quản lý thành viên, theo dõi dàn tài khoản và hiệu suất các đội nhóm bạn đang phụ trách."}
             </p>
           </div>
@@ -750,7 +750,7 @@ function TeamsManagementContent() {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs font-semibold">
-                  Khởi tạo một nhóm làm việc mới
+                  Khởi tạo một đội nhóm làm việc mới
                 </TooltipContent>
               </Tooltip>
             )}
@@ -766,7 +766,7 @@ function TeamsManagementContent() {
         {/* KPI Stats Bar */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Tổng Số Nhóm</div>
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Tổng Số Đội Nhóm</div>
             {loading ? (
               <div className="h-8 w-14 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse mt-1" />
             ) : (
@@ -775,7 +775,7 @@ function TeamsManagementContent() {
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-              <UserCheck className="w-3.5 h-3.5" /> Thành Viên Đã Vào Nhóm
+              <UserCheck className="w-3.5 h-3.5" /> Thành Viên Đã Vào Team
             </div>
             {loading ? (
               <div className="h-8 w-14 bg-emerald-100 dark:bg-emerald-950/60 rounded-lg animate-pulse mt-1" />
@@ -785,7 +785,7 @@ function TeamsManagementContent() {
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1">
-              <Users className="w-3.5 h-3.5" /> Chưa Phân Nhóm
+              <Users className="w-3.5 h-3.5" /> Chưa Phân Đội Nhóm
             </div>
             {loading || loadingUsers ? (
               <div className="h-8 w-14 bg-amber-100 dark:bg-amber-950/60 rounded-lg animate-pulse mt-1" />
@@ -795,7 +795,7 @@ function TeamsManagementContent() {
           </div>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
             <div className="text-xs font-medium text-pink-600 dark:text-pink-400 flex items-center gap-1">
-              <Layers className="w-3.5 h-3.5" /> Tổng Account Thuộc Nhóm
+              <Layers className="w-3.5 h-3.5" /> Tổng Account Thuộc Team
             </div>
             {loading ? (
               <div className="h-8 w-14 bg-pink-100 dark:bg-pink-950/60 rounded-lg animate-pulse mt-1" />
@@ -812,7 +812,7 @@ function TeamsManagementContent() {
               <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Tìm theo tên nhóm, mô tả, trưởng nhóm, thành viên..."
+                placeholder="Tìm theo tên đội nhóm, mô tả, trưởng nhóm, thành viên..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-8 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-pink-500 transition-colors"
@@ -969,7 +969,7 @@ function TeamsManagementContent() {
                     </div>
                     <div className="space-y-1 pt-1 max-h-64 overflow-y-auto pr-1">
                       {[
-                        { key: "name", label: "Tên Nhóm", locked: true },
+                        { key: "name", label: "Tên Đội Nhóm", locked: true },
                         { key: "createdBy", label: "Người Tạo" },
                         { key: "createdAt", label: "Ngày Tạo" },
                         { key: "leader", label: "Trưởng Nhóm" },
@@ -1075,10 +1075,10 @@ function TeamsManagementContent() {
             <Layers className="w-7 h-7" />
           </div>
           <h3 className="text-base font-bold text-slate-900 dark:text-white">
-            Không tìm thấy nhóm nào
+            Không tìm thấy đội nhóm nào
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
-            {search ? "Không có nhóm nào khớp với từ khóa tìm kiếm của bạn." : "Chưa có đội nào được tạo trong hệ thống."}
+            {search ? "Không có đội nhóm nào khớp với từ khóa tìm kiếm của bạn." : "Chưa có đội nhóm nào được tạo trong hệ thống."}
           </p>
           {search ? (
             <button
@@ -1099,30 +1099,30 @@ function TeamsManagementContent() {
       ) : viewMode === "grid" ? (
         /* Teams Grid View */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5 pb-4">
-          {paginatedTeams.map((group: any) => {
-            const isSelected = selectedTeamIds.includes(group.id);
-            const members = group.members || [];
+          {paginatedTeams.map((team: any) => {
+            const isSelected = selectedTeamIds.includes(team.id);
+            const members = team.members || [];
             const displayMembers = members.slice(0, 4);
             const remainingMembers = members.slice(4);
             const hasMore = remainingMembers.length > 0;
-            const canManageGroup = isAdmin || group.leader?.id === (session?.user as any)?.id;
+            const canManageTeam = isAdmin || team.leader?.id === (session?.user as any)?.id;
 
             const accentGradient =
-              group.color === "cyan"
+              team.color === "cyan"
                 ? "from-cyan-500 to-blue-500"
-                : group.color === "emerald"
+                : team.color === "emerald"
                   ? "from-emerald-500 to-teal-500"
-                  : group.color === "violet"
+                  : team.color === "violet"
                     ? "from-violet-500 to-purple-500"
-                    : group.color === "amber"
+                    : team.color === "amber"
                       ? "from-amber-500 to-orange-500"
-                      : group.color === "indigo"
+                      : team.color === "indigo"
                         ? "from-indigo-500 to-violet-500"
                         : "from-pink-500 to-rose-500";
 
             return (
               <div
-                key={group.id}
+                key={team.id}
                 className={`group relative flex flex-col bg-white dark:bg-slate-900/90 rounded-2xl border transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5 overflow-hidden ${isSelected
                   ? "border-pink-500 ring-2 ring-pink-500/20 bg-pink-50/10 dark:bg-pink-950/10 shadow-md"
                   : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs"
@@ -1137,32 +1137,32 @@ function TeamsManagementContent() {
                     {isAdmin && (
                       <Checkbox
                         checked={isSelected}
-                        onCheckedChange={() => toggleSelectGroup(group.id)}
-                        aria-label={`Chọn nhóm ${group.name}`}
+                        onCheckedChange={() => toggleSelectTeam(team.id)}
+                        aria-label={`Chọn đội nhóm ${team.name}`}
                       />
                     )}
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center border shrink-0 ${getColorClass(group.color)}`}>
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center border shrink-0 ${getColorClass(team.color)}`}>
                       <Layers className="w-4.5 h-4.5" />
                     </div>
                     <div className="min-w-0">
                       <h3 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400 transition-colors truncate">
-                        <Link href={`/teams/${group.id}`} className="hover:underline">
-                          {group.name}
+                        <Link href={`/teams/${team.id}`} className="hover:underline">
+                          {team.name}
                         </Link>
                       </h3>
                       <span className="text-xs text-slate-400 block">
-                        {group.createdAt ? new Date(group.createdAt).toLocaleDateString("vi-VN") : "Hôm nay"}
+                        {team.createdAt ? new Date(team.createdAt).toLocaleDateString("vi-VN") : "Hôm nay"}
                       </span>
                     </div>
                   </div>
 
-                  {canManageGroup && (
+                  {canManageTeam && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
                           className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-                          aria-label="Thao tác nhóm"
+                          aria-label="Thao tác đội nhóm"
                         >
                           <MoreHorizontal className="w-4 h-4" />
                         </button>
@@ -1170,7 +1170,7 @@ function TeamsManagementContent() {
                       <DropdownMenuContent align="end" className="w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
                         <DropdownMenuItem asChild>
                           <Link
-                            href={`/teams/${group.id}`}
+                            href={`/teams/${team.id}`}
                             className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                           >
                             <Users className="w-3.5 h-3.5 text-pink-500" />
@@ -1178,7 +1178,7 @@ function TeamsManagementContent() {
                           </Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={() => handleOpenEdit(group)}
+                          onClick={() => handleOpenEdit(team)}
                           className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                         >
                           <Pencil className="w-3.5 h-3.5 text-slate-400" />
@@ -1189,7 +1189,7 @@ function TeamsManagementContent() {
                             <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                             <DropdownMenuItem
                               onClick={() => {
-                                setTeamToDelete(group);
+                                setTeamToDelete(team);
                                 setIsDeleteOpen(true);
                               }}
                               className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
@@ -1209,34 +1209,34 @@ function TeamsManagementContent() {
                   <div className="space-y-3">
                     {/* Description */}
                     <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 min-h-[32px]">
-                      {group.description || <span className="italic text-slate-400/80">Không có mô tả</span>}
+                      {team.description || <span className="italic text-slate-400/80">Không có mô tả</span>}
                     </p>
 
                     {/* Leader Box — inline Select dropdown for Admin, clean status badge for Leader */}
                     <div>
                       {isAdmin ? (
                         <Select
-                          value={group.leader?.id || "UNASSIGNED"}
+                          value={team.leader?.id || "UNASSIGNED"}
                           onValueChange={(val) => {
                             updateTeamMutation.mutate({
-                              id: group.id,
-                              name: group.name,
-                              description: group.description,
-                              color: group.color || "pink",
+                              id: team.id,
+                              name: team.name,
+                              description: team.description,
+                              color: team.color || "pink",
                               leaderId: val === "UNASSIGNED" ? null : val,
                             });
                           }}
                         >
                           <SelectTrigger className="w-full h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
                             <SelectValue>
-                              {group.leader ? (
+                              {team.leader ? (
                                 <span className="flex items-center gap-2">
                                   <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0 uppercase">
-                                    {group.leader.name.slice(0, 2)}
+                                    {team.leader.name.slice(0, 2)}
                                   </div>
                                   <span className="flex items-center gap-1 font-semibold text-amber-900 dark:text-amber-200">
                                     <Crown className="w-3 h-3 text-amber-500 shrink-0" />
-                                    {group.leader.name}
+                                    {team.leader.name}
                                   </span>
                                 </span>
                               ) : (
@@ -1261,14 +1261,14 @@ function TeamsManagementContent() {
                         </Select>
                       ) : (
                         <div className="w-full h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between text-xs">
-                          {group.leader ? (
+                          {team.leader ? (
                             <span className="flex items-center gap-2 min-w-0">
                               <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0 uppercase">
-                                {group.leader.name.slice(0, 2)}
+                                {team.leader.name.slice(0, 2)}
                               </div>
                               <span className="flex items-center gap-1 font-semibold text-amber-900 dark:text-amber-200 truncate">
                                 <Crown className="w-3 h-3 text-amber-500 shrink-0" />
-                                {group.leader.name}
+                                {team.leader.name}
                               </span>
                             </span>
                           ) : (
@@ -1290,7 +1290,7 @@ function TeamsManagementContent() {
 
                       {members.length === 0 ? (
                         <div className="flex items-center gap-2 py-1">
-                          {canManageGroup && (
+                          {canManageTeam && (
                             <Popover>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1313,7 +1313,7 @@ function TeamsManagementContent() {
                                   Thêm thành viên vào đội nhóm
                                 </div>
                                 {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN").length === 0 ? (
-                                  <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân nhóm</div>
+                                  <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân đội nhóm</div>
                                 ) : (
                                   <div className="max-h-48 overflow-y-auto space-y-0.5">
                                     {allUsers
@@ -1325,7 +1325,7 @@ function TeamsManagementContent() {
                                           disabled={memberPendingId === u.id}
                                           onClick={() => {
                                             setMemberPendingId(u.id);
-                                            addMemberMutation.mutate({ userId: u.id, teamName: group.name });
+                                            addMemberMutation.mutate({ userId: u.id, teamName: team.name });
                                           }}
                                           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
                                         >
@@ -1343,7 +1343,7 @@ function TeamsManagementContent() {
                               </PopoverContent>
                             </Popover>
                           )}
-                          <span className="text-xs text-slate-400 italic">Chưa có thành viên trong nhóm</span>
+                          <span className="text-xs text-slate-400 italic">Chưa có thành viên trong đội nhóm</span>
                         </div>
                       ) : (
                         <div className="flex items-center gap-1.5">
@@ -1375,7 +1375,7 @@ function TeamsManagementContent() {
                                   </TooltipContent>
                                 </Tooltip>
                                 {/* Red X remove button on avatar hover — with tooltip at bottom left */}
-                                {canManageGroup && (
+                                {canManageTeam && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <button
@@ -1392,7 +1392,7 @@ function TeamsManagementContent() {
                                       </button>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom" className="text-xs font-semibold">
-                                      Xóa {member.name} khỏi nhóm
+                                      Xóa {member.name} khỏi đội nhóm
                                     </TooltipContent>
                                   </Tooltip>
                                 )}
@@ -1400,7 +1400,7 @@ function TeamsManagementContent() {
                             ))}
 
                             {/* + Add member avatar-circle button — placed inside -space-x-2 for seamless overlap */}
-                            {canManageGroup && (
+                            {canManageTeam && (
                               <Popover>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1423,7 +1423,7 @@ function TeamsManagementContent() {
                                     Thêm thành viên vào đội nhóm
                                   </div>
                                   {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN").length === 0 ? (
-                                    <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân nhóm</div>
+                                    <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân đội nhóm</div>
                                   ) : (
                                     <div className="max-h-48 overflow-y-auto space-y-0.5">
                                       {allUsers
@@ -1435,7 +1435,7 @@ function TeamsManagementContent() {
                                             disabled={memberPendingId === u.id}
                                             onClick={() => {
                                               setMemberPendingId(u.id);
-                                              addMemberMutation.mutate({ userId: u.id, teamName: group.name });
+                                              addMemberMutation.mutate({ userId: u.id, teamName: team.name });
                                             }}
                                             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
                                           >
@@ -1504,16 +1504,16 @@ function TeamsManagementContent() {
                       <div className="text-xs text-slate-400">Accounts</div>
                       <div className="mt-0.5">
                         <UserAccountsHoverCard
-                          accountsCount={group.totalAccounts ?? 0}
-                          accounts={group.accounts || []}
-                          userName={group.name}
+                          accountsCount={team.totalAccounts ?? 0}
+                          accounts={team.accounts || []}
+                          userName={team.name}
                         />
                       </div>
                     </div>
                     <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
                       <div className="text-xs text-slate-400">Nhân sự</div>
                       <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
-                        {group.membersCount || 0} <span className="text-xs font-normal text-slate-400">người</span>
+                        {team.membersCount || 0} <span className="text-xs font-normal text-slate-400">người</span>
                       </div>
                     </div>
                   </div>
@@ -1522,16 +1522,16 @@ function TeamsManagementContent() {
                 {/* Card Footer */}
                 <div className="mt-auto px-4 py-2.5 bg-slate-50/80 dark:bg-slate-950/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                   <Link
-                    href={`/teams/${group.id}`}
+                    href={`/teams/${team.id}`}
                     className="inline-flex items-center gap-1 text-xs font-semibold text-pink-600 dark:text-pink-400 px-2 py-1 rounded-lg hover:bg-pink-50 dark:hover:bg-pink-950/40 hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
                   >
-                    <span>Xem chi tiết nhóm</span>
+                    <span>Xem chi tiết đội nhóm</span>
                     <ArrowRight className="w-3 h-3" />
                   </Link>
-                  {(isAdmin || group.leader?.id === session?.user?.id) && (
+                  {(isAdmin || team.leader?.id === session?.user?.id) && (
                     <button
                       type="button"
-                      onClick={() => handleOpenEdit(group)}
+                      onClick={() => handleOpenEdit(team)}
                       className="group/edit flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-500 hover:text-pink-600 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-all cursor-pointer"
                     >
                       <Pencil className="w-3 h-3 opacity-60 group-hover/edit:opacity-100 transition-opacity" />
@@ -1562,7 +1562,7 @@ function TeamsManagementContent() {
                         type="button"
                         onClick={toggleSelectAll}
                         className="text-slate-400 hover:text-pink-500 transition-colors cursor-pointer"
-                        aria-label="Chọn tất cả nhóm"
+                        aria-label="Chọn tất cả đội nhóm"
                       >
                         {isAllSelected ? (
                           <CheckSquare className="w-4 h-4 text-pink-500" />
@@ -1667,24 +1667,24 @@ function TeamsManagementContent() {
                       className="py-12 text-center text-slate-400 dark:text-slate-500"
                     >
                       <Layers className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                      <div>Không tìm thấy nhóm nào phù hợp với từ khóa tìm kiếm.</div>
+                      <div>Không tìm thấy đội nhóm nào phù hợp với từ khóa tìm kiếm.</div>
                     </td>
                   </tr>
                 ) : (
-                  paginatedTeams.map((group: any, idx: number) => {
-                    const isSelected = selectedTeamIds.includes(group.id);
+                  paginatedTeams.map((team: any, idx: number) => {
+                    const isSelected = selectedTeamIds.includes(team.id);
                     const rowBgClass = isSelected
                       ? "bg-pink-50 dark:bg-pink-950/90"
                       : "bg-white dark:bg-slate-900";
-                    const members = group.members || [];
+                    const members = team.members || [];
                     const displayMembers = members.slice(0, 3);
                     const remainingMembers = members.slice(3);
                     const hasMore = remainingMembers.length > 0;
-                    const canManageGroup = isAdmin || group.leader?.id === (session?.user as any)?.id;
+                    const canManageTeam = isAdmin || team.leader?.id === (session?.user as any)?.id;
 
                     return (
                       <tr
-                        key={group.id}
+                        key={team.id}
                         className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors group align-middle ${isSelected ? "bg-pink-50 dark:bg-pink-950/90" : ""
                           }`}
                       >
@@ -1692,8 +1692,8 @@ function TeamsManagementContent() {
                           <td className={`py-4 px-3 w-10 min-w-[40px] max-w-[40px] text-center align-middle sticky left-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors`}>
                             <Checkbox
                               checked={isSelected}
-                              onCheckedChange={() => toggleSelectGroup(group.id)}
-                              aria-label={`Chọn nhóm ${group.name}`}
+                              onCheckedChange={() => toggleSelectTeam(team.id)}
+                              aria-label={`Chọn đội nhóm ${team.name}`}
                             />
                           </td>
                         )}
@@ -1708,16 +1708,16 @@ function TeamsManagementContent() {
                               } z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] overflow-hidden`}
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
-                              <span className={`w-3 h-3 rounded-full shrink-0 border ${getColorClass(group.color || "pink")}`} />
+                              <span className={`w-3 h-3 rounded-full shrink-0 border ${getColorClass(team.color || "pink")}`} />
                               <div className="min-w-0">
-                                <div className="font-bold text-slate-900 dark:text-white text-xs truncate" title={group.name}>
-                                  <Link href={`/teams/${group.id}`} className="hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors">
-                                    {group.name}
+                                <div className="font-bold text-slate-900 dark:text-white text-xs truncate" title={team.name}>
+                                  <Link href={`/teams/${team.id}`} className="hover:text-pink-600 dark:hover:text-pink-400 hover:underline transition-colors">
+                                    {team.name}
                                   </Link>
                                 </div>
-                                {group.description && (
-                                  <div className="text-xs text-slate-400 truncate" title={group.description}>
-                                    {group.description}
+                                {team.description && (
+                                  <div className="text-xs text-slate-400 truncate" title={team.description}>
+                                    {team.description}
                                   </div>
                                 )}
                               </div>
@@ -1727,8 +1727,8 @@ function TeamsManagementContent() {
 
                         {visibleColumns.createdBy && (
                           <td style={getColumnStyle("createdBy")} className="py-4 px-4 align-middle text-slate-600 dark:text-slate-400 overflow-hidden">
-                            <span className="truncate block" title={group.creator?.name || group.creator?.username || undefined}>
-                              {group.creator?.name || group.creator?.username || (
+                            <span className="truncate block" title={team.creator?.name || team.creator?.username || undefined}>
+                              {team.creator?.name || team.creator?.username || (
                                 <span className="text-slate-400 italic">Hệ thống</span>
                               )}
                             </span>
@@ -1737,7 +1737,7 @@ function TeamsManagementContent() {
 
                         {visibleColumns.createdAt && (
                           <td style={getColumnStyle("createdAt")} className="py-4 px-4 align-middle text-slate-500 overflow-hidden text-xs">
-                            <span className="truncate block">{group.createdAt ? new Date(group.createdAt).toLocaleDateString("vi-VN") : "--"}</span>
+                            <span className="truncate block">{team.createdAt ? new Date(team.createdAt).toLocaleDateString("vi-VN") : "--"}</span>
                           </td>
                         )}
 
@@ -1745,23 +1745,23 @@ function TeamsManagementContent() {
                           <td style={getColumnStyle("leader")} className="py-4 px-4 align-middle overflow-hidden">
                             {isAdmin ? (
                               <Select
-                                value={group.leader?.id || "UNASSIGNED"}
+                                value={team.leader?.id || "UNASSIGNED"}
                                 onValueChange={(val) => {
                                   updateTeamMutation.mutate({
-                                    id: group.id,
-                                    name: group.name,
-                                    description: group.description,
-                                    color: group.color || "pink",
+                                    id: team.id,
+                                    name: team.name,
+                                    description: team.description,
+                                    color: team.color || "pink",
                                     leaderId: val === "UNASSIGNED" ? null : val,
                                   });
                                 }}
                               >
                                 <SelectTrigger className="h-8 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer w-full min-w-0">
                                   <SelectValue>
-                                    {group.leader ? (
+                                    {team.leader ? (
                                       <span className="flex items-center gap-1.5 min-w-0">
                                         <Crown className="w-3 h-3 text-amber-500 shrink-0" />
-                                        <span className="truncate">{group.leader.name}</span>
+                                        <span className="truncate">{team.leader.name}</span>
                                       </span>
                                     ) : (
                                       <span className="text-slate-400 italic">Chưa có Leader</span>
@@ -1782,10 +1782,10 @@ function TeamsManagementContent() {
                               </Select>
                             ) : (
                               <div className="flex items-center gap-1.5 text-xs">
-                                {group.leader ? (
+                                {team.leader ? (
                                   <>
                                     <Crown className="w-3 h-3 text-amber-500 shrink-0" />
-                                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{group.leader.name}</span>
+                                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{team.leader.name}</span>
                                   </>
                                 ) : (
                                   <span className="text-slate-400 italic">Chưa có Leader</span>
@@ -1799,7 +1799,7 @@ function TeamsManagementContent() {
                           <td style={getColumnStyle("members")} className="py-4 px-4 align-middle overflow-hidden">
                             {members.length === 0 ? (
                               <div className="flex items-center gap-2">
-                                {canManageGroup && (
+                                {canManageTeam && (
                                   <Popover>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -1808,7 +1808,7 @@ function TeamsManagementContent() {
                                             type="button"
                                             className="w-6 h-6 rounded-full border-2 border-dashed border-pink-400 dark:border-pink-500 bg-pink-50 dark:bg-pink-950/40 text-pink-500 dark:text-pink-400 flex items-center justify-center hover:scale-110 transition-all cursor-pointer shadow-xs shrink-0"
                                           >
-                                            <Plus className="w-3 h-3" />
+                                            <Plus className="w-3.5 h-3.5" />
                                           </button>
                                         </PopoverTrigger>
                                       </TooltipTrigger>
@@ -1819,10 +1819,10 @@ function TeamsManagementContent() {
                                     <PopoverContent align="start" className="w-64 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl">
                                       <div className="text-xs font-bold text-slate-900 dark:text-white pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
                                         <UserPlus className="w-3.5 h-3.5 text-pink-500" />
-                                        Thêm thành viên vào {group.name}
+                                        Thêm thành viên vào {team.name}
                                       </div>
                                       {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN").length === 0 ? (
-                                        <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân nhóm</div>
+                                        <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân đội nhóm</div>
                                       ) : (
                                         <div className="max-h-48 overflow-y-auto space-y-0.5">
                                           {allUsers
@@ -1834,7 +1834,7 @@ function TeamsManagementContent() {
                                                 disabled={memberPendingId === u.id}
                                                 onClick={() => {
                                                   setMemberPendingId(u.id);
-                                                  addMemberMutation.mutate({ userId: u.id, teamName: group.name });
+                                                  addMemberMutation.mutate({ userId: u.id, teamName: team.name });
                                                 }}
                                                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
                                               >
@@ -1883,7 +1883,7 @@ function TeamsManagementContent() {
                                           </div>
                                         </TooltipContent>
                                       </Tooltip>
-                                      {canManageGroup && (
+                                      {canManageTeam && (
                                         <Tooltip>
                                           <TooltipTrigger asChild>
                                             <button
@@ -1900,7 +1900,7 @@ function TeamsManagementContent() {
                                             </button>
                                           </TooltipTrigger>
                                           <TooltipContent side="bottom" className="text-xs font-semibold">
-                                            Xóa {member.name} khỏi nhóm
+                                            Xóa {member.name} khỏi đội nhóm
                                           </TooltipContent>
                                         </Tooltip>
                                       )}
@@ -1908,7 +1908,7 @@ function TeamsManagementContent() {
                                   ))}
 
                                   {/* Table Add button inside avatar stack */}
-                                  {canManageGroup && (
+                                  {canManageTeam && (
                                     <Popover>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
@@ -1917,7 +1917,7 @@ function TeamsManagementContent() {
                                               type="button"
                                               className="relative z-10 w-6 h-6 rounded-full ring-2 ring-white dark:ring-slate-900 border-2 border-dashed border-pink-400 dark:border-pink-500 bg-pink-50 dark:bg-pink-950/40 text-pink-500 dark:text-pink-400 flex items-center justify-center hover:z-20 hover:scale-110 transition-all cursor-pointer shadow-xs shrink-0"
                                             >
-                                              <Plus className="w-3 h-3" />
+                                              <Plus className="w-3.5 h-3.5" />
                                             </button>
                                           </PopoverTrigger>
                                         </TooltipTrigger>
@@ -1928,10 +1928,10 @@ function TeamsManagementContent() {
                                       <PopoverContent align="start" className="w-64 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl">
                                         <div className="text-xs font-bold text-slate-900 dark:text-white pb-1.5 mb-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
                                           <UserPlus className="w-3.5 h-3.5 text-pink-500" />
-                                          Thêm thành viên vào {group.name}
+                                          Thêm thành viên vào {team.name}
                                         </div>
                                         {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN").length === 0 ? (
-                                          <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân nhóm</div>
+                                          <div className="text-xs text-slate-400 italic py-2 text-center">Không có nhân sự chưa phân đội nhóm</div>
                                         ) : (
                                           <div className="max-h-48 overflow-y-auto space-y-0.5">
                                             {allUsers
@@ -1943,7 +1943,7 @@ function TeamsManagementContent() {
                                                   disabled={memberPendingId === u.id}
                                                   onClick={() => {
                                                     setMemberPendingId(u.id);
-                                                    addMemberMutation.mutate({ userId: u.id, teamName: group.name });
+                                                    addMemberMutation.mutate({ userId: u.id, teamName: team.name });
                                                   }}
                                                   className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-950/40 transition-colors cursor-pointer text-left disabled:opacity-50"
                                                 >
@@ -1995,9 +1995,9 @@ function TeamsManagementContent() {
                         {visibleColumns.totalAccounts && (
                           <td style={getColumnStyle("totalAccounts")} className="py-4 px-4 align-middle font-bold text-slate-800 dark:text-slate-200 overflow-hidden">
                             <UserAccountsHoverCard
-                              accountsCount={group.totalAccounts ?? 0}
-                              accounts={group.accounts || []}
-                              userName={group.name}
+                              accountsCount={team.totalAccounts ?? 0}
+                              accounts={team.accounts || []}
+                              userName={team.name}
                             />
                           </td>
                         )}
@@ -2007,7 +2007,7 @@ function TeamsManagementContent() {
                             style={getColumnStyle("actions")}
                             className={`py-4 px-6 text-center align-middle whitespace-nowrap sticky right-0 z-10 ${rowBgClass} group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.03)]`}
                           >
-                            {canManageGroup ? (
+                            {canManageTeam ? (
                               <DropdownMenu>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -2021,12 +2021,12 @@ function TeamsManagementContent() {
                                       </button>
                                     </DropdownMenuTrigger>
                                   </TooltipTrigger>
-                                  <TooltipContent side="left">Tùy chọn nhóm</TooltipContent>
+                                  <TooltipContent side="left">Tùy chọn đội nhóm</TooltipContent>
                                 </Tooltip>
                                 <DropdownMenuContent align="end" className="w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-1.5 shadow-xl">
                                   <DropdownMenuItem asChild>
                                     <Link
-                                      href={`/teams/${group.id}`}
+                                      href={`/teams/${team.id}`}
                                       className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                     >
                                       <Users className="w-3.5 h-3.5 text-pink-500" />
@@ -2034,7 +2034,7 @@ function TeamsManagementContent() {
                                     </Link>
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
-                                    onClick={() => handleOpenEdit(group)}
+                                    onClick={() => handleOpenEdit(team)}
                                     className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                                   >
                                     <Pencil className="w-3.5 h-3.5 text-slate-400" />
@@ -2045,7 +2045,7 @@ function TeamsManagementContent() {
                                       <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                                       <DropdownMenuItem
                                         onClick={() => {
-                                          setTeamToDelete(group);
+                                          setTeamToDelete(team);
                                           setIsDeleteOpen(true);
                                         }}
                                         className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl cursor-pointer"
@@ -2097,7 +2097,7 @@ function TeamsManagementContent() {
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-slate-900/95 border border-slate-700/80 text-white px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-4 animate-in slide-in-from-bottom-5">
             <div className="flex items-center gap-2 text-xs font-bold border-r border-slate-700 pr-3">
               <Layers className="w-4 h-4 text-pink-400" />
-              <span>Đã chọn <strong className="text-pink-400 font-extrabold">{selectedTeamIds.length}</strong> nhóm</span>
+              <span>Đã chọn <strong className="text-pink-400 font-extrabold">{selectedTeamIds.length}</strong> đội nhóm</span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -2141,7 +2141,7 @@ function TeamsManagementContent() {
         )
       }
 
-      {/* Modal: Create Group */}
+      {/* Modal: Create Team */}
       {
         isCreateOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
@@ -2149,7 +2149,7 @@ function TeamsManagementContent() {
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Plus className="w-4 h-4 text-pink-500" />
-                  Tạo Nhóm / Team Mới
+                  Tạo Đội Nhóm Mới
                 </h3>
                 <button
                   onClick={() => setIsCreateOpen(false)}
@@ -2159,10 +2159,10 @@ function TeamsManagementContent() {
                 </button>
               </div>
 
-              <form onSubmit={handleCreateGroup} className="space-y-4">
+              <form onSubmit={handleCreateTeam} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                    Tên Nhóm *
+                    Tên Đội Nhóm *
                   </label>
                   <input
                     type="text"
@@ -2176,11 +2176,11 @@ function TeamsManagementContent() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                    Mô Tả Nhóm (Tùy chọn)
+                    Mô Tả Đội Nhóm (Tùy chọn)
                   </label>
                   <textarea
                     rows={3}
-                    placeholder="Mô tả mục tiêu, khu vực hoạt động của nhóm..."
+                    placeholder="Mô tả mục tiêu, khu vực hoạt động của đội nhóm..."
                     value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none min-h-[72px]"
@@ -2189,7 +2189,7 @@ function TeamsManagementContent() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                    Màu Sắc Nhãn Nhóm
+                    Màu Sắc Nhãn Đội Nhóm
                   </label>
                   <div className="flex items-center gap-2">
                     {COLOR_OPTIONS.map((c) => (
@@ -2249,7 +2249,7 @@ function TeamsManagementContent() {
                 {/* Member Management in Create Modal */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                    Thành Viên Nhóm ({newMemberIds.length})
+                    Thành Viên Đội Nhóm ({newMemberIds.length})
                   </label>
 
                   {/* Member chips */}
@@ -2291,7 +2291,7 @@ function TeamsManagementContent() {
                         className="w-full py-2 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-pink-400 dark:hover:border-pink-500 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 flex items-center justify-center gap-1.5 transition-colors cursor-pointer bg-slate-50/50 dark:bg-slate-950/50"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>Thêm Thành Viên Vào Nhóm</span>
+                        <span>Thêm Thành Viên Vào Đội Nhóm</span>
                       </button>
                     </PopoverTrigger>
                     <PopoverContent align="start" className="w-72 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
@@ -2340,7 +2340,7 @@ function TeamsManagementContent() {
                             </button>
                           ))}
                         {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN" && !newMemberIds.includes(u.id)).length === 0 && (
-                          <div className="text-xs text-slate-400 italic py-2 text-center">Không còn nhân sự chưa phân nhóm</div>
+                          <div className="text-xs text-slate-400 italic py-2 text-center">Không còn nhân sự chưa phân đội nhóm</div>
                         )}
                       </div>
                     </PopoverContent>
@@ -2360,7 +2360,7 @@ function TeamsManagementContent() {
                     disabled={createTeamMutation.isPending}
                     className="px-5 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-md shadow-pink-600/30 cursor-pointer disabled:opacity-60"
                   >
-                    {createTeamMutation.isPending ? "Đang tạo..." : "Tạo Nhóm"}
+                    {createTeamMutation.isPending ? "Đang tạo..." : "Tạo Đội Nhóm"}
                   </button>
                 </div>
               </form>
@@ -2369,7 +2369,7 @@ function TeamsManagementContent() {
         )
       }
 
-      {/* Modal: Edit Group */}
+      {/* Modal: Edit Team */}
       {
         isEditOpen && editingTeam && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
@@ -2377,7 +2377,7 @@ function TeamsManagementContent() {
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Pencil className="w-4 h-4 text-pink-500" />
-                  Chỉnh Sửa Nhóm {editingTeam.name}
+                  Chỉnh Sửa Đội Nhóm {editingTeam.name}
                 </h3>
                 <button
                   onClick={() => setIsEditOpen(false)}
@@ -2390,7 +2390,7 @@ function TeamsManagementContent() {
               <form onSubmit={handleSaveEdit} className="space-y-5">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2.5">
-                    Tên Nhóm *
+                    Tên Đội Nhóm *
                   </label>
                   <input
                     type="text"
@@ -2403,20 +2403,20 @@ function TeamsManagementContent() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2.5">
-                    Mô Tả Nhóm
+                    Mô Tả Đội Nhóm
                   </label>
                   <textarea
                     rows={3}
                     value={editDesc}
                     onChange={(e) => setEditDesc(e.target.value)}
-                    placeholder="Nhập mô tả hoạt động hoặc mục tiêu của nhóm..."
+                    placeholder="Nhập mô tả hoạt động hoặc mục tiêu của đội nhóm..."
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500 resize-none min-h-[72px]"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2.5">
-                    Màu Sắc Nhãn Nhóm
+                    Màu Sắc Nhãn Đội Nhóm
                   </label>
                   <div className="flex items-center gap-2.5">
                     {COLOR_OPTIONS.map((c) => (
@@ -2492,13 +2492,13 @@ function TeamsManagementContent() {
                 {/* Member Management in Edit Modal */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                    Thành Viên Nhóm ({editMemberIds.length})
+                    Thành Viên Đội Nhóm ({editMemberIds.length})
                   </label>
 
                   {/* Member chips */}
                   <div className="min-h-[44px] p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-wrap items-center gap-1.5 mb-2">
                     {editMemberIds.length === 0 ? (
-                      <span className="text-xs text-slate-400 italic px-1">Chưa có thành viên nào trong nhóm</span>
+                      <span className="text-xs text-slate-400 italic px-1">Chưa có thành viên nào trong đội nhóm</span>
                     ) : (
                       editMemberIds.map((userId) => {
                         const u = allUsers.find((x: any) => x.id === userId) || editingTeam.members?.find((x: any) => x.id === userId);
@@ -2534,7 +2534,7 @@ function TeamsManagementContent() {
                         className="w-full py-2 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-pink-400 dark:hover:border-pink-500 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-pink-600 dark:hover:text-pink-400 flex items-center justify-center gap-1.5 transition-colors cursor-pointer bg-slate-50/50 dark:bg-slate-950/50"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>Thêm Thành Viên Vào Nhóm</span>
+                        <span>Thêm Thành Viên Vào Đội Nhóm</span>
                       </button>
                     </PopoverTrigger>
                     <PopoverContent align="start" className="w-72 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl space-y-2">
@@ -2583,7 +2583,7 @@ function TeamsManagementContent() {
                             </button>
                           ))}
                         {allUsers.filter((u: any) => !u.teamId && u.role !== "ADMIN" && !editMemberIds.includes(u.id)).length === 0 && (
-                          <div className="text-xs text-slate-400 italic py-2 text-center">Không còn nhân sự chưa phân nhóm</div>
+                          <div className="text-xs text-slate-400 italic py-2 text-center">Không còn nhân sự chưa phân đội nhóm</div>
                         )}
                       </div>
                     </PopoverContent>
@@ -2612,7 +2612,7 @@ function TeamsManagementContent() {
         )
       }
 
-      {/* Modal: Confirm Delete Single Group */}
+      {/* Modal: Confirm Delete Single Team */}
       {
         isDeleteOpen && teamToDelete && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
@@ -2623,10 +2623,10 @@ function TeamsManagementContent() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    Xác nhận xóa nhóm
+                    Xác nhận xóa đội nhóm
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Bạn có chắc muốn xóa nhóm <strong className="text-slate-800 dark:text-slate-200">{teamToDelete.name}</strong>?
+                    Bạn có chắc muốn xóa đội nhóm <strong className="text-slate-800 dark:text-slate-200">{teamToDelete.name}</strong>?
                   </p>
                 </div>
               </div>
@@ -2635,7 +2635,7 @@ function TeamsManagementContent() {
                 <div><span className="font-semibold">Số thành viên:</span> {teamToDelete.membersCount} nhân sự</div>
                 <div><span className="font-semibold">Tài khoản liên đới:</span> {teamToDelete.totalAccounts} accounts</div>
                 <p className="text-xs text-amber-600 dark:text-amber-400 pt-1">
-                  ⚠️ Các thành viên trong nhóm này sẽ được chuyển về trạng thái Chưa phân nhóm.
+                  ⚠️ Các thành viên trong đội nhóm này sẽ được chuyển về trạng thái Chưa phân đội nhóm.
                 </p>
               </div>
 
@@ -2675,7 +2675,7 @@ function TeamsManagementContent() {
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Crown className="w-4 h-4 text-cyan-500" />
-                  Chỉ Định Leader Cho {selectedTeamIds.length} Nhóm
+                  Chỉ Định Leader Cho {selectedTeamIds.length} Đội Nhóm
                 </h3>
                 <button
                   onClick={() => setIsBulkAssignLeaderOpen(false)}

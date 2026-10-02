@@ -1052,9 +1052,22 @@ export const adminRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const currentUserId = ctx.session.user.id;
-      const userRole = String((ctx.session.user as any)?.role || "").toUpperCase();
-      const isAdmin = userRole === "ADMIN";
-      const isLead = userRole === "LEAD";
+      let userRole = String((ctx.session.user as any)?.role || "").toUpperCase();
+      let isAdmin = userRole === "ADMIN";
+      let isLead = userRole === "LEAD";
+
+      // Fallback: check DB if session role is missing or not admin/lead
+      if (!isAdmin && !isLead) {
+        const dbUser = await ctx.prisma.user.findUnique({
+          where: { id: currentUserId },
+          select: { role: true },
+        });
+        if (dbUser) {
+          userRole = String(dbUser.role).toUpperCase();
+          isAdmin = userRole === "ADMIN";
+          isLead = userRole === "LEAD";
+        }
+      }
 
       if (!isAdmin && !isLead) {
         throw new TRPCError({
@@ -1079,7 +1092,10 @@ export const adminRouter = router({
             });
           }
           team = await ctx.prisma.team.create({
-            data: { name: targetName },
+            data: {
+              name: targetName,
+              createdById: currentUserId,
+            },
           });
         }
 

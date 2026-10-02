@@ -54,7 +54,7 @@ function AnalyticsPageContent() {
   const initialUser = searchParams?.get("user") || null;
   const [operatorId, setOperatorId] = useState<string | null>(initialUser);
 
-  const initialTeam = searchParams?.get("team") || searchParams?.get("group") || null;
+  const initialTeam = searchParams?.get("team") || null;
   const [teamId, setTeamId] = useState<string | null>(initialTeam);
 
   const initialCountry = searchParams?.get("country") || null;

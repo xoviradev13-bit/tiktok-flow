@@ -109,9 +109,6 @@ interface AnalyticsFilterToolbarProps {
   setOperatorId: (id: string | null) => void;
   teamId?: string | null;
   setTeamId: (id: string | null) => void;
-  // Backward compatibility alias (optional)
-  groupId?: string | null;
-  setGroupId?: (id: string | null) => void;
   country?: string | null;
   setCountry: (c: string | null) => void;
   status?: any | null;
@@ -146,8 +143,6 @@ export default function AnalyticsFilterToolbar({
   setOperatorId,
   teamId,
   setTeamId,
-  groupId,
-  setGroupId,
   country,
   setCountry,
   status,
@@ -157,10 +152,9 @@ export default function AnalyticsFilterToolbar({
   onRefresh,
   onExportExcel,
 }: AnalyticsFilterToolbarProps) {
-  const effectiveTeamId = teamId !== undefined ? teamId : (groupId || null);
+  const effectiveTeamId = teamId || null;
   const handleTeamChange = (id: string | null) => {
     if (setTeamId) setTeamId(id);
-    if (setGroupId) setGroupId(id);
     if (id && id !== "ALL" && operatorId && filterOptions?.operators) {
       const op = filterOptions.operators.find((o: any) => o.id === operatorId);
       if (op && (op as any).teamId && (op as any).teamId !== id) {

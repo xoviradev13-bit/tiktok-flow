@@ -104,20 +104,20 @@ const USERS_COLUMN_RESIZE_CONFIG = {
   username: { minWidth: 130, maxWidth: 300, defaultWidth: 160 },
   email: { minWidth: 180, maxWidth: 380, defaultWidth: 220 },
   role: { minWidth: 110, maxWidth: 240, defaultWidth: 130 },
-  groupName: { minWidth: 170, maxWidth: 300, defaultWidth: 190 },
+  teamName: { minWidth: 170, maxWidth: 300, defaultWidth: 190 },
   accountsCount: { minWidth: 130, maxWidth: 260, defaultWidth: 160 },
   isActive: { minWidth: 130, maxWidth: 260, defaultWidth: 150 },
   actions: { minWidth: 100, maxWidth: 220, defaultWidth: 120 },
 } as const;
 
-type SortKey = "fullName" | "username" | "email" | "role" | "groupName" | "accountsCount" | "isActive" | "createdAt";
+type SortKey = "fullName" | "username" | "email" | "role" | "teamName" | "accountsCount" | "isActive" | "createdAt";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "fullName", label: "Họ & tên" },
   { key: "username", label: "Username" },
   { key: "email", label: "Email" },
   { key: "role", label: "Vai trò" },
-  { key: "groupName", label: "Đội nhóm" },
+  { key: "teamName", label: "Đội nhóm" },
   { key: "accountsCount", label: "Số acc phụ trách" },
   { key: "isActive", label: "Trạng thái hoạt động" },
   { key: "createdAt", label: "Ngày tạo" },
@@ -193,8 +193,8 @@ function UsersManagementContent() {
   const initialRole = (searchParams?.get("role") || "ALL") as "ALL" | "ADMIN" | "LEAD" | "STAFF";
   const [roleFilter, setRoleFilter] = useState<"ALL" | "ADMIN" | "LEAD" | "STAFF">(initialRole);
 
-  const initialGroup = searchParams?.get("group") || "ALL";
-  const [groupFilter, setGroupFilter] = useState<string>(initialGroup);
+  const initialTeam = searchParams?.get("team") || "ALL";
+  const [teamFilter, setTeamFilter] = useState<string>(initialTeam);
 
   const initialStatus = (searchParams?.get("status") || "ALL") as "ALL" | "ACTIVE" | "INACTIVE";
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">(initialStatus);
@@ -235,7 +235,7 @@ function UsersManagementContent() {
         ps: pageSize,
         q: search,
         role: roleFilter,
-        group: groupFilter,
+        team: teamFilter,
         status: statusFilter,
         hasAcc: hasAccountsFilter,
         reqType: activeTab === "REQUESTS" ? requestTypeFilter : undefined,
@@ -248,7 +248,7 @@ function UsersManagementContent() {
         ps: 25,
         q: "",
         role: "ALL",
-        group: "ALL",
+        team: "ALL",
         status: "ALL",
         hasAcc: "ALL",
         reqType: "ALL",
@@ -263,7 +263,7 @@ function UsersManagementContent() {
     pageSize,
     search,
     roleFilter,
-    groupFilter,
+    teamFilter,
     statusFilter,
     hasAccountsFilter,
     requestTypeFilter,
@@ -305,7 +305,7 @@ function UsersManagementContent() {
     username: true,
     email: true,
     role: true,
-    groupName: true,
+    teamName: true,
     accountsCount: true,
     isActive: true,
     actions: true,
@@ -340,12 +340,12 @@ function UsersManagementContent() {
   const [inviteEmailInput, setInviteEmailInput] = useState("");
   const [inviteEmailsList, setInviteEmailsList] = useState<string[]>([]);
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "LEAD" | "STAFF">("STAFF");
-  const [inviteGroup, setInviteGroup] = useState("");
+  const [inviteTeam, setInviteTeam] = useState("");
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   // Team Management modal
-  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
-  const [newGroupNameInput, setNewGroupNameInput] = useState("");
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [newTeamNameInput, setNewTeamNameInput] = useState("");
 
   // Edit role modal
   const [selectedUser, setSelectedUser] = useState<any>(null);
@@ -385,7 +385,7 @@ function UsersManagementContent() {
   const { data: users = [], isLoading: loading } = trpc.admin.listUsers.useQuery(undefined, { enabled: isAdmin });
   const { data: invitations = [], isLoading: loadingInvites } = trpc.admin.listInvitations.useQuery(undefined, { enabled: isAdmin });
   const { data: teamsData } = trpc.admin.listTeams.useQuery(undefined, { enabled: isAdmin });
-  const availableGroups = useMemo(() => {
+  const availableTeams = useMemo(() => {
     return teamsData?.teams || [];
   }, [teamsData]);
 
@@ -394,7 +394,7 @@ function UsersManagementContent() {
       setIsInviteModalOpen(false);
       setInviteEmailInput("");
       setInviteEmailsList([]);
-      setInviteGroup("");
+      setInviteTeam("");
       if (res.failedCount === 0) {
         setActionMsg(`✅ Đã gửi thư mời thành công đến ${res.successCount} thành viên!`);
       } else {
@@ -441,9 +441,9 @@ function UsersManagementContent() {
     },
   });
 
-  const createGroupMutation = trpc.admin.createTeam.useMutation({
+  const createTeamMutation = trpc.admin.createTeam.useMutation({
     onSuccess: () => {
-      setNewGroupNameInput("");
+      setNewTeamNameInput("");
       setActionMsg("✅ Đã tạo team mới thành công!");
       utils.admin.listTeams.invalidate();
       utils.admin.listUsers.invalidate();
@@ -454,7 +454,7 @@ function UsersManagementContent() {
     },
   });
 
-  const deleteGroupMutation = trpc.admin.deleteTeam.useMutation({
+  const deleteTeamMutation = trpc.admin.deleteTeam.useMutation({
     onSuccess: () => {
       setActionMsg("🗑️ Đã xóa team thành công!");
       utils.admin.listTeams.invalidate();
@@ -466,11 +466,11 @@ function UsersManagementContent() {
     },
   });
 
-  const updateUserGroupMutation = trpc.admin.updateUserTeam.useMutation({
+  const updateUserTeamMutation = trpc.admin.updateUserTeam.useMutation({
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: [["admin"]] });
       const snapshot = snapshotUserTeamQueries(queryClient);
-      optimisticallyUpdateUserTeam(queryClient, vars.userId, vars.teamName || (vars as any).groupName || null);
+      optimisticallyUpdateUserTeam(queryClient, vars.userId, vars.teamName || null);
       return { snapshot };
     },
     onError: (err: any, _vars, context: any) => {
@@ -848,7 +848,7 @@ function UsersManagementContent() {
     createBulkInvitesMutation.mutate({
       emails: allEmails,
       role: inviteRole,
-      teamName: inviteGroup || null,
+      teamName: inviteTeam || null,
     });
   };
 
@@ -864,10 +864,10 @@ function UsersManagementContent() {
     }, 3500);
   };
 
-  const handleCreateGroup = (e: React.FormEvent) => {
+  const handleCreateTeam = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newGroupNameInput.trim()) return;
-    createGroupMutation.mutate({ name: newGroupNameInput.trim() });
+    if (!newTeamNameInput.trim()) return;
+    createTeamMutation.mutate({ name: newTeamNameInput.trim() });
   };
 
   const handleUpdateRole = (e: React.FormEvent) => {
@@ -919,12 +919,12 @@ function UsersManagementContent() {
         u.username,
         u.email,
         u.name,
-        u.groupName,
+        u.teamName,
         u.role
       );
 
       const matchRole = roleFilter === "ALL" || u.role === roleFilter;
-      const matchGroup = groupFilter === "ALL" || (u.groupName === groupFilter);
+      const matchTeam = teamFilter === "ALL" || (u.teamName === teamFilter);
 
       const isActive = u.isActive ?? true;
       const matchStatus =
@@ -935,7 +935,7 @@ function UsersManagementContent() {
         hasAccountsFilter === "ALL" ||
         (hasAccountsFilter === "YES" ? u.accountsCount > 0 : u.accountsCount === 0);
 
-      return matchSearch && matchRole && matchGroup && matchStatus && matchHasAccounts;
+      return matchSearch && matchRole && matchTeam && matchStatus && matchHasAccounts;
     });
 
     // Sorting
@@ -982,7 +982,7 @@ function UsersManagementContent() {
     });
 
     return filtered;
-  }, [users, search, roleFilter, groupFilter, statusFilter, hasAccountsFilter, sortConfig]);
+  }, [users, search, roleFilter, teamFilter, statusFilter, hasAccountsFilter, sortConfig]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedUsers.length / pageSize));
   const paginatedUsers = useMemo(() => {
@@ -1026,7 +1026,7 @@ function UsersManagementContent() {
   const activeFiltersCount =
     (search ? 1 : 0) +
     (roleFilter !== "ALL" ? 1 : 0) +
-    (groupFilter !== "ALL" ? 1 : 0) +
+    (teamFilter !== "ALL" ? 1 : 0) +
     activeAdvancedCount;
 
   const clearAdvancedFilters = () => {
@@ -1038,7 +1038,7 @@ function UsersManagementContent() {
   const clearAllFilters = () => {
     setSearch("");
     setRoleFilter("ALL");
-    setGroupFilter("ALL");
+    setTeamFilter("ALL");
     setStatusFilter("ALL");
     setHasAccountsFilter("ALL");
     setPage(1);
@@ -1112,7 +1112,7 @@ function UsersManagementContent() {
               )}
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-              Quản trị tài khoản thành viên, phân nhóm Team/Group, phân quyền Lead/Staff và theo dõi số lượng tài khoản TikTok phụ trách.
+              Quản trị tài khoản thành viên, phân đội nhóm (Team), phân quyền Lead/Staff và theo dõi số lượng tài khoản TikTok phụ trách.
             </p>
           </div>
 
@@ -1122,7 +1122,7 @@ function UsersManagementContent() {
               className="h-10 flex items-center gap-2 px-4 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
             >
               <Layers className="w-4 h-4 text-pink-500 shrink-0" />
-              <span className="truncate">Quản Lý Đội Nhóm ({availableGroups.length})</span>
+              <span className="truncate">Quản Lý Đội Nhóm ({availableTeams.length})</span>
             </Link>
             <button
               onClick={() => setIsInviteModalOpen(true)}
@@ -1347,35 +1347,35 @@ function UsersManagementContent() {
                   )}
                 </div>
 
-                {/* Quick Group Selector */}
+                {/* Quick Team Selector */}
                 <div className="relative group shrink-0">
                   <Select
-                    value={groupFilter}
+                    value={teamFilter}
                     onValueChange={(val) => {
-                      setGroupFilter(val);
+                      setTeamFilter(val);
                       setPage(1);
                     }}
                   >
                     <SelectTrigger
-                      className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${groupFilter !== "ALL"
+                      className={`w-36 h-9 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer transition-colors ${teamFilter !== "ALL"
                         ? "pr-8 border-pink-200 dark:border-pink-900/60 bg-pink-50/40 dark:bg-pink-950/25 text-pink-700 dark:text-pink-300 [&_svg]:hidden"
                         : ""
                         }`}
                     >
-                      <SelectValue placeholder="Nhóm / Team">
-                        {groupFilter === "ALL" ? "Tất cả nhóm" : groupFilter}
+                      <SelectValue placeholder="Đội nhóm">
+                        {teamFilter === "ALL" ? "Tất cả đội nhóm" : teamFilter}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
-                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả nhóm</SelectItem>
-                      {availableGroups.map((g: string) => (
-                        <SelectItem key={g} value={g} className="text-xs font-normal cursor-pointer">
-                          {g}
+                      <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">Tất cả đội nhóm</SelectItem>
+                      {availableTeams.map((t: string) => (
+                        <SelectItem key={t} value={t} className="text-xs font-normal cursor-pointer">
+                          {t}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {groupFilter !== "ALL" && (
+                  {teamFilter !== "ALL" && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -1383,16 +1383,16 @@ function UsersManagementContent() {
                           onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
-                            setGroupFilter("ALL");
+                            setTeamFilter("ALL");
                             setPage(1);
                           }}
                           className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200/90 hover:bg-rose-500 hover:text-white dark:bg-slate-800 dark:hover:bg-rose-500 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 cursor-pointer shadow-2xs hover:scale-110"
-                          aria-label="Xóa chọn nhóm"
+                          aria-label="Xóa chọn đội nhóm"
                         >
                           <X className="w-2.5 h-2.5" />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="top">Xóa chọn nhóm</TooltipContent>
+                      <TooltipContent side="top">Xóa chọn đội nhóm</TooltipContent>
                     </Tooltip>
                   )}
                 </div>
@@ -1669,7 +1669,7 @@ function UsersManagementContent() {
                               username: true,
                               email: true,
                               role: true,
-                              groupName: true,
+                              teamName: true,
                               accountsCount: true,
                               isActive: true,
                               actions: true,
@@ -1686,7 +1686,7 @@ function UsersManagementContent() {
                           { key: "username", label: "Username" },
                           { key: "email", label: "Email" },
                           { key: "role", label: "Vai trò" },
-                          { key: "groupName", label: "Nhóm" },
+                          { key: "teamName", label: "Đội nhóm" },
                           { key: "accountsCount", label: "Số acc phụ trách" },
                           { key: "isActive", label: "Trạng thái" },
                           { key: "actions", label: "Thao tác" },
@@ -1753,12 +1753,12 @@ function UsersManagementContent() {
                     </Tooltip>
                   </span>
                 )}
-                {groupFilter !== "ALL" && (
+                {teamFilter !== "ALL" && (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300">
-                    <span>Nhóm: {groupFilter}</span>
+                    <span>Đội nhóm: {teamFilter}</span>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <button onClick={() => setGroupFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
+                        <button onClick={() => setTeamFilter("ALL")} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-rose-500 transition-colors cursor-pointer">
                           <X className="w-3 h-3" />
                         </button>
                       </TooltipTrigger>
@@ -2118,26 +2118,26 @@ function UsersManagementContent() {
                         </span>
                       </div>
 
-                      {/* Group Assignment Dropdown */}
+                      {/* Team Assignment Dropdown */}
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
-                          <Users className="w-3 h-3" /> Nhóm
+                          <Users className="w-3 h-3" /> Đội nhóm
                         </span>
                         <Select
-                          value={u.groupName || "NONE"}
+                          value={u.teamName || "NONE"}
                           onValueChange={(val) => {
-                            const targetGroup = val === "NONE" ? null : val;
-                            updateUserGroupMutation.mutate({
+                            const targetTeam = val === "NONE" ? null : val;
+                            updateUserTeamMutation.mutate({
                               userId: u.id,
-                              teamName: targetGroup,
+                              teamName: targetTeam,
                             });
                           }}
                         >
                           <SelectTrigger className="w-36 h-7 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer">
-                            <SelectValue placeholder="Gán nhóm">
-                              {u.groupName ? (
+                            <SelectValue placeholder="Gán đội nhóm">
+                              {u.teamName ? (
                                 <span className="font-normal text-slate-800 dark:text-slate-200 truncate">
-                                  {u.groupName}
+                                  {u.teamName}
                                 </span>
                               ) : (
                                 <span className="text-slate-400 font-normal">Chưa gán</span>
@@ -2146,11 +2146,11 @@ function UsersManagementContent() {
                           </SelectTrigger>
                           <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
                             <SelectItem value="NONE" className="text-xs text-slate-400 cursor-pointer font-normal">
-                              Không gán nhóm (Trống)
+                              Không gán đội nhóm (Trống)
                             </SelectItem>
-                            {availableGroups.map((g: string) => (
-                              <SelectItem key={g} value={g} className="text-xs cursor-pointer font-normal">
-                                {g}
+                            {availableTeams.map((t: string) => (
+                              <SelectItem key={t} value={t} className="text-xs cursor-pointer font-normal">
+                                {t}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -2272,18 +2272,18 @@ function UsersManagementContent() {
                       </th>
                     )}
 
-                    {/* Group Column */}
-                    {visibleColumns.groupName && (
+                    {/* Team Column */}
+                    {visibleColumns.teamName && (
                       <th
-                        style={getColumnStyle("groupName")}
-                        onClick={() => handleSort("groupName")}
+                        style={getColumnStyle("teamName")}
+                        onClick={() => handleSort("teamName")}
                         className="relative group/th py-3.5 px-4 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                       >
                         <div className="flex items-center gap-1.5 truncate">
-                          <span className="truncate">Nhóm</span>
-                          {renderSortIndicator("groupName")}
+                          <span className="truncate">Đội nhóm</span>
+                          {renderSortIndicator("teamName")}
                         </div>
-                        {renderResizeHandle("groupName")}
+                        {renderResizeHandle("teamName")}
                       </th>
                     )}
 
@@ -2408,37 +2408,37 @@ function UsersManagementContent() {
                             </td>
                           )}
 
-                          {/* Group Select Dropdown */}
-                          {visibleColumns.groupName && (
-                            <td style={getColumnStyle("groupName")} className="py-3 px-4 overflow-hidden">
+                          {/* Team Select Dropdown */}
+                          {visibleColumns.teamName && (
+                            <td style={getColumnStyle("teamName")} className="py-3 px-4 overflow-hidden">
                               <Select
-                                value={u.groupName || "NONE"}
+                                value={u.teamName || "NONE"}
                                 onValueChange={(val) => {
-                                  const targetGroup = val === "NONE" ? null : val;
-                                  updateUserGroupMutation.mutate({
+                                  const targetTeam = val === "NONE" ? null : val;
+                                  updateUserTeamMutation.mutate({
                                     userId: u.id,
-                                    teamName: targetGroup,
+                                    teamName: targetTeam,
                                   });
                                 }}
                               >
                                 <SelectTrigger className="w-full min-w-0 h-7.5 text-xs font-normal rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-none cursor-pointer whitespace-nowrap [&>span]:truncate">
-                                  <SelectValue placeholder="Gán nhóm">
-                                    {u.groupName ? (
+                                  <SelectValue placeholder="Gán đội nhóm">
+                                    {u.teamName ? (
                                       <span className="font-normal text-slate-800 dark:text-slate-200 truncate whitespace-nowrap">
-                                        {u.groupName}
+                                        {u.teamName}
                                       </span>
                                     ) : (
-                                      <span className="text-slate-400 font-normal truncate whitespace-nowrap">Chưa gán nhóm</span>
+                                      <span className="text-slate-400 font-normal truncate whitespace-nowrap">Chưa gán đội nhóm</span>
                                     )}
                                   </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-56">
                                   <SelectItem value="NONE" className="text-xs text-slate-400 cursor-pointer font-normal">
-                                    Không gán nhóm (Trống)
+                                    Không gán đội nhóm (Trống)
                                   </SelectItem>
-                                  {availableGroups.map((g: string) => (
-                                    <SelectItem key={g} value={g} className="text-xs cursor-pointer font-normal">
-                                      {g}
+                                  {availableTeams.map((t: string) => (
+                                    <SelectItem key={t} value={t} className="text-xs cursor-pointer font-normal">
+                                      {t}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -3181,7 +3181,7 @@ function UsersManagementContent() {
                         Email Nhận Lời Mời
                       </th>
                       <th className="py-3.5 px-4 whitespace-nowrap min-w-[120px]">Phân Quyền</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">Nhóm / Team</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">Đội nhóm</th>
                       <th className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">Người Gửi Lời Mời</th>
                       <th className="py-3.5 px-4 whitespace-nowrap min-w-[140px]">Hạn Sử Dụng</th>
                       <th className="py-3.5 px-4 whitespace-nowrap min-w-[120px]">Trạng Thái</th>
@@ -3209,9 +3209,9 @@ function UsersManagementContent() {
                             {getRoleBadge(inv.role)}
                           </td>
                           <td className="py-3.5 px-4 whitespace-nowrap">
-                            {inv.groupName ? (
+                            {inv.teamName ? (
                               <span className="inline-flex items-center px-2.5 h-7.5 rounded-xl text-xs font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 shadow-2xs">
-                                {inv.groupName}
+                                {inv.teamName}
                               </span>
                             ) : (
                               <span className="inline-flex items-center h-7.5 text-slate-400 text-xs">Chưa gán</span>
@@ -3504,30 +3504,30 @@ function UsersManagementContent() {
                 </Select>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   {inviteRole === "STAFF" && "• Chỉ xem và thao tác các tài khoản TikTok được chỉ định"}
-                  {inviteRole === "LEAD" && "• Quản lý thành viên và danh sách tài khoản thuộc nhóm phụ trách"}
-                  {inviteRole === "ADMIN" && "• Toàn quyền hệ thống, nhân sự và cấu hình phân nhóm"}
+                  {inviteRole === "LEAD" && "• Quản lý thành viên và danh sách tài khoản thuộc đội nhóm phụ trách"}
+                  {inviteRole === "ADMIN" && "• Toàn quyền hệ thống, nhân sự và cấu hình phân đội nhóm"}
                 </p>
               </div>
 
-              {/* Group / Team selection */}
+              {/* Team selection */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Phân Vào Nhóm / Team <span className="text-slate-400 font-normal">(Tùy chọn)</span>
+                  Phân Vào Đội Nhóm <span className="text-slate-400 font-normal">(Tùy chọn)</span>
                 </label>
                 <Select
-                  value={inviteGroup || "NONE"}
-                  onValueChange={(val) => setInviteGroup(val === "NONE" ? "" : val)}
+                  value={inviteTeam || "NONE"}
+                  onValueChange={(val) => setInviteTeam(val === "NONE" ? "" : val)}
                 >
                   <SelectTrigger className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white cursor-pointer">
-                    <SelectValue placeholder="Chọn nhóm / team" />
+                    <SelectValue placeholder="Chọn đội nhóm" />
                   </SelectTrigger>
                   <SelectContent className="rounded-2xl">
                     <SelectItem value="NONE" className="text-xs cursor-pointer">
-                      -- Chưa gán nhóm (Mặc định) --
+                      -- Chưa gán đội nhóm (Mặc định) --
                     </SelectItem>
-                    {availableGroups.map((g: string) => (
-                      <SelectItem key={g} value={g} className="text-xs cursor-pointer">
-                        {g}
+                    {availableTeams.map((t: string) => (
+                      <SelectItem key={t} value={t} className="text-xs cursor-pointer">
+                        {t}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -3536,7 +3536,7 @@ function UsersManagementContent() {
 
               {/* Notice note */}
               <div className="p-3 rounded-2xl bg-pink-50/50 dark:bg-pink-950/20 border border-pink-100 dark:border-pink-900/40 text-xs text-pink-700 dark:text-pink-300 leading-relaxed">
-                💡 <span className="font-medium">Lưu ý:</span> Email lời mời có hiệu lực trong vòng <strong>24 giờ</strong>. Sau khi hoàn tất đăng ký, tài khoản sẽ được tự động kích hoạt và đưa vào nhóm tương ứng.
+                💡 <span className="font-medium">Lưu ý:</span> Email lời mời có hiệu lực trong vòng <strong>24 giờ</strong>. Sau khi hoàn tất đăng ký, tài khoản sẽ được tự động kích hoạt và đưa vào đội nhóm tương ứng.
               </div>
 
               {/* Modal Actions */}
@@ -3575,8 +3575,8 @@ function UsersManagementContent() {
         </div>
       )}
 
-      {/* Modal: Group Management (ADMIN ONLY) */}
-      {isGroupModalOpen && (
+      {/* Modal: Team Management (ADMIN ONLY) */}
+      {isTeamModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -3585,7 +3585,7 @@ function UsersManagementContent() {
                 Quản Lý & Thêm Đội Nhóm (Teams)
               </h3>
               <button
-                onClick={() => setIsGroupModalOpen(false)}
+                onClick={() => setIsTeamModalOpen(false)}
                 className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
               >
                 ✕
@@ -3593,7 +3593,7 @@ function UsersManagementContent() {
             </div>
 
             {/* Create team form */}
-            <form onSubmit={handleCreateGroup} className="space-y-3">
+            <form onSubmit={handleCreateTeam} className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Tên Đội Nhóm (Team) Mới
@@ -3603,16 +3603,16 @@ function UsersManagementContent() {
                     type="text"
                     required
                     placeholder="e.g. Team US #1, Team Affiliate..."
-                    value={newGroupNameInput}
-                    onChange={(e) => setNewGroupNameInput(e.target.value)}
+                    value={newTeamNameInput}
+                    onChange={(e) => setNewTeamNameInput(e.target.value)}
                     className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-pink-500"
                   />
                   <button
                     type="submit"
-                    disabled={createGroupMutation.isPending || !newGroupNameInput.trim()}
+                    disabled={createTeamMutation.isPending || !newTeamNameInput.trim()}
                     className="px-4 py-2 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
                   >
-                    {createGroupMutation.isPending ? "Đang thêm..." : "+ Thêm Team"}
+                    {createTeamMutation.isPending ? "Đang thêm..." : "+ Thêm Team"}
                   </button>
                 </div>
               </div>
@@ -3621,19 +3621,19 @@ function UsersManagementContent() {
             {/* Existing Teams List */}
             <div className="space-y-2 pt-2">
               <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Danh Sách Đội Nhóm Hiện Có ({availableGroups.length})
+                Danh Sách Đội Nhóm Hiện Có ({availableTeams.length})
               </div>
               <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-                {availableGroups.map((groupName: string) => {
-                  const memberCount = users.filter((u: any) => u.groupName === groupName).length;
+                {availableTeams.map((teamName: string) => {
+                  const memberCount = users.filter((u: any) => u.teamName === teamName).length;
                   return (
                     <div
-                      key={groupName}
+                      key={teamName}
                       className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800 text-xs"
                     >
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-slate-900 dark:text-white">
-                          {groupName}
+                          {teamName}
                         </span>
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                           {memberCount} thành viên
@@ -3641,16 +3641,16 @@ function UsersManagementContent() {
                       </div>
                       <button
                         type="button"
-                        disabled={deleteGroupMutation.isPending}
+                        disabled={deleteTeamMutation.isPending}
                         onClick={async () => {
                           const ok = await confirm({
                             title: "Xóa đội nhóm",
-                            description: `Bạn có chắc muốn xóa đội nhóm "${groupName}"? Nhân sự trong nhóm sẽ về trạng thái Chưa gán nhóm.`,
+                            description: `Bạn có chắc muốn xóa đội nhóm "${teamName}"? Nhân sự trong đội nhóm sẽ về trạng thái Chưa gán đội nhóm.`,
                             confirmLabel: "Xác nhận xóa",
                             variant: "danger",
                           });
                           if (ok) {
-                            deleteGroupMutation.mutate({ name: groupName });
+                            deleteTeamMutation.mutate({ name: teamName });
                           }
                         }}
                         className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
@@ -3667,7 +3667,7 @@ function UsersManagementContent() {
             <div className="flex justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => setIsGroupModalOpen(false)}
+                onClick={() => setIsTeamModalOpen(false)}
                 className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Đóng

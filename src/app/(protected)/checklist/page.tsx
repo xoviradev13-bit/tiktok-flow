@@ -922,7 +922,7 @@ function ChecklistPageContent() {
           </SelectTrigger>
           <SelectContent className="rounded-2xl max-h-72">
             <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
-              Tất cả đội nhóm ({allTeams.length} nhóm)
+              Tất cả đội nhóm ({allTeams.length} đội nhóm)
             </SelectItem>
             {allTeams.map((t: any) => (
               <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">

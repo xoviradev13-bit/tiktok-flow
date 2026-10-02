@@ -31,7 +31,7 @@ function calcGrowth(curr: number, prev: number): number {
 }
 
 export const analyticsRouter = router({
-  // 1. Dynamic Filter Options (Groups, Operators, Countries)
+  // 1. Dynamic Filter Options (Teams, Operators, Countries)
   getFilterOptions: protectedProcedure.query(async ({ ctx }) => {
     const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
     const role = ctx.session.user.role;
@@ -57,7 +57,6 @@ export const analyticsRouter = router({
       avatar: string | null;
       role: string;
       teamName: string | null;
-      groupName: string | null;
     }> = [];
 
     if (isAdminOrLead) {
@@ -94,7 +93,6 @@ export const analyticsRouter = router({
         role: u.role,
         teamId: u.teamId || null,
         teamName: u.team?.name || null,
-        groupName: u.team?.name || null,
       }));
     }
 
@@ -116,7 +114,6 @@ export const analyticsRouter = router({
 
     return {
       teams,
-      groups: teams,
       operators,
       countries,
       userRole: role,
@@ -845,7 +842,6 @@ export const analyticsRouter = router({
           operatorName,
           operatorAvatar: a.assignedUser?.avatar || null,
           teamName: a.assignedUser?.team?.name || null,
-          groupName: a.assignedUser?.team?.name || null,
           openAlertsCount: a.alerts.length,
           hasCriticalAlert: a.alerts.some((al) => al.severity === "CRITICAL"),
         };
@@ -882,7 +878,6 @@ export const analyticsRouter = router({
             operatorAvatar: string | null;
             role: string;
             teamName: string | null;
-            groupName: string | null;
             accountsCount: number;
             totalRevenue: number;
             totalViews: number;
@@ -906,7 +901,6 @@ export const analyticsRouter = router({
             operatorAvatar: a.assignedUser.avatar,
             role: a.assignedUser.role,
             teamName: a.assignedUser.team?.name || null,
-            groupName: a.assignedUser.team?.name || null,
             accountsCount: 0,
             totalRevenue: 0,
             totalViews: 0,

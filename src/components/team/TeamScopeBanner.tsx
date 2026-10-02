@@ -39,7 +39,7 @@ export function TeamScopeBanner({
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap pb-2">
               <span className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                Nhóm: {teamName}
+                Đội nhóm: {teamName}
               </span>
               <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-800 dark:text-amber-300">
                 <ShieldCheck className="w-3 h-3" />

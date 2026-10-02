@@ -26,7 +26,7 @@ interface OperationsAnalyticsTabProps {
     operatorName: string;
     operatorAvatar: string | null;
     role: string;
-    groupName: string | null;
+    teamName?: string | null;
     accountsCount: number;
     totalRevenue: number;
     totalViews: number;
@@ -146,7 +146,7 @@ export default function OperationsAnalyticsTab({
               <thead>
                 <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 font-semibold">
                   <th className="pb-3 font-semibold">Nhân Sự</th>
-                  <th className="pb-3 font-semibold">Đội / Nhóm</th>
+                  <th className="pb-3 font-semibold">Đội nhóm</th>
                   <th className="pb-3 font-semibold text-center">Số Kênh Phụ Trách</th>
                   <th className="pb-3 font-semibold text-center">Tỉ Lệ Chấm Công</th>
                   <th className="pb-3 font-semibold text-right">Lượt Views</th>
@@ -173,7 +173,7 @@ export default function OperationsAnalyticsTab({
                       </div>
                     </td>
                     <td className="py-3 text-slate-600 dark:text-slate-300">
-                      {op.groupName || "Chưa phân nhóm"}
+                      {op.teamName || "Chưa phân đội nhóm"}
                     </td>
                     <td className="py-3 text-center font-bold text-slate-900 dark:text-white">
                       {op.accountsCount} kênh

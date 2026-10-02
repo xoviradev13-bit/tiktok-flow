@@ -633,7 +633,7 @@ export function SyncStatusBadge({
                 {account?.gpmProfileId ? account.gpmProfileId.slice(0, 12) + "..." : "Chưa gán"}
               </span>
               <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                Nhóm: {account?.groupName || "--"}
+                GPM Group: {account?.groupName || "--"}
               </span>
             </div>
           </div>

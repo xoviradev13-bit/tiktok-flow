@@ -49,7 +49,7 @@ interface ExportDataParams {
   operatorBenchmarks?: Array<{
     operatorName: string;
     role: string;
-    groupName: string | null;
+    teamName: string | null;
     accountsCount: number;
     totalRevenue: number;
     totalViews: number;
@@ -126,7 +126,7 @@ export function exportAnalyticsToExcel(data: ExportDataParams) {
       "Hạng": idx + 1,
       "Nhân Sự": op.operatorName,
       "Vai Trò": op.role,
-      "Đội / Nhóm": op.groupName || "Chưa phân nhóm",
+      "Đội nhóm": op.teamName || "Chưa phân đội nhóm",
       "Số Account Quản Lý": op.accountsCount,
       "Doanh Thu Tạo Ra ($)": op.totalRevenue,
       "Views Tạo Ra": op.totalViews,

@@ -66,7 +66,7 @@ export function AccountsSection() {
             <strong className="text-slate-900 dark:text-white">Quản Trị Viên (Admin):</strong> Toàn quyền thêm, xóa, sửa, gán kênh, chỉnh sửa cấu hình hệ thống và lịch cron.
           </li>
           <li>
-            <strong className="text-slate-900 dark:text-white">Trưởng Nhóm (Lead):</strong> Quản lý danh sách thành viên trong Group, theo dõi dàn kênh và duyệt báo cáo sự cố.
+            <strong className="text-slate-900 dark:text-white">Trưởng Nhóm (Lead):</strong> Quản lý danh sách thành viên trong Đội nhóm (Team), theo dõi dàn kênh và duyệt báo cáo sự cố.
           </li>
           <li>
             <strong className="text-slate-900 dark:text-white">Vận Hành Viên (Staff):</strong> Chỉ xem và quản lý các kênh TikTok được gán trực tiếp cho bản thân.

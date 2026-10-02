@@ -847,7 +847,7 @@ function AccountsPageContent() {
     if (Array.isArray(teamsData.teamsDetails) && teamsData.teamsDetails.length > 0) {
       return teamsData.teamsDetails.map((t: any, i: number) => ({
         id: String(t.id || t.name || `team-${i}`),
-        name: String(t.name || t.teamName || t.id || `Nhóm ${i + 1}`),
+        name: String(t.name || t.teamName || t.id || `Team ${i + 1}`),
       }));
     }
     if (Array.isArray(teamsData.teams)) {
@@ -855,7 +855,7 @@ function AccountsPageContent() {
         if (typeof t === "string") return { id: t, name: t };
         return {
           id: String(t.id || t.name || `team-${i}`),
-          name: String(t.name || t.id || `Nhóm ${i + 1}`),
+          name: String(t.name || t.id || `Team ${i + 1}`),
         };
       });
     }
@@ -2206,7 +2206,7 @@ function AccountsPageContent() {
                     </SelectTrigger>
                     <SelectContent align="end" className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-xl shadow-xl max-h-60">
                       <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
-                        Tất cả đội nhóm ({allTeams.length} nhóm)
+                        Tất cả đội nhóm ({allTeams.length} đội nhóm)
                       </SelectItem>
                       {allTeams.map((t: any) => (
                         <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">
@@ -5150,7 +5150,7 @@ function AccountsPageContent() {
                   <input
                     type="text"
                     readOnly
-                    value={editGroup || "-- Không có nhóm --"}
+                    value={editGroup || "-- Chưa phân nhóm GPM --"}
                     className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
                   />
                 </div>

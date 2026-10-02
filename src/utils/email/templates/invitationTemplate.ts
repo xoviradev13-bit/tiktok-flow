@@ -1,54 +1,53 @@
 import { EmailTemplate, EmailTheme } from "../types";
 
 export interface WorkspaceInvitationEmailData {
-  recipientName?: string;
-  inviterName: string;
-  workspaceName?: string;
-  teamName?: string | null;
-  groupName?: string | null;
-  role?: string;
-  invitationUrl: string;
-  expiresAt?: Date;
+    recipientName?: string;
+    inviterName: string;
+    workspaceName?: string;
+    teamName?: string | null;
+    role?: string;
+    invitationUrl: string;
+    expiresAt?: Date;
 }
 
 const STREAMDASH_THEME: EmailTheme = {
-  brandColor: "#ec4899",
-  buttonText: "#ffffff",
-  backgroundColor: "#0f172a",
-  textColor: "#334155",
-  headerColor: "#020617",
+    brandColor: "#ec4899",
+    buttonText: "#ffffff",
+    backgroundColor: "#0f172a",
+    textColor: "#334155",
+    headerColor: "#020617",
 };
 
 export class InvitationEmailTemplates {
-  /**
-   * Invitation to join StreamDash operations workspace
-   */
-  static getWorkspaceMemberInvite(
-    data: WorkspaceInvitationEmailData,
-    theme: EmailTheme = STREAMDASH_THEME
-  ): EmailTemplate {
-    const diffHours = data.expiresAt
-      ? Math.max(1, Math.round((new Date(data.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60)))
-      : 24;
-    const expiryLabel =
-      diffHours <= 24
-        ? `${diffHours} giờ (24h)`
-        : `${Math.ceil(diffHours / 24)} ngày`;
+    /**
+     * Invitation to join StreamDash operations workspace
+     */
+    static getWorkspaceMemberInvite(
+        data: WorkspaceInvitationEmailData,
+        theme: EmailTheme = STREAMDASH_THEME
+    ): EmailTemplate {
+        const diffHours = data.expiresAt
+            ? Math.max(1, Math.round((new Date(data.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60)))
+            : 24;
+        const expiryLabel =
+            diffHours <= 24
+                ? `${diffHours} giờ (24h)`
+                : `${Math.ceil(diffHours / 24)} ngày`;
 
-    const roleName = data.role ? data.role.toUpperCase() : "STAFF";
-    const roleBadgeText =
-      roleName === "ADMIN"
-        ? "Quản Trị Viên (Admin)"
-        : roleName === "LEAD"
-        ? "Trưởng Nhóm (Lead)"
-        : "Nhân Viên Vận Hành (Staff)";
+        const roleName = data.role ? data.role.toUpperCase() : "STAFF";
+        const roleBadgeText =
+            roleName === "ADMIN"
+                ? "Quản Trị Viên (Admin)"
+                : roleName === "LEAD"
+                    ? "Trưởng Nhóm (Lead)"
+                    : "Nhân Viên Vận Hành (Staff)";
 
-    const workspace = data.workspaceName || "StreamDash";
-    const displayTeam = data.teamName || data.groupName || null;
+        const workspace = data.workspaceName || "StreamDash";
+        const displayTeam = data.teamName || null;
 
-    return {
-      subject: `[StreamDash] ${data.inviterName} đã gửi thư mời bạn tham gia hệ thống (${roleBadgeText})`,
-      html: `
+        return {
+            subject: `[StreamDash] ${data.inviterName} đã gửi thư mời bạn tham gia hệ thống (${roleBadgeText})`,
+            html: `
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -97,7 +96,7 @@ export class InvitationEmailTemplates {
                                     </tr>
                                     ${displayTeam ? `
                                     <tr>
-                                        <td style="padding: 4px 0; color: #64748b;">Đội ngũ / Team:</td>
+                                        <td style="padding: 4px 0; color: #64748b;">Đội nhóm:</td>
                                         <td style="padding: 4px 0; color: #ec4899; font-weight: 700;">${displayTeam}</td>
                                     </tr>
                                     ` : ""}
@@ -144,18 +143,18 @@ export class InvitationEmailTemplates {
 </body>
 </html>
       `,
-      text: `[StreamDash] Lời mời tham gia hệ thống
+            text: `[StreamDash] Lời mời tham gia hệ thống
 
 Xin chào ${data.recipientName || "bạn"},
 ${data.inviterName} đã mời bạn tham gia hệ thống StreamDash với vai trò: ${roleBadgeText}.
-${data.groupName ? `Nhóm/Team: ${data.groupName}\n` : ""}Thời hạn liên kết: ${expiryLabel}
+${displayTeam ? `Đội nhóm: ${displayTeam}\n` : ""}Thời hạn liên kết: ${expiryLabel}
 
 Bấm vào liên kết bên dưới để hoàn tất đăng ký hoặc đăng nhập nhận quyền:
 ${data.invitationUrl}
 
 Nếu bạn không mong đợi email này, vui lòng bỏ qua.`,
-    };
-  }
+        };
+    }
 }
 
 export default InvitationEmailTemplates;

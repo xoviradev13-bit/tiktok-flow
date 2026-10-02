@@ -40,10 +40,10 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
     });
   }
 
-  // Check if user is active in database
+  // Check if user is active in database and get fresh role
   const currentUser = await ctx.prisma.user.findUnique({
     where: { id: ctx.session.user.id },
-    select: { isActive: true },
+    select: { isActive: true, role: true },
   });
 
   if (currentUser && !currentUser.isActive) {
@@ -53,7 +53,7 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
     });
   }
 
-  const role = String((ctx.session.user as any).role || (ctx.session.user as any).userType || "STAFF").toUpperCase();
+  const role = String(currentUser?.role || (ctx.session.user as any).role || (ctx.session.user as any).userType || "STAFF").toUpperCase();
 
   return next({
     ctx: {

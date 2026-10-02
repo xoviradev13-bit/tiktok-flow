@@ -28,7 +28,7 @@ function AcceptInvitationContent() {
   const [invitePreview, setInvitePreview] = useState<{
     email?: string;
     role?: string;
-    groupName?: string | null;
+    teamName?: string | null;
     inviterName?: string;
     status?: string;
   } | null>(null);
@@ -229,10 +229,10 @@ function AcceptInvitationContent() {
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Vai trò:</span>
                     <span className="font-bold text-pink-600 dark:text-pink-400">{invitePreview.role || "STAFF"}</span>
                   </div>
-                  {invitePreview.groupName && (
+                  {invitePreview.teamName && (
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 dark:text-slate-400 font-medium">Nhóm / Team:</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">{invitePreview.groupName}</span>
+                      <span className="text-slate-500 dark:text-slate-400 font-medium">Đội nhóm:</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">{invitePreview.teamName}</span>
                     </div>
                   )}
                   {invitePreview.inviterName && (

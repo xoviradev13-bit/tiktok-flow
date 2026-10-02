@@ -81,7 +81,7 @@ function RevenuePageContent() {
     if (Array.isArray(teamsData.teamsDetails) && teamsData.teamsDetails.length > 0) {
       return teamsData.teamsDetails.map((t: any, i: number) => ({
         id: String(t.id || t.name || `team-${i}`),
-        name: String(t.name || t.teamName || t.id || `Nhóm ${i + 1}`),
+        name: String(t.name || t.teamName || t.id || `Team ${i + 1}`),
       }));
     }
     if (Array.isArray(teamsData.teams)) {
@@ -89,7 +89,7 @@ function RevenuePageContent() {
         if (typeof t === "string") return { id: t, name: t };
         return {
           id: String(t.id || t.name || `team-${i}`),
-          name: String(t.name || t.id || `Nhóm ${i + 1}`),
+          name: String(t.name || t.id || `Team ${i + 1}`),
         };
       });
     }
@@ -243,7 +243,7 @@ function RevenuePageContent() {
                 </SelectTrigger>
                 <SelectContent className="rounded-2xl max-h-72">
                   <SelectItem value="ALL" className="text-xs font-normal cursor-pointer">
-                    Tất cả đội nhóm ({allTeams.length} nhóm)
+                    Tất cả đội nhóm ({allTeams.length} đội nhóm)
                   </SelectItem>
                   {allTeams.map((t: any) => (
                     <SelectItem key={t.id} value={t.id} className="text-xs font-normal cursor-pointer">

@@ -2217,16 +2217,16 @@ function AccountDetailPageContent() {
                 )}
               </div>
 
-              {/* Group Name */}
+              {/* GPM Group */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Tên nhóm / Phân loại
+                  GPM Group / Nhóm GPM
                 </label>
                 {isLeadOrAdmin ? (
                   <div className="flex gap-2">
                     <Input
                       defaultValue={account.groupName || ""}
-                      placeholder="VD: Team US 01, Niche Funny..."
+                      placeholder="VD: Default group, US Profiles..."
                       onBlur={(e) => {
                         if (e.target.value !== account.groupName) {
                           updateMutation.mutate({ id: account.id, groupName: e.target.value });
@@ -2237,7 +2237,7 @@ function AccountDetailPageContent() {
                   </div>
                 ) : (
                   <div className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 flex items-center justify-between text-xs font-normal text-slate-700 dark:text-slate-300 select-none">
-                    <span className="truncate">{account.groupName || "-- Chưa phân nhóm --"}</span>
+                    <span className="truncate">{account.groupName || "-- Chưa phân nhóm GPM --"}</span>
                     <span className="text-[10px] text-slate-400 flex items-center gap-1 shrink-0">
                       <Lock className="w-3 h-3" /> Chỉ Admin/Lead
                     </span>

@@ -243,7 +243,7 @@ export default function LandingPage() {
                 "Tự động quét và import danh sách Profile từ GPM vào Dàn Account",
                 "1-Click khởi động trình duyệt chống fingerprint detection",
                 "Tự động trích xuất TikTok handle, followers, views và trạng thái login",
-                "Hỗ trợ phân nhóm Group Name theo Team hoặc Country",
+                "Hỗ trợ phân loại GPM Group Name theo Đội nhóm hoặc Country",
               ].map((text, i) => (
                 <div key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
                   <div className="mt-0.5 w-5 h-5 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">

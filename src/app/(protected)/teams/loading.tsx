@@ -1,5 +1,5 @@
 import { TeamsPageSkeleton } from "@/components/skeletons/PageSkeletons";
 
-export default function GroupsLoading() {
+export default function TeamsLoading() {
   return <TeamsPageSkeleton />;
 }

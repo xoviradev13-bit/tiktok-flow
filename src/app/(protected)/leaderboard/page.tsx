@@ -580,7 +580,7 @@ function LeaderboardPageContent() {
                               <span className="truncate max-w-[105px]">{user.teamName}</span>
                             </span>
                           ) : (
-                            <span className="text-slate-400 italic text-xs">Chưa gán nhóm</span>
+                            <span className="text-slate-400 italic text-xs">Chưa gán đội nhóm</span>
                           )}
                         </td>
 

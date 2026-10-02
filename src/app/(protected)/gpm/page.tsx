@@ -223,16 +223,14 @@ function GpmHubPageContent() {
         <div className="flex flex-wrap items-center gap-3">
           {/* Connection Status Badge */}
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
-              gpmStatus?.isOnline
-                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                : "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
-            }`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${gpmStatus?.isOnline
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+              : "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
+              }`}
           >
             <span
-              className={`w-2 h-2 rounded-full ${
-                gpmStatus?.isOnline ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-              }`}
+              className={`w-2 h-2 rounded-full ${gpmStatus?.isOnline ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                }`}
             />
             <span>
               {gpmStatus?.isOnline
@@ -377,7 +375,7 @@ function GpmHubPageContent() {
               setSearchQuery(e.target.value);
               setPage(1);
             }}
-            placeholder="Tìm theo username, Profile ID, nhóm..."
+            placeholder="Tìm theo username, Profile ID, nhóm GPM..."
             className="w-full h-10 pl-9 pr-4 rounded-xl text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all text-slate-900 dark:text-white placeholder:text-slate-400"
           />
         </div>
@@ -389,11 +387,10 @@ function GpmHubPageContent() {
               setStatusFilter("ALL");
               setPage(1);
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              statusFilter === "ALL"
-                ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${statusFilter === "ALL"
+              ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs"
+              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
           >
             Tất Cả ({loading ? "..." : stats.total})
           </button>
@@ -403,11 +400,10 @@ function GpmHubPageContent() {
               setStatusFilter("LINKED");
               setPage(1);
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              statusFilter === "LINKED"
-                ? "bg-cyan-600 text-white shadow-xs"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${statusFilter === "LINKED"
+              ? "bg-cyan-600 text-white shadow-xs"
+              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
           >
             Đã Gắn GPM ({loading ? "..." : stats.linked})
           </button>
@@ -417,11 +413,10 @@ function GpmHubPageContent() {
               setStatusFilter("ACTIVE");
               setPage(1);
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              statusFilter === "ACTIVE"
-                ? "bg-emerald-600 text-white shadow-xs"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${statusFilter === "ACTIVE"
+              ? "bg-emerald-600 text-white shadow-xs"
+              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
           >
             Đang Hoạt Động ({loading ? "..." : stats.active})
           </button>
@@ -431,11 +426,10 @@ function GpmHubPageContent() {
               setStatusFilter("UNASSIGNED");
               setPage(1);
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              statusFilter === "UNASSIGNED"
-                ? "bg-amber-600 text-white shadow-xs"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${statusFilter === "UNASSIGNED"
+              ? "bg-amber-600 text-white shadow-xs"
+              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
           >
             Chưa Gán ({loading ? "..." : stats.unassigned})
           </button>
@@ -453,7 +447,7 @@ function GpmHubPageContent() {
                 <tr>
                   <th className="px-5 py-4">Tài Khoản TikTok</th>
                   <th className="px-4 py-4">GPM Profile ID</th>
-                  <th className="px-4 py-4">Nhóm & Quốc Gia</th>
+                  <th className="px-4 py-4">Nhóm GPM & Quốc Gia</th>
                   <th className="px-4 py-4">Nhân Sự Quản Lý</th>
                   <th className="px-4 py-4">Trạng Thái</th>
                   <th className="px-4 py-4">Lần Sync Cuối</th>
@@ -570,13 +564,12 @@ function GpmHubPageContent() {
                         {/* Status */}
                         <td className="px-4 py-4">
                           <span
-                            className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider ${
-                              acc.status === "ACTIVE"
-                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                                : acc.status === "WARMING"
+                            className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider ${acc.status === "ACTIVE"
+                              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                              : acc.status === "WARMING"
                                 ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
                                 : "bg-slate-500/15 text-slate-600 dark:text-slate-400"
-                            }`}
+                              }`}
                           >
                             {acc.status}
                           </span>
@@ -631,9 +624,8 @@ function GpmHubPageContent() {
                                   title="Đồng bộ số liệu tài khoản"
                                 >
                                   <RefreshCw
-                                    className={`w-3.5 h-3.5 ${
-                                      syncAccountMutation.isPending ? "animate-spin text-cyan-500" : ""
-                                    }`}
+                                    className={`w-3.5 h-3.5 ${syncAccountMutation.isPending ? "animate-spin text-cyan-500" : ""
+                                      }`}
                                   />
                                 </button>
                               </>

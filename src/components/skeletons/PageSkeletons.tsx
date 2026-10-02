@@ -197,7 +197,7 @@ export function AccountDetailSkeleton() {
 }
 
 // ============================================================================
-// 3. Groups Page Skeleton
+// 3. Teams Page Skeleton
 // ============================================================================
 export function TeamsPageSkeleton() {
   return (
@@ -229,7 +229,7 @@ export function TeamsPageSkeleton() {
         <SkeletonBox className="h-9 w-20 rounded-xl" />
       </div>
 
-      {/* Group Card Grid */}
+      {/* Team Card Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {Array.from({ length: 8 }).map((_, i) => (
           <div

@@ -496,7 +496,7 @@ function TeamDetailContent() {
     const ok = await confirm({
       title: "Rời khỏi đội nhóm",
       description: `Bạn có chắc chắn muốn rời khỏi đội nhóm "${teamDetail?.team.name}"?`,
-      confirmLabel: "Rời nhóm",
+      confirmLabel: "Rời đội nhóm",
       variant: "danger",
     });
 
@@ -797,7 +797,7 @@ function TeamDetailContent() {
                       className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
                     >
                       <LogOut className="w-3.5 h-3.5" />
-                      <span>Rời Khỏi Nhóm</span>
+                      <span>Rời Khỏi Đội Nhóm</span>
                     </DropdownMenuItem>
                   </>
                 )}
@@ -1583,7 +1583,7 @@ function TeamDetailContent() {
                                   className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
                                 >
                                   <LogOut className="w-3.5 h-3.5" />
-                                  <span>Rời Khỏi Nhóm</span>
+                                  <span>Rời Khỏi Đội Nhóm</span>
                                 </DropdownMenuItem>
                               </>
                             )}

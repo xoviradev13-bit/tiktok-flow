@@ -1094,7 +1094,7 @@ function SettingsPageContent() {
                 </div>
               </div>
 
-              {/* Group & Role Information Cards */}
+              {/* Team & Role Information Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                 {/* Vai trò của bạn */}
                 <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 flex items-start justify-start gap-3 text-left">
@@ -1113,7 +1113,7 @@ function SettingsPageContent() {
                   </div>
                 </div>
 
-                {/* Nhóm Trực Thuộc & Quản Lý */}
+                {/* Đội Nhóm Trực Thuộc & Quản Lý */}
                 {(() => {
                   const seenIds = new Set<string>();
                   const allTeams: { id: string; name: string; color?: string | null }[] = [];
@@ -1136,12 +1136,12 @@ function SettingsPageContent() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-bold text-slate-400 uppercase mb-1">
-                          {allTeams.length > 1 ? "Nhóm Trực Thuộc & Quản Lý" : "Nhóm Trực Thuộc"}
+                          {allTeams.length > 1 ? "Đội Nhóm Trực Thuộc & Quản Lý" : "Đội Nhóm Trực Thuộc"}
                         </div>
 
                         {allTeams.length === 0 ? (
                           <div className="text-xs font-black text-slate-800 dark:text-slate-200">
-                            Chưa phân nhóm
+                            Chưa phân đội nhóm
                           </div>
                         ) : (
                           <Tooltip>
