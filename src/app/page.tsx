@@ -141,7 +141,7 @@ export default function LandingPage() {
               <div className="w-3 h-3 rounded-full bg-amber-500/80" />
               <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
               <span className="text-xs text-slate-500 dark:text-slate-400 font-mono ml-2 hidden sm:inline">
-                app.streamdash.site/ops-control
+                app.streamdash.top/ops-control
               </span>
             </div>
             <div className="flex items-center gap-3 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/30 px-2.5 py-1 rounded-full">

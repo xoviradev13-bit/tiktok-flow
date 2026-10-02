@@ -100,10 +100,8 @@ async function handleForceSignOut(req: NextRequest) {
   // Determine potential cookie domains to purge
   const candidateDomains = new Set<string>();
   if (process.env.COOKIE_DOMAIN) candidateDomains.add(process.env.COOKIE_DOMAIN);
-  candidateDomains.add(".streamdash.site");
-  candidateDomains.add("streamdash.site");
-  candidateDomains.add(".tiktokflow.site");
-  candidateDomains.add("tiktokflow.site");
+  candidateDomains.add(".streamdash.top");
+  candidateDomains.add("streamdash.top");
   if (host && !host.includes("localhost") && !host.includes("127.0.0.1")) {
     candidateDomains.add(host);
     candidateDomains.add(`.${host}`);

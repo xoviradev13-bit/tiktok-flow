@@ -19,7 +19,7 @@ const IS_PRODUCTION = process.env.APP_ENV === "production" || process.env.NODE_E
 const SHARED_COOKIE_NAME = IS_PRODUCTION
   ? (process.env.COOKIE_NAME || "__Secure-streamdash.session-token")
   : "streamdash.session-token";
-const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || (IS_PRODUCTION ? ".streamdash.site" : undefined);
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || (IS_PRODUCTION ? ".streamdash.top" : undefined);
 
 export const authOptions: NextAuthConfig = {
   ...authConfig,
@@ -68,22 +68,22 @@ export const authOptions: NextAuthConfig = {
   debug: process.env.NODE_ENV === "development",
 
   callbacks: {
-    // Cross-subdomain redirect handler (streamdash.site <-> app.streamdash.site)
+    // Cross-subdomain redirect handler (streamdash.top <-> app.streamdash.top)
     async redirect({ url, baseUrl }) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || (IS_PRODUCTION ? "https://app.streamdash.site" : baseUrl);
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || (IS_PRODUCTION ? "https://app.streamdash.top" : baseUrl);
 
-      // Relative path: e.g. "/accounts" -> "https://app.streamdash.site/accounts"
+      // Relative path: e.g. "/accounts" -> "https://app.streamdash.top/accounts"
       if (url.startsWith("/")) {
         return `${appUrl}${url}`;
       }
 
-      // Absolute URL: allow same origin, any streamdash.site / tiktokflow.site subdomain, or local dev
+      // Absolute URL: allow same origin, streamdash.top subdomain, or local dev
       try {
         const parsed = new URL(url);
         if (
           parsed.origin === baseUrl ||
-          parsed.hostname.endsWith("streamdash.site") ||
-          parsed.hostname.endsWith("tiktokflow.site") ||
+          parsed.hostname === "streamdash.top" ||
+          parsed.hostname.endsWith(".streamdash.top") ||
           parsed.hostname === "localhost" ||
           parsed.hostname === "127.0.0.1"
         ) {

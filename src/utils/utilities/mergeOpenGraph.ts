@@ -4,7 +4,7 @@ const defaultOpenGraph: Metadata['openGraph'] = {
   type: 'website',
   title: 'StreamDash',
   description: 'Nền tảng tự động hóa và quản trị vận hành kênh video quy mô lớn. Tích hợp GPMLogin API, kiểm soát checklist chấm công, theo dõi doanh thu và tối ưu RPM.',
-  url: 'https://streamdash.site/',
+  url: 'https://streamdash.top/',
   siteName: 'StreamDash',
   images: [
     {

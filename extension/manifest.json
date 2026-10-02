@@ -26,7 +26,8 @@
   ],
   "host_permissions": [
     "https://*.tiktok.com/*",
-    "https://streamdash.site/*",
+    "https://streamdash.top/*",
+    "https://*.streamdash.top/*",
     "http://127.0.0.1:39741/*",
     "http://localhost:39741/*",
     "http://127.0.0.1:9495/*",

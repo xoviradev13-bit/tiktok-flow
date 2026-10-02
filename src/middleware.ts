@@ -82,7 +82,7 @@ export async function proxy(request: NextRequest) {
   const hostname = rawHost.split(":")[0].toLowerCase();
 
   // Canonical redirect: www.domain -> root domain
-  if (hostname === "www.streamdash.site" || hostname === "www.tiktokflow.site") {
+  if (hostname === "www.streamdash.top") {
     const rootDomain = hostname.replace(/^www\./, "");
     return NextResponse.redirect(new URL(`https://${rootDomain}${pathname}${url.search}`), 301);
   }
@@ -153,9 +153,9 @@ export async function proxy(request: NextRequest) {
   const isAccountLocked = (token as any)?.error === "ACCOUNT_LOCKED";
   const isAuthenticated = !!token?.id;
 
-  const isPublicDomain = hostname === "streamdash.site" || hostname === "tiktokflow.site";
-  const isAppDomain = hostname === "app.streamdash.site" || hostname === "app.tiktokflow.site";
-  const appBaseUrl = hostname.includes("tiktokflow") ? "https://app.tiktokflow.site" : "https://app.streamdash.site";
+  const isPublicDomain = hostname === "streamdash.top";
+  const isAppDomain = hostname === "app.streamdash.top";
+  const appBaseUrl = "https://app.streamdash.top";
 
   // ── A. ROOT PUBLIC DOMAIN ──────────────────────────────────────────────────
   if (isPublicDomain) {
@@ -173,9 +173,9 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── B. APPLICATION SUBDOMAIN (app.tiktokflow.site) ───────────────────────────
+  // ── B. APPLICATION SUBDOMAIN (app.streamdash.top) ───────────────────────────
   if (isAppDomain) {
-    // Root URL (app.tiktokflow.site/) -> redirect to dashboard if authenticated, or signin
+    // Root URL (app.streamdash.top/) -> redirect to dashboard if authenticated, or signin
     if (pathname === "/") {
       if (isAuthenticated) {
         return NextResponse.redirect(new URL("/accounts", url));
