@@ -76,6 +76,70 @@ export function getTodayDateStr(): string {
 }
 
 /**
+ * TikTok delays estimated revenue reports by 2 days.
+ * "Today" (hôm nay) effectively means 2 days ago.
+ * E.g., if today is 08/10, effective today is 06/10.
+ */
+export function getEffectiveTodayDate(referenceDate: Date = new Date()): {
+  dateStr: string;
+  displayStr: string;
+} {
+  const d = new Date(referenceDate);
+  d.setDate(d.getDate() - 2);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return {
+    dateStr: `${year}-${month}-${day}`,
+    displayStr: `${day}/${month}`,
+  };
+}
+
+/**
+ * Resolve revenue for "Today" (hôm nay), which is 2 days ago due to TikTok's 2-day reporting delay.
+ */
+export function resolveTodayRevenue(
+  account: AccountRevenueSource,
+  targetDateStr?: string
+): number {
+  const target = targetDateStr || getEffectiveTodayDate().dateStr;
+  let daily = 0;
+
+  const breakdown =
+    (account.analytics?.dailyRevenueBreakdown as any[]) ||
+    (account.analytics?.dailyBreakdown as any[]) ||
+    [];
+  if (Array.isArray(breakdown)) {
+    for (const item of breakdown) {
+      if (!item?.date) continue;
+      const dStr = String(item.date).split("T")[0];
+      if (dStr === target) {
+        daily += num(item.revenue);
+      }
+    }
+  }
+
+  // Also check dailyRevenues array if present
+  const drList = (account as any).dailyRevenues;
+  if (Array.isArray(drList)) {
+    let drSum = 0;
+    for (const dr of drList) {
+      if (!dr?.date) continue;
+      const dStr =
+        typeof dr.date === "string"
+          ? dr.date.split("T")[0]
+          : new Date(dr.date).toISOString().split("T")[0];
+      if (dStr === target) {
+        drSum += num(dr.revenue);
+      }
+    }
+    if (drSum > daily) daily = drSum;
+  }
+
+  return Math.round(daily * 100) / 100;
+}
+
+/**
  * Returns the Monday (start) and Sunday (end) of the current week as YYYY-MM-DD strings.
  * Week is Monday–Sunday per Vietnamese/ISO convention.
  */
@@ -198,6 +262,7 @@ export function getAccountRevenuePeriods(account: AccountRevenueSource): {
   revenue7d: number;
   revenue28d: number;
   revenue30d: number;
+  revenueToday: number;
   revenueThisMonth: number;
   revenueThisWeek: number;
   revenuePrevMonth: number;
@@ -238,6 +303,7 @@ export function getAccountRevenuePeriods(account: AccountRevenueSource): {
     );
   }
 
+  const revenueToday = resolveTodayRevenue(account);
   const revenueThisMonth = resolveThisMonthRevenue(account);
   const revenueThisWeek = resolveThisWeekRevenue(account);
   const revenuePrevMonth = resolvePreviousMonthRevenue(account);
@@ -246,6 +312,7 @@ export function getAccountRevenuePeriods(account: AccountRevenueSource): {
     revenue7d: num(sr.revenue7d ?? analytics.revenue7d),
     revenue28d: num(sr.revenue28d ?? analytics.revenue28d),
     revenue30d: rev30,
+    revenueToday,
     revenueThisMonth,
     revenueThisWeek,
     revenuePrevMonth,
@@ -269,7 +336,7 @@ export function sumDailyRevenueBreakdown(
   let sum = 0;
   for (const item of breakdown) {
     if (!item?.date) continue;
-    const d = String(item.date);
+    const d = String(item.date).split("T")[0];
     if (startDateStr && d < startDateStr) continue;
     if (endDateStr && d > endDateStr) continue;
     sum += num(item.revenue);

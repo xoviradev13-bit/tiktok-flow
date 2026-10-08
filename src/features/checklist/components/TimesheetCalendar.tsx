@@ -8,7 +8,6 @@ import {
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
-  isSameMonth,
   isSameDay,
   isToday,
   addMonths,
@@ -16,6 +15,7 @@ import {
   subDays,
   startOfDay,
 } from "date-fns";
+
 import { vi } from "date-fns/locale";
 import {
   ChevronLeft,
@@ -59,6 +59,24 @@ interface TimesheetCalendarProps {
     fullDayThreshold?: number;
     halfDayThreshold?: number;
   };
+}
+
+function getActivePayrollCycle(refDate: Date = new Date()) {
+  const y = refDate.getFullYear();
+  const m = refDate.getMonth();
+  const d = refDate.getDate();
+
+  if (d <= 15) {
+    return {
+      start: new Date(y, m - 1, 16),
+      end: new Date(y, m, 15),
+    };
+  } else {
+    return {
+      start: new Date(y, m, 16),
+      end: new Date(y, m + 1, 15),
+    };
+  }
 }
 
 export default function TimesheetCalendar({
@@ -118,14 +136,20 @@ export default function TimesheetCalendar({
   };
 
   // Calendar Matrix generation
-  const { daysInGrid, monthStart, monthEnd } = useMemo(() => {
-    const mStart = startOfMonth(selectedMonthDate);
-    const mEnd = endOfMonth(selectedMonthDate);
-    const gridStart = startOfWeek(mStart, { weekStartsOn: 1 }); // Monday start
-    const gridEnd = endOfWeek(mEnd, { weekStartsOn: 1 });
-
+  // "Tháng N" payroll cycle = 16/N → 15/(N+1)
+  const { daysInGrid, cycleStart: gridCycleStart, cycleEnd: gridCycleEnd } = useMemo(() => {
+    const y = selectedMonthDate.getFullYear();
+    const m = selectedMonthDate.getMonth();
+    // Cycle: 16th of selectedMonth → 15th of next month
+    const cStart = new Date(y, m, 16);
+    cStart.setHours(0, 0, 0, 0);
+    const cEnd = new Date(y, m + 1, 15);
+    cEnd.setHours(23, 59, 59, 999);
+    // Grid pads to full weeks (Mon-Sun)
+    const gridStart = startOfWeek(cStart, { weekStartsOn: 1 });
+    const gridEnd = endOfWeek(cEnd, { weekStartsOn: 1 });
     const days = eachDayOfInterval({ start: gridStart, end: gridEnd });
-    return { daysInGrid: days, monthStart: mStart, monthEnd: mEnd };
+    return { daysInGrid: days, cycleStart: cStart, cycleEnd: cEnd };
   }, [selectedMonthDate]);
 
   // Index checklists by date string "YYYY-MM-DD"
@@ -152,7 +176,7 @@ export default function TimesheetCalendar({
     let totalAssigned = 0;
     let totalCompletionSum = 0;
 
-    // Filter checklists within cycle (from 16th of current month to 15th of next month)
+    // Filter checklists within cycle: 16th of selectedMonth → 15th of next month
     const cycleStart = new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth(), 16);
     cycleStart.setHours(0, 0, 0, 0);
     const cycleEnd = new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth() + 1, 15);
@@ -210,15 +234,61 @@ export default function TimesheetCalendar({
 
   // Navigation handlers
   const handlePrevMonth = () => {
-    onMonthChange(subMonths(selectedMonthDate, 1));
+    const newMonth = subMonths(selectedMonthDate, 1);
+    onMonthChange(newMonth);
+    // Auto-select the 16th (cycle start) if not the active cycle month
+    const now = new Date();
+    const activeCycle = getActivePayrollCycle(now);
+    const isCurrentActiveMonth =
+      newMonth.getFullYear() === activeCycle.start.getFullYear() &&
+      newMonth.getMonth() === activeCycle.start.getMonth();
+    if (!isCurrentActiveMonth) {
+      const cycleFirst = format(
+        new Date(newMonth.getFullYear(), newMonth.getMonth(), 16),
+        "yyyy-MM-dd"
+      );
+      if (onNavigateDate) onNavigateDate(cycleFirst);
+      else onSelectDate(cycleFirst);
+      setQuickMode("custom");
+    } else {
+      // Back to current active cycle month — restore today selection without modal
+      setQuickMode("today");
+      if (onNavigateDate) onNavigateDate(format(now, "yyyy-MM-dd"));
+      else onSelectDate(format(now, "yyyy-MM-dd"));
+    }
   };
 
   const handleNextMonth = () => {
-    onMonthChange(addMonths(selectedMonthDate, 1));
+    const newMonth = addMonths(selectedMonthDate, 1);
+    onMonthChange(newMonth);
+    const now = new Date();
+    const activeCycle = getActivePayrollCycle(now);
+    const isCurrentActiveMonth =
+      newMonth.getFullYear() === activeCycle.start.getFullYear() &&
+      newMonth.getMonth() === activeCycle.start.getMonth();
+    if (!isCurrentActiveMonth) {
+      const cycleFirst = format(
+        new Date(newMonth.getFullYear(), newMonth.getMonth(), 16),
+        "yyyy-MM-dd"
+      );
+      if (onNavigateDate) onNavigateDate(cycleFirst);
+      else onSelectDate(cycleFirst);
+      setQuickMode("custom");
+    } else {
+      setQuickMode("today");
+      if (onNavigateDate) onNavigateDate(format(now, "yyyy-MM-dd"));
+      else onSelectDate(format(now, "yyyy-MM-dd"));
+    }
   };
 
   const handleToday = () => {
-    onMonthChange(new Date());
+    const now = new Date();
+    const activeCycle = getActivePayrollCycle(now);
+    const activeMonthDate = new Date(activeCycle.start.getFullYear(), activeCycle.start.getMonth(), 1);
+    onMonthChange(activeMonthDate);
+    setQuickMode("today");
+    if (onNavigateDate) onNavigateDate(format(now, "yyyy-MM-dd"));
+    else onSelectDate(format(now, "yyyy-MM-dd"));
   };
 
   const weekDayLabels = [
@@ -295,9 +365,12 @@ export default function TimesheetCalendar({
                         type="button"
                         onClick={() => {
                           const today = new Date();
+                          const activeCycle = getActivePayrollCycle(today);
+                          const activeMonthDate = new Date(activeCycle.start.getFullYear(), activeCycle.start.getMonth(), 1);
                           setQuickMode('today');
-                          onMonthChange(today);
+                          onMonthChange(activeMonthDate);
                           if (onNavigateDate) onNavigateDate(format(today, "yyyy-MM-dd"));
+                          else onSelectDate(format(today, "yyyy-MM-dd"));
                           setIsQuickDateOpen(false);
                         }}
                         className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${quickMode === 'today'
@@ -314,9 +387,12 @@ export default function TimesheetCalendar({
                         onClick={() => {
                           const yest = new Date();
                           yest.setDate(yest.getDate() - 1);
+                          const activeCycle = getActivePayrollCycle(yest);
+                          const activeMonthDate = new Date(activeCycle.start.getFullYear(), activeCycle.start.getMonth(), 1);
                           setQuickMode('yesterday');
-                          onMonthChange(yest);
+                          onMonthChange(activeMonthDate);
                           if (onNavigateDate) onNavigateDate(format(yest, "yyyy-MM-dd"));
+                          else onSelectDate(format(yest, "yyyy-MM-dd"));
                           setIsQuickDateOpen(false);
                         }}
                         className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${quickMode === 'yesterday'
@@ -349,8 +425,11 @@ export default function TimesheetCalendar({
                           onSelect={(d) => {
                             if (d) {
                               setQuickMode('custom');
-                              onMonthChange(d);
+                              const cycle = getActivePayrollCycle(d);
+                              const cycleMonthDate = new Date(cycle.start.getFullYear(), cycle.start.getMonth(), 1);
+                              onMonthChange(cycleMonthDate);
                               if (onNavigateDate) onNavigateDate(format(d, "yyyy-MM-dd"));
+                              else onSelectDate(format(d, "yyyy-MM-dd"));
                               setIsQuickDateOpen(false);
                             }
                           }}
@@ -452,7 +531,9 @@ export default function TimesheetCalendar({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                {isSingleUser ? "Tổng Ngày Công Kỳ (16 - 15)" : "Tổng Ngày Công Đội (16 - 15)"}
+                {isSingleUser
+                  ? `Tổng Ngày Công Kỳ (${format(new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth() - 1, 16), "dd/MM")} - ${format(new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth(), 15), "dd/MM")})`
+                  : `Tổng Ngày Công Đội (${format(new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth() - 1, 16), "dd/MM")} - ${format(new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth(), 15), "dd/MM")})`}
               </div>
               <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white truncate">
                 {monthStats.totalScore}{" "}
@@ -532,7 +613,9 @@ export default function TimesheetCalendar({
         <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
           {daysInGrid.map((day) => {
             const dateStr = format(day, "yyyy-MM-dd");
-            const isCurrMonth = isSameMonth(day, selectedMonthDate);
+            // "In cycle" = within the payroll period: 16/selectedMonth → 15/nextMonth
+            const dayTime = day.getTime();
+            const isCurrMonth = dayTime >= gridCycleStart.getTime() && dayTime <= gridCycleEnd.getTime();
             const isCurrDay = isToday(day);
             const dayChecklists = checklistsByDate.get(dateStr) || [];
             const hasData = dayChecklists.length > 0;

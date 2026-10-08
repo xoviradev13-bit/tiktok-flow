@@ -97,9 +97,11 @@ import {
   getAccountRevenuePeriods,
   resolveAllTimeRevenue,
   resolvePeriodRevenue,
+  resolveTodayRevenue,
   resolveThisMonthRevenue,
   resolveThisWeekRevenue,
   resolvePreviousMonthRevenue,
+  getEffectiveTodayDate,
   getThisWeekDateRange,
   getPreviousMonthDateRange,
 } from "@/lib/resolve-all-time-revenue";
@@ -580,12 +582,12 @@ function AccountsPageContent() {
   // SaaS URL Query State Synchronization
   const { updateUrlParams } = useUrlParams();
 
-  // Trash mode state (Admin only)
-  const initialViewTrash = isAdmin && searchParams?.get("trash") === "true";
+  // Trash mode state (All roles with delete permission)
+  const initialViewTrash = searchParams?.get("trash") === "true";
   const [viewTrash, setViewTrash] = useState<boolean>(initialViewTrash);
 
-  // Archive mode state (Lead / Admin)
-  const initialViewArchive = isLeadOrAdmin && searchParams?.get("archive") === "true";
+  // Archive mode state (All roles)
+  const initialViewArchive = searchParams?.get("archive") === "true";
   const [viewArchive, setViewArchive] = useState<boolean>(initialViewArchive);
 
   // View Mode: read initial value from URL Search Params ("v" or "view")
@@ -836,8 +838,8 @@ function AccountsPageContent() {
     syncStatus: !viewTrash && !viewArchive && syncFilter !== "ALL" ? syncFilter : undefined,
     country: countryFilter !== "ALL" ? countryFilter : undefined,
     assignedUserId: isLeadOrAdmin && assignedFilter !== "ALL" ? assignedFilter : undefined,
-    viewTrash: viewTrash && isAdmin ? true : false,
-    viewArchive: viewArchive && isLeadOrAdmin ? true : false,
+    viewTrash: viewTrash ? true : false,
+    viewArchive: viewArchive ? true : false,
   });
 
   const { data: users = [] } = trpc.user.listStaff.useQuery();
@@ -892,24 +894,33 @@ function AccountsPageContent() {
   const stats = accountsData?.stats;
   const fleetStats = stats?.mode === "fleet" ? stats : null;
 
-  const canManageArchiveForAccount = useCallback((acc: any) => {
+  const canManageAccount = useCallback((acc: any) => {
     if (isAdmin) return true;
-    if (!isLead) return false;
     if (!acc?.assignedUserId) return false;
-    if (acc.assignedUserId === (session?.user as any)?.id) return true;
-    return users.some((u: any) => u.id === acc.assignedUserId);
+    const currentUserId = (session?.user as any)?.id;
+    if (acc.assignedUserId === currentUserId) return true;
+    if (isLead) {
+      return users.some((u: any) => u.id === acc.assignedUserId);
+    }
+    return false;
   }, [isAdmin, isLead, session?.user, users]);
+
+  const canManageArchiveForAccount = canManageAccount;
+  const canDeleteAccount = canManageAccount;
 
   const getManageableAccountIds = useCallback((ids: Set<string>) => {
     if (isAdmin) return Array.from(ids);
-    if (!isLead) return [];
     return accounts
-      .filter((a: any) => ids.has(a.id) && canManageArchiveForAccount(a))
+      .filter((a: any) => ids.has(a.id) && canManageAccount(a))
       .map((a: any) => a.id);
-  }, [isAdmin, isLead, accounts, canManageArchiveForAccount]);
+  }, [isAdmin, accounts, canManageAccount]);
 
   const fleetRevenuePeriods = useMemo(() => {
     const fs = fleetStats as any;
+    const rToday =
+      typeof fs?.totalRevenueToday === "number"
+        ? fs.totalRevenueToday
+        : accounts.reduce((sum: number, acc: any) => sum + resolveTodayRevenue(acc), 0);
     const rThisMonth =
       typeof fs?.totalRevenueThisMonth === "number"
         ? fs.totalRevenueThisMonth
@@ -926,12 +937,14 @@ function AccountsPageContent() {
     );
 
     return {
+      revenueToday: rToday,
       revenueThisMonth: rThisMonth,
       revenueThisWeek: rThisWeek,
       revenuePrevMonth: rPrevMonth,
     };
   }, [fleetStats, accounts]);
 
+  const fleetRevenueToday = fleetRevenuePeriods.revenueToday;
   const fleetRevenueThisMonth = fleetRevenuePeriods.revenueThisMonth;
 
   const getAssigneeLabel = (acc: any) => {
@@ -1831,86 +1844,80 @@ function AccountsPageContent() {
             </p>
           </div>
 
-          {isLeadOrAdmin && (
-            <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-              {isLeadOrAdmin && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setViewArchive(!viewArchive);
-                        if (!viewArchive) setViewTrash(false);
-                        setPage(1);
-                        setSelectedIds(new Set());
-                      }}
-                      className={`h-10 flex items-center gap-2 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${viewArchive
-                        ? "bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-600/30 font-extrabold"
-                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                        }`}
-                    >
-                      <Archive className={`w-4 h-4 ${viewArchive ? "text-white" : "text-amber-500"}`} />
-                      <span>
-                        Lưu trữ {stats && "archiveCount" in stats && stats.archiveCount != null ? `(${stats.archiveCount})` : ""}
-                      </span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">
-                    {viewArchive
-                      ? "Đang xem lưu trữ — bấm để quay lại danh sách chính"
-                      : "Xem danh sách tài khoản đã lưu trữ"}
-                  </TooltipContent>
-                </Tooltip>
-              )}
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewArchive(!viewArchive);
+                    if (!viewArchive) setViewTrash(false);
+                    setPage(1);
+                    setSelectedIds(new Set());
+                  }}
+                  className={`h-10 flex items-center gap-2 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${viewArchive
+                    ? "bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-600/30 font-extrabold"
+                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    }`}
+                >
+                  <Archive className={`w-4 h-4 ${viewArchive ? "text-white" : "text-amber-500"}`} />
+                  <span>
+                    Lưu trữ {stats && "archiveCount" in stats && stats.archiveCount != null ? `(${stats.archiveCount})` : ""}
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {viewArchive
+                  ? "Đang xem lưu trữ — bấm để quay lại danh sách chính"
+                  : "Xem danh sách tài khoản đã lưu trữ"}
+              </TooltipContent>
+            </Tooltip>
 
-              {isAdmin && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setViewTrash(!viewTrash);
-                        if (!viewTrash) setViewArchive(false);
-                        setPage(1);
-                        setSelectedIds(new Set());
-                      }}
-                      className={`h-10 flex items-center gap-2 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${viewTrash
-                        ? "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 font-extrabold"
-                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                        }`}
-                    >
-                      <Trash2 className={`w-4 h-4 ${viewTrash ? "text-white" : "text-rose-500"}`} />
-                      <span>
-                        Thùng rác {stats?.trashCount !== undefined && stats.trashCount !== null ? `(${stats.trashCount})` : ""}
-                      </span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">
-                    {viewTrash
-                      ? "Đang xem thùng rác — bấm để quay lại danh sách chính"
-                      : "Xem danh sách tài khoản đã xóa (Chỉ Admin)"}
-                  </TooltipContent>
-                </Tooltip>
-              )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewTrash(!viewTrash);
+                    if (!viewTrash) setViewArchive(false);
+                    setPage(1);
+                    setSelectedIds(new Set());
+                  }}
+                  className={`h-10 flex items-center gap-2 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${viewTrash
+                    ? "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/30 font-extrabold"
+                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    }`}
+                >
+                  <Trash2 className={`w-4 h-4 ${viewTrash ? "text-white" : "text-rose-500"}`} />
+                  <span>
+                    Thùng rác {stats?.trashCount !== undefined && stats.trashCount !== null ? `(${stats.trashCount})` : ""}
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {viewTrash
+                  ? "Đang xem thùng rác — bấm để quay lại danh sách chính"
+                  : isAdmin ? "Xem danh sách tài khoản đã xóa" : "Xem tài khoản của bạn đã chuyển vào thùng rác"}
+              </TooltipContent>
+            </Tooltip>
 
-              {!viewTrash && !viewArchive && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setIsCreateOpen(true)}
-                      className="h-10 flex items-center gap-2 px-4 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      <Plus className="w-4 h-4 shrink-0" />
-                      <span className="truncate">Thêm Tài Khoản</span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs font-semibold">
-                    Thêm tài khoản TikTok mới vào hệ thống
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          )}
+            {isLeadOrAdmin && !viewTrash && !viewArchive && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setIsCreateOpen(true)}
+                    className="h-10 flex items-center gap-2 px-4 rounded-xl text-sm font-bold bg-pink-600 hover:bg-pink-500 text-white shadow-lg shadow-pink-600/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span className="truncate">Thêm Tài Khoản</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs font-semibold">
+                  Thêm tài khoản TikTok mới vào hệ thống
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         </div>
 
         {/* Archive Mode Banner */}
@@ -2070,7 +2077,7 @@ function AccountsPageContent() {
             </div>
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm min-w-0">
               <div className="text-xs font-semibold text-pink-600 dark:text-pink-400 flex items-center justify-between gap-1 min-w-0">
-                <span className="truncate whitespace-nowrap" title="Doanh Thu Toàn Dàn (Tháng Này)">
+                <span className="truncate whitespace-nowrap" title="Doanh Thu Toàn Dàn (Hôm Nay)">
                   Doanh Thu Toàn Dàn
                 </span>
                 <Tooltip>
@@ -2078,7 +2085,7 @@ function AccountsPageContent() {
                     <button
                       type="button"
                       className="text-pink-400 hover:text-pink-600 dark:hover:text-pink-300 transition-colors p-0.5 rounded cursor-help shrink-0"
-                      aria-label="Thông tin doanh thu tháng này"
+                      aria-label="Thông tin doanh thu hôm nay"
                     >
                       <Info className="w-3.5 h-3.5" />
                     </button>
@@ -2089,20 +2096,20 @@ function AccountsPageContent() {
                   >
                     <div className="font-bold text-pink-400 border-b border-slate-700/80 pb-1 flex items-center gap-1.5">
                       <Info className="w-3.5 h-3.5 shrink-0 text-pink-400" />
-                      <span className="min-w-0 break-words">Doanh Thu Toàn Dàn (Tháng Này)</span>
+                      <span className="min-w-0 break-words">Doanh Thu Toàn Dàn (Hôm Nay)</span>
                     </div>
 
                     <p className="text-[11px] text-slate-300 leading-relaxed text-left [text-wrap:wrap] break-words">
                       Số tiền hiển thị là tổng doanh thu{" "}
                       <strong>
-                        tháng này (01/{String(new Date().getMonth() + 1).padStart(2, "0")} đến nay)
+                        hôm nay ({getEffectiveTodayDate().displayStr})
                       </strong>{" "}
-                      được tổng hợp từ toàn bộ tài khoản TikTok trong hệ thống.
+                      được tổng hợp từ toàn bộ tài khoản TikTok trong hệ thống (TikTok cập nhật chậm 2 ngày).
                     </p>
 
                     <div className="pt-1.5 mt-1 border-t border-slate-800 space-y-1 text-[11px]">
                       {(() => {
-                        const weekRange = getThisWeekDateRange();
+                        const effectiveToday = getEffectiveTodayDate();
                         const prevRange = getPreviousMonthDateRange();
                         const fmt = (n: number) =>
                           n.toLocaleString(undefined, {
@@ -2115,11 +2122,10 @@ function AccountsPageContent() {
                           <>
                             <div className="flex items-baseline justify-between gap-3">
                               <span className="min-w-0 flex-1 text-slate-400">
-                                Tuần này ({weekRange.start.slice(8)}/{weekRange.start.slice(5, 7)}–
-                                {weekRange.end.slice(8)}/{weekRange.end.slice(5, 7)}):
+                                Hôm nay ({effectiveToday.displayStr}):
                               </span>
-                              <span className="shrink-0 font-semibold text-cyan-300 whitespace-nowrap tabular-nums">
-                                ${fmt(fleetRevenuePeriods.revenueThisWeek)}
+                              <span className="shrink-0 font-bold text-pink-400 whitespace-nowrap tabular-nums">
+                                ${fmt(fleetRevenueToday)}
                               </span>
                             </div>
 
@@ -2127,7 +2133,7 @@ function AccountsPageContent() {
                               <span className="min-w-0 flex-1 text-slate-400">
                                 Tháng này (01/{monthNum} đến nay):
                               </span>
-                              <span className="shrink-0 font-bold text-pink-400 whitespace-nowrap tabular-nums">
+                              <span className="shrink-0 font-semibold text-cyan-300 whitespace-nowrap tabular-nums">
                                 ${fmt(fleetRevenueThisMonth)}
                               </span>
                             </div>
@@ -2148,7 +2154,7 @@ function AccountsPageContent() {
                 </Tooltip>
               </div>
               <div className="text-xl font-black text-pink-600 dark:text-pink-400 mt-1">
-                ${fleetRevenueThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${fleetRevenueToday.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
           </div>
@@ -3451,7 +3457,7 @@ function AccountsPageContent() {
                                     <span>Chỉnh sửa</span>
                                   </DropdownMenuItem>
                                 )}
-                                {isLeadOrAdmin && canManageArchiveForAccount(acc) && (
+                                {canManageArchiveForAccount(acc) && (
                                   <>
                                     <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                                     <DropdownMenuItem
@@ -3466,7 +3472,7 @@ function AccountsPageContent() {
                                     </DropdownMenuItem>
                                   </>
                                 )}
-                                {isAdmin && (
+                                {canDeleteAccount(acc) && (
                                   <>
                                     <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                                     <DropdownMenuItem
@@ -3677,7 +3683,7 @@ function AccountsPageContent() {
                             <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
                               {(() => {
                                 const p = getAccountRevenuePeriods(acc as any);
-                                const weekRange = getThisWeekDateRange();
+                                const effectiveToday = getEffectiveTodayDate();
                                 const prevRange = getPreviousMonthDateRange();
                                 return (
                                   <>
@@ -3685,8 +3691,8 @@ function AccountsPageContent() {
                                       <span>Doanh Thu TikTok Studio</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
-                                      <span className="text-slate-400">Tuần này ({weekRange.start.slice(8)}/{weekRange.start.slice(5, 7)}–{weekRange.end.slice(8)}/{weekRange.end.slice(5, 7)}):</span>
-                                      <span className="font-semibold text-cyan-300">{formatAmount(p.revenueThisWeek, (acc as any).country)}</span>
+                                      <span className="text-slate-400">Hôm nay ({effectiveToday.displayStr}):</span>
+                                      <span className="font-semibold text-cyan-300">{formatAmount(p.revenueToday, (acc as any).country)}</span>
                                     </div>
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">Tháng này (01/{new Date().toLocaleDateString("vi-VN", { month: "2-digit" })} đến nay):</span>
@@ -4141,6 +4147,14 @@ function AccountsPageContent() {
                                       Đã xóa
                                     </span>
                                   )}
+                                  {viewArchive && (
+                                    <span
+                                      className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40"
+                                      title={`Lưu trữ bởi ${acc.archivedByName || "Hệ thống"}${acc.archivedAt ? ` (${new Date(acc.archivedAt).toLocaleDateString("vi-VN")})` : ""}`}
+                                    >
+                                      Lưu trữ bởi {acc.archivedByName || "Hệ thống"}
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                             )}
@@ -4443,7 +4457,7 @@ function AccountsPageContent() {
                                   <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
                                     {(() => {
                                       const p = getAccountRevenuePeriods(acc as any);
-                                      const weekRange = getThisWeekDateRange();
+                                      const effectiveToday = getEffectiveTodayDate();
                                       const prevRange = getPreviousMonthDateRange();
                                       return (
                                         <>
@@ -4451,8 +4465,8 @@ function AccountsPageContent() {
                                             Doanh Thu TikTok Studio
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
-                                            <span className="text-slate-400">Tuần này ({weekRange.start.slice(8)}/{weekRange.start.slice(5, 7)}–{weekRange.end.slice(8)}/{weekRange.end.slice(5, 7)}):</span>
-                                            <span className="font-semibold text-cyan-300">{formatAmount(p.revenueThisWeek, (acc as any).country)}</span>
+                                            <span className="text-slate-400">Hôm nay ({effectiveToday.displayStr}):</span>
+                                            <span className="font-semibold text-cyan-300">{formatAmount(p.revenueToday, (acc as any).country)}</span>
                                           </div>
                                           <div className="flex justify-between gap-4 text-[11px]">
                                             <span className="text-slate-400">Tháng này (01/{new Date().toLocaleDateString("vi-VN", { month: "2-digit" })} đến nay):</span>
@@ -4768,7 +4782,7 @@ function AccountsPageContent() {
                                             </DropdownMenuItem>
                                           )}
 
-                                          {isLeadOrAdmin && canManageArchiveForAccount(acc) && (
+                                          {canManageArchiveForAccount(acc) && (
                                             <>
                                               <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                                               <DropdownMenuItem
@@ -4784,7 +4798,7 @@ function AccountsPageContent() {
                                             </>
                                           )}
 
-                                          {isAdmin && (
+                                          {canDeleteAccount(acc) && (
                                             <>
                                               <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
 
@@ -4912,33 +4926,36 @@ function AccountsPageContent() {
                 </button>
               )}
 
-              {isLeadOrAdmin && (
-                <button
-                  onClick={() => {
-                    const targetIds = getManageableAccountIds(selectedIds);
-                    if (targetIds.length === 0) {
-                      toast.error("Không có tài khoản nào thuộc đội nhóm của bạn để lưu trữ.");
-                      return;
-                    }
-                    bulkArchiveMutation.mutate({ ids: targetIds });
-                  }}
-                  disabled={bulkArchiveMutation.isPending}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
-                >
-                  <Archive className="w-3.5 h-3.5" />
-                  <span>Lưu trữ ({selectedIds.size})</span>
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  const targetIds = getManageableAccountIds(selectedIds);
+                  if (targetIds.length === 0) {
+                    toast.error("Không có tài khoản nào thuộc quyền quản lý của bạn để lưu trữ.");
+                    return;
+                  }
+                  bulkArchiveMutation.mutate({ ids: targetIds });
+                }}
+                disabled={bulkArchiveMutation.isPending}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span>Lưu trữ ({selectedIds.size})</span>
+              </button>
 
-              {isAdmin && (
-                <button
-                  onClick={() => setIsBulkDeleteOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Xóa đã chọn ({selectedIds.size})</span>
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  const targetIds = getManageableAccountIds(selectedIds);
+                  if (targetIds.length === 0) {
+                    toast.error("Không có tài khoản nào thuộc quyền quản lý của bạn để xóa.");
+                    return;
+                  }
+                  setIsBulkDeleteOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm active:scale-95 transition-all cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Xóa đã chọn ({selectedIds.size})</span>
+              </button>
             </>
           )}
         </div>
@@ -5278,7 +5295,7 @@ function AccountsPageContent() {
       )}
 
       {/* Modal: Confirm Soft Delete Single Account */}
-      {isDeleteOpen && accountToDelete && isAdmin && (
+      {isDeleteOpen && accountToDelete && canDeleteAccount(accountToDelete) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
             <div className="flex items-center gap-3">
@@ -5382,7 +5399,7 @@ function AccountsPageContent() {
       )}
 
       {/* Modal: Bulk Soft Delete */}
-      {isBulkDeleteOpen && isAdmin && (
+      {isBulkDeleteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95">
             <div className="flex items-center gap-3">
@@ -5394,7 +5411,7 @@ function AccountsPageContent() {
                   Chuyển hàng loạt vào thùng rác
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bạn có chắc muốn chuyển {selectedIds.size} tài khoản đã chọn vào thùng rác?
+                  Bạn có chắc muốn chuyển {getManageableAccountIds(selectedIds).length} tài khoản đã chọn vào thùng rác?
                 </p>
               </div>
             </div>
@@ -5415,12 +5432,15 @@ function AccountsPageContent() {
                 type="button"
                 disabled={bulkDeleteMutation.isPending}
                 onClick={() => {
-                  bulkDeleteMutation.mutate({ ids: Array.from(selectedIds) });
+                  const targetIds = getManageableAccountIds(selectedIds);
+                  if (targetIds.length > 0) {
+                    bulkDeleteMutation.mutate({ ids: targetIds });
+                  }
                 }}
                 className="flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-60 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{bulkDeleteMutation.isPending ? "Đang chuyển..." : `Chuyển vào thùng rác (${selectedIds.size})`}</span>
+                <span>{bulkDeleteMutation.isPending ? "Đang chuyển..." : `Chuyển vào thùng rác (${getManageableAccountIds(selectedIds).length})`}</span>
               </button>
             </div>
           </div>

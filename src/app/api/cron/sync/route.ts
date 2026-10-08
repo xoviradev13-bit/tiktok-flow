@@ -174,6 +174,7 @@ export async function GET(req: Request) {
 
         if (!existing) {
           const resolvedGroupName = await resolveGroupNameCached(p.group_id);
+          const isKhoGroup = typeof resolvedGroupName === "string" && resolvedGroupName.trim().toLowerCase() === "kho";
           const country =
             detectCountryFromText(rawName) ||
             detectCountryFromText(resolvedGroupName) ||
@@ -187,6 +188,9 @@ export async function GET(req: Request) {
               groupName: resolvedGroupName || "GPM Fleet",
               gpmProfileId: p.id,
               status: "ACTIVE",
+              archivedAt: isKhoGroup ? new Date() : null,
+              archivedById: null,
+              isOnline: isKhoGroup ? false : undefined,
               totalViews: BigInt(0),
               totalFollowers: 0,
               totalVideos: 0,
@@ -221,6 +225,18 @@ export async function GET(req: Request) {
             groupName: resolvedGroupName || existing.groupName,
             // FIX: do NOT touch lastSyncedAt (see comment above).
           };
+
+          const currentGroup = resolvedGroupName || existing.groupName;
+          const isKho = typeof currentGroup === "string" && currentGroup.trim().toLowerCase() === "kho";
+          if (isKho) {
+            updateData.archivedAt = existing.archivedAt || new Date();
+            updateData.archivedById = null;
+            updateData.isOnline = false;
+          } else if (existing.archivedAt && typeof resolvedGroupName === "string" && resolvedGroupName.trim().toLowerCase() !== "kho") {
+            // Profile moved out of kho -> automatically remove archive!
+            updateData.archivedAt = null;
+            updateData.archivedById = null;
+          }
 
           // FIX: upgrade country on update too, when we have a specific
           // detection and the current value is default/unset.

@@ -134,6 +134,7 @@ export const leaderboardRouter = router({
             },
           },
           tiktokAccounts: {
+            where: { archivedAt: null, deletedAt: null },
             select: {
               id: true,
               username: true,

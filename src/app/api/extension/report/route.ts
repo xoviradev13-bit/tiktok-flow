@@ -147,6 +147,7 @@ export interface ExtensionReportPayload {
   gpmProfileId?: string;
   gpmProfileName?: string;
   gpmGroupName?: string;
+  isArchived?: boolean;
   /** Explicit client origin: extension = identity only; agent = full metrics */
   source?: "extension" | "agent";
   metricsSource?: string;
@@ -377,7 +378,7 @@ export async function POST(req: Request) {
     // Extension = identity/GPM/assignment only. Agent writes metrics.
     const isIdentityOnly =
       source === "extension" || metricsSource === "identity";
-    const applyMetrics =
+    let applyMetrics =
       !isIdentityOnly &&
       (source === "agent" ||
         metricsSource === "agent" ||
@@ -628,6 +629,14 @@ export async function POST(req: Request) {
           body.creatorRewardsMissing === true &&
           (effectiveFollowersOnCreate >= 10000 || hasCreatorPostRewardsOnCreate);
 
+        const effectiveGroupOnCreate = nameFields.groupName || resolvedGpmGroupName || body.gpmGroupName || null;
+        const isKhoOnCreate =
+          body.isArchived === true ||
+          (typeof effectiveGroupOnCreate === "string" && effectiveGroupOnCreate.trim().toLowerCase() === "kho");
+        if (isKhoOnCreate) {
+          applyMetrics = false;
+        }
+
         account = await prisma.tiktokAccount.create({
           data: {
             username: cleanUsername,
@@ -635,9 +644,11 @@ export async function POST(req: Request) {
             gpmProfileName: nameFields.gpmProfileName || null,
             groupName: nameFields.groupName || null,
             status: shouldBanOnCreate ? "BANNED" : targetStatus,
+            archivedAt: isKhoOnCreate ? new Date() : null,
+            archivedById: null,
             bannedReason: shouldBanOnCreate ? (body.bannedReason || "Bị ngừng chương trình TikTok Beta (Creator Rewards Program)") : null,
             metadata: body.metadata || (shouldBanOnCreate ? { creatorRewardsStatus: "BANNED" } : undefined),
-            isOnline: isLoggedIn === true,
+            isOnline: isKhoOnCreate ? false : (isLoggedIn === true),
             syncStatus: isLoggedIn === true ? "SYNC_OK" : "SYNC_ISSUES",
             country: toStandardCountryCode(country) || undefined,
             assignedUserId,
@@ -704,6 +715,40 @@ export async function POST(req: Request) {
         updateData.isOnline = isLoggedIn;
       }
 
+      if (country) updateData.country = toStandardCountryCode(country);
+      if (resolvedGpmProfileId) {
+        updateData.gpmProfileId = resolvedGpmProfileId;
+      }
+      if (nameFields.gpmProfileName && nameFields.gpmProfileName !== account.gpmProfileName) {
+        updateData.gpmProfileName = nameFields.gpmProfileName;
+      }
+      if (nameFields.groupName && nameFields.groupName !== account.groupName) {
+        updateData.groupName = nameFields.groupName;
+      }
+
+      const effectiveGroupOnUpdate = nameFields.groupName || account.groupName || resolvedGpmGroupName || body.gpmGroupName;
+      const isKhoOnUpdate =
+        body.isArchived === true ||
+        (typeof effectiveGroupOnUpdate === "string" && effectiveGroupOnUpdate.trim().toLowerCase() === "kho");
+      if (isKhoOnUpdate) {
+        updateData.archivedAt = account.archivedAt || new Date();
+        updateData.archivedById = null;
+        updateData.isOnline = false;
+      } else if (account.archivedAt && typeof effectiveGroupOnUpdate === "string" && effectiveGroupOnUpdate.trim().toLowerCase() !== "kho") {
+        // Profile moved out of kho -> automatically remove archive!
+        updateData.archivedAt = null;
+        updateData.archivedById = null;
+      }
+
+      const isArchivedOnUpdate =
+        isKhoOnUpdate ||
+        (!!updateData.archivedAt && updateData.archivedAt !== null) ||
+        (!!account.archivedAt && updateData.archivedAt === undefined);
+      if (isArchivedOnUpdate) {
+        // Archived accounts update identity/fleet metadata, but NOT studio analytics
+        applyMetrics = false;
+      }
+
       if (applyMetrics) {
         if (typeof followersCount === "number") updateData.totalFollowers = followersCount;
         if (typeof totalVideos === "number") {
@@ -719,16 +764,6 @@ export async function POST(req: Request) {
         if (!postRewardsPartial && totalRevenue !== undefined && totalRevenue !== null) {
           updateData.totalRevenue = totalRevenue;
         }
-      }
-      if (country) updateData.country = toStandardCountryCode(country);
-      if (resolvedGpmProfileId) {
-        updateData.gpmProfileId = resolvedGpmProfileId;
-      }
-      if (nameFields.gpmProfileName && nameFields.gpmProfileName !== account.gpmProfileName) {
-        updateData.gpmProfileName = nameFields.gpmProfileName;
-      }
-      if (nameFields.groupName && nameFields.groupName !== account.groupName) {
-        updateData.groupName = nameFields.groupName;
       }
 
       let isBannedFromCreatorRewards = false;

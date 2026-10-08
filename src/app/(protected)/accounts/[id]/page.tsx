@@ -267,7 +267,8 @@ const COUNTRY_OPTIONS = [
 function AccountDetailPageContent() {
   const { data: session } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
-  const isLeadOrAdmin = isAdmin || (session?.user as any)?.role === "LEAD";
+  const isLead = (session?.user as any)?.role === "LEAD";
+  const isLeadOrAdmin = isAdmin || isLead;
   const { confirm, confirmDialog } = useConfirmDialog();
 
   const params = useParams();
@@ -412,6 +413,17 @@ function AccountDetailPageContent() {
 
   // 2. Fetch staff list for reassignment
   const { data: staffList = [] } = trpc.user.listStaff.useQuery();
+
+  const canDeleteAccount = useMemo(() => {
+    if (isAdmin) return true;
+    if (!account?.assignedUserId) return false;
+    const currentUserId = (session?.user as any)?.id;
+    if (account.assignedUserId === currentUserId) return true;
+    if (isLead) {
+      return staffList.some((u: any) => u.id === account.assignedUserId);
+    }
+    return false;
+  }, [isAdmin, isLead, session?.user, account?.assignedUserId, staffList]);
 
   // Mutations
   const updateMutation = trpc.accounts.update.useMutation({
@@ -1438,15 +1450,15 @@ function AccountDetailPageContent() {
                   </DropdownMenuItem>
                 )}
 
-                {isAdmin && (
+                {canDeleteAccount && (
                   <>
                     <DropdownMenuSeparator className="my-1 bg-slate-100 dark:bg-slate-800" />
                     <DropdownMenuItem
                       onClick={async () => {
                         const ok = await confirm({
-                          title: "Xác nhận xóa tài khoản",
-                          description: `Bạn có chắc chắn muốn xóa @${account.username}? Toàn bộ dữ liệu số liệu và liên kết sẽ bị xóa vĩnh viễn.`,
-                          confirmLabel: "Xác nhận xóa",
+                          title: "Xác nhận chuyển vào thùng rác",
+                          description: `Bạn có chắc chắn muốn chuyển @${account.username} vào thùng rác?`,
+                          confirmLabel: "Chuyển vào thùng rác",
                           variant: "danger",
                         });
                         if (ok) {
@@ -2428,8 +2440,8 @@ function AccountDetailPageContent() {
                     <button
                       type="button"
                       className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${rewardFilterActiveCount > 0
-                          ? "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
+                        ? "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
                         }`}
                     >
                       <Filter className="w-3.5 h-3.5" />

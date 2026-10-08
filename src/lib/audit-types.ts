@@ -45,6 +45,7 @@ export type ListStats =
       warming: number;
       online: number;
       totalRevenue: number;
+      totalRevenueToday?: number;
       totalRevenue7d?: number;
       totalRevenue28d?: number;
       totalRevenue30d: number;
@@ -57,6 +58,7 @@ export type ListStats =
   | {
       mode: "trash";
       trashCount: number;
+      archiveCount?: number;
     }
   | {
       mode: "archive";

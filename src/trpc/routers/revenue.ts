@@ -97,7 +97,8 @@ export const revenueRouter = router({
       }
 
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
-      const whereAccount: any = {};
+      // Always exclude archived accounts from revenue overview totals
+      const whereAccount: any = { archivedAt: null };
       if (scope.isStaff) {
         whereAccount.assignedUserId = ctx.session.user.id;
       } else if (scope.isLead) {
@@ -534,20 +535,28 @@ export const revenueRouter = router({
         sourceType: z.string().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
+        /** @deprecated use includeDeleted instead — kept for backwards-compat */
         includeArchived: z.boolean().optional().default(false),
+        includeDeleted: z.boolean().optional().default(false),
+        includeArchivedAccounts: z.boolean().optional().default(false),
         teamId: z.string().optional().nullable(),
         operatorId: z.string().optional().nullable(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-      const includeArchived = Boolean(input?.includeArchived);
-      const dbClient = includeArchived ? ctx.prismaRaw : ctx.prisma;
+      // Support legacy includeArchived flag (previously meant "include deleted")
+      const includeDeleted = Boolean(input?.includeDeleted || input?.includeArchived);
+      const includeArchivedAccounts = Boolean(input?.includeArchivedAccounts);
+      const dbClient = (includeDeleted || includeArchivedAccounts) ? ctx.prismaRaw : ctx.prisma;
 
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
 
       const whereAccount: any = {};
-      if (!includeArchived) {
+      if (!includeDeleted) {
         whereAccount.deletedAt = null;
+      }
+      if (!includeArchivedAccounts) {
+        whereAccount.archivedAt = null;
       }
       if (scope.isStaff) {
         whereAccount.assignedUserId = ctx.session.user.id;
@@ -633,6 +642,7 @@ export const revenueRouter = router({
                 username: true,
                 country: true,
                 deletedAt: true,
+                archivedAt: true,
                 assignedUser: {
                   select: assignedUserSelect,
                 },
@@ -648,6 +658,7 @@ export const revenueRouter = router({
             username: true,
             country: true,
             deletedAt: true,
+            archivedAt: true,
             assignedUser: {
               select: assignedUserSelect,
             },

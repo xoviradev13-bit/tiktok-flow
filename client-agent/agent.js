@@ -312,6 +312,55 @@ function readBody(req, maxBytes = MAX_BODY_BYTES) {
     });
   });
 }
+// ==========================================
+// DATE & ACCOUNT DEBUG HELPERS (FOR VIDEO LIST TRACING)
+// ==========================================
+export function isTargetAccount(...identifiers) {
+  for (const id of identifiers) {
+    if (!id) continue;
+    const s = String(id).toLowerCase();
+    if (s.includes("caidoleu") || s.includes("623e487c")) return true;
+  }
+  return false;
+}
+
+export function getTodayVnDateStr() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
+
+export function getYesterdayVnDateStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
+export function getVnDateOnly(tsOrIso) {
+  if (!tsOrIso) return "N/A";
+  try {
+    let d;
+    if (typeof tsOrIso === "number") {
+      d = new Date(tsOrIso > 1e11 ? tsOrIso : tsOrIso * 1000);
+    } else if (typeof tsOrIso === "string" && /^\d+$/.test(tsOrIso.trim())) {
+      const n = Number(tsOrIso.trim());
+      d = new Date(n > 1e11 ? n : n * 1000);
+    } else {
+      d = new Date(tsOrIso);
+    }
+    if (isNaN(d.getTime())) return "Invalid Date";
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(d);
+  } catch {
+    return String(tsOrIso);
+  }
+}
 
 // ==========================================
 // TIKTOK COUNTRY DETECTOR (MATCHES EXTENSION)
@@ -1080,6 +1129,32 @@ export function acquireAgentLock() {
               tier0Debug: body.tier0Debug || null,
             });
           } else {
+            const vList = Array.isArray(body?.data?.videosList) ? body.data.videosList : [];
+            const isTarget = isTargetAccount(body?.data?.username, returnedHandle, expectedHandle, profileId);
+            const yesterdayDateStr = getYesterdayVnDateStr();
+            const todayDateStr = getTodayVnDateStr();
+            const yesterdayVids = vList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === yesterdayDateStr);
+            const todayVids = vList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === todayDateStr);
+
+            console.log(
+              `[DEBUG:VIDEO_CHECK][TIER-0_RESULT] Profile: ${profileId.slice(0, 8)} | User: @${returnedHandle || "unknown"} | videosList: ${vList.length} items | totalVideos: ${body?.data?.totalVideos ?? body?.data?.videoCount ?? "N/A"}`
+            );
+            if (vList.length > 0) {
+              console.log(
+                `   [DEBUG:VIDEO_CHECK][TIER-0_RESULT] Dates breakdown: Today (${todayDateStr})=${todayVids.length} | Yesterday (${yesterdayDateStr})=${yesterdayVids.length} | Newest: "${vList[0]?.title?.slice(0, 30)}" (${vList[0]?.postDate || vList[0]?.postTime}) | Oldest: "${vList[vList.length - 1]?.title?.slice(0, 30)}" (${vList[vList.length - 1]?.postDate || vList[vList.length - 1]?.postTime})`
+              );
+              if (isTarget) {
+                console.log(`   [DEBUG:VIDEO_CHECK][TIER-0_RESULT][TARGET:caidoleu] Full videosList dump (${vList.length} items):`);
+                vList.forEach((v, idx) => {
+                  const vnD = getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null));
+                  const isMatch = (vnD === yesterdayDateStr || vnD === todayDateStr) ? " [★ TARGET MATCH]" : "";
+                  console.log(`     [${idx}] id=${v.id} vnDate=${vnD} postDate="${v.postDate}" postTime="${v.postTime}" title="${(v.title || '').slice(0, 50)}"${isMatch}`);
+                });
+              }
+            } else {
+              console.warn(`   [DEBUG:VIDEO_CHECK][TIER-0_RESULT] WARNING: videosList is EMPTY in extension sweep result! (totalVideos in data: ${body?.data?.totalVideos})`);
+            }
+
             pending.resolve({
               success: true,
               data: body.data,
@@ -1972,6 +2047,7 @@ function readGpmProfileNameFromDisk(storageRoot, profileId) {
 }
 
 let gpmGroupsCache = { at: 0, byId: new Map(), base: null };
+let gpmProfileGroupsCache = new Map(); // profileId -> { groupId, groupName, name }
 let gpmApiOfflineUntil = 0;
 
 function gpmGroupsCachePaths() {
@@ -2000,6 +2076,11 @@ function loadGpmGroupsDiskCache() {
         const raw = JSON.parse(fs.readFileSync(p, "utf8"));
         const entries = raw?.byId && typeof raw.byId === "object" ? raw.byId : {};
         for (const [k, v] of Object.entries(entries)) byId.set(String(k), String(v));
+        if (raw?.profileGroups && typeof raw.profileGroups === "object") {
+          for (const [pk, pv] of Object.entries(raw.profileGroups)) {
+            gpmProfileGroupsCache.set(String(pk), pv);
+          }
+        }
         gpmGroupsCache = { at: Number(raw.at) || Date.now(), byId, base: raw.base || "disk" };
         loaded = true;
         break;
@@ -2017,7 +2098,9 @@ function saveGpmGroupsDiskCache() {
   try {
     const byId = {};
     for (const [k, v] of gpmGroupsCache.byId.entries()) byId[k] = v;
-    const content = JSON.stringify({ at: Date.now(), base: gpmGroupsCache.base, byId }, null, 2);
+    const profileGroups = {};
+    for (const [k, v] of gpmProfileGroupsCache.entries()) profileGroups[k] = v;
+    const content = JSON.stringify({ at: Date.now(), base: gpmGroupsCache.base, byId, profileGroups }, null, 2);
     for (const p of gpmGroupsCachePaths()) {
       try {
         fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -2070,29 +2153,77 @@ async function lookupGpmGroupName(gpmBase, groupId) {
   return null;
 }
 
-async function enrichResolveWithGroup(payload, storagePath, gpmBase) {
-  if (!payload?.ok || !payload.gpmProfileId) return payload;
-  const meta = storagePath
-    ? readGpmProfileMetaFromDisk(storagePath, payload.gpmProfileId)
-    : { name: null, groupName: null, groupId: null };
-  const gpmProfileName = payload.gpmProfileName || meta.name || null;
-  let gpmGroupName = payload.gpmGroupName || meta.groupName || null;
-  const groupId = meta.groupId || null;
-  if (!gpmGroupName && groupId) gpmGroupName = await lookupGpmGroupName(gpmBase || null, groupId);
-  if (!gpmGroupName && gpmBase) {
+export async function resolveProfileMetadata({ profileId, storagePath, apiP, gpmBase }) {
+  const meta = storagePath ? readGpmProfileMetaFromDisk(storagePath, profileId) : { name: null, groupName: null, groupId: null };
+  const cached = gpmProfileGroupsCache.get(profileId);
+
+  // If live GPM API base is provided but apiP was not pre-fetched, query GPM API directly
+  let liveP = apiP || null;
+  if (!liveP && gpmBase) {
     try {
-      const resp = await fetch(`${gpmBase}/profiles/${payload.gpmProfileId}`, {
-        signal: AbortSignal.timeout(5000),
-      });
+      const resp = await fetch(`${gpmBase}/profiles/${profileId}`, { signal: AbortSignal.timeout(3000) });
       const json = await resp.json().catch(() => ({}));
-      const row = json?.data || json;
-      const gid = row?.group_id || groupId;
-      if (row?.group_name) gpmGroupName = row.group_name;
-      else if (row?.Group?.name) gpmGroupName = row.Group.name;
-      else gpmGroupName = await lookupGpmGroupName(gpmBase, gid);
+      liveP = json?.data || json;
     } catch { /* ignore */ }
   }
-  return { ...payload, gpmProfileName, gpmGroupName: gpmGroupName || undefined };
+
+  // 1. Profile Name: Live API > Cache > Disk meta > fallback
+  const profileName = liveP?.name || cached?.name || meta.name || `Profile ${profileId.slice(0, 8)}`;
+
+  // 2. Group ID: Live GPM API ALWAYS takes top priority!
+  const effectiveGroupId = (liveP ? (liveP.group_id || null) : null) || cached?.groupId || meta.groupId || null;
+
+  // 3. Group Name: ALWAYS prioritize Live GPM API data!
+  let groupName = liveP?.group_name || liveP?.Group?.name || null;
+  if (!groupName && effectiveGroupId) {
+    // Look up live group name from GPM groups API or cache
+    groupName = await lookupGpmGroupName(gpmBase || null, effectiveGroupId);
+  }
+
+  // If live lookup didn't find groupName, fall back to cached ONLY IF:
+  // - we are offline (no liveP)
+  // - AND cached.groupId matches effectiveGroupId (prevents cross-group contamination when moved!)
+  if (!groupName && cached?.groupName) {
+    if (!liveP && (!effectiveGroupId || cached.groupId === effectiveGroupId)) {
+      groupName = cached.groupName;
+    }
+  }
+
+  // Fall back to disk meta only if still missing and not contradicted by live API
+  if (!groupName && meta.groupName) {
+    if (!liveP && (!effectiveGroupId || meta.groupId === effectiveGroupId)) {
+      groupName = meta.groupName;
+    }
+  }
+
+  // Update in-memory cache with the freshest resolved data
+  if (effectiveGroupId || groupName) {
+    gpmProfileGroupsCache.set(profileId, {
+      groupId: effectiveGroupId,
+      groupName: groupName || "Default group",
+      name: profileName,
+    });
+  }
+
+  return {
+    profileName,
+    groupId: effectiveGroupId,
+    groupName: groupName || (effectiveGroupId ? null : "Default group"),
+  };
+}
+
+async function enrichResolveWithGroup(payload, storagePath, gpmBase) {
+  if (!payload?.ok || !payload.gpmProfileId) return payload;
+  const resolved = await resolveProfileMetadata({
+    profileId: payload.gpmProfileId,
+    storagePath,
+    gpmBase,
+  });
+  return {
+    ...payload,
+    gpmProfileName: payload.gpmProfileName || resolved.profileName,
+    gpmGroupName: resolved.groupName || undefined,
+  };
 }
 
 async function profileContainsStorageBeaconAsync(storageRoot, profileId, beacon, opts = {}) {
@@ -2233,49 +2364,38 @@ async function resolveBrowserBySessionHash({
         saveProfileSession(base.gpmProfileId, cookies);
         console.log(`[Agent:resolveBrowser] Auto-saved ${cookies.length} live session cookies for ${base.gpmProfileId}`);
       }
-      const meta = storagePath
-        ? readGpmProfileMetaFromDisk(storagePath, base.gpmProfileId)
-        : { name: null, groupName: null, groupId: null };
-      const gpmProfileName = base.gpmProfileName || meta.name || null;
-      let gpmGroupName = base.gpmGroupName || meta.groupName || null;
-
-      if (!gpmGroupName && meta.groupId) {
-        if (!gpmGroupsCache.byId.size) loadGpmGroupsDiskCache();
-        const gid = String(meta.groupId);
-        if (gpmGroupsCache.byId.has(gid)) gpmGroupName = gpmGroupsCache.byId.get(gid);
+      let apiBase = lastGoodGpmBase;
+      if (!apiBase && Date.now() > gpmApiOfflineUntil) {
+        try {
+          const discovered = await discoverGpmApiBase().catch(() => ({ online: false }));
+          if (discovered.online && discovered.base) {
+            apiBase = discovered.base;
+            lastGoodGpmBase = apiBase;
+          } else {
+            gpmApiOfflineUntil = Date.now() + 20_000;
+          }
+        } catch { gpmApiOfflineUntil = Date.now() + 20_000; }
       }
 
-      if (!gpmGroupName && meta.groupId) {
-        let apiBase = lastGoodGpmBase;
-        if (!apiBase && Date.now() > gpmApiOfflineUntil) {
-          try {
-            const discovered = await discoverGpmApiBase().catch(() => ({ online: false }));
-            if (discovered.online && discovered.base) {
-              apiBase = discovered.base;
-              lastGoodGpmBase = apiBase;
-            } else {
-              gpmApiOfflineUntil = Date.now() + 20_000;
-            }
-          } catch { gpmApiOfflineUntil = Date.now() + 20_000; }
-        }
-        if (apiBase || gpmGroupsCache.byId.size) {
-          gpmGroupName = await Promise.race([
-            lookupGpmGroupName(apiBase, meta.groupId),
-            new Promise((resolve) => setTimeout(() => resolve(null), 800)),
-          ]);
-        }
-      }
+      const resolved = await resolveProfileMetadata({
+        profileId: base.gpmProfileId,
+        storagePath,
+        gpmBase: apiBase,
+      });
+      const gpmProfileName = base.gpmProfileName || resolved.profileName;
+      const gpmGroupName = resolved.groupName || null;
+      const effectiveGroupId = resolved.groupId || null;
 
       console.log(
         `[Agent:resolveBrowser] enriched name="${gpmProfileName || ""}" group="${gpmGroupName || ""}" ` +
-        `groupId=${meta.groupId || "-"}`
+        `groupId=${effectiveGroupId || "-"}`
       );
 
       return {
         ...base,
         gpmProfileName,
         gpmGroupName: gpmGroupName || undefined,
-        gpmGroupId: meta.groupId || undefined,
+        gpmGroupId: effectiveGroupId || undefined,
       };
     } catch {
       return { ...payload, ...attest };
@@ -2820,14 +2940,19 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     page.on("request", (req) => {
       const url = req.url();
       if (
-        !interceptedVideoReqHeaders &&
-        (url.includes("item_list") || url.includes("post_list") || url.includes("/content/manage")) &&
+        (url.includes("item_list") || url.includes("post_list") || url.includes("/content/manage") || url.includes("/content/list")) &&
         (url.includes("tiktok") || url.includes("tiktokstudio"))
       ) {
         try {
-          interceptedVideoReqHeaders = req.headers();
-          interceptedVideoReqMethod = req.method();
-          interceptedVideoReqBody = req.postData();
+          if (!interceptedVideoReqHeaders) {
+            interceptedVideoReqHeaders = req.headers();
+            interceptedVideoReqMethod = req.method();
+            interceptedVideoReqBody = req.postData();
+          }
+          const pData = req.postData();
+          console.log(
+            `   [DEBUG:VIDEO_CHECK][REQ] ${req.method()} ${url.slice(0, 160)} | postData: ${pData ? pData.slice(0, 300) : "none"}`
+          );
         } catch { /* ignore */ }
       }
     });
@@ -2883,10 +3008,38 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
             const j = await resp.json();
             const list = j?.itemList || j?.items || j?.item_list || j?.post_list || j?.postList ||
               j?.data?.item_list || j?.data?.itemList || j?.data?.post_list || j?.data?.items || [];
-            if (Array.isArray(list) && list.length > 0) {
+            const listLen = Array.isArray(list) ? list.length : 0;
+            const hasMore = j.has_more ?? j.data?.has_more;
+            const cursor = j.cursor ?? j.data?.cursor;
+            console.log(
+              `   [DEBUG:VIDEO_CHECK][RESP] HTTP ${resp.status()} from ${url.slice(0, 140)} | items=${listLen} | has_more=${hasMore} | cursor=${cursor}`
+            );
+            if (listLen > 0) {
+              const yestStr = getYesterdayVnDateStr();
+              const todayStr = getTodayVnDateStr();
+              const sample = list[0];
+              const sTs = sample.createTime || sample.create_time || sample.publish_date_unix_time || sample.post_time;
+              const sDate = getVnDateOnly(sTs);
+              const yestHits = list.filter((it) => {
+                const ts = it.createTime || it.create_time || it.publish_date_unix_time || it.post_time;
+                return getVnDateOnly(ts) === yestStr;
+              });
+              const todayHits = list.filter((it) => {
+                const ts = it.createTime || it.create_time || it.publish_date_unix_time || it.post_time;
+                return getVnDateOnly(ts) === todayStr;
+              });
+              console.log(
+                `   [DEBUG:VIDEO_CHECK][RESP] Item 0: id=${sample.video_id_str || sample.item_id || sample.id} vnDate=${sDate} title="${(sample.desc || sample.title || '').slice(0, 35)}" | Today hits=${todayHits.length} | Yesterday hits=${yestHits.length}`
+              );
+              if (yestHits.length > 0) {
+                console.log(`   [DEBUG:VIDEO_CHECK][RESP] *** FOUND ${yestHits.length} VIDEO(S) FROM YESTERDAY IN RESPONSE! ***`);
+                yestHits.forEach((it) => {
+                  console.log(`     -> id=${it.video_id_str || it.item_id || it.id} title="${(it.desc || it.title || '').slice(0, 50)}"`);
+                });
+              }
               interceptedVideoCalls.push({
-                has_more: j.has_more ?? j.data?.has_more,
-                cursor: j.cursor ?? j.data?.cursor,
+                has_more: hasMore,
+                cursor: cursor,
                 items: list,
                 url,
               });
@@ -3315,7 +3468,8 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
         const items = [];
         const seen = new Set();
         let apiStudioTotal = 0;
-        const ingest = (json) => {
+        const diagPages = [];
+        const ingest = (json, pageMeta = {}) => {
           const list = json?.item_list || json?.itemList || json?.items || json?.post_list ||
             json?.data?.item_list || json?.data?.itemList || json?.data?.post_list || json?.data?.items || [];
           if (!Array.isArray(list)) return { list: [], hasMore: false, nextCursor: null };
@@ -3350,10 +3504,20 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
             if (k === "msToken" || k === "X-Bogus" || k === "X-Gnarly") continue;
             u.searchParams.set(k, v);
           }
+          const reqBody = {
+            cursor,
+            count: 50,
+            size: 50,
+            query: {
+              sort_orders: [{ field_name: "post_time", order: 2 }],
+              conditions: [],
+              is_recent_posts: false,
+            },
+          };
           let used = await doFetch(u.toString(), {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ cursor, count: 50, size: 50 }),
+            body: JSON.stringify(reqBody),
           });
           if (
             (!used?.item_list && !used?.data?.item_list) &&
@@ -3366,10 +3530,12 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
                 cursor: String(cursor),
                 count: "50",
                 size: "50",
+                query: JSON.stringify(reqBody.query),
               }).toString(),
             });
           }
           let result = ingest(used);
+          let fetchMethod = "POST";
           if (!result.list.length) {
             const g = new URL(itemListPath, location.origin);
             for (const [k, v] of baseQs.entries()) {
@@ -3380,40 +3546,86 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
             g.searchParams.set("count", "50");
             g.searchParams.set("size", "50");
             result = ingest(await doFetch(g.toString()));
+            fetchMethod = "GET";
           }
+
+          const timestamps = result.list.map(parseItemTs).filter((t) => t > 0);
+          const oldest = timestamps.length > 0 ? Math.min(...timestamps) : null;
+          const newest = timestamps.length > 0 ? Math.max(...timestamps) : null;
+          let stoppedThisPage = false;
+          if (oldest && (Date.now() - oldest > LOOKBACK_MS)) {
+            hasMore = false;
+            lookbackStopped = true;
+            stoppedThisPage = true;
+          }
+
+          diagPages.push({
+            pageIdx,
+            cursor,
+            method: fetchMethod,
+            count: result.list.length,
+            hasMore: result.hasMore,
+            nextCursor: result.nextCursor,
+            oldestDate: oldest ? new Date(oldest).toISOString() : null,
+            newestDate: newest ? new Date(newest).toISOString() : null,
+            stoppedLookback: stoppedThisPage,
+            firstItemTitle: (result.list[0]?.desc || result.list[0]?.title || "").slice(0, 40),
+            firstItemId: result.list[0]?.video_id_str || result.list[0]?.item_id || result.list[0]?.id || "",
+          });
+
           if (!result.list.length) {
             if (used?._status === 401 || used?._status === 403) {
-              return { items, pagesFetched, lookbackStopped, failedSigning: true, studioTotal: apiStudioTotal };
+              return { items, pagesFetched, lookbackStopped, failedSigning: true, studioTotal: apiStudioTotal, diagPages };
             }
             break;
           }
           pagesFetched++;
           cursor = typeof result.nextCursor === "number" ? result.nextCursor : cursor + result.list.length;
           hasMore = result.hasMore;
-          const timestamps = result.list.map(parseItemTs).filter((t) => t > 0);
-          if (timestamps.length > 0) {
-            const oldest = Math.min(...timestamps);
-            if (Date.now() - oldest > LOOKBACK_MS) {
-              hasMore = false;
-              lookbackStopped = true;
-            }
-          }
+          if (stoppedThisPage) hasMore = false;
           await new Promise((r) => setTimeout(r, 300));
         }
-        return { items, pagesFetched, lookbackStopped, failedSigning: false, studioTotal: apiStudioTotal };
-      }).catch(() => null);
+        return { items, pagesFetched, lookbackStopped, failedSigning: false, studioTotal: apiStudioTotal, diagPages };
+      }).catch((e) => {
+        console.warn(`   [PAGINATION] evaluate error: ${e?.message || e}`);
+        return null;
+      });
+
+      if (inPageList?.diagPages && inPageList.diagPages.length > 0) {
+        console.log(`   [DEBUG:VIDEO_CHECK][IN_PAGE_PAGINATION] Pages fetched: ${inPageList.diagPages.length}:`);
+        for (const pInfo of inPageList.diagPages) {
+          console.log(
+            `     -> Page ${pInfo.pageIdx} (${pInfo.method}, cursor=${pInfo.cursor}): count=${pInfo.count} | newest=${pInfo.newestDate} | oldest=${pInfo.oldestDate} | lookbackStop=${pInfo.stoppedLookback} | item0="${pInfo.firstItemTitle}" (id=${pInfo.firstItemId})`
+          );
+        }
+      }
 
       if (inPageList?.failedSigning) {
         paginationFailedDueToSigning = true;
         console.warn("   [PAGINATION] in-page item_list blocked (401/403). Falling back to scroll capture.");
       } else if (inPageList?.items?.length) {
-        // Prefer in-page pages (same source as Tier-0) so we don't keep thinner
-        // intercept/SSR leftovers that inflate videosList beyond the lookback window.
-        allVideosMap.clear();
+        const yestStr = getYesterdayVnDateStr();
+        const todayStr = getTodayVnDateStr();
+
+        const prevItems = Array.from(allVideosMap.values());
+        const prevYestHits = prevItems.filter((it) => {
+          const ts = it.createTime || it.create_time || it.publish_date_unix_time || it.post_time;
+          return getVnDateOnly(ts) === yestStr;
+        });
+        const inPageYestHits = inPageList.items.filter((it) => {
+          const ts = it.createTime || it.create_time || it.publish_date_unix_time || it.post_time;
+          return getVnDateOnly(ts) === yestStr;
+        });
+
+        console.log(
+          `   [DEBUG:VIDEO_CHECK][MAP_MERGE] allVideosMap before merge: ${allVideosMap.size} items (yesterday hits: ${prevYestHits.length}) | inPageList returned: ${inPageList.items.length} items (yesterday hits: ${inPageYestHits.length})`
+        );
+
+        // Safely merge inPageList items into allVideosMap without wiping existing videos
         for (const item of inPageList.items) upsertVideoItem(item);
+        console.log(`   [DEBUG:VIDEO_CHECK][MAP_MERGE] allVideosMap after merge: ${allVideosMap.size} items total`);
+
         if (inPageList.studioTotal > studioTotalVideos && inPageList.studioTotal > inPageList.items.length) {
-          // item_list "total" under lookback can equal the filtered page size —
-          // only accept it when it clearly exceeds the harvested window.
           studioTotalVideos = inPageList.studioTotal;
         }
         console.log(
@@ -3529,6 +3741,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
         if (typeof c === "string" && /^\d{5,}$/.test(c)) return c;
         if (typeof c === "number") {
           if (Number.isSafeInteger(c)) return String(c);
+          console.warn(`   [DEBUG:VIDEO_CHECK][WARN] safeVideoId skipped unsafe integer snowflake: ${c}`);
           continue; // unsafe snowflake — skip rather than corrupt
         }
         if (typeof c === "bigint") return String(c);
@@ -3542,8 +3755,9 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
       const postTimestamp = normalizePostTimestamp(
         p.post_time || p.create_time || p.publish_date_unix_time || p.createTime
       );
+      const computedId = safeVideoId(p.video_id_str, p.item_id, p.id, p.aweme_id, p.video_id);
       return {
-        id: safeVideoId(p.video_id_str, p.item_id, p.id, p.aweme_id, p.video_id),
+        id: computedId,
         title: p.desc || p.title || p.video_name || "No title",
         views: cleanNum(p.play_count || p.playCount || p.views || p.statistics?.play_count || p.statistics?.playCount || p.stats?.playCount || p.stats?.play_count),
         likes: cleanNum(p.like_count || p.likeCount || p.digg_count || p.diggCount || p.statistics?.digg_count || p.statistics?.diggCount || p.stats?.diggCount || p.stats?.digg_count),
@@ -3557,7 +3771,43 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
           : (typeof p.cover_url === "string" ? p.cover_url
             : (p.video_thumbnail || p.cover?.url_list?.[0] || p.video?.cover?.url_list?.[0] || null)),
       };
-    }).filter((v) => !!v.id || v.title !== "No title");
+    }).filter((v, idx) => {
+      const keep = !!v.id || v.title !== "No title";
+      if (!keep) {
+        console.warn(`   [DEBUG:VIDEO_CHECK][WARN] Filter DROPPED video index ${idx}: id="${v.id}" title="${v.title}"`);
+      }
+      return keep;
+    });
+
+    const initialHandle = userInfo?.UniqId || detectedHandle || null;
+    const isTargetAcc = isTargetAccount(initialHandle, profileId, detectedHandle);
+    const yestDateStr = getYesterdayVnDateStr();
+    const todayDateStr = getTodayVnDateStr();
+    const yestVidsBuilt = videosList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === yestDateStr);
+    const todayVidsBuilt = videosList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === todayDateStr);
+
+    console.log(
+      `   [DEBUG:VIDEO_CHECK][VIDEOS_BUILT] Profile: ${profileId.slice(0, 8)} (@${initialHandle || "unknown"}) | raw=${rawPostList.length} -> kept=${videosList.length} | Today (${todayDateStr})=${todayVidsBuilt.length} | Yesterday (${yestDateStr})=${yestVidsBuilt.length}`
+    );
+    if (isTargetAcc) {
+      console.log(`   [DEBUG:VIDEO_CHECK][TARGET:caidoleu] Full dump of built videosList (${videosList.length} items):`);
+      videosList.forEach((v, idx) => {
+        const vnD = getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null));
+        const isMatch = (vnD === yestDateStr || vnD === todayDateStr) ? " [★ TARGET MATCH]" : "";
+        console.log(`     [${idx}] id=${v.id} vnDate=${vnD} postDate="${v.postDate}" postTime="${v.postTime}" title="${(v.title || '').slice(0, 50)}"${isMatch}`);
+      });
+      if (yestVidsBuilt.length === 0) {
+        console.warn(`   [DEBUG:VIDEO_CHECK][ALERT] @caidoleu has NO VIDEOS FROM YESTERDAY (${yestDateStr}) in built videosList! Checking intercepted calls...`);
+        console.log(`     -> interceptedVideoCalls total: ${interceptedVideoCalls.length}`);
+        interceptedVideoCalls.forEach((c, cIdx) => {
+          const hits = (c.items || []).filter((it) => {
+            const ts = it.createTime || it.create_time || it.publish_date_unix_time || it.post_time;
+            return getVnDateOnly(ts) === yestDateStr;
+          });
+          console.log(`     -> Call ${cIdx} (${c.url.slice(0, 100)}): items=${c.items?.length || 0} | yesterdayHits=${hits.length}`);
+        });
+      }
+    }
 
     const totalViewsCombined = videosList.reduce((sum, v) => sum + v.views, 0);
 
@@ -4805,11 +5055,12 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     const sumProfileViews = { profileViews7d, profileViews28d, profileViews60d, profileViews365d };
 
     const storageRoot = path.dirname(profileDir);
-    const meta = readGpmProfileMetaFromDisk(storageRoot, profileId);
-    let gpmGroupName = meta.groupName || null;
-    if (!gpmGroupName && meta.groupId) {
-      gpmGroupName = await lookupGpmGroupName(lastGoodGpmBase || null, meta.groupId);
-    }
+    const resolved = await resolveProfileMetadata({
+      profileId,
+      storagePath: storageRoot,
+      gpmBase: lastGoodGpmBase,
+    });
+    const gpmGroupName = resolved.groupName || null;
 
     // Re-read store-country after Studio navigation — cookie-bridge sessions often
     // lacked it at first paint, then TikTok sets it once authenticated pages load.
@@ -4848,6 +5099,22 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     // Do NOT copy reward period-views into lifetime engagement, and do NOT
     // append reward-only stubs (that mixes windows and breaks tier parity).
     if (Array.isArray(postRewards) && postRewards.length > 0) {
+      const yestDateStr = getYesterdayVnDateStr();
+      const prYesterday = postRewards.filter((pr) => {
+        const d = pr.publishDate || pr.postDate || (pr.publishTimeUnix ? getVnDateOnly(pr.publishTimeUnix) : null);
+        return d === yestDateStr;
+      });
+      if (prYesterday.length > 0) {
+        console.log(`   [DEBUG:VIDEO_CHECK][M10N_REWARDS] postRewards HAS ${prYesterday.length} video(s) posted yesterday (${yestDateStr}):`);
+        prYesterday.forEach((pr) => {
+          const inList = videosList.some((v) => String(v.id) === String(pr.id || pr.videoId));
+          console.log(`     -> id=${pr.id || pr.videoId} title="${(pr.title || '').slice(0, 45)}" reward=${pr.reward} inVideosList=${inList}`);
+          if (!inList) {
+            console.warn(`   [DEBUG:VIDEO_CHECK][ALERT] CRITICAL: Video id=${pr.id || pr.videoId} was found in postRewards with date ${yestDateStr} but is MISSING from videosList!`);
+          }
+        });
+      }
+
       const rewardMap = new Map();
       for (const pr of postRewards) {
         for (const raw of [pr.id, pr.videoId]) {
@@ -5387,7 +5654,7 @@ async function isJobCancelled(jobId) {
  * Lightweight inventory synchronization without launching browsers or deep scraping.
  * Used on daemon startup and inventory updates to inform the server of local profiles.
  */
-async function syncProfilesInventoryOnly() {
+export async function syncProfilesInventoryOnly() {
   const tokenOk = await verifyPersonalTokenAtStartup();
   if (!tokenOk && config.tokenRevoked) return { success: false, reason: "token_revoked" };
 
@@ -5409,10 +5676,12 @@ async function syncProfilesInventoryOnly() {
   let allowedIds = null;
   let apiOffline = !gpmApi.online || !gpmApi.base;
   let apiListTruncated = false;
+  const apiProfileMap = new Map();
   if (!apiOffline) {
     try {
       const rows = await fetchAllGpmProfiles(gpmApi.base);
       allowedIds = new Set(rows.map((r) => String(r.id)));
+      for (const r of rows) apiProfileMap.set(String(r.id), r);
       apiListTruncated = !!rows.truncated;
     } catch {
       apiOffline = true;
@@ -5429,22 +5698,27 @@ async function syncProfilesInventoryOnly() {
   const profilesToSync = [];
   await pMap(profileDirs, async (p) => {
     const fullDir = path.join(storagePath, p.name);
-    const meta = readGpmProfileMetaFromDisk(storagePath, p.name);
-    const profileName = meta.name || `Profile ${p.name.slice(0, 8)}`;
-    let groupName = meta.groupName || null;
-    if (!groupName && meta.groupId) {
-      groupName = await lookupGpmGroupName(useApiFilter ? gpmApi.base : null, meta.groupId);
-    }
+    const apiP = apiProfileMap.get(p.name);
+    const resolved = await resolveProfileMetadata({
+      profileId: p.name,
+      storagePath,
+      apiP,
+      gpmBase: gpmApi?.online && gpmApi?.base ? gpmApi.base : null,
+    });
     let handle = null;
     try { handle = await findTikTokHandleInProfileAsync(fullDir); } catch { handle = null; }
     profilesToSync.push({
       id: p.name,
-      name: profileName,
-      groupId: meta.groupId || null,
-      groupName: groupName || null,
+      name: resolved.profileName,
+      groupId: resolved.groupId,
+      groupName: resolved.groupName || null,
       tiktokHandle: handle,
     });
   }, Math.max(2, Math.min(cpuCount, 8)));
+
+  if (apiProfileMap.size > 0) {
+    saveGpmGroupsDiskCache();
+  }
 
   try {
     const headers = await getAuthHeaders();
@@ -5473,7 +5747,7 @@ async function syncProfilesInventoryOnly() {
   }
 }
 
-async function performFullSweep(syncJob = null) {
+export async function performFullSweep(syncJob = null) {
   const jobId = (typeof syncJob === "object" && syncJob !== null) ? (syncJob.id || syncJob.jobId) : syncJob;
   const targetProfileId = (typeof syncJob === "object" && syncJob !== null) ? syncJob.targetProfileId : null;
   const targetHandle = (typeof syncJob === "object" && syncJob !== null) ? syncJob.targetHandle : null;
@@ -5528,10 +5802,12 @@ async function performFullSweep(syncJob = null) {
   let allowedIds = null;
   let apiOffline = !gpmApi.online || !gpmApi.base;
   let apiListTruncated = false;
+  const apiProfileMap = new Map();
   if (!apiOffline) {
     try {
       const rows = await fetchAllGpmProfiles(gpmApi.base);
       allowedIds = new Set(rows.map((r) => String(r.id)));
+      for (const r of rows) apiProfileMap.set(String(r.id), r);
       apiListTruncated = !!rows.truncated;
       console.log(`[*] GPM API danh sach: ${allowedIds.size} profile${apiListTruncated ? " (WARN: truncated)" : ""}.`);
     } catch (err) {
@@ -5565,23 +5841,28 @@ async function performFullSweep(syncJob = null) {
   // Parallelise handle detection with a bounded pool.
   await pMap(profileDirs, async (p) => {
     const fullDir = path.join(storagePath, p.name);
-    const meta = readGpmProfileMetaFromDisk(storagePath, p.name);
-    const profileName = meta.name || `Profile ${p.name.slice(0, 8)}`;
-    let groupName = meta.groupName || null;
-    if (!groupName && meta.groupId) {
-      groupName = await lookupGpmGroupName(useApiFilter ? gpmApi.base : null, meta.groupId);
-    }
+    const apiP = apiProfileMap.get(p.name);
+    const resolved = await resolveProfileMetadata({
+      profileId: p.name,
+      storagePath,
+      apiP,
+      gpmBase: gpmApi?.online && gpmApi?.base ? gpmApi.base : null,
+    });
     let handle = null;
     try { handle = await findTikTokHandleInProfileAsync(fullDir); } catch { handle = null; }
     profilesToSync.push({
       id: p.name,
-      name: profileName,
-      groupId: meta.groupId || null,
-      groupName: groupName || null,
+      name: resolved.profileName,
+      groupId: resolved.groupId,
+      groupName: resolved.groupName || null,
       tiktokHandle: handle,
       fullDir,
     });
   }, Math.max(2, Math.min(cpuCount, 8)));
+
+  if (apiProfileMap.size > 0) {
+    saveGpmGroupsDiskCache();
+  }
 
   // Sync Fleet Inventory
   console.log("\n[>] Dang dong bo danh sach profile len may chu...");
@@ -5590,6 +5871,7 @@ async function performFullSweep(syncJob = null) {
     console.warn("   [!] CHUA CO PERSONAL TOKEN: hay chay setup-agent.bat (chon 3) hoac tai lai zip pairing.");
   }
 
+  let serverSkipProfileIds = new Set();
   try {
     const headers = await getAuthHeaders();
     if (!headers.Authorization && config.tokenRevoked) authBlocked = true;
@@ -5613,6 +5895,9 @@ async function performFullSweep(syncJob = null) {
 
     if (res.ok) {
       const syncResult = await res.json().catch(() => ({}));
+      if (Array.isArray(syncResult.skipProfileIds)) {
+        serverSkipProfileIds = new Set(syncResult.skipProfileIds);
+      }
       console.log(`   [OK] Dong bo thanh cong danh sach: ${syncResult.totalScanned || profilesToSync.length} tai khoan ghi nhan.`);
     } else if (res.status === 401 || res.status === 403) {
       const errData = await res.json().catch(() => ({}));
@@ -5639,6 +5924,13 @@ async function performFullSweep(syncJob = null) {
       return false;
     });
     if (matched.length > 0) {
+      if (
+        (matched[0].groupName && String(matched[0].groupName).trim().toLowerCase() === "kho") ||
+        serverSkipProfileIds.has(matched[0].id)
+      ) {
+        console.warn(`[!] [Targeted Sync] Profile "${matched[0].name}" da vao Kho luu tru hoac bi Xoa tren he thong — bo qua.`);
+        return { successCount: 0, failCount: 0, profilesCount: profilesToSync.length };
+      }
       activeTikTokProfiles = [matched[0]];
       console.log(`[*] [Targeted Sync] Chi dong bo 1 profile duoc chi dinh: ${matched[0].name} (${matched[0].id.slice(0, 8)}) @${matched[0].tiktokHandle || "N/A"}`);
     } else {
@@ -5648,6 +5940,14 @@ async function performFullSweep(syncJob = null) {
   } else {
     const seenHandles = new Set();
     for (const p of profilesToSync) {
+      if (p.groupName && String(p.groupName).trim().toLowerCase() === "kho") {
+        console.log(`   [-] [Archive] Bo qua profile "${p.name}" (ID: ${p.id.slice(0, 8)}) @${p.tiktokHandle || "N/A"} vi group "${p.groupName}" da vao Kho luu tru.`);
+        continue;
+      }
+      if (serverSkipProfileIds.has(p.id)) {
+        console.log(`   [-] [Skip] Bo qua profile "${p.name}" (ID: ${p.id.slice(0, 8)}) @${p.tiktokHandle || "N/A"} vi da bi Xoa hoac Luu tru tren he thong.`);
+        continue;
+      }
       if (p.tiktokHandle) {
         const lower = p.tiktokHandle.toLowerCase();
         if (seenHandles.has(lower)) continue;
@@ -5770,6 +6070,22 @@ async function performFullSweep(syncJob = null) {
         const gpmProfileName = d.gpmProfileName || p.name || undefined;
         const gpmGroupName = d.gpmGroupName || p.groupName || undefined;
 
+        const isTargetSweep = isTargetAccount(d.username, p.id, p.tiktokHandle);
+        if (isTargetSweep) {
+          const vList = Array.isArray(d.videosList) ? d.videosList : [];
+          const yestStr = getYesterdayVnDateStr();
+          const todayStr = getTodayVnDateStr();
+          const yestVids = vList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === yestStr);
+          const todayVids = vList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === todayStr);
+          console.log(
+            `   [DEBUG:VIDEO_CHECK][SENDING_REPORT] Target @${d.username} (${p.id.slice(0, 8)}): Posting report to ${config.serverUrl}/api/extension/report | videosList=${vList.length} items (Today=${todayVids.length}, Yesterday=${yestVids.length}) | postRewards=${Array.isArray(d.postRewards) ? d.postRewards.length : 0}`
+          );
+          if (vList.length > 0) {
+            console.log(`     -> Newest video in report: "${vList[0]?.title?.slice(0, 40)}" (${vList[0]?.postDate || vList[0]?.postTime}) id=${vList[0]?.id}`);
+            console.log(`     -> Oldest video in report: "${vList[vList.length - 1]?.title?.slice(0, 40)}" (${vList[vList.length - 1]?.postDate || vList[vList.length - 1]?.postTime}) id=${vList[vList.length - 1]?.id}`);
+          }
+        }
+
         let reportOk = false;
         let reportFlags = null;
         let authRetried = false;
@@ -5870,8 +6186,8 @@ async function performFullSweep(syncJob = null) {
                 flagsVersion: 1,
               }),
               signal: AbortSignal.timeout(15000),
-            }).catch(() => {});
-          } catch (_) {}
+            }).catch(() => { });
+          } catch (_) { }
         }
       }
     } catch (mapperErr) {

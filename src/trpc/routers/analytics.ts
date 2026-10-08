@@ -96,8 +96,8 @@ export const analyticsRouter = router({
       }));
     }
 
-    // 3. Countries existing in fleet
-    const countryWhere: any = {};
+    // 3. Countries existing in fleet (exclude archived)
+    const countryWhere: any = { archivedAt: null };
     if (scope.isLead) {
       countryWhere.assignedUserId = { in: scope.memberUserIds };
     }
@@ -219,12 +219,12 @@ export const analyticsRouter = router({
         prevStart.setHours(0, 0, 0, 0);
       }
 
-      // Build Account filter
+      // Build Account filter — always exclude archived accounts
       let targetTeamId = input.teamId && input.teamId !== "ALL" ? input.teamId : null;
       if (isLead && targetTeamId && !scope.teamIds.includes(targetTeamId)) {
         targetTeamId = null;
       }
-      const whereAccount: any = {};
+      const whereAccount: any = { archivedAt: null };
       if (effectiveOperatorId) {
         whereAccount.assignedUserId = effectiveOperatorId;
       } else if (isLead) {

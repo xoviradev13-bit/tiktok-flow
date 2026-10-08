@@ -359,7 +359,7 @@ export const userRouter = router({
         where: { id: input.id },
         include: {
           tiktokAccounts: {
-            where: { deletedAt: null },
+            where: { deletedAt: null, archivedAt: null },
             orderBy: { createdAt: "desc" },
             include: {
               alerts: { where: { status: "OPEN" } },

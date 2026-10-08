@@ -102,6 +102,8 @@ export async function POST(req: Request) {
     const staleFilter: any = {
       gpmProfileId: { not: null },
       status: "ACTIVE",
+      deletedAt: null,
+      archivedAt: null,
     };
 
     // FIX: ownership scoping replaces the role gate. Regular users are

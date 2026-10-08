@@ -141,7 +141,7 @@ async function fetchTeamsData(prisma: any, currentUser?: any) {
             role: true,
             isActive: true,
             tiktokAccounts: {
-              where: { deletedAt: null },
+              where: { deletedAt: null, archivedAt: null },
               select: {
                 id: true,
                 username: true,
@@ -155,7 +155,7 @@ async function fetchTeamsData(prisma: any, currentUser?: any) {
               orderBy: { totalRevenue: "desc" },
             },
             _count: {
-              select: { tiktokAccounts: true },
+              select: { tiktokAccounts: { where: { deletedAt: null, archivedAt: null } } },
             },
           },
           orderBy: { createdAt: "asc" },
@@ -192,7 +192,7 @@ async function fetchTeamsData(prisma: any, currentUser?: any) {
                 role: true,
                 isActive: true,
                 tiktokAccounts: {
-                  where: { deletedAt: null },
+                  where: { deletedAt: null, archivedAt: null },
                   select: {
                     id: true,
                     username: true,
@@ -205,7 +205,7 @@ async function fetchTeamsData(prisma: any, currentUser?: any) {
                   take: 200,
                   orderBy: { totalRevenue: "desc" },
                 },
-                _count: { select: { tiktokAccounts: true } },
+                _count: { select: { tiktokAccounts: { where: { deletedAt: null, archivedAt: null } } } },
               },
             },
             _count: { select: { members: true } },
@@ -306,7 +306,7 @@ export const adminRouter = router({
           select: { id: true, name: true, color: true },
         },
         tiktokAccounts: {
-          where: { deletedAt: null },
+          where: { deletedAt: null, archivedAt: null },
           select: {
             id: true,
             username: true,
@@ -321,7 +321,7 @@ export const adminRouter = router({
         },
         _count: {
           select: {
-            tiktokAccounts: true,
+            tiktokAccounts: { where: { deletedAt: null, archivedAt: null } },
             dailyChecklists: true,
           },
         },
@@ -547,7 +547,7 @@ export const adminRouter = router({
               gpmPort: true,
               createdAt: true,
               tiktokAccounts: {
-                where: { deletedAt: null },
+                where: { deletedAt: null, archivedAt: null },
                 select: {
                   id: true,
                   username: true,
@@ -961,7 +961,7 @@ export const adminRouter = router({
           teamId: true,
           team: { select: { id: true, name: true, color: true } },
           _count: {
-            select: { tiktokAccounts: { where: { deletedAt: null } } },
+            select: { tiktokAccounts: { where: { deletedAt: null, archivedAt: null } } },
           },
         },
         orderBy: { name: "asc" },

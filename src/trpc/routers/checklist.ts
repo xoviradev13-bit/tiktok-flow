@@ -383,6 +383,7 @@ export const checklistRouter = router({
         where: {
           ...targetUserFilter,
           deletedAt: null,
+          archivedAt: null,
         },
         select: {
           id: true,
@@ -1191,7 +1192,7 @@ export const checklistRouter = router({
 
       // ── Step 2: Batch-load all accounts in scope + their rawSnapshot ─────────
       // One query for all accounts; rawSnapshot contains the rolling video list.
-      const accountWhereClause: any = { deletedAt: null };
+      const accountWhereClause: any = { deletedAt: null, archivedAt: null };
       if (scope.isStaff) {
         accountWhereClause.assignedUserId = ctx.session.user.id;
       } else if (scope.isLead) {

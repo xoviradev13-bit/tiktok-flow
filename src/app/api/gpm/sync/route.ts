@@ -1068,6 +1068,7 @@ export async function POST(req: Request) {
           }
 
           const resolvedGroupName = p.group_name || p.group_id;
+          const isKhoGroup = typeof resolvedGroupName === "string" && resolvedGroupName.trim().toLowerCase() === "kho";
           const detectedFromText = detectCountryFromText(p.name) || detectCountryFromText(resolvedGroupName);
           const country = detectedFromText || null;
 
@@ -1093,6 +1094,9 @@ export async function POST(req: Request) {
                   gpmProfileName: profileName || undefined,
                   gpmPort: incomingPort || undefined,
                   status: "ACTIVE",
+                  archivedAt: isKhoGroup ? new Date() : null,
+                  archivedById: null,
+                  isOnline: isKhoGroup ? false : undefined,
                   assignedUserId,
                   isAssignmentLocked: false,
                   totalViews: BigInt(0),
@@ -1152,6 +1156,9 @@ export async function POST(req: Request) {
             country?: string;
             lastSyncedAt: Date;
             assignedUserId?: string;
+            archivedAt?: Date | null;
+            archivedById?: string | null;
+            isOnline?: boolean;
           } = {
             gpmProfileId: p.id,
             ...(incomingPort ? { gpmPort: incomingPort } : {}),
@@ -1159,6 +1166,18 @@ export async function POST(req: Request) {
             groupName: resolvedGroupName || existing.groupName || "GPM Fleet",
             lastSyncedAt: new Date(),
           };
+
+          const effectiveGroup = resolvedGroupName || existing.groupName;
+          const isKho = typeof effectiveGroup === "string" && effectiveGroup.trim().toLowerCase() === "kho";
+          if (isKho) {
+            updateData.archivedAt = existing.archivedAt || new Date();
+            updateData.archivedById = null;
+            updateData.isOnline = false;
+          } else if (existing.archivedAt && typeof resolvedGroupName === "string" && resolvedGroupName.trim().toLowerCase() !== "kho") {
+            // Profile moved out of kho -> automatically remove archive!
+            updateData.archivedAt = null;
+            updateData.archivedById = null;
+          }
 
           if (detectedFromText && (!existing.country || existing.country === "US" || existing.country === "Unknown")) {
             updateData.country = detectedFromText;

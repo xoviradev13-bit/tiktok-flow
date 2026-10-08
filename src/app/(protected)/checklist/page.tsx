@@ -103,6 +103,42 @@ import { TimePickerField } from "@/features/schedule/ScheduleModal";
 import { Switch } from "@/components/ui/switch";
 import { useConfirmDialog } from "@/components/ui/confirm-modal";
 
+/**
+ * Helper to compute the active payroll cycle.
+ * Standard cycle is from the 16th to the 15th of the following month.
+ * If today <= 15: cycle is 16th of previous month to 15th of this month.
+ * If today >= 16: cycle is 16th of this month to 15th of next month.
+ */
+function getActivePayrollCycle(refDate: Date = new Date()) {
+  const y = refDate.getFullYear();
+  const m = refDate.getMonth();
+  const d = refDate.getDate();
+
+  if (d <= 15) {
+    return {
+      start: new Date(y, m - 1, 16),
+      end: new Date(y, m, 15),
+    };
+  } else {
+    return {
+      start: new Date(y, m, 16),
+      end: new Date(y, m + 1, 15),
+    };
+  }
+}
+
+/**
+ * Helper to compute payroll cycle for a specific month (1-12).
+ * Tháng N: 16/N 00:00:00 to 15/(N+1) 23:59:59 (e.g. Tháng 2: 16/2 to 15/3).
+ */
+function getPayrollCycleForMonth(monthNum: number, year: number = new Date().getFullYear()) {
+  const start = new Date(year, monthNum - 1, 16);
+  const endMonth = monthNum === 12 ? 0 : monthNum;
+  const endYear = monthNum === 12 ? year + 1 : year;
+  const end = new Date(endYear, endMonth, 15);
+  return { start, end };
+}
+
 function ChecklistPageContent() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN" || (session?.user as any)?.userType === "ADMIN";
@@ -120,8 +156,27 @@ function ChecklistPageContent() {
   const initialMode = searchParams?.get("mode") === "range" ? "range" : "daily";
   const [viewMode, setViewMode] = useState<"daily" | "range">(initialMode);
 
-  // Calendar Month State (Defaults to current month)
-  const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
+  // Calendar Month State (Defaults to active payroll cycle month, e.g. Sep 16 - Oct 15 -> Sep)
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => {
+    const { start } = getActivePayrollCycle();
+    return new Date(start.getFullYear(), start.getMonth(), 1);
+  });
+
+  // Selected payroll month for "Theo Tháng" preset (1-12)
+  const initialPayrollMonth = (() => {
+    const m = searchParams?.get("month");
+    if (m && !isNaN(Number(m))) {
+      const num = Number(m);
+      if (num >= 1 && num <= 12) return num;
+    }
+    const { start } = getActivePayrollCycle();
+    return start.getMonth() + 1;
+  })();
+  const [selectedPayrollMonth, setSelectedPayrollMonth] = useState<number>(initialPayrollMonth);
+  const [selectedPayrollYear, setSelectedPayrollYear] = useState<number>(() => {
+    const { start } = getActivePayrollCycle();
+    return start.getFullYear();
+  });
 
   // Day Inspector Modal State
   const [selectedDateForModal, setSelectedDateForModal] = useState<string | null>(null);
@@ -143,8 +198,16 @@ function ChecklistPageContent() {
 
   const initialFrom = searchParams?.get("from") || (() => {
     if (searchParams?.get("preset") === "month") {
-      const now = new Date();
-      return format(new Date(now.getFullYear(), now.getMonth(), 16), "yyyy-MM-dd");
+      const monthParam = searchParams?.get("month");
+      if (monthParam && !isNaN(Number(monthParam))) {
+        const m = Number(monthParam);
+        if (m >= 1 && m <= 12) {
+          const { start } = getPayrollCycleForMonth(m, new Date().getFullYear());
+          return format(start, "yyyy-MM-dd");
+        }
+      }
+      const { start } = getActivePayrollCycle();
+      return format(start, "yyyy-MM-dd");
     }
     const d = new Date();
     d.setDate(d.getDate() - 7);
@@ -154,8 +217,16 @@ function ChecklistPageContent() {
 
   const initialTo = searchParams?.get("to") || (() => {
     if (searchParams?.get("preset") === "month") {
-      const now = new Date();
-      return format(new Date(now.getFullYear(), now.getMonth() + 1, 15), "yyyy-MM-dd");
+      const monthParam = searchParams?.get("month");
+      if (monthParam && !isNaN(Number(monthParam))) {
+        const m = Number(monthParam);
+        if (m >= 1 && m <= 12) {
+          const { end } = getPayrollCycleForMonth(m, new Date().getFullYear());
+          return format(end, "yyyy-MM-dd");
+        }
+      }
+      const { end } = getActivePayrollCycle();
+      return format(end, "yyyy-MM-dd");
     }
     return new Date().toISOString().split("T")[0];
   })();
@@ -190,6 +261,7 @@ function ChecklistPageContent() {
         from: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? startDateStr : undefined,
         to: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? endDateStr : undefined,
         preset: (viewType === "charts" || (viewType === "table" && viewMode === "range")) ? activeRangePreset : undefined,
+        month: ((viewType === "charts" || (viewType === "table" && viewMode === "range")) && activeRangePreset === "month") ? String(selectedPayrollMonth) : undefined,
         user: selectedUserId,
         team: teamFilter,
         q: viewType === "table" ? search : undefined,
@@ -202,6 +274,7 @@ function ChecklistPageContent() {
         from: undefined,
         to: undefined,
         preset: "7d",
+        month: undefined,
         user: "ALL",
         team: "ALL",
         q: "",
@@ -215,6 +288,7 @@ function ChecklistPageContent() {
     startDateStr,
     endDateStr,
     activeRangePreset,
+    selectedPayrollMonth,
     selectedUserId,
     teamFilter,
     search,
@@ -344,11 +418,11 @@ function ChecklistPageContent() {
   };
 
   // Calculate Date Intervals depending on active View
-  const calStartStr = format(startOfWeek(startOfMonth(calendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd");
+  // "Tháng N" payroll cycle = 16/N → 15/(N+1), grid padded to full Mon-Sun weeks
+  const calCycleStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 16);
   const calCycleEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 15);
-  const calEndGrid = endOfWeek(endOfMonth(calendarMonth), { weekStartsOn: 1 });
-  const calEffectiveEnd = calCycleEnd > calEndGrid ? calCycleEnd : calEndGrid;
-  const calEndStr = format(calEffectiveEnd, "yyyy-MM-dd");
+  const calStartStr = format(startOfWeek(calCycleStart, { weekStartsOn: 1 }), "yyyy-MM-dd");
+  const calEndStr = format(endOfWeek(calCycleEnd, { weekStartsOn: 1 }), "yyyy-MM-dd");
 
   const queryStartDate =
     viewType === "calendar"
@@ -765,14 +839,21 @@ function ChecklistPageContent() {
     setRangeSelection({ from: start, to: end });
   };
 
-  const applyThisMonth = () => {
+  const handleSelectPayrollMonth = (monthNum: number, yearNum: number = selectedPayrollYear) => {
+    setSelectedPayrollMonth(monthNum);
+    setSelectedPayrollYear(yearNum);
     setActiveRangePreset("month");
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 16);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 15);
+    const { start, end } = getPayrollCycleForMonth(monthNum, yearNum);
     setStartDateStr(format(start, "yyyy-MM-dd"));
     setEndDateStr(format(end, "yyyy-MM-dd"));
     setRangeSelection({ from: start, to: end });
+  };
+
+  const applyThisMonth = () => {
+    const { start } = getActivePayrollCycle();
+    const m = start.getMonth() + 1;
+    const y = start.getFullYear();
+    handleSelectPayrollMonth(m, y);
   };
 
   // Country badge helper
@@ -1007,6 +1088,57 @@ function ChecklistPageContent() {
     );
   };
 
+  const renderMonthSelector = (widthClass = "w-full sm:w-48") => {
+    const currentActiveMonthNum = getActivePayrollCycle().start.getMonth() + 1;
+    return (
+      <div className={cn("relative shrink-0", widthClass)}>
+        <Select
+          value={String(selectedPayrollMonth)}
+          onValueChange={(val) => handleSelectPayrollMonth(Number(val))}
+        >
+          <SelectTrigger
+            className="w-full h-9 text-xs font-semibold rounded-xl bg-amber-500/10 hover:bg-amber-500/15 border-amber-300 dark:border-amber-700/80 text-amber-800 dark:text-amber-200 cursor-pointer [&>span]:truncate whitespace-nowrap transition-colors shadow-2xs"
+          >
+            <div className="flex items-center gap-1.5 truncate">
+              <CalendarIcon className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="font-bold">Tháng {selectedPayrollMonth}</span>
+              <span className="text-[11px] text-amber-700/80 dark:text-amber-300/80 font-mono">
+                ({format(getPayrollCycleForMonth(selectedPayrollMonth, selectedPayrollYear).start, "dd/MM")} - {format(getPayrollCycleForMonth(selectedPayrollMonth, selectedPayrollYear).end, "dd/MM")})
+              </span>
+            </div>
+          </SelectTrigger>
+          <SelectContent className="rounded-2xl max-h-72 min-w-[245px]">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => {
+              const cycle = getPayrollCycleForMonth(m, selectedPayrollYear);
+              const isCurrent = m === currentActiveMonthNum;
+              return (
+                <SelectItem
+                  key={m}
+                  value={String(m)}
+                  className="text-xs font-medium cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5 w-full">
+                    <span className="w-16 font-bold text-slate-800 dark:text-slate-200 shrink-0">
+                      Tháng {m}
+                    </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono shrink-0">
+                      {format(cycle.start, "dd/MM")} - {format(cycle.end, "dd/MM")}
+                    </span>
+                    {isCurrent && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 font-bold uppercase tracking-wider shrink-0">
+                        Hiện tại
+                      </span>
+                    )}
+                  </div>
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  };
+
   const summary = timesheetData?.summary || {
     totalRecords: 0,
     totalStaff: 0,
@@ -1024,12 +1156,13 @@ function ChecklistPageContent() {
    * filter (user, team, search, scoreFilter) is reflected in the top stats.
    *
    * For the Calendar view we further narrow to the current payroll cycle
-   * (16th of calendarMonth → 15th of next month) before counting.
+   * (16th of previous month → 15th of selected calendarMonth) before counting.
    */
   const displaySummary = useMemo(() => {
     let base = filteredChecklists;
 
     if (viewType === "calendar") {
+      // "Tháng N" cycle = 16/N → 15/(N+1)
       const cycleStart = format(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 16), "yyyy-MM-dd");
       const cycleEnd = format(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 15), "yyyy-MM-dd");
       base = base.filter((c: any) => {
@@ -1059,10 +1192,10 @@ function ChecklistPageContent() {
     const avgCompletionRate =
       base.length > 0
         ? Math.round(
-            (base.reduce((sum: number, c: any) => sum + Number(c.completionRate || 0), 0) /
-              base.length) *
-              10
-          ) / 10
+          (base.reduce((sum: number, c: any) => sum + Number(c.completionRate || 0), 0) /
+            base.length) *
+          10
+        ) / 10
         : 0;
 
     return {
@@ -1085,8 +1218,13 @@ function ChecklistPageContent() {
 
   const cycleRangeLabel = useMemo(() => {
     if (viewType === "calendar") {
+      // "Tháng N" cycle = 16/N → 15/(N+1)
       const s = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 16);
       const e = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 15);
+      return `${format(s, "dd/MM")} - ${format(e, "dd/MM")}`;
+    }
+    if (activeRangePreset === "month") {
+      const { start: s, end: e } = getPayrollCycleForMonth(selectedPayrollMonth, selectedPayrollYear);
       return `${format(s, "dd/MM")} - ${format(e, "dd/MM")}`;
     }
     if (startDateStr && endDateStr) {
@@ -1098,11 +1236,9 @@ function ChecklistPageContent() {
         /* fallback */
       }
     }
-    const now = new Date();
-    const s = new Date(now.getFullYear(), now.getMonth(), 16);
-    const e = new Date(now.getFullYear(), now.getMonth() + 1, 15);
+    const { start: s, end: e } = getActivePayrollCycle();
     return `${format(s, "dd/MM")} - ${format(e, "dd/MM")}`;
-  }, [viewType, calendarMonth, startDateStr, endDateStr]);
+  }, [viewType, calendarMonth, activeRangePreset, selectedPayrollMonth, selectedPayrollYear, startDateStr, endDateStr]);
 
   const currentRangeLabel = useMemo(() => {
     if (viewType === "calendar" || activeRangePreset === "month") {
@@ -1510,7 +1646,7 @@ function ChecklistPageContent() {
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-xs font-semibold z-50">
                     {isMonthCycleMode
-                      ? `Tính từ 16 tháng này - 15 tháng sau (${cycleRangeLabel})`
+                      ? `Kỳ công: ${cycleRangeLabel}`
                       : `Dữ liệu tính từ ${currentRangeLabel}`}
                   </TooltipContent>
                 </Tooltip>
@@ -1606,7 +1742,7 @@ function ChecklistPageContent() {
                 {[
                   { id: "7d", label: "7 Ngày", desc: "7 ngày gần nhất", action: () => applyRangePreset(7, "7d") },
                   { id: "28d", label: "28 Ngày", desc: "28 ngày gần nhất", action: () => applyRangePreset(28, "28d") },
-                  { id: "month", label: "Tháng Này", desc: `Tháng này (Kỳ 16 tháng này - 15 tháng sau: ${cycleRangeLabel})`, action: applyThisMonth },
+                  { id: "month", label: "Theo Tháng", desc: `Theo chu kỳ tháng (${cycleRangeLabel})`, action: applyThisMonth },
                   { id: "60d", label: "60 Ngày", desc: "60 ngày gần nhất", action: () => applyRangePreset(60, "60d") },
                   { id: "365d", label: "365 Ngày", desc: "Năm nay (365 ngày gần nhất)", action: () => applyRangePreset(365, "365d") },
                 ].map((p) => {
@@ -1882,6 +2018,9 @@ function ChecklistPageContent() {
 
               {/* Dropdown Filters Group */}
               <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+                {/* Month Selector for Theo Tháng in range mode */}
+                {viewMode === "range" && activeRangePreset === "month" && renderMonthSelector()}
+
                 {/* Team Selector */}
                 {renderTeamSelector()}
 
@@ -1970,13 +2109,14 @@ function ChecklistPageContent() {
                 )}
               </div>
             </div>
-          ) : viewType === "charts" && isLeadOrAdmin ? (
+          ) : viewType === "charts" && (isLeadOrAdmin || activeRangePreset === "month") ? (
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
               <div className="text-xs text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2">
                 <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>Phạm vi thống kê theo nhân sự:</span>
+                <span>{isLeadOrAdmin ? "Phạm vi thống kê theo nhân sự & thời gian:" : "Thời gian thống kê theo tháng:"}</span>
               </div>
-              <div className="flex items-center gap-2.5 justify-end">
+              <div className="flex flex-wrap items-center gap-2.5 justify-end">
+                {activeRangePreset === "month" && renderMonthSelector()}
                 {renderTeamSelector()}
                 {renderStaffSelector()}
               </div>

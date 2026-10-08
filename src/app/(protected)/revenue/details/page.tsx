@@ -23,6 +23,7 @@ import {
   Columns3,
   Edit2,
   Trash2,
+  Archive,
   Loader2,
   MoreHorizontal,
   Plus,
@@ -154,6 +155,9 @@ function RevenueDetailsPageContent() {
   const initialIncludeArchived = searchParams?.get("archived") === "true";
   const [includeArchived, setIncludeArchived] = useState(initialIncludeArchived);
 
+  const initialIncludeArchivedAccounts = searchParams?.get("archivedAcc") === "true";
+  const [includeArchivedAccounts, setIncludeArchivedAccounts] = useState(initialIncludeArchivedAccounts);
+
   const initialMinViews = searchParams?.get("minV") || searchParams?.get("minViews") || "";
   const [minViews, setMinViews] = useState(initialMinViews);
 
@@ -255,6 +259,7 @@ function RevenueDetailsPageContent() {
         minV: minViews,
         origin: originFilter,
         archived: includeArchived ? "true" : "",
+        archivedAcc: includeArchivedAccounts ? "true" : "",
         sort: sortConfig.key,
         dir: sortConfig.desc ? "desc" : "asc",
         p: page,
@@ -271,6 +276,7 @@ function RevenueDetailsPageContent() {
         minV: "",
         origin: "ALL",
         archived: "",
+        archivedAcc: "",
         sort: "date",
         dir: "desc",
         p: 1,
@@ -288,6 +294,7 @@ function RevenueDetailsPageContent() {
     minViews,
     originFilter,
     includeArchived,
+    includeArchivedAccounts,
     sortConfig,
     page,
     pageSize,
@@ -423,6 +430,7 @@ function RevenueDetailsPageContent() {
     startDate: startDate || undefined,
     endDate: endDate || undefined,
     includeArchived: includeArchived || undefined,
+    includeArchivedAccounts: includeArchivedAccounts || undefined,
     teamId: teamFilter !== "ALL" ? teamFilter : undefined,
     operatorId: operatorFilter !== "ALL" ? operatorFilter : undefined,
   });
@@ -870,7 +878,8 @@ function RevenueDetailsPageContent() {
     (minRevenue ? 1 : 0) +
     (minViews ? 1 : 0) +
     (originFilter !== "ALL" ? 1 : 0) +
-    (includeArchived ? 1 : 0);
+    (includeArchived ? 1 : 0) +
+    (includeArchivedAccounts ? 1 : 0);
 
   const advancedFiltersCount =
     (teamFilter !== "ALL" ? 1 : 0) +
@@ -879,7 +888,8 @@ function RevenueDetailsPageContent() {
     (originFilter !== "ALL" ? 1 : 0) +
     (minRevenue ? 1 : 0) +
     (minViews ? 1 : 0) +
-    (includeArchived ? 1 : 0);
+    (includeArchived ? 1 : 0) +
+    (includeArchivedAccounts ? 1 : 0);
 
   const clearAdvancedFilters = () => {
     setTeamFilter("ALL");
@@ -889,6 +899,7 @@ function RevenueDetailsPageContent() {
     setMinRevenue("");
     setMinViews("");
     setIncludeArchived(false);
+    setIncludeArchivedAccounts(false);
     setPage(1);
   };
 
@@ -903,6 +914,7 @@ function RevenueDetailsPageContent() {
     setMinViews("");
     setOriginFilter("ALL");
     setIncludeArchived(false);
+    setIncludeArchivedAccounts(false);
     setPage(1);
   };
 
@@ -921,29 +933,40 @@ function RevenueDetailsPageContent() {
   const {
     filteredTotalRevenue,
     filteredActiveRevenue,
-    filteredArchivedRevenue,
+    filteredDeletedRevenue,
+    filteredArchivedAccRevenue,
     filteredTotalViews,
     filteredActiveViews,
-    filteredArchivedViews,
-    archivedCount,
+    filteredDeletedViews,
+    filteredArchivedAccViews,
+    deletedCount,
+    archivedAccCount,
   } = useMemo(() => {
     let totalRev = 0;
     let activeRev = 0;
+    let delRev = 0;
     let archRev = 0;
     let totalV = 0;
     let activeV = 0;
+    let delV = 0;
     let archV = 0;
+    let delC = 0;
     let archC = 0;
 
     for (const r of filteredAndSortedRecords) {
       const rev = Number(r.revenue || 0);
       const v = Number(r.views || 0);
-      const isArchived = Boolean(r.account?.deletedAt);
+      const isDel = Boolean(r.account?.deletedAt);
+      const isArch = Boolean(!r.account?.deletedAt && r.account?.archivedAt);
 
       totalRev += rev;
       totalV += v;
 
-      if (isArchived) {
+      if (isDel) {
+        delRev += rev;
+        delV += v;
+        delC++;
+      } else if (isArch) {
         archRev += rev;
         archV += v;
         archC++;
@@ -956,11 +979,14 @@ function RevenueDetailsPageContent() {
     return {
       filteredTotalRevenue: totalRev,
       filteredActiveRevenue: activeRev,
-      filteredArchivedRevenue: archRev,
+      filteredDeletedRevenue: delRev,
+      filteredArchivedAccRevenue: archRev,
       filteredTotalViews: totalV,
       filteredActiveViews: activeV,
-      filteredArchivedViews: archV,
-      archivedCount: archC,
+      filteredDeletedViews: delV,
+      filteredArchivedAccViews: archV,
+      deletedCount: delC,
+      archivedAccCount: archC,
     };
   }, [filteredAndSortedRecords]);
 
@@ -1109,15 +1135,27 @@ function RevenueDetailsPageContent() {
                 <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1 truncate">
                   {formatAmount(filteredTotalRevenue, "USD")}
                 </div>
-                {includeArchived && archivedCount > 0 && (
+                {((includeArchived && deletedCount > 0) || (includeArchivedAccounts && archivedAccCount > 0)) && (
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
                     <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
                       Hiện hành: {formatAmount(filteredActiveRevenue, "USD")}
                     </span>
-                    <span>•</span>
-                    <span className="text-rose-500 dark:text-rose-400 font-semibold">
-                      Lưu trữ: {formatAmount(filteredArchivedRevenue, "USD")}
-                    </span>
+                    {includeArchivedAccounts && archivedAccCount > 0 && (
+                      <>
+                        <span>•</span>
+                        <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                          Lưu trữ: {formatAmount(filteredArchivedAccRevenue, "USD")}
+                        </span>
+                      </>
+                    )}
+                    {includeArchived && deletedCount > 0 && (
+                      <>
+                        <span>•</span>
+                        <span className="text-rose-500 dark:text-rose-400 font-semibold">
+                          Đã xóa: {formatAmount(filteredDeletedRevenue, "USD")}
+                        </span>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1134,13 +1172,25 @@ function RevenueDetailsPageContent() {
                 <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1 truncate">
                   {filteredTotalViews.toLocaleString()}
                 </div>
-                {includeArchived && archivedCount > 0 && (
+                {((includeArchived && deletedCount > 0) || (includeArchivedAccounts && archivedAccCount > 0)) && (
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
                     <span>Hiện hành: {filteredActiveViews.toLocaleString()}</span>
-                    <span>•</span>
-                    <span className="text-rose-500 dark:text-rose-400 font-semibold">
-                      Lưu trữ: {filteredArchivedViews.toLocaleString()}
-                    </span>
+                    {includeArchivedAccounts && archivedAccCount > 0 && (
+                      <>
+                        <span>•</span>
+                        <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                          Lưu trữ: {filteredArchivedAccViews.toLocaleString()}
+                        </span>
+                      </>
+                    )}
+                    {includeArchived && deletedCount > 0 && (
+                      <>
+                        <span>•</span>
+                        <span className="text-rose-500 dark:text-rose-400 font-semibold">
+                          Đã xóa: {filteredDeletedViews.toLocaleString()}
+                        </span>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1157,9 +1207,14 @@ function RevenueDetailsPageContent() {
                 <div className="text-2xl font-black text-pink-600 dark:text-pink-400 mt-1 truncate">
                   {filteredAndSortedRecords.length}
                 </div>
-                {includeArchived && archivedCount > 0 && (
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                    Gồm <span className="font-bold text-rose-500">{archivedCount}</span> bản ghi tài khoản đã xóa
+                {((includeArchived && deletedCount > 0) || (includeArchivedAccounts && archivedAccCount > 0)) && (
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 space-y-0.5">
+                    {includeArchivedAccounts && archivedAccCount > 0 && (
+                      <div>Gồm <span className="font-bold text-amber-500">{archivedAccCount}</span> bản ghi tài khoản lưu trữ</div>
+                    )}
+                    {includeArchived && deletedCount > 0 && (
+                      <div>Gồm <span className="font-bold text-rose-500">{deletedCount}</span> bản ghi tài khoản đã xóa</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1847,7 +1902,27 @@ function RevenueDetailsPageContent() {
                         )}
                       </div>
                     </div>
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+                      <label className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer select-none">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Archive className={`w-3.5 h-3.5 shrink-0 ${includeArchivedAccounts ? "text-amber-600 dark:text-amber-400" : "text-slate-400"}`} />
+                          <div className="min-w-0">
+                            <span className="block text-xs font-medium text-slate-800 dark:text-slate-200 leading-tight">
+                              Tài khoản lưu trữ
+                            </span>
+                            <span className="block text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                              Bao gồm doanh thu từ account lưu trữ
+                            </span>
+                          </div>
+                        </div>
+                        <Checkbox
+                          checked={includeArchivedAccounts}
+                          onCheckedChange={(checked) => {
+                            setIncludeArchivedAccounts(!!checked);
+                            setPage(1);
+                          }}
+                        />
+                      </label>
                       <label className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer select-none">
                         <div className="flex items-center gap-2 min-w-0">
                           <Trash2 className={`w-3.5 h-3.5 shrink-0 ${includeArchived ? "text-rose-600 dark:text-rose-400" : "text-slate-400"}`} />
@@ -2107,6 +2182,19 @@ function RevenueDetailsPageContent() {
                   </Tooltip>
                 </span>
               )}
+              {includeArchivedAccounts && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
+                  <span>Bao gồm tài khoản lưu trữ</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button onClick={() => setIncludeArchivedAccounts(false)} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/15 hover:text-amber-500 transition-colors cursor-pointer">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Ẩn tài khoản lưu trữ</TooltipContent>
+                  </Tooltip>
+                </span>
+              )}
               {includeArchived && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300">
                   <span>Bao gồm tài khoản đã xóa</span>
@@ -2309,6 +2397,11 @@ function RevenueDetailsPageContent() {
                               {item.account?.deletedAt && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 shrink-0">
                                   Đã xóa
+                                </span>
+                              )}
+                              {!item.account?.deletedAt && item.account?.archivedAt && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0">
+                                  Lưu trữ
                                 </span>
                               )}
                             </div>

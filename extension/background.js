@@ -616,13 +616,13 @@ async function probeSessionCookiesForDiag() {
       const c = await chrome.cookies.get({ url: "https://www.tiktok.com", name });
       out[name] = c?.value
         ? {
-            present: true,
-            httpOnly: !!c.httpOnly,
-            secure: !!c.secure,
-            sameSite: c.sameSite || null,
-            domain: c.domain || null,
-            valueLen: String(c.value).length,
-          }
+          present: true,
+          httpOnly: !!c.httpOnly,
+          secure: !!c.secure,
+          sameSite: c.sameSite || null,
+          domain: c.domain || null,
+          valueLen: String(c.value).length,
+        }
         : { present: false };
     } catch (e) {
       out[name] = { present: false, error: String(e?.message || e) };
@@ -1732,10 +1732,20 @@ async function performExtensionSweep(requestId, profileId) {
                   if (k === "msToken" || k === "X-Bogus" || k === "X-Gnarly") continue;
                   u.searchParams.set(k, v);
                 }
+                const reqBody = {
+                  cursor,
+                  count: 50,
+                  size: 50,
+                  query: {
+                    sort_orders: [{ field_name: "post_time", order: 2 }],
+                    conditions: [],
+                    is_recent_posts: false,
+                  },
+                };
                 let used = await doFetch(u.toString(), {
                   method: "POST",
                   headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ cursor, count: 50, size: 50 }),
+                  body: JSON.stringify(reqBody),
                 });
                 if (
                   (!used?.item_list && !used?.data?.item_list) &&
@@ -1748,6 +1758,7 @@ async function performExtensionSweep(requestId, profileId) {
                       cursor: String(cursor),
                       count: "50",
                       size: "50",
+                      query: JSON.stringify(reqBody.query),
                     }).toString(),
                   });
                 }
@@ -2234,7 +2245,7 @@ function assembleExtensionSweepPayload({
 
     let videosList = (Array.isArray(videosRaw) ? videosRaw : []).map((p) => {
       const postTimestamp = normalizePostTimestamp(
-        p.post_time || p.create_time || p.publish_date_unix_time || p.createTime
+        p.post_time || p.create_time || p.createtime || p.publish_date_unix_time || p.createTime
       );
       return {
         id: safeId(p.video_id_str, p.item_id, p.id, p.aweme_id, p.video_id),
@@ -2245,6 +2256,7 @@ function assembleExtensionSweepPayload({
         shares: cleanNum(p.share_count || p.shareCount || p.statistics?.share_count || p.statistics?.shareCount || p.stats?.shareCount || p.stats?.share_count),
         duration: formatDuration(p.video_duration || p.duration),
         postTime: postTimestamp ? new Date(postTimestamp).toISOString() : null,
+        createTime: postTimestamp ? Math.floor(postTimestamp / 1000) : null,
         postDate: postTimestamp
           ? new Date(postTimestamp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
           : "",
@@ -2457,21 +2469,21 @@ function assembleExtensionSweepPayload({
 
     const insightFields = insightsOk
       ? {
-          totalViews,
-          totalLikes,
-          rpm,
-          sumViews: { views7d, views28d, views60d, views365d, totalViews },
-          sumLikes: { likes7d, likes28d, likes60d, likes365d, totalLikes },
-          sumComments: { comments7d, comments28d, comments60d, comments365d },
-          sumShares: { shares7d, shares28d, shares60d, shares365d },
-          sumProfileViews: {
-            profileViews7d,
-            profileViews28d,
-            profileViews60d,
-            profileViews365d,
-          },
-          dailyViewsBreakdown,
-        }
+        totalViews,
+        totalLikes,
+        rpm,
+        sumViews: { views7d, views28d, views60d, views365d, totalViews },
+        sumLikes: { likes7d, likes28d, likes60d, likes365d, totalLikes },
+        sumComments: { comments7d, comments28d, comments60d, comments365d },
+        sumShares: { shares7d, shares28d, shares60d, shares365d },
+        sumProfileViews: {
+          profileViews7d,
+          profileViews28d,
+          profileViews60d,
+          profileViews365d,
+        },
+        dailyViewsBreakdown,
+      }
       : {};
 
     return {
@@ -3456,6 +3468,7 @@ async function reportTikTokStatus(payload) {
         const effectiveProfileName =
           gpmMatch?.name || store.linkedGpmProfileName || undefined;
 
+        const isKho = typeof effectiveGroupName === "string" && effectiveGroupName.trim().toLowerCase() === "kho";
         const body = {
           username,
           nickname: payload.nickname || "",
@@ -3465,6 +3478,7 @@ async function reportTikTokStatus(payload) {
           gpmProfileId: effectiveId,
           gpmProfileName: effectiveProfileName,
           gpmGroupName: effectiveGroupName,
+          isArchived: isKho ? true : undefined,
           source: "extension",
           metricsSource: "identity",
           country: resolvedCountry,
@@ -3887,6 +3901,7 @@ async function processPendingGpmLinks() {
           gpmMatch.name || prevStored.linkedGpmProfileName || undefined;
 
         const config = await getConfig();
+        const isKho = typeof effectiveGroupName === "string" && effectiveGroupName.trim().toLowerCase() === "kho";
         const body = {
           username,
           nickname: item.nickname || "",
@@ -3896,6 +3911,7 @@ async function processPendingGpmLinks() {
           gpmProfileId: gpmMatch.id,
           gpmProfileName: effectiveProfileName,
           gpmGroupName: effectiveGroupName,
+          isArchived: isKho ? true : undefined,
           source: "extension",
           metricsSource: "identity",
           country: item.country || undefined,

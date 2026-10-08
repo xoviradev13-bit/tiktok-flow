@@ -624,6 +624,7 @@ export async function POST(req: Request) {
 
     let newCount = 0;
     let updatedCount = 0;
+    const skipProfileIds: string[] = [];
 
     await pMap(
       profiles,
@@ -648,6 +649,7 @@ export async function POST(req: Request) {
 
         // Skip soft-deleted accounts immediately
         if (existing?.deletedAt) {
+          skipProfileIds.push(p.id);
           return;
         }
 
@@ -666,6 +668,7 @@ export async function POST(req: Request) {
             },
           });
           if (existing?.deletedAt) {
+            skipProfileIds.push(p.id);
             return;
           }
         }
@@ -683,6 +686,7 @@ export async function POST(req: Request) {
         }
 
         const resolvedGroupName = p.group_name || p.group_id;
+        const isKhoGroup = typeof resolvedGroupName === "string" && resolvedGroupName.trim().toLowerCase() === "kho";
         const detectedFromText = detectCountryFromText(p.name) || detectCountryFromText(resolvedGroupName);
         const country = detectedFromText || null;
 
@@ -694,7 +698,12 @@ export async function POST(req: Request) {
             select: { id: true, deletedAt: true },
           });
           if (inTrash?.deletedAt) {
+            skipProfileIds.push(p.id);
             return;
+          }
+
+          if (isKhoGroup) {
+            skipProfileIds.push(p.id);
           }
 
           try {
@@ -709,6 +718,9 @@ export async function POST(req: Request) {
                 gpmProfileName: profileName || undefined,
                 gpmPort: incomingPort || undefined,
                 status: "ACTIVE",
+                archivedAt: isKhoGroup ? new Date() : null,
+                archivedById: null,
+                isOnline: isKhoGroup ? false : undefined,
                 assignedUserId,
                 isAssignmentLocked: false,
                 totalViews: BigInt(0),
@@ -759,6 +771,9 @@ export async function POST(req: Request) {
           country?: string;
           lastSyncedAt: Date;
           assignedUserId?: string;
+          archivedAt?: Date | null;
+          archivedById?: string | null;
+          isOnline?: boolean;
         } = {
           gpmProfileId: p.id,
           ...(incomingPort ? { gpmPort: incomingPort } : {}),
@@ -766,6 +781,26 @@ export async function POST(req: Request) {
           groupName: resolvedGroupName || existing.groupName || "GPM Fleet",
           lastSyncedAt: new Date(),
         };
+
+        const effectiveGroup = resolvedGroupName || existing.groupName;
+        const isKho = typeof effectiveGroup === "string" && effectiveGroup.trim().toLowerCase() === "kho";
+        if (isKho) {
+          updateData.archivedAt = existing.archivedAt || new Date();
+          updateData.archivedById = null;
+          updateData.isOnline = false;
+          skipProfileIds.push(p.id);
+        } else if (incomingOnline && existing.archivedAt && typeof resolvedGroupName === "string" && resolvedGroupName.trim().toLowerCase() !== "kho") {
+          // Profile moved out of kho -> only remove archive if GPM is ONLINE!
+          updateData.archivedAt = null;
+          updateData.archivedById = null;
+        } else if (existing.archivedAt) {
+          // GPM is offline or account is still archived:
+          // NEVER revert an archived account's group name back to a stale disk group!
+          if (!incomingOnline && existing.groupName?.trim().toLowerCase() === "kho") {
+            updateData.groupName = existing.groupName;
+          }
+          skipProfileIds.push(p.id);
+        }
 
         // Upgrade country if we detect a specific country (UK, VN, etc.) and account is currently default/unset
         if (detectedFromText && (!existing.country || existing.country === "US" || existing.country === "Unknown")) {
@@ -838,6 +873,7 @@ export async function POST(req: Request) {
       totalScanned: profiles.length,
       newImportedCount: newCount,
       updatedCount,
+      skipProfileIds,
     });
   } catch (error: any) {
     console.error("[ClientSync API Error]:", error);

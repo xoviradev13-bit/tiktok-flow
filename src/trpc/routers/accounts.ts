@@ -14,6 +14,7 @@ import {
   resolveAllTimeRevenue,
   resolvePeriodRevenue,
   resolveThisMonthRevenue,
+  resolveTodayRevenue,
 } from "@/lib/resolve-all-time-revenue";
 import { Prisma } from "@/generated/prisma/client";
 import {
@@ -61,8 +62,8 @@ export const accountsRouter = router({
     .query(async ({ ctx, input }) => {
       const isAdmin = ctx.session.user.role === "ADMIN";
       const isLeadOrAdmin = isAdmin || ctx.session.user.role === "LEAD";
-      const viewTrash = Boolean(input?.viewTrash && isAdmin);
-      const viewArchive = Boolean(input?.viewArchive && isLeadOrAdmin);
+      const viewTrash = Boolean(input?.viewTrash);
+      const viewArchive = Boolean(input?.viewArchive);
 
       // Fleet mode uses the extended client so the soft-delete extension is the
       // one source of truth for "what counts as active" — not a hand-copied
@@ -186,6 +187,14 @@ export const accountsRouter = router({
                 },
               },
             },
+            archivedBy: {
+              select: {
+                id: true,
+                username: true,
+                name: true,
+                fullName: true,
+              },
+            },
             alerts: {
               where: { status: "OPEN" },
               orderBy: { createdAt: "desc" },
@@ -203,12 +212,24 @@ export const accountsRouter = router({
           },
           orderBy: { updatedAt: "desc" },
         }),
-        isAdmin
-          ? ctx.prismaRaw.tiktokAccount.count({ where: { deletedAt: { not: null } } })
-          : Promise.resolve(null),
-        isLeadOrAdmin
-          ? ctx.prismaRaw.tiktokAccount.count({ where: { archivedAt: { not: null }, deletedAt: null } })
-          : Promise.resolve(null),
+        (() => {
+          const trashWhere: any = { deletedAt: { not: null } };
+          if (scope.isStaff) {
+            trashWhere.assignedUserId = ctx.session.user.id;
+          } else if (scope.isLead) {
+            trashWhere.assignedUserId = { in: scope.memberUserIds };
+          }
+          return ctx.prismaRaw.tiktokAccount.count({ where: trashWhere });
+        })(),
+        (() => {
+          const archiveWhere: any = { archivedAt: { not: null }, deletedAt: null };
+          if (scope.isStaff) {
+            archiveWhere.assignedUserId = ctx.session.user.id;
+          } else if (scope.isLead) {
+            archiveWhere.assignedUserId = { in: scope.memberUserIds };
+          }
+          return ctx.prismaRaw.tiktokAccount.count({ where: archiveWhere });
+        })(),
         !viewTrash && !viewArchive
           ? ctx.prisma.tiktokAccount.groupBy({
             by: ["status"],
@@ -287,6 +308,11 @@ export const accountsRouter = router({
         0
       );
 
+      const totalFleetRevenueToday = accounts.reduce(
+        (sum: number, acc: any) => sum + resolveTodayRevenue(acc),
+        0
+      );
+
       const totalFleetRevenueThisMonth = accounts.reduce(
         (sum: number, acc: any) => sum + resolveThisMonthRevenue(acc),
         0
@@ -332,12 +358,20 @@ export const accountsRouter = router({
           punishedVideosCount30d: strikeCount,
           strikeLevel,
           deletedByName: viewTrash ? deleterByAccountId[acc.id] ?? null : undefined,
-          archivedByName: viewArchive ? deleterByAccountId[acc.id] ?? null : undefined,
+          archivedByName: viewArchive
+            ? !acc.archivedById
+              ? "Hệ thống"
+              : acc.archivedBy?.fullName ||
+              acc.archivedBy?.name ||
+              acc.archivedBy?.username ||
+              deleterByAccountId[acc.id] ||
+              "Hệ thống"
+            : undefined,
         };
       });
 
       const stats: ListStats = viewTrash
-        ? { mode: "trash", trashCount: trashCount ?? 0 }
+        ? { mode: "trash", trashCount: trashCount ?? 0, archiveCount: archiveCount ?? 0 }
         : viewArchive
           ? { mode: "archive", archiveCount: archiveCount ?? 0, trashCount: trashCount ?? 0 }
           : {
@@ -349,6 +383,7 @@ export const accountsRouter = router({
             warming: warmingCount,
             online: onlineCount,
             totalRevenue: Math.round(totalFleetRevenue * 100) / 100,
+            totalRevenueToday: Math.round(totalFleetRevenueToday * 100) / 100,
             totalRevenue7d: Math.round(totalFleetRevenue7d * 100) / 100,
             totalRevenue28d: Math.round(totalFleetRevenue28d * 100) / 100,
             totalRevenue30d: Math.round(totalFleetRevenueThisMonth * 100) / 100,
@@ -392,6 +427,14 @@ export const accountsRouter = router({
               firstName: true,
               lastName: true,
               role: true,
+            },
+          },
+          archivedBy: {
+            select: {
+              id: true,
+              username: true,
+              name: true,
+              fullName: true,
             },
           },
           alerts: {
@@ -456,6 +499,14 @@ export const accountsRouter = router({
         punishedVideos30d,
         punishedVideosCount30d: strikeCount,
         strikeLevel,
+        archivedByName: account.archivedAt
+          ? !account.archivedById
+            ? "Hệ thống"
+            : (account.archivedBy as any)?.fullName ||
+            (account.archivedBy as any)?.name ||
+            (account.archivedBy as any)?.username ||
+            "Hệ thống"
+          : undefined,
       });
     }),
 
@@ -800,16 +851,25 @@ export const accountsRouter = router({
       return serializeBigInt(updated);
     }),
 
-  // 5. Delete TikTok Account (ADMIN) — SOFT DELETE
-  delete: adminProcedure
+  // 5. Delete TikTok Account (STAFF for own accounts, LEAD for team, ADMIN for all) — SOFT DELETE
+  delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       const account = await ctx.prisma.tiktokAccount.findFirst({
         where: { id: input.id, deletedAt: null },
       });
       if (!account) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+      if (scope.isStaff) {
+        if (account.assignedUserId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể xóa tài khoản của chính mình." });
+        }
+      } else if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể xóa tài khoản thuộc đội nhóm của mình." });
+      }
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || (scope.isStaff ? "Staff" : scope.isLead ? "Lead" : "Admin");
 
       await ctx.prisma.$transaction(async (tx: any) => {
         const res = await tx.tiktokAccount.updateMany({
@@ -856,14 +916,19 @@ export const accountsRouter = router({
       return { success: true };
     }),
 
-  // 6. Bulk Delete Accounts (ADMIN) — SOFT DELETE
-  bulkDelete: adminProcedure
+  // 6. Bulk Delete Accounts (STAFF for own accounts, LEAD for team, ADMIN for all) — SOFT DELETE
+  bulkDelete: protectedProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
-      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const whereScope: any = { id: { in: input.ids }, deletedAt: null };
+      if (scope.isStaff) whereScope.assignedUserId = ctx.session.user.id;
+      else if (scope.isLead) whereScope.assignedUserId = { in: scope.memberUserIds };
+
+      const actorName = ctx.session.user.name || ctx.session.user.email || (scope.isStaff ? "Staff" : scope.isLead ? "Lead" : "Admin");
 
       const targets: Array<{ id: string; username: string; status: string; gpmProfileId: string | null; assignedUserId: string | null }> = await ctx.prismaRaw.tiktokAccount.findMany({
-        where: { id: { in: input.ids }, deletedAt: null },
+        where: whereScope,
         select: { id: true, username: true, status: true, gpmProfileId: true, assignedUserId: true },
       });
       if (targets.length === 0) return { count: 0 };
@@ -920,8 +985,8 @@ export const accountsRouter = router({
       return { count: targets.length };
     }),
 
-  // 7. Restore Single Account from Trash (ADMIN)
-  restore: adminProcedure
+  // 7. Restore Single Account from Trash (STAFF for own accounts, LEAD for team, ADMIN for all)
+  restore: protectedProcedure
     .input(
       z.object({
         id: z.string(),
@@ -930,13 +995,24 @@ export const accountsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       const account = await ctx.prismaRaw.tiktokAccount.findFirst({
         where: { id: input.id, deletedAt: { not: null } },
       });
       if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Not in Trash" });
 
+      if (scope.isStaff) {
+        if (account.assignedUserId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể khôi phục tài khoản của chính mình." });
+        }
+      } else if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể khôi phục tài khoản thuộc đội nhóm của mình." });
+      }
+
       let resolvedAssignee =
-        input.assignedUserId !== undefined ? input.assignedUserId : account.assignedUserId;
+        scope.isAdmin && input.assignedUserId !== undefined
+          ? input.assignedUserId
+          : account.assignedUserId;
 
       if (resolvedAssignee) {
         const user = await ctx.prismaRaw.user.findFirst({
@@ -946,7 +1022,8 @@ export const accountsRouter = router({
         if (!user) resolvedAssignee = null;
       }
 
-      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+      const actorName = ctx.session.user.name || ctx.session.user.email || (scope.isStaff ? "Staff" : scope.isLead ? "Lead" : "Admin");
+      const shouldResetLock = scope.isAdmin ? input.resetAssignmentLock : false;
 
       await ctx.prisma.$transaction(async (tx: any) => {
         const res = await tx.tiktokAccount.updateMany({
@@ -955,7 +1032,7 @@ export const accountsRouter = router({
             deletedAt: null,
             deletedById: null,
             assignedUserId: resolvedAssignee,
-            isAssignmentLocked: input.resetAssignmentLock ? false : account.isAssignmentLocked,
+            isAssignmentLocked: shouldResetLock ? false : account.isAssignmentLocked,
           },
         });
         if (res.count === 0) throw new TRPCError({ code: "CONFLICT", message: "Account state changed" });
@@ -1011,8 +1088,8 @@ export const accountsRouter = router({
       return { success: true };
     }),
 
-  // 8. Bulk Restore Accounts from Trash (ADMIN)
-  bulkRestore: adminProcedure
+  // 8. Bulk Restore Accounts from Trash (STAFF for own accounts, LEAD for team, ADMIN for all)
+  bulkRestore: protectedProcedure
     .input(
       z.object({
         ids: z.array(z.string()),
@@ -1020,8 +1097,13 @@ export const accountsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
+      const whereScope: any = { id: { in: input.ids }, deletedAt: { not: null } };
+      if (scope.isStaff) whereScope.assignedUserId = ctx.session.user.id;
+      else if (scope.isLead) whereScope.assignedUserId = { in: scope.memberUserIds };
+
       const targets = await ctx.prismaRaw.tiktokAccount.findMany({
-        where: { id: { in: input.ids }, deletedAt: { not: null } },
+        where: whereScope,
         select: { id: true, username: true, status: true, assignedUserId: true, isAssignmentLocked: true },
       });
       if (targets.length === 0) return { restoredCount: 0 };
@@ -1043,7 +1125,8 @@ export const accountsRouter = router({
           t.assignedUserId && validSet.has(t.assignedUserId) ? t.assignedUserId : null,
       }));
 
-      const actorName = ctx.session.user.name || ctx.session.user.email || "Admin";
+      const actorName = ctx.session.user.name || ctx.session.user.email || (scope.isStaff ? "Staff" : scope.isLead ? "Lead" : "Admin");
+      const shouldResetLock = scope.isAdmin ? input.resetAssignmentLock : false;
 
       await ctx.prisma.$transaction(async (tx: any) => {
         for (const t of resolved) {
@@ -1053,7 +1136,7 @@ export const accountsRouter = router({
               deletedAt: null,
               deletedById: null,
               assignedUserId: t.resolvedAssignee,
-              isAssignmentLocked: input.resetAssignmentLock ? false : t.isAssignmentLocked,
+              isAssignmentLocked: shouldResetLock ? false : t.isAssignmentLocked,
             },
           });
           if (res.count === 0) {
@@ -1522,8 +1605,8 @@ export const accountsRouter = router({
 
       return { count: res.count };
     }),
-  // 19. Archive Account (LEAD / ADMIN)
-  archive: leadProcedure
+  // 19. Archive Account (STAFF for own accounts, LEAD for team, ADMIN for all)
+  archive: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
@@ -1532,11 +1615,15 @@ export const accountsRouter = router({
       });
       if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
 
-      if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
+      if (scope.isStaff) {
+        if (account.assignedUserId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể lưu trữ tài khoản của chính mình." });
+        }
+      } else if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể lưu trữ tài khoản thuộc đội nhóm của mình." });
       }
 
-      const actorName = ctx.session.user.name || ctx.session.user.email || "Lead";
+      const actorName = ctx.session.user.name || ctx.session.user.email || (scope.isStaff ? "Staff" : "Lead");
       const now = new Date();
 
       await ctx.prismaRaw.$transaction(async (tx: any) => {
@@ -1576,8 +1663,8 @@ export const accountsRouter = router({
       return { success: true };
     }),
 
-  // 20. Unarchive Account (LEAD / ADMIN)
-  unarchive: leadProcedure
+  // 20. Unarchive Account (STAFF for own accounts, LEAD for team, ADMIN for all)
+  unarchive: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
@@ -1586,11 +1673,15 @@ export const accountsRouter = router({
       });
       if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Not in Archive" });
 
-      if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
+      if (scope.isStaff) {
+        if (account.assignedUserId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể bỏ lưu trữ tài khoản của chính mình." });
+        }
+      } else if (scope.isLead && (!account.assignedUserId || !scope.memberUserIds.includes(account.assignedUserId))) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Bạn chỉ có thể bỏ lưu trữ tài khoản thuộc đội nhóm của mình." });
       }
 
-      const actorName = ctx.session.user.name || ctx.session.user.email || "Lead";
+      const actorName = ctx.session.user.name || ctx.session.user.email || (scope.isStaff ? "Staff" : "Lead");
 
       await ctx.prismaRaw.$transaction(async (tx: any) => {
         const res = await tx.tiktokAccount.updateMany({
@@ -1629,13 +1720,14 @@ export const accountsRouter = router({
       return { success: true };
     }),
 
-  // 21. Bulk Archive (LEAD / ADMIN)
-  bulkArchive: leadProcedure
+  // 21. Bulk Archive (STAFF for own accounts, LEAD for team, ADMIN for all)
+  bulkArchive: protectedProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       const whereScope: any = { id: { in: input.ids }, deletedAt: null, archivedAt: null };
-      if (scope.isLead) whereScope.assignedUserId = { in: scope.memberUserIds };
+      if (scope.isStaff) whereScope.assignedUserId = ctx.session.user.id;
+      else if (scope.isLead) whereScope.assignedUserId = { in: scope.memberUserIds };
 
       const targets: Array<{ id: string; username: string; status: string; assignedUserId: string | null }> =
         await ctx.prismaRaw.tiktokAccount.findMany({
@@ -1644,7 +1736,7 @@ export const accountsRouter = router({
         });
       if (targets.length === 0) return { count: 0 };
 
-      const actorName = ctx.session.user.name || ctx.session.user.email || "Lead";
+      const actorName = ctx.session.user.name || ctx.session.user.email || (scope.isStaff ? "Staff" : "Lead");
       const now = new Date();
 
       await ctx.prismaRaw.$transaction(async (tx: any) => {
@@ -1689,13 +1781,14 @@ export const accountsRouter = router({
       return { count: targets.length };
     }),
 
-  // 22. Bulk Unarchive (LEAD / ADMIN)
-  bulkUnarchive: leadProcedure
+  // 22. Bulk Unarchive (STAFF for own accounts, LEAD for team, ADMIN for all)
+  bulkUnarchive: protectedProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
       const scope = await resolveUserScope(ctx.prisma, ctx.session.user);
       const whereScope: any = { id: { in: input.ids }, archivedAt: { not: null }, deletedAt: null };
-      if (scope.isLead) whereScope.assignedUserId = { in: scope.memberUserIds };
+      if (scope.isStaff) whereScope.assignedUserId = ctx.session.user.id;
+      else if (scope.isLead) whereScope.assignedUserId = { in: scope.memberUserIds };
 
       const targets: Array<{ id: string; username: string; status: string; assignedUserId: string | null }> =
         await ctx.prismaRaw.tiktokAccount.findMany({
@@ -1704,7 +1797,7 @@ export const accountsRouter = router({
         });
       if (targets.length === 0) return { count: 0 };
 
-      const actorName = ctx.session.user.name || ctx.session.user.email || "Lead";
+      const actorName = ctx.session.user.name || ctx.session.user.email || (scope.isStaff ? "Staff" : "Lead");
 
       await ctx.prismaRaw.$transaction(async (tx: any) => {
         const res = await tx.tiktokAccount.updateMany({
