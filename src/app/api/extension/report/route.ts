@@ -1119,19 +1119,6 @@ export async function POST(req: Request) {
         insightsUnavailable: insightsUnavailable || undefined,
       };
 
-      // Revenue is always-safe when the payload actually includes it — never invent zeros.
-      const resolvedSumRevenue =
-        sumRevenue &&
-          typeof sumRevenue === "object" &&
-          periodValues(sumRevenue) != null
-          ? sumRevenue
-          : undefined;
-
-      const resolvedRevenueBreakdown =
-        revenueBreakdown != null ? revenueBreakdown : undefined;
-      const resolvedDailyRevenueBreakdown =
-        dailyRevenueBreakdown != null ? dailyRevenueBreakdown : undefined;
-
       // 5a. Upsert AccountAnalytics with family gates (Insights / Rewards)
       const analyticsT0 = Date.now();
       try {
@@ -1168,10 +1155,81 @@ export async function POST(req: Request) {
                 sumComments: true,
                 sumShares: true,
                 sumProfileViews: true,
+                sumRevenue: true,
+                revenueBreakdown: true,
+                dailyRevenueBreakdown: true,
                 postRewards: true,
                 rawSnapshot: true,
               },
             });
+
+            // ---------- Revenue gate (sumRevenue, revenueBreakdown, dailyRevenueBreakdown) ----------
+            // 1. dailyRevenueBreakdown:
+            // Only update when payload actually contains items. NEVER overwrite existing daily data with [].
+            let resolvedDailyRevenueBreakdown: any = undefined;
+            if (Array.isArray(dailyRevenueBreakdown) && dailyRevenueBreakdown.length > 0) {
+              resolvedDailyRevenueBreakdown = dailyRevenueBreakdown;
+            } else if (Array.isArray(existing?.dailyRevenueBreakdown) && (existing.dailyRevenueBreakdown as any[]).length > 0) {
+              resolvedDailyRevenueBreakdown = existing.dailyRevenueBreakdown;
+            }
+
+            // 2. revenueBreakdown:
+            // Prefer payload revenueBreakdown; fall back to existing DB revenueBreakdown if payload didn't provide one.
+            const resolvedRevenueBreakdown: any =
+              revenueBreakdown != null ? revenueBreakdown : existing?.revenueBreakdown ?? undefined;
+
+            // 3. sumRevenue:
+            // Never let unverified / fallback zeros wipe out real revenue.
+            let resolvedSumRevenue: any = undefined;
+            const candidateSumRevenue =
+              sumRevenue &&
+              typeof sumRevenue === "object" &&
+              periodValues(sumRevenue) != null
+                ? (sumRevenue as Record<string, number>)
+                : undefined;
+
+            const incomingRevBreakdownTotal = (revenueBreakdown as any)?.totalRevenue;
+            const incomingBreakdownMax = Math.max(
+              Number(incomingRevBreakdownTotal?.revenue7d || 0),
+              Number(incomingRevBreakdownTotal?.revenue30d || 0),
+              Number(incomingRevBreakdownTotal?.revenue60d || 0)
+            );
+
+            const candidateVals = candidateSumRevenue ? Object.values(candidateSumRevenue) : [];
+            const candidateIsAllZero = candidateVals.length > 0 && candidateVals.every((v) => Number(v || 0) === 0);
+
+            if (candidateSumRevenue && candidateIsAllZero && incomingBreakdownMax > 0) {
+              // Mismatch: sumRevenue was zeroed (e.g. unauthenticated fallback), but revenueBreakdown has positive real revenue!
+              resolvedSumRevenue = {
+                revenue7d: Number(incomingRevBreakdownTotal?.revenue7d || 0),
+                revenue28d: Number(incomingRevBreakdownTotal?.revenue30d || 0),
+                revenue60d: Number(incomingRevBreakdownTotal?.revenue60d || 0),
+                revenue365d: Number(candidateSumRevenue?.revenue365d || 0),
+                totalRevenue: incomingBreakdownMax,
+              };
+            } else if (candidateSumRevenue && candidateIsAllZero && !incomingBreakdownMax) {
+              // Candidate is all zero. Does existing DB record have confirmed positive revenue?
+              const existingSum = existing?.sumRevenue as Record<string, number> | null;
+              const existingMax = existingSum
+                ? Math.max(
+                    Number(existingSum.revenue7d || 0),
+                    Number(existingSum.revenue28d || 0),
+                    Number(existingSum.revenue60d || 0),
+                    Number(existingSum.totalRevenue || 0)
+                  )
+                : 0;
+              const incomingHasVerifiedDaily = Array.isArray(dailyRevenueBreakdown) && dailyRevenueBreakdown.length > 0;
+              if (existingMax > 0 && !incomingHasVerifiedDaily) {
+                // Keep the existing positive revenue if the incoming sweep didn't have verified daily points
+                resolvedSumRevenue = existingSum;
+              } else {
+                resolvedSumRevenue = candidateSumRevenue;
+              }
+            } else if (candidateSumRevenue) {
+              resolvedSumRevenue = candidateSumRevenue;
+            } else if (existing?.sumRevenue) {
+              resolvedSumRevenue = existing.sumRevenue;
+            }
             const snap = ((existing?.rawSnapshot as any) ?? {}) as Record<
               string,
               any
@@ -1275,6 +1333,9 @@ export async function POST(req: Request) {
               // the dedicated column write is rejected by a stale PrismaClient.
               ...(Array.isArray(dailyViewsBreakdown)
                 ? { dailyViewsBreakdown }
+                : {}),
+              ...(Array.isArray(resolvedDailyRevenueBreakdown) && resolvedDailyRevenueBreakdown.length > 0
+                ? { dailyRevenueBreakdown: resolvedDailyRevenueBreakdown }
                 : {}),
             };
             resolvedPostRewards = postRewardsWrite ?? resolvedPostRewards;
