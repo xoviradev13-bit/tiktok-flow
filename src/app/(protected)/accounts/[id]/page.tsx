@@ -591,6 +591,7 @@ function AccountDetailPageContent() {
     return (
       account.status === "BANNED" ||
       Boolean(account.bannedReason) ||
+      Boolean((account.metadata as any)?.bannedReason) ||
       ((account.metadata as any)?.creatorRewardsMissing === true) ||
       ((account.metadata as any)?.creatorRewardsStatus === "BANNED") ||
       account.alerts?.some((al: any) => al.alertType === "PROGRAM_DISQUALIFIED")
@@ -824,8 +825,8 @@ function AccountDetailPageContent() {
             <p className="font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
               <XCircle className="w-3.5 h-3.5" /> Bị ngừng chương trình Creator Rewards
             </p>
-            <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
-              {account?.bannedReason || "Tài khoản không tìm thấy chương trình Creator Rewards trên TikTok Studio"}
+            <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed break-words">
+              {account?.bannedReason || (account?.metadata as any)?.bannedReason || "Tài khoản không tìm thấy chương trình Creator Rewards trên TikTok Studio"}
             </p>
           </TooltipContent>
         </Tooltip>
@@ -1576,10 +1577,10 @@ function AccountDetailPageContent() {
                 <p className="text-xs text-rose-700/90 dark:text-rose-300/90 leading-relaxed max-w-3xl">
                   Tài khoản @{account.username} đã bị TikTok ngừng tư cách tham gia Creator Rewards Program. Các video mới đăng sẽ không còn được nhận tiền thưởng lượt xem.
                 </p>
-                {account.bannedReason && (
-                  <div className="inline-flex items-center gap-2 mt-1 px-3 py-1 rounded-xl bg-white/70 dark:bg-slate-900/70 border border-rose-300/80 dark:border-rose-900/60 text-xs font-semibold text-rose-700 dark:text-rose-300 shadow-xs">
+                {(account.bannedReason || (account.metadata as any)?.bannedReason) && (
+                  <div className="inline-flex items-center gap-2 mt-1 px-3 py-1 rounded-xl bg-white/70 dark:bg-slate-900/70 border border-rose-300/80 dark:border-rose-900/60 text-xs font-semibold text-rose-700 dark:text-rose-300 shadow-xs max-w-full">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
-                    <span>Lý do: {account.bannedReason}</span>
+                    <span className="break-words">Lý do: {account.bannedReason || (account.metadata as any)?.bannedReason}</span>
                   </div>
                 )}
               </div>
@@ -2353,7 +2354,7 @@ function AccountDetailPageContent() {
             </div>
 
             {/* Metadata & Extra Info Card */}
-            {(account.bannedReason || account.metadata) && (
+            {(account.bannedReason || (account.metadata as any)?.bannedReason || account.metadata) && (
               <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-3.5">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -2362,13 +2363,13 @@ function AccountDetailPageContent() {
                   </h3>
                 </div>
 
-                {account.bannedReason && (
+                {(account.bannedReason || (account.metadata as any)?.bannedReason) && (
                   <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 space-y-1">
                     <div className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5" /> Lý do tạm ngưng / Khóa quỹ:
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Lý do tạm ngưng / Khóa quỹ:
                     </div>
-                    <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
-                      {account.bannedReason}
+                    <p className="text-xs text-slate-700 dark:text-slate-300 font-medium break-words leading-relaxed">
+                      {account.bannedReason || (account.metadata as any)?.bannedReason}
                     </p>
                   </div>
                 )}
@@ -2376,15 +2377,26 @@ function AccountDetailPageContent() {
                 {account.metadata && typeof account.metadata === "object" && (
                   <div className="space-y-2">
                     <div className="text-xs font-semibold text-slate-500">Metadata hệ thống:</div>
-                    <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 text-[11px] font-mono space-y-1 overflow-x-auto max-h-48">
-                      {Object.entries(account.metadata as Record<string, any>).map(([k, v]) => (
-                        <div key={k} className="flex items-start justify-between gap-2">
-                          <span className="text-slate-500 shrink-0">{k}:</span>
-                          <span className="text-slate-800 dark:text-slate-200 font-semibold break-all text-right">
-                            {typeof v === "object" ? JSON.stringify(v) : String(v)}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 text-[11px] font-mono space-y-1.5 overflow-x-auto max-h-56">
+                    {Object.entries(account.metadata as Record<string, any>).map(([k, v]) => {
+                        const valStr = typeof v === "object" ? JSON.stringify(v) : String(v);
+                        const isBannedStatus = k === "creatorRewardsStatus" && valStr === "BANNED";
+
+                        return (
+                          <div key={k} className="flex items-start justify-between gap-2 py-0.5">
+                            <span className="text-slate-500 shrink-0">{k}:</span>
+                            <span
+                              title={valStr}
+                              className={cn(
+                                "font-semibold text-right min-w-0 truncate",
+                                isBannedStatus ? "text-rose-600 dark:text-rose-400" : "text-slate-800 dark:text-slate-200"
+                              )}
+                            >
+                              {valStr}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -3224,7 +3236,7 @@ function AccountDetailPageContent() {
                     </p>
                     <div className="p-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-rose-200 dark:border-rose-900/40 text-xs font-semibold text-rose-800 dark:text-rose-200">
                       <span className="font-bold text-slate-600 dark:text-slate-400 block text-[11px] mb-0.5">Lý do ghi nhận từ hệ thống / TikTok:</span>
-                      <span>{account.bannedReason || "Không tìm thấy chương trình Creator Rewards trên TikTok Studio"}</span>
+                      <span className="break-words">{account.bannedReason || (account.metadata as any)?.bannedReason || "Không tìm thấy chương trình Creator Rewards trên TikTok Studio"}</span>
                     </div>
                   </div>
                 </div>

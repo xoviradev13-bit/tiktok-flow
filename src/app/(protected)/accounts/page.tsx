@@ -441,7 +441,7 @@ function StrikeWarningPopover({
           ? `inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-bold border transition-colors cursor-pointer group ${theme.iconOnly}`
           : iconOnly
             ? `inline-flex items-center justify-center shrink-0 p-0.5 rounded-md transition-colors cursor-pointer group ${theme.icon} hover:opacity-80`
-            : `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all shadow-sm cursor-pointer group ${theme.badge}`
+            : `inline-flex items-center gap-1.5 px-2.5 py-1 max-w-full rounded-full text-xs font-semibold border transition-all shadow-sm cursor-pointer group whitespace-nowrap ${theme.badge}`
       }
       aria-label={theme.label}
     >
@@ -449,7 +449,7 @@ function StrikeWarningPopover({
         className={`${compact ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} shrink-0 group-hover:scale-110 transition-transform ${compact || iconOnly ? "" : theme.icon}`}
       />
       {compact && <span>{punishedVideos.length}</span>}
-      {!iconOnly && !compact && <span>{theme.label}</span>}
+      {!iconOnly && !compact && <span className="truncate">{theme.label}</span>}
     </button>
   );
 
@@ -4648,7 +4648,7 @@ function AccountsPageContent() {
 
                                   // Case 4: Clean & Safe
                                   return (
-                                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 whitespace-nowrap">
                                       <Shield className="w-3.5 h-3.5 text-emerald-500" />
                                       <span className="text-emerald-600 dark:text-emerald-400 font-medium">An toàn</span>
                                     </span>
