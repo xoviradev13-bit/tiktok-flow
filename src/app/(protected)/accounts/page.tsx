@@ -1573,7 +1573,7 @@ function AccountsPageContent() {
       const viewsNum = Number(acc.totalViews || 0);
       const matchMinViews = !minViews || viewsNum >= Number(minViews);
 
-      const revNum = resolveAllTimeRevenue(acc as any);
+      const revNum = resolveTodayRevenue(acc as any);
       const matchMinRev = !minRevenue || revNum >= Number(minRevenue);
 
       return (
@@ -1614,8 +1614,8 @@ function AccountsPageContent() {
       }
 
       if (sortConfig.key === "totalRevenue") {
-        const revA = resolveAllTimeRevenue(a as any);
-        const revB = resolveAllTimeRevenue(b as any);
+        const revA = resolveTodayRevenue(a as any);
+        const revB = resolveTodayRevenue(b as any);
         return isDesc ? revB - revA : revA - revB;
       }
 
@@ -3676,7 +3676,7 @@ function AccountsPageContent() {
                                   <DollarSign className="w-3 h-3" /> Doanh thu
                                 </div>
                                 <div className="font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 truncate">
-                                  ${resolveAllTimeRevenue(acc as any).toFixed(2)}
+                                  {formatAmount(resolveTodayRevenue(acc as any), (acc as any).country)}
                                 </div>
                               </div>
                             </TooltipTrigger>
@@ -3701,6 +3701,10 @@ function AccountsPageContent() {
                                     <div className="flex justify-between gap-4 text-[11px]">
                                       <span className="text-slate-400">Tháng trước ({prevRange.start.slice(0, 7)}):</span>
                                       <span className="font-semibold text-purple-300">{formatAmount(p.revenuePrevMonth, (acc as any).country)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800">
+                                      <span className="text-slate-400">Toàn bộ (All-time):</span>
+                                      <span className="font-semibold text-emerald-400">{formatAmount(p.totalRevenue, (acc as any).country)}</span>
                                     </div>
                                   </>
                                 );
@@ -4058,7 +4062,9 @@ function AccountsPageContent() {
                           className="relative group/th px-4 py-3.5 cursor-pointer group hover:text-slate-900 dark:hover:text-white"
                         >
                           <div className="flex items-center gap-1.5 truncate">
-                            <span className="truncate">Doanh thu</span>
+                            <span className="truncate" title={`Doanh thu hôm nay (${getEffectiveTodayDate().displayStr})`}>
+                              Doanh thu
+                            </span>
                             {renderSortIndicator("totalRevenue")}
                           </div>
                           {renderResizeHandle("totalRevenue")}
@@ -4451,7 +4457,7 @@ function AccountsPageContent() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span className="cursor-help border-b border-dotted border-emerald-500/40 truncate inline-block max-w-full align-bottom">
-                                      {formatAmount(resolveAllTimeRevenue(acc as any), (acc as any).country)}
+                                      {formatAmount(resolveTodayRevenue(acc as any), (acc as any).country)}
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent className="text-xs p-2.5 space-y-1 bg-slate-900 text-white border-slate-800 shadow-xl">
@@ -4475,6 +4481,10 @@ function AccountsPageContent() {
                                           <div className="flex justify-between gap-4 text-[11px]">
                                             <span className="text-slate-400">Tháng trước ({prevRange.start.slice(0, 7)}):</span>
                                             <span className="font-semibold text-purple-300">{formatAmount(p.revenuePrevMonth, (acc as any).country)}</span>
+                                          </div>
+                                          <div className="flex justify-between gap-4 text-[11px] pt-1 border-t border-slate-800">
+                                            <span className="text-slate-400">Toàn bộ (All-time):</span>
+                                            <span className="font-semibold text-emerald-400">{formatAmount(p.totalRevenue, (acc as any).country)}</span>
                                           </div>
                                         </>
                                       );
