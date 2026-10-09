@@ -40,12 +40,18 @@ const NON_USER_PATH_SEGMENTS = new Set([
  * True for a plausible TikTok username. Rejects base64-ish / binary false positives
  * that slip out of Chromium History/LevelDB scrapes (e.g. c2ODQ2NTkxMjExMjA).
  */
+export function cleanCandidateHandle(raw: unknown): string {
+  if (!raw) return "";
+  let h = String(raw).replace(/^@/, "").trim();
+  h = h.replace(/(?:https?|http|wapp|tiktok)+$/i, "");
+  return h;
+}
+
 export function isPlausibleTikTokHandle(raw: unknown): boolean {
   if (!raw) return false;
-  const h = String(raw).replace(/^@/, "").trim();
+  const h = cleanCandidateHandle(raw);
   if (h.length < 2 || h.length > 24) return false;
   if (!/^[a-zA-Z0-9._]+$/.test(h)) return false;
-  if (/https?$/i.test(h)) return false;
   if (NON_USER_PATH_SEGMENTS.has(h.toLowerCase())) return false;
   const upper = (h.match(/[A-Z]/g) || []).length;
   const lower = (h.match(/[a-z]/g) || []).length;
@@ -132,7 +138,7 @@ export function scoreLoggedInHandleFromArtifacts(blob: string): {
     bump(m[1], 1);
   }
   for (const m of blob.matchAll(/\(@([a-zA-Z0-9._]{2,24})\)/g)) {
-    bump(m[1], 3);
+    bump(m[1], 15);
   }
 
   // History /@ visits — stop at any non-handle char (SQLite uses binary separators)

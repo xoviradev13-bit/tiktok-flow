@@ -1927,8 +1927,9 @@ async function listOpenProfileIdsFromProcesses(storageRoot) {
   const rootKey = String(storageRoot || "");
   const age = Date.now() - processOpenCache.at;
   const sameRoot = processOpenCache.root === rootKey;
-  // Non-empty: cache 2.5s. Empty: cache only 1s to avoid hammering the process list.
-  const ttl = processOpenCache.ids.size ? 2500 : 1000;
+  // Non-empty: cache 15s — PowerShell Get-CimInstance costs 1-3s and profile open state
+  // barely changes mid-sweep. Empty: cache 5s to avoid repeated hammering.
+  const ttl = processOpenCache.ids.size ? 15000 : 5000;
   if (age < ttl && sameRoot) return processOpenCache.ids;
   if (processScanInFlight) return processScanInFlight;
 
@@ -2688,12 +2689,19 @@ const NON_USER_PATH_SEGMENTS = new Set([
   "channel", "shop", "tiktokstudio", "creator-center",
 ]);
 
+function cleanCandidateHandle(raw) {
+  if (!raw) return "";
+  let h = String(raw).replace(/^@/, "").trim();
+  // Strip trailing protocol / domain suffixes glued together in raw binary dumps
+  h = h.replace(/(?:https?|http|wapp|tiktok)+$/i, "");
+  return h;
+}
+
 function isPlausibleTikTokHandle(raw) {
   if (!raw) return false;
-  const h = String(raw).replace(/^@/, "").trim();
+  const h = cleanCandidateHandle(raw);
   if (h.length < 2 || h.length > 24) return false;
   if (!/^[a-zA-Z0-9._]+$/.test(h)) return false;
-  if (/https?$/i.test(h)) return false;
   if (NON_USER_PATH_SEGMENTS.has(h.toLowerCase())) return false;
   // Reject base64-ish / binary false positives (e.g. c2ODQ2NTkxMjExMjA).
   // Real TikTok handles are overwhelmingly lowercase; heavy mixed-case + digits is noise.
@@ -2711,7 +2719,7 @@ function scoreLoggedInHandleFromArtifacts(blob) {
   const scores = new Map();
   const bump = (raw, weight) => {
     if (!isPlausibleTikTokHandle(raw)) return;
-    const casing = String(raw).replace(/^@/, "").trim();
+    const casing = cleanCandidateHandle(raw);
     const key = casing.toLowerCase();
     const prev = scores.get(key);
     if (prev) prev.score += weight;
@@ -2724,7 +2732,7 @@ function scoreLoggedInHandleFromArtifacts(blob) {
   for (const m of blob.matchAll(/"screen_name"\s*:\s*"([a-zA-Z0-9._]{2,24})"/g)) bump(m[1], 40);
   for (const m of blob.matchAll(/(?:tiktokstudio|creator-center|Creator_Center)[\s\S]{0,160}?@([a-zA-Z0-9._]{2,24})(?![a-zA-Z0-9._])/gi)) bump(m[1], 25);
   for (const m of blob.matchAll(/refer_title":"\/@([a-zA-Z0-9._]{2,24})"/g)) bump(m[1], 1);
-  for (const m of blob.matchAll(/\(@([a-zA-Z0-9._]{2,24})\)/g)) bump(m[1], 3);
+  for (const m of blob.matchAll(/\(@([a-zA-Z0-9._]{2,24})\)/g)) bump(m[1], 15);
   for (const m of blob.matchAll(/https:\/\/(?:www\.)?tiktok\.com\/@([a-zA-Z0-9._]{2,24})(?![a-zA-Z0-9._])/g)) bump(m[1], 1);
 
   let best = null;
@@ -2738,11 +2746,12 @@ function scoreLoggedInHandleFromArtifacts(blob) {
   if (!best || best.score < 2) return null;
   if (best.score >= 60) return best.casing;
   if (best.score - second >= 3 && best.score >= 5) return best.casing;
+  if (best.score >= 5 && second <= 3) return best.casing;
   return null;
 }
 
 /** Read up to maxBytes from a file (never loads the whole file). Falls back to copyFile on EBUSY. */
-export async function readBestEffortAsync(src, maxBytes = 8 * 1024 * 1024) {
+export async function readBestEffortAsync(src, maxBytes = 1024 * 1024) {
   try {
     const handle = await fs.promises.open(src, "r");
     try {
@@ -2781,8 +2790,26 @@ export async function findTikTokHandleInProfileAsync(profileDir) {
     const chunks = [];
     const historyPath = path.join(defaultDir, "History");
     if (fs.existsSync(historyPath)) {
-      const t = await readBestEffortAsync(historyPath, 16 * 1024 * 1024);
+      const t = await readBestEffortAsync(historyPath, 1024 * 1024);
       if (t) chunks.push(t);
+    }
+
+    // Fast check: if History already yielded a conclusive handle, return early
+    if (chunks.length > 0) {
+      const earlyHandle = scoreLoggedInHandleFromArtifacts(chunks.join("\n"));
+      if (earlyHandle) return earlyHandle;
+    }
+
+    for (const rel of ["Preferences", "Network/Cookies", "Cookies"]) {
+      const p = path.join(defaultDir, rel);
+      if (!fs.existsSync(p)) continue;
+      const t = await readBestEffortAsync(p, 512 * 1024);
+      if (t) chunks.push(t);
+    }
+
+    if (chunks.length > 0) {
+      const midHandle = scoreLoggedInHandleFromArtifacts(chunks.join("\n"));
+      if (midHandle) return midHandle;
     }
 
     const levelDbDir = path.join(defaultDir, "Local Storage", "leveldb");
@@ -2791,17 +2818,10 @@ export async function findTikTokHandleInProfileAsync(profileDir) {
         const files = await fs.promises.readdir(levelDbDir);
         for (const f of files) {
           if (!f.endsWith(".log") && !f.endsWith(".ldb")) continue;
-          const t = await readBestEffortAsync(path.join(levelDbDir, f));
+          const t = await readBestEffortAsync(path.join(levelDbDir, f), 512 * 1024);
           if (t) chunks.push(t);
         }
       } catch { /* ignore */ }
-    }
-
-    for (const rel of ["Preferences", "Secure Preferences", "Network/Cookies", "Cookies"]) {
-      const p = path.join(defaultDir, rel);
-      if (!fs.existsSync(p)) continue;
-      const t = await readBestEffortAsync(p);
-      if (t) chunks.push(t);
     }
 
     if (!chunks.length) return null;
@@ -2936,6 +2956,12 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     let postRewardsPartial = false;
     let rewardsFailReason = null; // "rate_limited" | "incomplete_list" | "timeout"
     let rewardsNoProgram = false;
+    await page.addInitScript(() => {
+      try {
+        if (typeof window !== "undefined") window.__name = (t) => t;
+        if (typeof globalThis !== "undefined") globalThis.__name = (t) => t;
+      } catch { /* ignore */ }
+    }).catch(() => { });
 
     page.on("request", (req) => {
       const url = req.url();
@@ -3301,9 +3327,12 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
 
     const contentStartTime = Date.now();
     let studioTotalVideos = 0;
+    // true only when the count came from the Studio DOM (authoritative Posts(N) badge),
+    // NOT from the item_list API total (which is a lookback-windowed value).
+    let studioTotalVideosConfirmed = false;
     while (Date.now() - contentStartTime < 7000) {
       const tabCnt = await readStudioTabCount();
-      if (typeof tabCnt === "number") studioTotalVideos = tabCnt;
+      if (typeof tabCnt === "number") { studioTotalVideos = tabCnt; studioTotalVideosConfirmed = true; }
 
       const ctxResult = await parseCreatorCenterContext();
       if (ctxResult?.items?.length) {
@@ -3353,6 +3382,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     let paginationFailedDueToSigning = false;
     try {
       const inPageList = await page.evaluate(async () => {
+        if (typeof __name === "undefined") { var __name = (t) => t; }
         const STUDIO_QS_KEYS = [
           "locale", "aid", "priority_region", "region", "tz_name", "app_name",
           "app_language", "device_platform", "channel", "device_id", "os",
@@ -3811,21 +3841,27 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
 
     const totalViewsCombined = videosList.reduce((sum, v) => sum + v.views, 0);
 
-    // Always re-read Studio Posts(N) — authoritative library size. Do not skip
-    // just because item_list returned a small/filtered "total" (lookback window).
+    // Re-read Studio Posts(N) only when the count was NOT already confirmed by a DOM read.
+    // The API item_list total is a lookback-windowed value and should not be treated as
+    // the authoritative library size — that's why the original comment said "Always re-read".
+    // We skip only when studioTotalVideosConfirmed = true (DOM badge was read during the
+    // initial content-page loop), which saves 1.8-3s per account on the happy path.
     try {
-      if (!/tiktokstudio\/content/i.test(page.url())) {
-        await page.goto("https://www.tiktok.com/tiktokstudio/content", {
-          waitUntil: "domcontentloaded",
-          timeout: 12000,
-        }).catch(() => { });
-        await page.waitForTimeout(1800);
-      } else {
-        await page.waitForTimeout(800);
-      }
-      const tabCount = await readStudioTabCount();
-      if (typeof tabCount === "number" && tabCount > studioTotalVideos) {
-        studioTotalVideos = tabCount;
+      if (!studioTotalVideosConfirmed) {
+        if (!/tiktokstudio\/content/i.test(page.url())) {
+          await page.goto("https://www.tiktok.com/tiktokstudio/content", {
+            waitUntil: "domcontentloaded",
+            timeout: 12000,
+          }).catch(() => { });
+          await page.waitForTimeout(1800);
+        } else {
+          await page.waitForTimeout(800);
+        }
+        const tabCount = await readStudioTabCount();
+        if (typeof tabCount === "number" && tabCount > studioTotalVideos) {
+          studioTotalVideos = tabCount;
+          studioTotalVideosConfirmed = true;
+        }
       }
     } catch { /* ignore */ }
     if (!studioTotalVideos) {
@@ -3961,7 +3997,8 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
             { key: "60", days: 67, end_days: 1 },
             { key: "365", days: 372, end_days: 1 },
           ];
-          for (const r of ranges) {
+          // Parallelise all 4 period fetches — they're independent, sequential was ~4x slower.
+          await Promise.all(ranges.map(async (r) => {
             try {
               const typeRequests = [
                 { insigh_type: "vv_history", days: r.days, end_days: r.end_days },
@@ -3979,7 +4016,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
             } catch (e) {
               out[r.key] = { __error: String((e && e.message) || e) };
             }
-          }
+          }));
           return out;
         }).catch(() => ({}));
       };
@@ -5055,10 +5092,12 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     const sumProfileViews = { profileViews7d, profileViews28d, profileViews60d, profileViews365d };
 
     const storageRoot = path.dirname(profileDir);
+    // gpmProfileGroupsCache is already warm from performFullSweep's pMap —
+    // no need to pass gpmBase here (avoids a redundant live HTTP GET per scrape).
     const resolved = await resolveProfileMetadata({
       profileId,
       storagePath: storageRoot,
-      gpmBase: lastGoodGpmBase,
+      gpmBase: null,
     });
     const gpmGroupName = resolved.groupName || null;
 
@@ -5091,7 +5130,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
       cookieCountryRaw,
       pageCountryHints,
       currency,
-      profileName: meta.name,
+      profileName: resolved.profileName,
       gpmGroupName,
     });
 
@@ -5163,7 +5202,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
       }
     }
 
-    const gpmProfileName = meta.name || `Profile ${String(profileId).slice(0, 8)}`;
+    const gpmProfileName = resolved.profileName || `Profile ${String(profileId).slice(0, 8)}`;
     const t_total = Date.now() - t_start;
     console.log(
       `   [PERF] Profile ${profileId} (@${finalHandle || "unknown"}): total=${t_total}ms (nav=${t_nav}ms, insights=${t_insights}ms, m10n=${t_m10n}ms, videos=${videosList.length})`
