@@ -562,40 +562,76 @@ export async function POST(req: Request) {
       const conflict = await prismaRaw.tiktokAccount.findFirst({
         where: {
           gpmProfileId: resolvedGpmProfileId,
+          deletedAt: null,
           NOT: { username: cleanUsername },
         },
         select: { id: true, username: true },
       });
       if (conflict) {
-        console.warn(
-          `[ExtensionReport] GPM ${resolvedGpmProfileId} already linked to @${conflict.username}; skipping attach for @${cleanUsername}`
-        );
-        resolvedGpmProfileId = null;
-        gpmMatchedVia = null;
+        // If report comes from Client Agent (deep sweep of the physical GPM profile):
+        // Client Agent physically booted this GPM profile and confirmed @cleanUsername is logged in.
+        // Therefore, profile handover / swap is AUTHORITATIVE and permitted.
+        if (source === "agent" || metricsSource === "agent") {
+          console.log(
+            `[ExtensionReport] GPM profile handover: reassigning ${resolvedGpmProfileId} from @${conflict.username} to @${cleanUsername} (verified by Client Agent)`
+          );
+          await prismaRaw.tiktokAccount.updateMany({
+            where: {
+              gpmProfileId: resolvedGpmProfileId,
+              NOT: { username: cleanUsername },
+            },
+            data: { gpmProfileId: null },
+          }).catch(() => {});
+        } else {
+          console.warn(
+            `[ExtensionReport] GPM ${resolvedGpmProfileId} already linked to @${conflict.username}; skipping attach for @${cleanUsername}`
+          );
+          resolvedGpmProfileId = null;
+          gpmMatchedVia = null;
+        }
+      } else {
+        // Guarantee strict 1:1: unlink this GPM id from any other row (e.g. soft-deleted)
+        await prismaRaw.tiktokAccount.updateMany({
+          where: {
+            gpmProfileId: resolvedGpmProfileId,
+            NOT: { username: cleanUsername },
+          },
+          data: { gpmProfileId: null },
+        }).catch(() => {});
       }
     }
 
-    // 2. Find existing account by username or gpmProfileId (using prismaRaw to see soft-deleted)
-    let account: any = await prismaRaw.tiktokAccount.findFirst({
-      where: {
-        OR: [
-          { username: cleanUsername },
-          ...(resolvedGpmProfileId ? [{ gpmProfileId: resolvedGpmProfileId }] : []),
-        ],
-      },
+    // 2. Find existing account: always prioritize active account matching cleanUsername first
+    let account: any = await prisma.tiktokAccount.findFirst({
+      where: { username: cleanUsername },
       include: {
         assignedUser: { select: { id: true, name: true, email: true, username: true } },
       },
     });
-
-    if (account?.deletedAt) {
-      syncFlowLog("report_end", {
-        reqId,
-        username: cleanUsername,
-        outcome: "skipped_account_deleted",
-        elapsedMs: Date.now() - reportT0,
+    if (!account && resolvedGpmProfileId) {
+      account = await prisma.tiktokAccount.findFirst({
+        where: { gpmProfileId: resolvedGpmProfileId },
+        include: {
+          assignedUser: { select: { id: true, name: true, email: true, username: true } },
+        },
       });
-      return NextResponse.json({ success: true, skipped: "ACCOUNT_DELETED" });
+    }
+
+    // Only if not found among active accounts, check if THIS specific username is in trash
+    if (!account) {
+      const deletedUser = await prismaRaw.tiktokAccount.findUnique({
+        where: { username: cleanUsername },
+        select: { id: true, deletedAt: true },
+      });
+      if (deletedUser?.deletedAt) {
+        syncFlowLog("report_end", {
+          reqId,
+          username: cleanUsername,
+          outcome: "skipped_account_deleted",
+          elapsedMs: Date.now() - reportT0,
+        });
+        return NextResponse.json({ success: true, skipped: "ACCOUNT_DELETED" });
+      }
     }
     const priorTotalVideos = Number(account?.totalVideos ?? 0);
 

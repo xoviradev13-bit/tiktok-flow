@@ -6,5 +6,12 @@
   "concurrency": 1,
   "headless": true,
   "m10nMaxConcurrentPrograms": 2,
-  "m10nPagePacingMs": 150
+  "m10nPagePacingMs": 150,
+  "accessToken": "",
+  "accessExpiresAt": 0,
+  "refreshToken": "",
+  "pairingCode": "",
+  "tokenRevoked": true,
+  "tokenRevokedReason": "Yêu cầu Authorization: Bearer <accessToken|personalToken> hợp lệ để đồng bộ.",
+  "tokenRevokedAt": "2026-10-10T07:05:08.968Z"
 }

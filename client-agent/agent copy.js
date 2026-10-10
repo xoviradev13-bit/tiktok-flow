@@ -316,24 +316,10 @@ function readBody(req, maxBytes = MAX_BODY_BYTES) {
 // DATE & ACCOUNT DEBUG HELPERS (FOR VIDEO LIST TRACING)
 // ==========================================
 export function isTargetAccount(...identifiers) {
-  const TARGET_HANDLES = [
-    "caidoleu",
-    "623e487c",
-    "maacara11",
-    "metarot11",
-    "sokuhou.fc",
-    "sokuhou",
-    "kobako.tarot",
-    "kobako",
-    "luffy_koukaii",
-    "robert.garcia9176",
-  ];
   for (const id of identifiers) {
     if (!id) continue;
     const s = String(id).toLowerCase();
-    for (const t of TARGET_HANDLES) {
-      if (s.includes(t)) return true;
-    }
+    if (s.includes("caidoleu") || s.includes("623e487c")) return true;
   }
   return false;
 }
@@ -3054,11 +3040,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
             console.log(
               `   [DEBUG:VIDEO_CHECK][RESP] HTTP ${resp.status()} from ${url.slice(0, 140)} | items=${listLen} | has_more=${hasMore} | cursor=${cursor}`
             );
-            if (listLen === 0) {
-              console.warn(
-                `   [DEBUG:VIDEO_CHECK][RESP] EMPTY LIST received! code=${j?.status_code ?? j?.data?.status_code ?? 'none'} msg="${j?.status_msg || j?.message || j?.data?.status_msg || ''}" keys=[${Object.keys(j || {}).slice(0, 8).join(',')}]`
-              );
-            } else {
+            if (listLen > 0) {
               const yestStr = getYesterdayVnDateStr();
               const todayStr = getTodayVnDateStr();
               const sample = list[0];
@@ -3088,9 +3070,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
                 url,
               });
             }
-          } catch (parseErr) {
-            console.warn(`   [DEBUG:VIDEO_CHECK][RESP] JSON parse failed HTTP ${resp.status()} from ${url.slice(0, 120)}: ${parseErr.message}`);
-          }
+          } catch { /* ignore */ }
         }
       } catch { /* ignore */ }
     });
@@ -3208,42 +3188,11 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
       return (Number.isFinite(play) ? play : 0) * 1000 + (Number.isFinite(like) ? like : 0);
     };
 
-    const _dbgYestStr = getYesterdayVnDateStr();
-    const _dbgTodayStr = getTodayVnDateStr();
-    const _isDbgTarget = isTargetAccount(detectedHandle, profileId);
-
     const upsertVideoItem = (item) => {
       const key = stableVideoKey(item);
-      if (!key) {
-        const rawTs = item?.createTime || item?.create_time || item?.publish_date_unix_time || item?.post_time;
-        console.warn(
-          `   [DEBUG:VLIST][UPSERT] DROPPED — empty key. item_id=${item?.item_id} video_id_str=${item?.video_id_str} rawTs=${rawTs} desc="${(item?.desc || item?.title || '').slice(0, 40)}"`
-        );
-        return;
-      }
+      if (!key) return;
       const prev = allVideosMap.get(key);
-      const newScore = engagementScore(item);
-      const prevScore = prev ? engagementScore(prev) : -1;
-
-      // Determine the VN date of this item for targeted logging
-      const rawItemTs = item?.postTime || item?.createTime || item?.create_time || item?.publish_date_unix_time || item?.post_time;
-      const itemVnDate = getVnDateOnly(rawItemTs);
-      const isDateOfInterest = (itemVnDate === _dbgYestStr || itemVnDate === _dbgTodayStr);
-
-      if (isDateOfInterest || _isDbgTarget) {
-        if (prev && newScore < prevScore) {
-          console.warn(
-            `   [DEBUG:VLIST][UPSERT] REJECTED (lower score) key=${key} vnDate=${itemVnDate} newScore=${newScore} prevScore=${prevScore} desc="${(item?.desc || item?.title || '').slice(0, 40)}"` +
-            `\n     KEPT: id=${prev?.video_id_str || prev?.item_id} ts=${prev?.postTime || prev?.createTime || prev?.create_time} desc="${(prev?.desc || prev?.title || '').slice(0, 40)}"`
-          );
-        } else {
-          console.log(
-            `   [DEBUG:VLIST][UPSERT] ${prev ? 'OVERWRITE' : 'INSERT'} key=${key} vnDate=${itemVnDate} score=${newScore} desc="${(item?.desc || item?.title || '').slice(0, 40)}"`
-          );
-        }
-      }
-
-      if (!prev || newScore >= prevScore) {
+      if (!prev || engagementScore(item) >= engagementScore(prev)) {
         allVideosMap.set(key, item);
       }
     };
@@ -3381,21 +3330,12 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     // true only when the count came from the Studio DOM (authoritative Posts(N) badge),
     // NOT from the item_list API total (which is a lookback-windowed value).
     let studioTotalVideosConfirmed = false;
-    let ctxLoggedOnce = false;
     while (Date.now() - contentStartTime < 7000) {
       const tabCnt = await readStudioTabCount();
       if (typeof tabCnt === "number") { studioTotalVideos = tabCnt; studioTotalVideosConfirmed = true; }
 
       const ctxResult = await parseCreatorCenterContext();
       if (ctxResult?.items?.length) {
-        if (!ctxLoggedOnce) {
-          ctxLoggedOnce = true;
-          const _ctxYest = ctxResult.items.filter(it => {
-            const ts = it.createTime || it.create_time || it.publish_date_unix_time || it.post_time;
-            return getVnDateOnly(ts) === _dbgYestStr;
-          });
-          console.log(`   [DEBUG:VLIST][CREATOR_CONTEXT] Found ${ctxResult.items.length} items in __Creator_Center_Context__ (yesterdayHits: ${_ctxYest.length}, hasMore: ${ctxResult.hasMore})`);
-        }
         for (const item of ctxResult.items) upsertVideoItem(item);
         if (ctxResult.hasMore) initialHasMore = true;
       }
@@ -3654,10 +3594,6 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
             cursor,
             method: fetchMethod,
             count: result.list.length,
-            httpStatus: used?._status || (used?._error ? "ERR" : 200),
-            statusCode: used?.status_code ?? used?.data?.status_code ?? null,
-            statusMsg: used?.status_msg || used?.message || used?.data?.status_msg || used?._error || null,
-            rawKeys: used ? Object.keys(used).slice(0, 8).join(",") : "empty",
             hasMore: result.hasMore,
             nextCursor: result.nextCursor,
             oldestDate: oldest ? new Date(oldest).toISOString() : null,
@@ -3689,7 +3625,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
         console.log(`   [DEBUG:VIDEO_CHECK][IN_PAGE_PAGINATION] Pages fetched: ${inPageList.diagPages.length}:`);
         for (const pInfo of inPageList.diagPages) {
           console.log(
-            `     -> Page ${pInfo.pageIdx} (${pInfo.method}, cursor=${pInfo.cursor}): count=${pInfo.count} | httpStatus=${pInfo.httpStatus} | code=${pInfo.statusCode} | msg="${pInfo.statusMsg || ''}" | keys=[${pInfo.rawKeys}] | newest=${pInfo.newestDate} | oldest=${pInfo.oldestDate} | lookbackStop=${pInfo.stoppedLookback} | item0="${pInfo.firstItemTitle}" (id=${pInfo.firstItemId})`
+            `     -> Page ${pInfo.pageIdx} (${pInfo.method}, cursor=${pInfo.cursor}): count=${pInfo.count} | newest=${pInfo.newestDate} | oldest=${pInfo.oldestDate} | lookbackStop=${pInfo.stoppedLookback} | item0="${pInfo.firstItemTitle}" (id=${pInfo.firstItemId})`
           );
         }
       }
@@ -3767,46 +3703,6 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
 
     rawPostList = Array.from(allVideosMap.values());
 
-    // ─── [DEBUG:VLIST] Audit allVideosMap→rawPostList date distribution ───
-    {
-      const _yest = getYesterdayVnDateStr();
-      const _today = getTodayVnDateStr();
-      const _dateCounts = {};
-      const _nullTsItems = [];
-      for (const _p of rawPostList) {
-        const _rawTs = _p.post_time || _p.create_time || _p.publish_date_unix_time || _p.createTime;
-        const _vnD = getVnDateOnly(_rawTs);
-        _dateCounts[_vnD] = (_dateCounts[_vnD] || 0) + 1;
-        if (!_rawTs) _nullTsItems.push({ id: _p.video_id_str || _p.item_id || _p.id, desc: (_p.desc || _p.title || '').slice(0, 40) });
-      }
-      console.log(
-        `   [DEBUG:VLIST][RAW_POSTLIST] Profile ${profileId.slice(0, 8)}: rawPostList=${rawPostList.length} | ` +
-        `Yesterday(${_yest})=${_dateCounts[_yest] || 0} Today(${_today})=${_dateCounts[_today] || 0} | ` +
-        `null-ts: ${_nullTsItems.length} | interceptedCalls: ${interceptedVideoCalls.length} | ` +
-        `allDates: ${JSON.stringify(_dateCounts)}`
-      );
-      if (_nullTsItems.length > 0) {
-        console.warn(`   [DEBUG:VLIST][RAW_POSTLIST] Items with NO timestamp (will get null postTime):`);
-        _nullTsItems.slice(0, 5).forEach(_it => console.warn(`     -> id=${_it.id} desc="${_it.desc}"`));
-      }
-      if ((_dateCounts[_yest] || 0) === 0) {
-        console.warn(
-          `   [DEBUG:VLIST][ALERT] rawPostList has ZERO items from yesterday (${_yest})! ` +
-          `Check UPSERT logs above to see if they were rejected/missing.`
-        );
-        const _sorted = Object.entries(_dateCounts).sort((a, b) => b[0].localeCompare(a[0]));
-        console.warn(`   [DEBUG:VLIST][ALERT] Dates present: ${_sorted.map(([d, c]) => `${d}:${c}`).join(' | ')}`);
-        // Also show first+last intercepted call timestamps
-        interceptedVideoCalls.forEach((_c, _ci) => {
-          const _items = _c.items || [];
-          const _firstTs = _items[0]?.createTime || _items[0]?.create_time || _items[0]?.post_time;
-          const _lastTs = _items[_items.length - 1]?.createTime || _items[_items.length - 1]?.create_time || _items[_items.length - 1]?.post_time;
-          console.warn(`     Call[${_ci}] url=${_c.url?.slice(0, 100)} items=${_items.length} has_more=${_c.has_more} cursor=${_c.cursor}`);
-          console.warn(`       firstItem: ts=${_firstTs} vnDate=${getVnDateOnly(_firstTs)} | lastItem: ts=${_lastTs} vnDate=${getVnDateOnly(_lastTs)}`);
-        });
-      }
-    }
-
     if (rawPostList.length === 0) {
       const domPosts = await page.evaluate(() => {
         const items = [];
@@ -3865,10 +3761,7 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     const normalizePostTimestamp = (rawTime) => {
       if (!rawTime) return null;
       const n = Number(rawTime);
-      if (!Number.isFinite(n) || n <= 0) {
-        console.warn(`   [DEBUG:VLIST][NORMALIZE_TS] INVALID rawTime="${rawTime}" (type=${typeof rawTime}) → null`);
-        return null;
-      }
+      if (!Number.isFinite(n) || n <= 0) return null;
       return n > 1e11 ? n : n * 1000;
     };
 
@@ -3926,16 +3819,15 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     console.log(
       `   [DEBUG:VIDEO_CHECK][VIDEOS_BUILT] Profile: ${profileId.slice(0, 8)} (@${initialHandle || "unknown"}) | raw=${rawPostList.length} -> kept=${videosList.length} | Today (${todayDateStr})=${todayVidsBuilt.length} | Yesterday (${yestDateStr})=${yestVidsBuilt.length}`
     );
-    const shouldDumpDiagnostics = isTargetAcc || yestVidsBuilt.length === 0;
-    if (shouldDumpDiagnostics) {
-      console.log(`   [DEBUG:VIDEO_CHECK][DUMP] Full dump of built videosList for @${initialHandle || "unknown"} (${videosList.length} items):`);
+    if (isTargetAcc) {
+      console.log(`   [DEBUG:VIDEO_CHECK][TARGET:caidoleu] Full dump of built videosList (${videosList.length} items):`);
       videosList.forEach((v, idx) => {
         const vnD = getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null));
         const isMatch = (vnD === yestDateStr || vnD === todayDateStr) ? " [★ TARGET MATCH]" : "";
-        console.log(`     [${idx}] id=${v.id} vnDate=${vnD} postDate="${v.postDate}" postTime="${v.postTime}" views=${v.views} title="${(v.title || '').slice(0, 50)}"${isMatch}`);
+        console.log(`     [${idx}] id=${v.id} vnDate=${vnD} postDate="${v.postDate}" postTime="${v.postTime}" title="${(v.title || '').slice(0, 50)}"${isMatch}`);
       });
       if (yestVidsBuilt.length === 0) {
-        console.warn(`   [DEBUG:VIDEO_CHECK][ALERT] @${initialHandle || "unknown"} has NO VIDEOS FROM YESTERDAY (${yestDateStr}) in built videosList! Checking intercepted calls...`);
+        console.warn(`   [DEBUG:VIDEO_CHECK][ALERT] @caidoleu has NO VIDEOS FROM YESTERDAY (${yestDateStr}) in built videosList! Checking intercepted calls...`);
         console.log(`     -> interceptedVideoCalls total: ${interceptedVideoCalls.length}`);
         interceptedVideoCalls.forEach((c, cIdx) => {
           const hits = (c.items || []).filter((it) => {
@@ -5247,39 +5139,18 @@ async function scrapePageMetrics(page, context, profileDir, profileId, detectedH
     // append reward-only stubs (that mixes windows and breaks tier parity).
     if (Array.isArray(postRewards) && postRewards.length > 0) {
       const yestDateStr = getYesterdayVnDateStr();
-      const todayDateStr = getTodayVnDateStr();
-      const prMissingList = [];
-      for (const pr of postRewards) {
-        const prId = String(pr.id || pr.videoId || "");
-        if (!prId) continue;
-        const inList = videosList.some((v) => String(v.id) === prId);
-        if (!inList) {
-          const rawTs = pr.publishTimeUnix || pr.publish_time || pr.post_time;
-          const dStr = pr.publishDate || pr.postDate || (rawTs ? getVnDateOnly(rawTs) : "unknown");
-          prMissingList.push({
-            id: prId,
-            date: dStr,
-            title: pr.title || "No title",
-            reward: pr.reward,
-            rpm: pr.rpm,
-            isYesterday: dStr === yestDateStr,
-            isToday: dStr === todayDateStr,
-          });
-        }
-      }
-
-      if (prMissingList.length > 0) {
-        const missingYest = prMissingList.filter((m) => m.isYesterday);
-        console.warn(
-          `   [DEBUG:VIDEO_CHECK][FALLBACK:POST_REWARDS_MISSING] Profile: ${profileId.slice(0, 8)} (@${finalHandle || "unknown"}): ` +
-          `${prMissingList.length} video(s) found in postRewards (m10n) but MISSING from Studio videosList! ` +
-          `(Yesterday missing: ${missingYest.length}, Today missing: ${prMissingList.filter((m) => m.isToday).length})`
-        );
-        prMissingList.forEach((m, idx) => {
-          const tag = m.isYesterday ? " [★ YESTERDAY]" : (m.isToday ? " [★ TODAY]" : "");
-          console.warn(
-            `     -> [${idx}] id=${m.id} date=${m.date} reward=${m.reward} rpm=${m.rpm || "-"} title="${(m.title || '').slice(0, 50)}"${tag}`
-          );
+      const prYesterday = postRewards.filter((pr) => {
+        const d = pr.publishDate || pr.postDate || (pr.publishTimeUnix ? getVnDateOnly(pr.publishTimeUnix) : null);
+        return d === yestDateStr;
+      });
+      if (prYesterday.length > 0) {
+        console.log(`   [DEBUG:VIDEO_CHECK][M10N_REWARDS] postRewards HAS ${prYesterday.length} video(s) posted yesterday (${yestDateStr}):`);
+        prYesterday.forEach((pr) => {
+          const inList = videosList.some((v) => String(v.id) === String(pr.id || pr.videoId));
+          console.log(`     -> id=${pr.id || pr.videoId} title="${(pr.title || '').slice(0, 45)}" reward=${pr.reward} inVideosList=${inList}`);
+          if (!inList) {
+            console.warn(`   [DEBUG:VIDEO_CHECK][ALERT] CRITICAL: Video id=${pr.id || pr.videoId} was found in postRewards with date ${yestDateStr} but is MISSING from videosList!`);
+          }
         });
       }
 
@@ -6238,22 +6109,19 @@ export async function performFullSweep(syncJob = null) {
         const gpmProfileName = d.gpmProfileName || p.name || undefined;
         const gpmGroupName = d.gpmGroupName || p.groupName || undefined;
 
-        const vList = Array.isArray(d.videosList) ? d.videosList : [];
-        const yestStr = getYesterdayVnDateStr();
-        const todayStr = getTodayVnDateStr();
-        const yestVids = vList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === yestStr);
-        const todayVids = vList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === todayStr);
-        const isTargetSweep = isTargetAccount(d.username, p.id, p.tiktokHandle) || yestVids.length === 0;
+        const isTargetSweep = isTargetAccount(d.username, p.id, p.tiktokHandle);
         if (isTargetSweep) {
+          const vList = Array.isArray(d.videosList) ? d.videosList : [];
+          const yestStr = getYesterdayVnDateStr();
+          const todayStr = getTodayVnDateStr();
+          const yestVids = vList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === yestStr);
+          const todayVids = vList.filter((v) => getVnDateOnly(v.postTime || (v.createTime ? v.createTime * 1000 : null)) === todayStr);
           console.log(
-            `   [DEBUG:VIDEO_CHECK][SENDING_REPORT] @${d.username} (${p.id.slice(0, 8)}): Posting report to ${config.serverUrl}/api/extension/report | videosList=${vList.length} items (Today=${todayVids.length}, Yesterday=${yestVids.length}) | postRewards=${Array.isArray(d.postRewards) ? d.postRewards.length : 0}`
+            `   [DEBUG:VIDEO_CHECK][SENDING_REPORT] Target @${d.username} (${p.id.slice(0, 8)}): Posting report to ${config.serverUrl}/api/extension/report | videosList=${vList.length} items (Today=${todayVids.length}, Yesterday=${yestVids.length}) | postRewards=${Array.isArray(d.postRewards) ? d.postRewards.length : 0}`
           );
           if (vList.length > 0) {
             console.log(`     -> Newest video in report: "${vList[0]?.title?.slice(0, 40)}" (${vList[0]?.postDate || vList[0]?.postTime}) id=${vList[0]?.id}`);
             console.log(`     -> Oldest video in report: "${vList[vList.length - 1]?.title?.slice(0, 40)}" (${vList[vList.length - 1]?.postDate || vList[vList.length - 1]?.postTime}) id=${vList[vList.length - 1]?.id}`);
-          }
-          if (yestVids.length === 0) {
-            console.warn(`     -> [ALERT] Report payload for @${d.username} has 0 videos from yesterday (${yestStr})!`);
           }
         }
 

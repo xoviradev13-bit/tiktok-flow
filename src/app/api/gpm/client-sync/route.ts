@@ -633,30 +633,33 @@ export async function POST(req: Request) {
         const realHandle = normalizeTikTokHandle(p.tiktokHandle);
         const profileName = String(p.name || "").trim() || null;
 
-        let existing = await prismaRaw.tiktokAccount.findFirst({
-          where: {
-            OR: [
-              { gpmProfileId: p.id },
-              ...(realHandle ? [{ username: realHandle }] : []),
-            ],
-          },
-          include: {
-            assignedUser: {
-              select: { id: true, role: true, name: true, username: true },
+        // 1. Look for an ACTIVE (non-deleted) account matching handle first, then UUID
+        let existing = null;
+        if (realHandle) {
+          existing = await prisma.tiktokAccount.findFirst({
+            where: { username: realHandle },
+            include: {
+              assignedUser: {
+                select: { id: true, role: true, name: true, username: true },
+              },
             },
-          },
-        });
-
-        // Skip soft-deleted accounts immediately
-        if (existing?.deletedAt) {
-          skipProfileIds.push(p.id);
-          return;
+          });
+        }
+        if (!existing) {
+          existing = await prisma.tiktokAccount.findFirst({
+            where: { gpmProfileId: p.id },
+            include: {
+              assignedUser: {
+                select: { id: true, role: true, name: true, username: true },
+              },
+            },
+            orderBy: { createdAt: "desc" },
+          });
         }
 
-        // Fallback: extension created @handle with Profile name but no UUID yet
-        // (handle detection failed / returned garbage). Match by GPM display name.
+        // Fallback: match by GPM display name if active and not linked yet
         if (!existing && profileName && looksLikeGpmProfileName(profileName)) {
-          existing = await prismaRaw.tiktokAccount.findFirst({
+          existing = await prisma.tiktokAccount.findFirst({
             where: {
               gpmProfileId: null,
               gpmProfileName: profileName,
@@ -666,8 +669,32 @@ export async function POST(req: Request) {
                 select: { id: true, role: true, name: true, username: true },
               },
             },
+            orderBy: { createdAt: "desc" },
           });
-          if (existing?.deletedAt) {
+        }
+
+        // If an active account was found, guarantee strict 1:1 mapping: unlink p.id from any other row
+        if (existing) {
+          await prismaRaw.tiktokAccount.updateMany({
+            where: {
+              gpmProfileId: p.id,
+              id: { not: existing.id },
+            },
+            data: { gpmProfileId: null },
+          }).catch(() => {});
+        } else {
+          // 2. Only if NO active account exists, check if this handle or profile was soft-deleted
+          const deletedMatch = await prismaRaw.tiktokAccount.findFirst({
+            where: {
+              deletedAt: { not: null },
+              OR: [
+                ...(realHandle ? [{ username: realHandle }] : []),
+                ...(!realHandle ? [{ gpmProfileId: p.id }] : []),
+              ],
+            },
+            select: { id: true },
+          });
+          if (deletedMatch) {
             skipProfileIds.push(p.id);
             return;
           }
