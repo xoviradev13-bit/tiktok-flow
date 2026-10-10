@@ -100,14 +100,17 @@ export default function TimesheetCharts({
       item.totalScore += score;
       item.totalCompletion += Number(c.completionRate || 0);
       item.count += 1;
-      item.totalAssigned += c.items?.length || 0;
+      const eligibleItems = (c.items || []).filter((it: any) => it.account?.status !== "BANNED");
+      item.totalAssigned += typeof c.totalAssigned === "number" ? c.totalAssigned : eligibleItems.length;
 
       if (score >= 1.0) item.fullWorkdays += 1;
       else if (score === 0.5) item.halfWorkdays += 1;
       else item.zeroWorkdays += 1;
 
-      for (const it of c.items || []) {
+      for (const it of eligibleItems) {
         if (it.isPosted) item.totalVideos += 1;
+      }
+      for (const it of (c.items || [])) {
         if (it.isSynced) item.totalSynced += 1;
       }
     }
@@ -173,6 +176,7 @@ export default function TimesheetCharts({
     let totalVideos = 0;
     let totalSynced = 0;
     let totalAssigned = 0;
+    let totalPhysical = 0;
     let totalRateSum = 0;
 
     for (const c of checklists) {
@@ -183,10 +187,15 @@ export default function TimesheetCharts({
       else zeroDays++;
 
       totalRateSum += Number(c.completionRate || 0);
-      totalAssigned += c.items?.length || 0;
+      const rawItems = c.items || [];
+      totalPhysical += rawItems.length;
+      const eligibleItems = rawItems.filter((it: any) => it.account?.status !== "BANNED");
+      totalAssigned += typeof c.totalAssigned === "number" ? c.totalAssigned : eligibleItems.length;
 
-      for (const it of c.items || []) {
+      for (const it of eligibleItems) {
         if (it.isPosted) totalVideos++;
+      }
+      for (const it of rawItems) {
         if (it.isSynced) totalSynced++;
       }
     }
@@ -196,7 +205,7 @@ export default function TimesheetCharts({
         ? Math.round((totalRateSum / checklists.length) * 10) / 10
         : 0;
     const syncRate =
-      totalAssigned > 0 ? Math.round((totalSynced / totalAssigned) * 100) : 0;
+      totalPhysical > 0 ? Math.round((totalSynced / totalPhysical) * 100) : 0;
 
     return {
       totalScore: Math.round(totalScore * 10) / 10,
@@ -208,6 +217,7 @@ export default function TimesheetCharts({
       totalVideos,
       totalSynced,
       totalAssigned,
+      totalPhysical,
       syncRate,
     };
   }, [checklists]);
@@ -283,13 +293,14 @@ export default function TimesheetCharts({
       s.totalScore += score;
       s.recordCount += 1;
       s.rateSum += Number(c.completionRate || 0);
-      s.totalAssigned += c.items?.length || 0;
+      const eligibleItems = (c.items || []).filter((it: any) => it.account?.status !== "BANNED");
+      s.totalAssigned += typeof c.totalAssigned === "number" ? c.totalAssigned : eligibleItems.length;
 
       if (score >= 1.0) s.perfectDays += 1;
       else if (score === 0.5) s.halfDays += 1;
       else s.zeroDays += 1;
 
-      for (const it of c.items || []) {
+      for (const it of eligibleItems) {
         if (it.isPosted) s.totalVideos += 1;
       }
     }
@@ -462,7 +473,7 @@ export default function TimesheetCharts({
             </span>
           </div>
           <div className="mt-1 text-xs text-slate-400">
-            {summaryMetrics.totalSynced}/{summaryMetrics.totalAssigned} kênh đã đồng bộ
+            {summaryMetrics.totalSynced}/{summaryMetrics.totalPhysical || summaryMetrics.totalAssigned} kênh đã đồng bộ
           </div>
         </div>
       </div>

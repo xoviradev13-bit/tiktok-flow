@@ -16,6 +16,7 @@ import {
   Calendar as CalendarIcon,
   CheckCircle2,
   AlertCircle,
+  Ban,
   Clock,
   Video,
   RefreshCw,
@@ -103,14 +104,22 @@ export default function DayDetailModal({
     (c) => Number(c.workdayScore) === 0
   ).length;
 
-  let totalAccounts = 0;
+  let totalTargetAccounts = 0;
+  let totalPhysicalAccounts = 0;
   let totalVideos = 0;
   let totalSynced = 0;
 
   for (const c of checklistsForDate) {
-    totalAccounts += c.items?.length || 0;
-    for (const it of c.items || []) {
-      if (it.isPosted) totalVideos++;
+    const rawItems = c.items || [];
+    totalPhysicalAccounts += rawItems.length;
+
+    const assigned = typeof c.totalAssigned === "number"
+      ? c.totalAssigned
+      : rawItems.filter((it: any) => it.account?.status !== "BANNED").length;
+    totalTargetAccounts += assigned;
+
+    for (const it of rawItems) {
+      if (it.isPosted && it.account?.status !== "BANNED") totalVideos++;
       if (it.isSynced) totalSynced++;
     }
   }
@@ -212,7 +221,7 @@ export default function DayDetailModal({
               <div className="text-sm font-black text-pink-400 mt-0.5 flex items-center gap-1.5">
                 <Video className="w-3.5 h-3.5 shrink-0" />
                 <span>
-                  {totalVideos} / {totalAccounts} accs
+                  {totalVideos} / {totalTargetAccounts} accs
                 </span>
               </div>
             </div>
@@ -224,7 +233,7 @@ export default function DayDetailModal({
               <div className="text-sm font-black text-cyan-400 mt-0.5 flex items-center gap-1.5">
                 <RefreshCw className="w-3.5 h-3.5 shrink-0" />
                 <span>
-                  {totalSynced} / {totalAccounts} accs
+                  {totalSynced} / {totalPhysicalAccounts} accs
                 </span>
               </div>
             </div>
@@ -304,7 +313,7 @@ export default function DayDetailModal({
                               {activeChecklist.completionRate}%
                             </strong>{" "}
                             ({activeChecklist.completedCount}/
-                            {activeChecklist.items?.length || 0} accs đạt KPI)
+                            {activeChecklist.totalAssigned ?? activeChecklist.items?.length ?? 0} accs chỉ tiêu)
                           </span>
                         </div>
                       </div>
@@ -406,8 +415,9 @@ export default function DayDetailModal({
                       {(activeChecklist.items || []).map((item: any) => {
                         const isKpiAchieved =
                           item.isCompleted || item.isPosted;
+                        const isAccountBanned = item.account?.status === "BANNED";
                         const isAccountFailed =
-                          item.account?.status === "BANNED" ||
+                          isAccountBanned ||
                           item.account?.status === "RESTRICTED" ||
                           item.account?.status === "STOPPED";
                         const isGpmMissing = !item.account?.gpmProfileId;
@@ -504,11 +514,16 @@ export default function DayDetailModal({
                               {/* KPI Pill with Rich Tooltip */}
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <div className="cursor-help select-none w-[90px] min-w-[90px] max-w-[90px] shrink-0 flex items-center justify-center">
+                                  <div className="cursor-help select-none min-w-[80px] shrink-0 flex items-center justify-center">
                                     {isKpiAchieved ? (
                                       <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs inline-flex items-center gap-1 w-full justify-center">
                                         <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                                         <span>Đạt KPI</span>
+                                      </span>
+                                    ) : isAccountBanned ? (
+                                      <span className="px-2 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800/80 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs inline-flex items-center gap-1 w-full justify-center whitespace-nowrap">
+                                        <Ban className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        <span>Miễn trừ</span>
                                       </span>
                                     ) : (
                                       <span className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 shadow-2xs inline-flex items-center justify-center w-full whitespace-nowrap">
@@ -520,7 +535,9 @@ export default function DayDetailModal({
                                 <TooltipContent side="top" className="text-xs font-normal z-[200]">
                                   {isKpiAchieved
                                     ? "Đạt KPI: Đã đăng video và đồng bộ GPM đầy đủ"
-                                    : "Không đạt: Chưa đăng video hoặc chưa đồng bộ GPM ngày này"}
+                                    : isAccountBanned
+                                      ? "Miễn trừ: Tài khoản bị khóa (Banned) — Đã loại khỏi tổng chỉ tiêu công (totalAssigned)"
+                                      : "Không đạt: Chưa đăng video hoặc chưa đồng bộ GPM ngày này"}
                                 </TooltipContent>
                               </Tooltip>
 

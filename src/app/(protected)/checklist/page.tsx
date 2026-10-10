@@ -811,7 +811,7 @@ function ChecklistPageContent() {
             "Quốc Gia": it.account.country || "US",
             "Đã Đăng Video": it.isPosted ? "ĐÃ ĐĂNG" : "CHƯA ĐĂNG",
             "Đã Sync GPM": it.isSynced ? "ĐÃ SYNC" : "CHƯA SYNC",
-            "Đạt KPI Acc": it.isCompleted || (it.isPosted && it.isSynced) ? "ĐẠT" : "CHƯA ĐẠT",
+            "Đạt KPI Acc": it.account?.status === "BANNED" ? "MIỄN TRỪ (BANNED)" : it.isCompleted || (it.isPosted && it.isSynced) ? "ĐẠT" : "CHƯA ĐẠT",
             "Tỷ Lệ Hoàn Thành (%)": `${c.completionRate}%`,
             "Điểm Ngày Công": scoreLabel,
             "Ghi Chú Vận Hành": it.notes || "—",
@@ -2216,9 +2216,18 @@ function ChecklistPageContent() {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
                 {filteredChecklists.map((chk: any, idx: number) => {
                   const isExpanded = expandedRowIds.has(chk.id);
-                  const totalAcc = chk.items.length;
-                  const postedCount = chk.items.filter((i: any) => i.isPosted).length;
-                  const syncedCount = chk.items.filter((i: any) => i.isSynced).length;
+                  const totalItemsCount = chk.items.length;
+                  const bannedCount = chk.items.filter((i: any) => i.account?.status === "BANNED").length;
+                  const totalAssigned = typeof chk.totalAssigned === "number" ? chk.totalAssigned : totalItemsCount;
+                  const eligibleItems = chk.items.filter((i: any) => i.account?.status !== "BANNED");
+                  const postedCount = eligibleItems.filter((i: any) => {
+                    const opt = optimisticToggles[i.id]?.isPosted;
+                    return opt !== undefined ? opt : i.isPosted;
+                  }).length;
+                  const allSyncedCount = chk.items.filter((i: any) => {
+                    const opt = optimisticToggles[i.id]?.isSynced;
+                    return opt !== undefined ? opt : i.isSynced;
+                  }).length;
                   const rate = Number(chk.completionRate || 0);
                   const score = Number(chk.workdayScore || 0);
                   const dateFormatted = format(new Date(chk.date), "dd/MM/yyyy");
@@ -2272,34 +2281,39 @@ function ChecklistPageContent() {
                         {/* Col 2: Total Accounts */}
                         <td className="w-28 text-center px-2 py-3">
                           <span className="font-extrabold text-slate-800 dark:text-slate-200">
-                            {totalAcc}
+                            {totalAssigned}
                           </span>{" "}
-                          <span className="text-slate-400 text-xs">accounts</span>
+                          <span className="text-slate-400 text-xs">chỉ tiêu</span>
+                          {bannedCount > 0 && (
+                            <div className="text-[10px] text-slate-400 font-normal">
+                              (+{bannedCount} Banned)
+                            </div>
+                          )}
                         </td>
 
                         {/* Col 3: Posted Count */}
                         <td className="w-28 text-center px-2 py-3">
                           <span
-                            className={`inline-flex items-center gap-1 font-bold ${postedCount === totalAcc && totalAcc > 0
+                            className={`inline-flex items-center gap-1 font-bold ${postedCount === totalAssigned && totalAssigned > 0
                               ? "text-emerald-600 dark:text-emerald-400"
                               : "text-slate-700 dark:text-slate-300"
                               }`}
                           >
                             <Video className="w-3.5 h-3.5 text-pink-500" />
-                            {postedCount}/{totalAcc}
+                            {postedCount}/{totalAssigned}
                           </span>
                         </td>
 
                         {/* Col 4: Synced GPM Count */}
                         <td className="w-28 text-center px-2 py-3">
                           <span
-                            className={`inline-flex items-center gap-1 font-bold ${syncedCount === totalAcc && totalAcc > 0
+                            className={`inline-flex items-center gap-1 font-bold ${allSyncedCount === totalItemsCount && totalItemsCount > 0
                               ? "text-cyan-600 dark:text-cyan-400"
                               : "text-slate-700 dark:text-slate-300"
                               }`}
                           >
                             <RefreshCw className="w-3.5 h-3.5 text-cyan-500" />
-                            {syncedCount}/{totalAcc}
+                            {allSyncedCount}/{totalItemsCount}
                           </span>
                         </td>
 
@@ -2308,7 +2322,7 @@ function ChecklistPageContent() {
                           <div className="flex items-center justify-between text-xs font-bold mb-1">
                             <span className="text-slate-700 dark:text-slate-300">{rate}% Hoàn thành</span>
                             <span className="text-slate-400 font-normal">
-                              {chk.completedCount}/{totalAcc}
+                              {chk.completedCount}/{totalAssigned}
                             </span>
                           </div>
                           <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
@@ -2425,7 +2439,7 @@ function ChecklistPageContent() {
                                 <div className="px-4 py-2.5 bg-slate-100/80 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                                   <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                                     <Users className="w-4 h-4 text-pink-500" />
-                                    <span>Danh sách {chk.items.length} tài khoản giao việc cho {chk.user.fullName}</span>
+                                    <span>Danh sách {chk.items.length} tài khoản giao việc cho {chk.user.fullName}{bannedCount > 0 ? ` (${bannedCount} Banned miễn trừ)` : ""}</span>
                                   </div>
                                 </div>
 
@@ -2459,7 +2473,8 @@ function ChecklistPageContent() {
                                           const lastSyncFormatted = item.account.lastSyncedAt
                                             ? format(new Date(item.account.lastSyncedAt), "HH:mm dd/MM")
                                             : "Chưa sync";
-                                          const isAccountFailed = item.account.status === "BANNED" || item.account.status === "RESTRICTED" || item.account.status === "STOPPED";
+                                          const isAccountBanned = item.account.status === "BANNED";
+                                          const isAccountFailed = isAccountBanned || item.account.status === "RESTRICTED" || item.account.status === "STOPPED";
                                           const isGpmMissing = !item.account.gpmProfileId;
 
                                           return (
@@ -2594,10 +2609,14 @@ function ChecklistPageContent() {
                                               <td className="py-3 px-4 text-center w-36 min-w-[130px] whitespace-nowrap">
                                                 <Tooltip>
                                                   <TooltipTrigger asChild>
-                                                    <div className="inline-flex cursor-help w-[90px] items-center justify-center">
+                                                    <div className="inline-flex cursor-help min-w-[90px] items-center justify-center">
                                                       {isItemCompleted ? (
                                                         <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs w-full">
                                                           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Đạt KPI
+                                                        </span>
+                                                      ) : isAccountBanned ? (
+                                                        <span className="inline-flex items-center justify-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800/80 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs w-full whitespace-nowrap">
+                                                          <Ban className="w-3.5 h-3.5 text-slate-400 shrink-0" /> Miễn trừ
                                                         </span>
                                                       ) : (
                                                         <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs w-full">
@@ -2609,7 +2628,9 @@ function ChecklistPageContent() {
                                                   <TooltipContent side="top" className="text-xs font-normal">
                                                     {isItemCompleted
                                                       ? "Đạt KPI: Đã đăng video và đồng bộ GPM đầy đủ"
-                                                      : "Không đạt: Chưa đăng video hoặc chưa đồng bộ GPM ngày này"}
+                                                      : isAccountBanned
+                                                        ? "Miễn trừ: Tài khoản bị khóa (Banned) — Đã loại khỏi tổng chỉ tiêu công (totalAssigned)"
+                                                        : "Không đạt: Chưa đăng video hoặc chưa đồng bộ GPM ngày này"}
                                                   </TooltipContent>
                                                 </Tooltip>
                                               </td>

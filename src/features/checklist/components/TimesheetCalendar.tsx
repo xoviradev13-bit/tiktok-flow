@@ -174,6 +174,7 @@ export default function TimesheetCalendar({
     let totalVideos = 0;
     let totalSynced = 0;
     let totalAssigned = 0;
+    let totalPhysical = 0;
     let totalCompletionSum = 0;
 
     // Filter checklists within cycle: 16th of selectedMonth → 15th of next month
@@ -195,10 +196,15 @@ export default function TimesheetCalendar({
       else zeroDays++;
 
       totalCompletionSum += Number(c.completionRate || 0);
-      totalAssigned += c.items?.length || 0;
+      const rawItems = c.items || [];
+      totalPhysical += rawItems.length;
+      const eligibleItems = rawItems.filter((i: any) => i.account?.status !== "BANNED");
+      totalAssigned += typeof c.totalAssigned === "number" ? c.totalAssigned : eligibleItems.length;
 
-      for (const it of c.items || []) {
+      for (const it of eligibleItems) {
         if (it.isPosted) totalVideos++;
+      }
+      for (const it of rawItems) {
         if (it.isSynced) totalSynced++;
       }
     }
@@ -209,7 +215,7 @@ export default function TimesheetCalendar({
         : 0;
 
     const syncRate =
-      totalAssigned > 0 ? Math.round((totalSynced / totalAssigned) * 100) : 0;
+      totalPhysical > 0 ? Math.round((totalSynced / totalPhysical) * 100) : 0;
 
     return {
       totalScore,
@@ -219,6 +225,7 @@ export default function TimesheetCalendar({
       totalVideos,
       totalSynced,
       totalAssigned,
+      totalPhysical,
       avgRate,
       syncRate,
       recordedDaysCount: inMonthChecklists.length,
@@ -628,17 +635,22 @@ export default function TimesheetCalendar({
             const singleRate = singleChecklist
               ? Number(singleChecklist.completionRate || 0)
               : 0;
-            const singleTotalAcc = singleChecklist
-              ? singleChecklist.items?.length || 0
+            const allItems = singleChecklist?.items || [];
+            const singleEligibleItems = allItems.filter(
+              (i: any) => i.account?.status !== "BANNED"
+            );
+            const singleTargetAcc = singleChecklist
+              ? typeof singleChecklist.totalAssigned === "number"
+                ? singleChecklist.totalAssigned
+                : singleEligibleItems.length
               : 0;
-            const singlePosted = singleChecklist
-              ? singleChecklist.items?.filter((i: any) => i.isPosted).length ||
-              0
-              : 0;
-            const singleSynced = singleChecklist
-              ? singleChecklist.items?.filter((i: any) => i.isSynced).length ||
-              0
-              : 0;
+            const singlePhysicalAcc = allItems.length;
+            const singlePosted = singleEligibleItems.filter(
+              (i: any) => i.isPosted
+            ).length;
+            const singleSynced = allItems.filter(
+              (i: any) => i.isSynced
+            ).length;
             const singleHasNotes = singleChecklist?.items?.some(
               (i: any) => !!i.notes
             );
@@ -661,7 +673,7 @@ export default function TimesheetCalendar({
             );
             const teamVideos = dayChecklists.reduce(
               (sum, c) =>
-                sum + (c.items?.filter((i: any) => i.isPosted).length || 0),
+                sum + (c.items?.filter((i: any) => i.account?.status !== "BANNED" && i.isPosted).length || 0),
               0
             );
             const teamAvgRate =
@@ -780,13 +792,19 @@ export default function TimesheetCalendar({
 
                         {/* Counts: Videos & Sync */}
                         <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
-                          <span className="flex items-center gap-1">
+                          <span
+                            className="flex items-center gap-1"
+                            title="Số video đã đăng / Chỉ tiêu tài khoản cần đăng"
+                          >
                             <Video className="w-3.5 h-3.5 text-pink-500" />
-                            <strong>{singlePosted}</strong>/{singleTotalAcc}
+                            <strong>{singlePosted}</strong>/{singleTargetAcc}
                           </span>
-                          <span className="flex items-center gap-1">
+                          <span
+                            className="flex items-center gap-1"
+                            title="Số profile GPM đã đồng bộ / Tổng số profile đang quản lý"
+                          >
                             <RefreshCw className="w-3.5 h-3.5 text-cyan-500" />
-                            <strong>{singleSynced}</strong>/{singleTotalAcc}
+                            <strong>{singleSynced}</strong>/{singlePhysicalAcc}
                           </span>
                         </div>
                       </div>
