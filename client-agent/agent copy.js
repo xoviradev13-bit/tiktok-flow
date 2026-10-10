@@ -2794,22 +2794,11 @@ export async function findTikTokHandleInProfileAsync(profileDir) {
       if (t) chunks.push(t);
     }
 
-    // Fast check: if History already yielded a conclusive handle, return early
-    if (chunks.length > 0) {
-      const earlyHandle = scoreLoggedInHandleFromArtifacts(chunks.join("\n"));
-      if (earlyHandle) return earlyHandle;
-    }
-
     for (const rel of ["Preferences", "Network/Cookies", "Cookies"]) {
       const p = path.join(defaultDir, rel);
       if (!fs.existsSync(p)) continue;
       const t = await readBestEffortAsync(p, 512 * 1024);
       if (t) chunks.push(t);
-    }
-
-    if (chunks.length > 0) {
-      const midHandle = scoreLoggedInHandleFromArtifacts(chunks.join("\n"));
-      if (midHandle) return midHandle;
     }
 
     const levelDbDir = path.join(defaultDir, "Local Storage", "leveldb");
@@ -5937,6 +5926,14 @@ export async function performFullSweep(syncJob = null) {
       if (Array.isArray(syncResult.skipProfileIds)) {
         serverSkipProfileIds = new Set(syncResult.skipProfileIds);
       }
+      if (syncResult.profileAccountMap && typeof syncResult.profileAccountMap === "object") {
+        for (const p of profilesToSync) {
+          const authoritative = syncResult.profileAccountMap[p.id];
+          if (authoritative) {
+            p.tiktokHandle = authoritative;
+          }
+        }
+      }
       console.log(`   [OK] Dong bo thanh cong danh sach: ${syncResult.totalScanned || profilesToSync.length} tai khoan ghi nhan.`);
     } else if (res.status === 401 || res.status === 403) {
       const errData = await res.json().catch(() => ({}));
@@ -5977,7 +5974,6 @@ export async function performFullSweep(syncJob = null) {
       return { successCount: 0, failCount: 0, profilesCount: profilesToSync.length };
     }
   } else {
-    const seenHandles = new Set();
     for (const p of profilesToSync) {
       if (p.groupName && String(p.groupName).trim().toLowerCase() === "kho") {
         console.log(`   [-] [Archive] Bo qua profile "${p.name}" (ID: ${p.id.slice(0, 8)}) @${p.tiktokHandle || "N/A"} vi group "${p.groupName}" da vao Kho luu tru.`);
@@ -5986,11 +5982,6 @@ export async function performFullSweep(syncJob = null) {
       if (serverSkipProfileIds.has(p.id)) {
         console.log(`   [-] [Skip] Bo qua profile "${p.name}" (ID: ${p.id.slice(0, 8)}) @${p.tiktokHandle || "N/A"} vi da bi Xoa hoac Luu tru tren he thong.`);
         continue;
-      }
-      if (p.tiktokHandle) {
-        const lower = p.tiktokHandle.toLowerCase();
-        if (seenHandles.has(lower)) continue;
-        seenHandles.add(lower);
       }
       activeTikTokProfiles.push(p);
     }

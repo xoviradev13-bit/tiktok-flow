@@ -6,12 +6,12 @@ const PLACEHOLDER_GROUPS = new Set([
   "gpmlogin fleet",
 ]);
 
-/** True when a string looks like a GPM profile display name (e.g. "Profile 5404"). */
+/** True when a string looks like a GPM profile display name (e.g. "Profile 5404", "acc 225"). */
 export function looksLikeGpmProfileName(value?: string | null): boolean {
   const s = String(value || "").trim();
   if (!s) return false;
-  if (/^profile\s+\d+$/i.test(s)) return true;
-  if (/^profile\s+[0-9a-f-]{8,}$/i.test(s)) return true;
+  if (/^(profile|acc)\s*\d+$/i.test(s)) return true;
+  if (/^(profile|acc)\s+[0-9a-f-]{8,}$/i.test(s)) return true;
   return false;
 }
 

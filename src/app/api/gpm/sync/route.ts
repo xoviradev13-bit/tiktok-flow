@@ -1040,19 +1040,40 @@ export async function POST(req: Request) {
             },
           });
 
-          // Fallback: extension created @handle with Profile name but no UUID yet.
-          if (!existing && profileName && looksLikeGpmProfileName(profileName)) {
-            existing = await prisma.tiktokAccount.findFirst({
+          // Fallback: match by GPM display name ONLY if unambiguous (Approach B: Strict Safety)
+          if (!existing && profileName) {
+            const userScopeFilter =
+              user.role === "ADMIN" || user.role === "LEAD"
+                ? {}
+                : {
+                    OR: [
+                      { assignedUserId: currentUserId },
+                      { assignedUserId: null },
+                    ],
+                  };
+
+            const candidates = await prisma.tiktokAccount.findMany({
               where: {
                 gpmProfileId: null,
-                gpmProfileName: profileName,
+                gpmProfileName: { equals: profileName, mode: "insensitive" },
+                deletedAt: null,
+                ...userScopeFilter,
               },
               include: {
                 assignedUser: {
                   select: { id: true, role: true, name: true, username: true },
                 },
               },
+              take: 2,
             });
+
+            if (candidates.length === 1) {
+              existing = candidates[0];
+            } else if (candidates.length > 1) {
+              console.warn(
+                `[GPM WebSync] Ambiguous profile name "${profileName}" matches ${candidates.length} accounts. Skipping auto-link to prevent false cross-linking.`
+              );
+            }
           }
 
           // Skip profiles with no TikTok account linked

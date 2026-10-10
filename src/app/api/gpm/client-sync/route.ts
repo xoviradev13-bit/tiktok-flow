@@ -657,20 +657,40 @@ export async function POST(req: Request) {
           });
         }
 
-        // Fallback: match by GPM display name if active and not linked yet
-        if (!existing && profileName && looksLikeGpmProfileName(profileName)) {
-          existing = await prisma.tiktokAccount.findFirst({
+        // Fallback: match by GPM display name ONLY if unambiguous (Approach B: Strict Safety)
+        if (!existing && profileName) {
+          const userScopeFilter =
+            user.role === "ADMIN" || user.role === "LEAD"
+              ? {}
+              : {
+                  OR: [
+                    { assignedUserId: currentUserId },
+                    { assignedUserId: null },
+                  ],
+                };
+
+          const candidates = await prisma.tiktokAccount.findMany({
             where: {
               gpmProfileId: null,
-              gpmProfileName: profileName,
+              gpmProfileName: { equals: profileName, mode: "insensitive" },
+              deletedAt: null,
+              ...userScopeFilter,
             },
             include: {
               assignedUser: {
                 select: { id: true, role: true, name: true, username: true },
               },
             },
-            orderBy: { createdAt: "desc" },
+            take: 2,
           });
+
+          if (candidates.length === 1) {
+            existing = candidates[0];
+          } else if (candidates.length > 1) {
+            console.warn(
+              `[GPM ClientSync] Ambiguous profile name "${profileName}" matches ${candidates.length} accounts. Skipping auto-link to prevent false cross-linking.`
+            );
+          }
         }
 
         // If an active account was found, guarantee strict 1:1 mapping: unlink p.id from any other row
@@ -894,6 +914,23 @@ export async function POST(req: Request) {
       }
     } catch (e) { }
 
+    // Return authoritative profile ID -> username map so Client Agent knows exact handles
+    const profileAccountMap: Record<string, string> = {};
+    try {
+      const linkedAccounts = await prisma.tiktokAccount.findMany({
+        where: {
+          gpmProfileId: { in: profiles.map((p) => p.id) },
+          deletedAt: null,
+        },
+        select: { gpmProfileId: true, username: true },
+      });
+      for (const a of linkedAccounts) {
+        if (a.gpmProfileId) {
+          profileAccountMap[a.gpmProfileId] = a.username;
+        }
+      }
+    } catch { }
+
     return NextResponse.json({
       success: true,
       message: `Đồng bộ hoàn tất cho ${actorName}: ${newCount} tạo mới, ${updatedCount} cập nhật.`,
@@ -901,6 +938,7 @@ export async function POST(req: Request) {
       newImportedCount: newCount,
       updatedCount,
       skipProfileIds,
+      profileAccountMap,
     });
   } catch (error: any) {
     console.error("[ClientSync API Error]:", error);
