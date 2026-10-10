@@ -414,6 +414,17 @@ function AccountDetailPageContent() {
   // 2. Fetch staff list for reassignment
   const { data: staffList = [] } = trpc.user.listStaff.useQuery();
 
+  const canEditAccount = useMemo(() => {
+    if (isAdmin) return true;
+    if (!account?.assignedUserId) return false;
+    const currentUserId = (session?.user as any)?.id;
+    if (account.assignedUserId === currentUserId) return true;
+    if (isLead) {
+      return staffList.some((u: any) => u.id === account.assignedUserId);
+    }
+    return false;
+  }, [isAdmin, isLead, session?.user, account?.assignedUserId, staffList]);
+
   const canDeleteAccount = useMemo(() => {
     if (isAdmin) return true;
     if (!account?.assignedUserId) return false;
@@ -1433,7 +1444,7 @@ function AccountDetailPageContent() {
                   <span>Lịch sử hoạt động</span>
                 </DropdownMenuItem>
 
-                {isLeadOrAdmin && (
+                {canEditAccount && (
                   <DropdownMenuItem
                     onClick={() => {
                       setActiveTab("overview");
@@ -2108,7 +2119,7 @@ function AccountDetailPageContent() {
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Trạng thái tài khoản
                 </label>
-                {isLeadOrAdmin ? (
+                {canEditAccount ? (
                   <Select
                     value={account.status}
                     onValueChange={(val: any) =>
@@ -2132,7 +2143,7 @@ function AccountDetailPageContent() {
                       {getStatusBadge(account.status)}
                     </div>
                     <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                      <Lock className="w-3 h-3" /> Chỉ Admin/Lead
+                      <Lock className="w-3 h-3" /> Chỉ đọc
                     </span>
                   </div>
                 )}
@@ -2195,7 +2206,7 @@ function AccountDetailPageContent() {
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Quốc gia (Country)
                 </label>
-                {isLeadOrAdmin ? (
+                {canEditAccount ? (
                   <Select
                     value={normalizeCountry(account.country) || ""}
                     onValueChange={(val) =>
@@ -2224,7 +2235,7 @@ function AccountDetailPageContent() {
                       {COUNTRY_OPTIONS.find((c) => c.value === normalizeCountry(account.country))?.label || (account.country ? `🌐 ${account.country}` : "Chưa xác định")}
                     </span>
                     <span className="text-[10px] text-slate-400 flex items-center gap-1 shrink-0">
-                      <Lock className="w-3 h-3" /> Chỉ Admin/Lead
+                      <Lock className="w-3 h-3" /> Chỉ đọc
                     </span>
                   </div>
                 )}
@@ -2235,7 +2246,7 @@ function AccountDetailPageContent() {
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   GPM Group / Nhóm GPM
                 </label>
-                {isLeadOrAdmin ? (
+                {canEditAccount ? (
                   <div className="flex gap-2">
                     <Input
                       defaultValue={account.groupName || ""}
@@ -2252,7 +2263,7 @@ function AccountDetailPageContent() {
                   <div className="w-full h-9 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 flex items-center justify-between text-xs font-normal text-slate-700 dark:text-slate-300 select-none">
                     <span className="truncate">{account.groupName || "-- Chưa phân nhóm GPM --"}</span>
                     <span className="text-[10px] text-slate-400 flex items-center gap-1 shrink-0">
-                      <Lock className="w-3 h-3" /> Chỉ Admin/Lead
+                      <Lock className="w-3 h-3" /> Chỉ đọc
                     </span>
                   </div>
                 )}
@@ -2339,16 +2350,23 @@ function AccountDetailPageContent() {
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Gắn GPM Profile ID để cho phép tự động mở trình duyệt và đồng bộ TikTok Studio.
                   </p>
-                  <Input
-                    placeholder="Nhập GPM Profile UUID..."
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const val = (e.target as HTMLInputElement).value.trim();
-                        if (val) updateMutation.mutate({ id: account.id, gpmProfileId: val });
-                      }
-                    }}
-                    className="h-9 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
-                  />
+                  {canEditAccount ? (
+                    <Input
+                      placeholder="Nhập GPM Profile UUID..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val) updateMutation.mutate({ id: account.id, gpmProfileId: val });
+                        }
+                      }}
+                      className="h-9 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
+                    />
+                  ) : (
+                    <div className="h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400 select-none">
+                      <span>Chưa gắn Profile UUID</span>
+                      <span className="text-[10px] flex items-center gap-1"><Lock className="w-3 h-3" /> Chỉ đọc</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

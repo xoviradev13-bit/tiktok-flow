@@ -726,38 +726,22 @@ export const accountsRouter = router({
       const isStaff = ctx.session.user.role === "STAFF";
 
       const isReassigning = input.assignedUserId !== undefined && input.assignedUserId !== current.assignedUserId;
-      if (isReassigning && current.isAssignmentLocked && isStaff) {
+      if (isReassigning && isStaff) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền phân công nhân sự.",
+        });
+      }
+      if (isReassigning && current.isAssignmentLocked && !scope.isAdmin) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Tài khoản này đã bị khóa phân công. Chỉ Quản trị viên mới có quyền chuyển giao.",
         });
       }
 
-      const statusChanged = input.status && input.status !== current.status;
-      if (statusChanged && isStaff) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi trạng thái tài khoản.",
-        });
-      }
+      const statusChanged = Boolean(input.status && input.status !== current.status);
 
-      const countryChanged = input.country !== undefined && input.country !== current.country;
-      if (countryChanged && isStaff) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi quốc gia của tài khoản.",
-        });
-      }
-
-      const groupChanged = input.groupName !== undefined && input.groupName !== current.groupName;
-      if (groupChanged && isStaff) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền thay đổi nhóm GPM của tài khoản.",
-        });
-      }
-
-      if (!isStaff && input.gpmProfileId && input.gpmProfileId !== current.gpmProfileId) {
+      if (input.gpmProfileId && input.gpmProfileId !== current.gpmProfileId) {
         const duplicate = await ctx.prisma.tiktokAccount.findFirst({
           where: {
             gpmProfileId: input.gpmProfileId,
@@ -777,13 +761,13 @@ export const accountsRouter = router({
       const res = await ctx.prisma.tiktokAccount.updateMany({
         where: { id: input.id, deletedAt: null },
         data: {
-          country: !isStaff ? input.country : undefined,
-          gpmProfileId: !isStaff ? input.gpmProfileId : undefined,
-          gpmProfileName: !isStaff ? input.gpmProfileName : undefined,
-          gpmPort: !isStaff && input.gpmPort !== undefined ? input.gpmPort : undefined,
-          groupName: !isStaff ? input.groupName : undefined,
-          status: !isStaff ? input.status : undefined,
-          assignedUserId: !isStaff ? input.assignedUserId : undefined,
+          country: input.country !== undefined ? input.country : undefined,
+          gpmProfileId: input.gpmProfileId !== undefined ? input.gpmProfileId : undefined,
+          gpmProfileName: input.gpmProfileName !== undefined ? input.gpmProfileName : undefined,
+          gpmPort: input.gpmPort !== undefined ? input.gpmPort : undefined,
+          groupName: input.groupName !== undefined ? input.groupName : undefined,
+          status: input.status !== undefined ? input.status : undefined,
+          assignedUserId: !isStaff && input.assignedUserId !== undefined ? input.assignedUserId : undefined,
           isAssignmentLocked: !isStaff && input.isAssignmentLocked !== undefined ? input.isAssignmentLocked : undefined,
         },
       });

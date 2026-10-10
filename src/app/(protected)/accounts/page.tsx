@@ -1460,8 +1460,9 @@ function AccountsPageContent() {
   };
 
   const handleStatusChange = (accountId: string, newStatus: any) => {
-    if (!isLeadOrAdmin) {
-      setActionMsg("❌ Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền đổi trạng thái.");
+    const acc = accounts.find((a: any) => a.id === accountId);
+    if (!acc || !canManageAccount(acc)) {
+      setActionMsg("❌ Bạn không có quyền đổi trạng thái tài khoản này.");
       setTimeout(() => setActionMsg(null), 4000);
       return;
     }
@@ -1478,11 +1479,12 @@ function AccountsPageContent() {
   };
 
   const handleOpenEdit = (acc: any) => {
-    if (!isLeadOrAdmin) {
-      setActionMsg("❌ Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền chỉnh sửa tài khoản.");
+    if (!canManageAccount(acc)) {
+      setActionMsg("❌ Bạn không có quyền chỉnh sửa tài khoản này.");
       setTimeout(() => setActionMsg(null), 4000);
       return;
     }
+    setSelectedAccount(acc);
     setEditId(acc.id);
     setEditUsername(acc.username);
     setEditCountry(normalizeCountry(acc.country) || "");
@@ -1495,18 +1497,19 @@ function AccountsPageContent() {
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isLeadOrAdmin) {
-      setActionMsg("❌ Chỉ Quản trị viên (Admin) hoặc Trưởng nhóm (Lead) mới có quyền chỉnh sửa tài khoản.");
+    const acc = selectedAccount || accounts.find((a: any) => a.id === editId);
+    if (!acc || !canManageAccount(acc)) {
+      setActionMsg("❌ Bạn không có quyền chỉnh sửa tài khoản này.");
       setTimeout(() => setActionMsg(null), 4000);
       return;
     }
     updateMutation.mutate({
       id: editId,
-      country: editCountry,
+      country: editCountry || undefined,
       groupName: editGroup?.trim() || null,
       gpmProfileName: editProfileName?.trim() || null,
       gpmProfileId: editGpmId?.trim() || null,
-      assignedUserId: editAssignedUser || null,
+      assignedUserId: isLeadOrAdmin ? (editAssignedUser || null) : undefined,
     });
   };
 
@@ -3282,7 +3285,7 @@ function AccountsPageContent() {
                         {(() => {
                           const badgeStyle = getStatusBadgeStyle(acc.status);
                           const isBanned = acc.status === "BANNED";
-                          const badgeElement = isLeadOrAdmin ? (
+                          const badgeElement = canManageAccount(acc) ? (
                             <Select
                               value={acc.status}
                               onValueChange={(val) => handleStatusChange(acc.id, val)}
@@ -3448,7 +3451,7 @@ function AccountsPageContent() {
                                     <span>Mở Profile GPM</span>
                                   </DropdownMenuItem>
                                 )}
-                                {isLeadOrAdmin && (
+                                {canManageAccount(acc) && (
                                   <DropdownMenuItem
                                     onClick={() => handleOpenEdit(acc)}
                                     className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
@@ -4262,7 +4265,7 @@ function AccountsPageContent() {
                               <td style={getColumnStyle("status")} className="px-4 py-3.5 overflow-hidden">
                                 {(() => {
                                   const isBanned = acc.status === "BANNED";
-                                  const statusElement = isLeadOrAdmin ? (
+                                  const statusElement = canManageAccount(acc) ? (
                                     <Select
                                       value={acc.status}
                                       onValueChange={(val) => handleStatusChange(acc.id, val)}
@@ -4782,7 +4785,7 @@ function AccountsPageContent() {
                                             </DropdownMenuItem>
                                           )}
 
-                                          {isLeadOrAdmin && (
+                                          {canManageAccount(acc) && (
                                             <DropdownMenuItem
                                               onClick={() => handleOpenEdit(acc)}
                                               className="flex items-center gap-2 px-2.5 py-2 text-xs font-normal text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
@@ -5127,135 +5130,71 @@ function AccountsPageContent() {
             <form onSubmit={handleSaveEdit} className="space-y-3.5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Quốc Gia
-                    </label>
-                    {!isLeadOrAdmin && (
-                      <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
-                        <Lock className="w-2.5 h-2.5" /> Chỉ đọc
-                      </span>
-                    )}
-                  </div>
-                  {isLeadOrAdmin ? (
-                    <Select value={editCountry} onValueChange={setEditCountry}>
-                      <SelectTrigger className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white cursor-pointer [&>span]:truncate">
-                        <SelectValue placeholder="Chọn quốc gia" />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-2xl max-h-60 w-64">
-                        {COUNTRY_OPTIONS.map((c) => (
-                          <SelectItem key={c.value} value={c.value} className="text-xs cursor-pointer">
-                            {c.label}
-                          </SelectItem>
-                        ))}
-                        {!COUNTRY_OPTIONS.some((c) => c.value === editCountry) && editCountry && (
-                          <SelectItem value={editCountry} className="text-xs cursor-pointer">
-                            🌐 {editCountry}
-                          </SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <input
-                      type="text"
-                      readOnly
-                      value={COUNTRY_OPTIONS.find((c) => c.value === editCountry)?.label || editCountry || "--"}
-                      className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
-                    />
-                  )}
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Quốc Gia
+                  </label>
+                  <Select value={editCountry} onValueChange={setEditCountry}>
+                    <SelectTrigger className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white cursor-pointer [&>span]:truncate">
+                      <SelectValue placeholder="Chọn quốc gia" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl max-h-60 w-64">
+                      {COUNTRY_OPTIONS.map((c) => (
+                        <SelectItem key={c.value} value={c.value} className="text-xs cursor-pointer">
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                      {!COUNTRY_OPTIONS.some((c) => c.value === editCountry) && editCountry && (
+                        <SelectItem value={editCountry} className="text-xs cursor-pointer">
+                          🌐 {editCountry}
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      GPM Group
-                    </label>
-                    <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
-                      <Lock className="w-2.5 h-2.5" /> Chỉ đọc
-                    </span>
-                  </div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    GPM Group
+                  </label>
                   <input
                     type="text"
-                    readOnly
-                    value={editGroup || "-- Chưa phân nhóm GPM --"}
-                    className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
+                    placeholder="Nhập nhóm GPM (ví dụ: Default group)..."
+                    value={editGroup}
+                    onChange={(e) => setEditGroup(e.target.value)}
+                    className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-pink-500"
                   />
                 </div>
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    GPM Profile Name
-                  </label>
-                  {!isLeadOrAdmin ? (
-                    <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
-                      <Lock className="w-2.5 h-2.5" /> Chỉ đọc
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                      Admin/Lead
-                    </span>
-                  )}
-                </div>
-                {isLeadOrAdmin ? (
-                  <input
-                    type="text"
-                    placeholder="Tên profile GPM (ví dụ: Profile 5404)..."
-                    value={editProfileName}
-                    onChange={(e) => setEditProfileName(e.target.value)}
-                    className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-pink-500"
-                  />
-                ) : (
-                  <input
-                    type="text"
-                    readOnly
-                    placeholder="Chưa có tên Profile GPM"
-                    value={editProfileName}
-                    className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
-                  />
-                )}
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  GPM Profile Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="Tên profile GPM (ví dụ: Profile 5404)..."
+                  value={editProfileName}
+                  onChange={(e) => setEditProfileName(e.target.value)}
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                />
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    GPM Profile ID
-                  </label>
-                  {!isLeadOrAdmin ? (
-                    <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
-                      <Lock className="w-2.5 h-2.5" /> Chỉ đọc
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                      Admin/Lead
-                    </span>
-                  )}
-                </div>
-                {isLeadOrAdmin ? (
-                  <input
-                    type="text"
-                    placeholder="Nhập GPM Profile UUID (ví dụ: 792837c8-0a3a-49ea-b550-a92bda66c149)..."
-                    value={editGpmId}
-                    onChange={(e) => setEditGpmId(e.target.value)}
-                    className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-pink-500"
-                  />
-                ) : (
-                  <input
-                    type="text"
-                    readOnly
-                    placeholder="Chưa liên kết GPM Profile"
-                    value={editGpmId}
-                    className="w-full h-9 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs font-mono text-slate-500 dark:text-slate-400 cursor-not-allowed select-none focus:outline-none"
-                  />
-                )}
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  GPM Profile ID
+                </label>
+                <input
+                  type="text"
+                  placeholder="Nhập GPM Profile UUID (ví dụ: 792837c8-0a3a-49ea-b550-a92bda66c149)..."
+                  value={editGpmId}
+                  onChange={(e) => setEditGpmId(e.target.value)}
+                  className="w-full h-9 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                />
               </div>
 
-              {isLeadOrAdmin && (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed bg-amber-500/5 border border-amber-500/10 rounded-xl p-2.5">
-                  💡 <strong>GPM Profile ID:</strong> Thay đổi Profile UUID sẽ chuyển hướng mở trình duyệt GPM và đồng bộ tự động sang profile mới. Vui lòng kiểm tra kỹ UUID.
-                </p>
-              )}
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed bg-amber-500/5 border border-amber-500/10 rounded-xl p-2.5">
+                💡 <strong>GPM Profile ID:</strong> Thay đổi Profile UUID sẽ chuyển hướng mở trình duyệt GPM và đồng bộ tự động sang profile mới. Vui lòng kiểm tra kỹ UUID.
+              </p>
 
               {isLeadOrAdmin && (
                 <div>
