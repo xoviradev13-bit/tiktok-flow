@@ -2610,13 +2610,13 @@ function ChecklistPageContent() {
                                                 <Tooltip>
                                                   <TooltipTrigger asChild>
                                                     <div className="inline-flex cursor-help min-w-[90px] items-center justify-center">
-                                                      {isItemCompleted ? (
-                                                        <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs w-full">
-                                                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Đạt KPI
-                                                        </span>
-                                                      ) : isAccountBanned ? (
+                                                      {isAccountBanned ? (
                                                         <span className="inline-flex items-center justify-center gap-1 px-2.5 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800/80 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs w-full whitespace-nowrap">
                                                           <Ban className="w-3.5 h-3.5 text-slate-400 shrink-0" /> Miễn trừ
+                                                        </span>
+                                                      ) : isItemCompleted ? (
+                                                        <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs w-full">
+                                                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> Đạt KPI
                                                         </span>
                                                       ) : (
                                                         <span className="inline-flex items-center justify-center gap-1.5 px-3 h-7.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs w-full">
@@ -2626,10 +2626,10 @@ function ChecklistPageContent() {
                                                     </div>
                                                   </TooltipTrigger>
                                                   <TooltipContent side="top" className="text-xs font-normal">
-                                                    {isItemCompleted
-                                                      ? "Đạt KPI: Đã đăng video và đồng bộ GPM đầy đủ"
-                                                      : isAccountBanned
-                                                        ? "Miễn trừ: Tài khoản bị khóa (Banned) — Đã loại khỏi tổng chỉ tiêu công (totalAssigned)"
+                                                    {isAccountBanned
+                                                      ? `Miễn trừ: Tài khoản bị khóa (Banned) — Đã loại khỏi tổng chỉ tiêu công (totalAssigned)${optPosted ? " • Đã có video" : ""}`
+                                                      : isItemCompleted
+                                                        ? "Đạt KPI: Đã đăng video và đồng bộ GPM đầy đủ"
                                                         : "Không đạt: Chưa đăng video hoặc chưa đồng bộ GPM ngày này"}
                                                   </TooltipContent>
                                                 </Tooltip>

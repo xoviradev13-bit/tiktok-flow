@@ -515,15 +515,15 @@ export default function DayDetailModal({
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <div className="cursor-help select-none min-w-[80px] shrink-0 flex items-center justify-center">
-                                    {isKpiAchieved ? (
-                                      <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs inline-flex items-center gap-1 w-full justify-center">
-                                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                        <span>Đạt KPI</span>
-                                      </span>
-                                    ) : isAccountBanned ? (
+                                    {isAccountBanned ? (
                                       <span className="px-2 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800/80 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs inline-flex items-center gap-1 w-full justify-center whitespace-nowrap">
                                         <Ban className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                         <span>Miễn trừ</span>
+                                      </span>
+                                    ) : isKpiAchieved ? (
+                                      <span className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs inline-flex items-center gap-1 w-full justify-center">
+                                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                        <span>Đạt KPI</span>
                                       </span>
                                     ) : (
                                       <span className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 shadow-2xs inline-flex items-center justify-center w-full whitespace-nowrap">
@@ -533,10 +533,10 @@ export default function DayDetailModal({
                                   </div>
                                 </TooltipTrigger>
                                 <TooltipContent side="top" className="text-xs font-normal z-[200]">
-                                  {isKpiAchieved
-                                    ? "Đạt KPI: Đã đăng video và đồng bộ GPM đầy đủ"
-                                    : isAccountBanned
-                                      ? "Miễn trừ: Tài khoản bị khóa (Banned) — Đã loại khỏi tổng chỉ tiêu công (totalAssigned)"
+                                  {isAccountBanned
+                                    ? `Miễn trừ: Tài khoản bị khóa (Banned) — Đã loại khỏi tổng chỉ tiêu công (totalAssigned)${item.isPosted ? " • Đã có video" : ""}`
+                                    : isKpiAchieved
+                                      ? "Đạt KPI: Đã đăng video và đồng bộ GPM đầy đủ"
                                       : "Không đạt: Chưa đăng video hoặc chưa đồng bộ GPM ngày này"}
                                 </TooltipContent>
                               </Tooltip>
